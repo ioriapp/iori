@@ -1,0 +1,6 @@
+{
+  "productName": "iori Host Setup Test",
+  "identifier": "io.github.ioriapp.iori.hostsetuptest",
+  "app": { "withGlobalTauri": true },
+  "bundle": { "android": { "debugApplicationIdSuffix": ".debug" } }
+}

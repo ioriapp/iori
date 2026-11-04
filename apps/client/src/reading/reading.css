@@ -1,0 +1,872 @@
+/* Files and Git share the v9 sample's sizes: list rows use --row, code lines 22px, tabs 35px. */
+.files-pane,
+.git-pane {
+  --row: calc(1rem * 1.7);
+  --reading-row: clamp(22px, var(--row), 27px);
+  --line-number: var(--muted-foreground);
+  --diff-inserted: color-mix(
+    in srgb,
+    var(--status-running) 15%,
+    var(--background)
+  );
+  --diff-removed: color-mix(
+    in srgb,
+    var(--status-failed) 15%,
+    var(--background)
+  );
+  --list-active: var(--accent);
+  --list-active-foreground: var(--accent-foreground);
+  --list-hover: var(--muted);
+  --status-green: var(--status-running);
+  --status-red: var(--status-failed);
+  --status-yellow: var(--status-waiting);
+  --status-green-text: var(--status-running-text);
+  --status-red-text: var(--status-failed-text);
+  --status-yellow-text: var(--status-waiting-text);
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--background);
+  font-size: 0.93rem;
+}
+@media (pointer: coarse) {
+  .files-pane,
+  .git-pane {
+    --reading-row: 36px;
+  }
+}
+.files-pane[hidden],
+.git-pane[hidden],
+.reading-split [hidden] {
+  display: none;
+}
+.reading-row-probe {
+  position: absolute;
+  visibility: hidden;
+  pointer-events: none;
+  height: var(--reading-row);
+}
+
+/* Split */
+.reading-split {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.reading-list,
+.reading-detail {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+.reading-list {
+  flex: 1;
+  background: var(--background);
+}
+.reading-list[data-wide="true"] {
+  flex: none;
+  width: var(--reading-list-width);
+  min-width: var(--reading-list-min, 160px);
+}
+.reading-detail {
+  flex: 1;
+}
+.reading-divider {
+  position: relative;
+  flex: none;
+  width: 1px;
+  background: var(--border);
+  cursor: col-resize;
+  touch-action: none;
+}
+.reading-divider::before {
+  content: "";
+  position: absolute;
+  inset: 0 -3px;
+  z-index: 2;
+}
+.reading-divider:focus-visible {
+  outline: 2px solid var(--ring);
+}
+
+/* One header line: list headers, path and diff headers */
+.reading-header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  height: 35px;
+  min-width: 0;
+  padding: 0 6px;
+  border-bottom: 1px solid var(--border);
+}
+.reading-header .reading-worktree {
+  max-width: 100%;
+  min-width: 0;
+  font-size: 0.93rem;
+  font-weight: 400;
+}
+.reading-spacer {
+  flex: 1;
+}
+.reading-truncate {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.reading-breadcrumb {
+  display: flex;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0 4px;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+.reading-file-breadcrumb {
+  flex: 1;
+}
+.reading-breadcrumb > .reading-file-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+.reading-breadcrumb span {
+  flex: none;
+}
+.reading-breadcrumb span:not(:last-child)::after {
+  content: "›";
+  padding: 0 4px;
+  opacity: 0.7;
+}
+.reading-breadcrumb span[data-last] {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--foreground);
+}
+
+/* File tabs (35px, sidebar background, active tab marked at the bottom) */
+.reading-tabs {
+  display: flex;
+  flex: none;
+  height: 35px;
+  background: var(--sidebar);
+  border-bottom: 1px solid var(--border);
+}
+.reading-tabs-lead {
+  align-self: center;
+  margin: 0 2px 0 4px;
+}
+.reading-tab-strip {
+  display: flex;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.reading-tab {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  max-width: 245px;
+  height: 35px;
+  padding: 0 4px 0 8px;
+  border-bottom: 2px solid transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  user-select: none;
+}
+.reading-tab[aria-selected="true"] {
+  background: var(--background);
+  border-bottom-color: var(--primary);
+  color: var(--foreground);
+  font-weight: 600;
+}
+.reading-tab > svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+.reading-tab > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.reading-tab-close {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  opacity: 0;
+}
+.reading-tab:hover .reading-tab-close,
+.reading-tab[aria-selected="true"] .reading-tab-close {
+  opacity: 1;
+}
+.reading-tab-close:hover {
+  background: var(--accent);
+}
+.reading-tab-close svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* Body and states */
+.reading-body {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+.reading-surface {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+.reading-empty {
+  margin: 0;
+  padding: 24px;
+  color: var(--muted-foreground);
+}
+.reading-muted {
+  color: var(--muted-foreground);
+  font-size: 0.86rem;
+}
+/* A failed read: red only for the mark (ui.md「読めなかった時の見た目」). */
+.reading-error {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 4px 12px;
+  color: var(--foreground);
+  font-size: 0.86rem;
+}
+.reading-error-mark {
+  flex: none;
+  color: var(--status-failed-text);
+}
+.reading-error-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.reading-inline-note {
+  color: var(--muted-foreground);
+}
+
+/* Overlays: find, go to line, image tools */
+.reading-overlay {
+  position: absolute;
+  top: 6px;
+  right: 16px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--popover);
+  color: var(--popover-foreground);
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--foreground) 12%, transparent);
+}
+.reading-overlay input {
+  width: min(16rem, 50vw);
+  height: 26px;
+  color: var(--popover-foreground);
+}
+.reading-overlay-status {
+  padding: 0 6px;
+  color: var(--muted-foreground);
+  font-size: 0.86rem;
+  white-space: nowrap;
+}
+.reading-context-menu .reading-menu-error {
+  margin: 4px 8px;
+  color: var(--destructive);
+  font-size: 0.86rem;
+}
+
+/* Virtual rows */
+.reading-virtual {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  overflow-anchor: none;
+  outline: none;
+}
+.reading-virtual-spacer {
+  position: relative;
+  min-width: 100%;
+}
+.reading-virtual-row {
+  position: absolute;
+  left: 0;
+  min-width: 100%;
+  width: max-content;
+}
+.reading-virtual-row.wrap {
+  width: 100%;
+}
+
+/* Text and diff lines */
+.reading-text {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+.reading-lines {
+  font-family: var(--font-mono);
+  font-size: 1rem;
+  line-height: 22px;
+  background: var(--background);
+}
+.reading-line {
+  display: flex;
+  min-height: 22px;
+  white-space: pre;
+}
+.reading-text[data-wrap="true"] .reading-line {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.reading-line[data-selected="true"] {
+  background: var(--selection, var(--accent));
+}
+.reading-line[data-kind="added"] {
+  background: var(--diff-inserted);
+}
+.reading-line[data-kind="deleted"] {
+  background: var(--diff-removed);
+}
+.reading-line[data-kind="note"] {
+  color: var(--muted-foreground);
+  font-style: italic;
+}
+.reading-line[data-loading="true"] {
+  opacity: 0;
+}
+.reading-gutter {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  display: flex;
+  flex: none;
+  background: inherit;
+  color: var(--line-number);
+  font-size: 0.86rem;
+  cursor: pointer;
+  user-select: none;
+}
+.reading-line:not([data-kind="added"]):not([data-kind="deleted"]):not(
+    [data-selected="true"]
+  )
+  .reading-gutter {
+  background: var(--background);
+}
+.reading-gutter > span {
+  display: inline-block;
+  box-sizing: content-box;
+  width: calc(var(--gutter-digits, 4) * 0.6em);
+  padding: 0 12px 0 8px;
+  text-align: right;
+}
+.reading-marker {
+  flex: none;
+  width: var(--marker-width);
+  color: var(--muted-foreground);
+  user-select: none;
+}
+.reading-line[data-kind="added"] .reading-marker {
+  color: var(--status-green-text);
+}
+.reading-line[data-kind="deleted"] .reading-marker {
+  color: var(--status-red-text);
+}
+.reading-line-text {
+  padding-right: 16px;
+}
+.reading-line-text [data-syntax="comment"] {
+  color: var(--syntax-comment);
+}
+.reading-line-text [data-syntax="keyword"] {
+  color: var(--syntax-keyword);
+}
+.reading-line-text [data-syntax="string"] {
+  color: var(--syntax-string);
+}
+.reading-line-text [data-syntax="number"] {
+  color: var(--syntax-number);
+}
+.reading-line-text [data-syntax="constant"] {
+  color: var(--syntax-constant);
+}
+.reading-line-text [data-syntax="type"] {
+  color: var(--syntax-type);
+}
+.reading-line-text [data-syntax="function"] {
+  color: var(--syntax-function);
+}
+.reading-line-text [data-syntax="variable"] {
+  color: var(--syntax-variable);
+}
+.reading-line-text [data-syntax="property"] {
+  color: var(--syntax-property);
+}
+.reading-line-text [data-syntax="tag"] {
+  color: var(--syntax-tag);
+}
+.reading-line-text [data-syntax="attribute"] {
+  color: var(--syntax-attribute);
+}
+.reading-line-text [data-syntax="operator"] {
+  color: var(--syntax-operator);
+}
+.reading-line-text [data-syntax="regexp"] {
+  color: var(--syntax-regexp);
+}
+.reading-line-text [data-syntax="escape"] {
+  color: var(--syntax-escape);
+}
+.reading-line-text [data-syntax="heading"] {
+  color: var(--syntax-heading);
+  font-weight: bold;
+}
+.reading-line-text [data-syntax="emphasis"] {
+  color: var(--syntax-emphasis);
+  font-style: italic;
+}
+.reading-line-text [data-syntax="strong"] {
+  color: var(--syntax-strong);
+  font-weight: bold;
+}
+.reading-line-text [data-syntax="link"] {
+  color: var(--syntax-link);
+}
+.reading-line-text [data-syntax="inserted"] {
+  color: var(--syntax-inserted);
+}
+.reading-line-text [data-syntax="deleted"] {
+  color: var(--syntax-deleted);
+}
+.reading-line mark {
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--status-yellow) 35%, transparent);
+  color: inherit;
+}
+/* Syntax colors are too faint on the search highlight; matches read in the plain color. */
+.reading-line mark [data-syntax] {
+  color: var(--foreground);
+}
+.reading-line mark[data-iori-part="search-current"] {
+  background: color-mix(in srgb, var(--status-yellow) 75%, transparent);
+  outline: 1px solid var(--status-yellow);
+}
+.reading-omission {
+  width: 100%;
+  justify-content: flex-start;
+  height: 22px;
+  border-radius: 0;
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font-family: var(--font-sans);
+  font-size: 0.86rem;
+}
+
+/* A huge logical line keeps its own horizontal window */
+.reading-text {
+  /* Gutter: per column the digits (0.6em each in the mono font at 0.86rem) and 20px padding. */
+  --gutter-width: calc(
+    var(--gutter-columns, 1) *
+      (var(--gutter-digits, 4) * 0.6 * 0.86rem + 20px) +
+      var(--marker-width, 0px)
+  );
+}
+.reading-long-line {
+  position: sticky;
+  left: var(--gutter-width);
+  width: calc(100cqw - var(--gutter-width));
+  min-width: 160px;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.reading-text {
+  container-type: inline-size;
+}
+.reading-long-line-spacer {
+  position: relative;
+  height: 22px;
+}
+.reading-long-line-spacer > span {
+  position: absolute;
+  top: 0;
+  white-space: pre;
+}
+
+/* Files tree */
+.files-tree {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+.files-filter {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px;
+}
+.files-filter input {
+  height: 26px;
+}
+.files-tree-rows {
+  padding: 4px 0;
+}
+.files-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 100%;
+  padding-left: calc(8px + var(--level, 0) * 12px);
+  padding-right: 8px;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  position: relative;
+}
+.files-tree-row::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 8px;
+  width: calc(var(--level, 0) * 12px);
+  background: repeating-linear-gradient(
+    to right,
+    transparent 0 11px,
+    var(--border) 11px 12px
+  );
+  pointer-events: none;
+}
+/* Hover only with a pointer: a touch leaves the tapped row in :hover. */
+@media (hover: hover) {
+  .files-tree-row:hover {
+    background: var(--list-hover);
+  }
+}
+/* In a narrow pane the list and the detail take turns, so the list keeps no
+   selected row (ui.md「選択中の印」). */
+.reading-split:not([data-narrow="true"]) .files-tree-row[data-active] {
+  background: var(--list-active);
+  color: var(--list-active-foreground);
+}
+.reading-virtual:focus .files-tree-row[data-focused] {
+  outline: 1px solid var(--ring);
+  outline-offset: -1px;
+}
+.files-tree-row > svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+.files-tree-chevron {
+  display: inline-flex;
+  flex: none;
+  width: 14px;
+}
+.files-tree-chevron svg {
+  width: 12px;
+  height: 12px;
+}
+.files-tree-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.files-tree-parent,
+.files-tree-note {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--muted-foreground);
+  font-size: 0.86rem;
+}
+
+/* Markdown */
+.reading-markdown-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  outline: none;
+}
+/* The rendered text uses the whole pane, maximized or not. Wide tables and
+   code scroll sideways in place; long words wrap, so the page itself never does. */
+.reading-markdown {
+  --reading-surface: var(--background);
+  --reading-edge: color-mix(in oklch, var(--foreground) 16%, transparent);
+  padding: 16px 24px 48px;
+  line-height: 1.65;
+  font-size: 1rem;
+  overflow-wrap: break-word;
+}
+.reading-markdown a {
+  color: var(--primary);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.reading-markdown img {
+  max-width: 100%;
+}
+::highlight(iori-find) {
+  background-color: color-mix(in srgb, var(--status-yellow) 35%, transparent);
+}
+::highlight(iori-find-current) {
+  background-color: color-mix(in srgb, var(--status-yellow) 80%, transparent);
+}
+
+/* Images */
+.reading-image-surface {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+.reading-image-frame {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px;
+}
+.reading-image-frame[data-fit="true"] {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.reading-image-frame[data-fit="true"] img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+/* The default img limit would squeeze an enlarged image into the frame's width
+   while its height stays set, so the picture would lose its own ratio. */
+.reading-image-frame[data-fit="false"] img {
+  max-width: none;
+  max-height: none;
+}
+.reading-image-frame img {
+  image-rendering: auto;
+  background: repeating-conic-gradient(var(--muted) 0 25%, transparent 0 50%) 0
+    0 / 16px 16px;
+}
+.reading-image-facts {
+  display: flex;
+  flex: none;
+  gap: 12px;
+  padding: 4px 12px;
+  color: var(--muted-foreground);
+  font-size: 0.86rem;
+}
+.reading-markdown :is(h1, h2, h3, h4, h5, h6) {
+  margin: 1.4em 0 0.5em;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  line-height: 1.3;
+}
+.reading-markdown h1 {
+  font-size: 1.6rem;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--border);
+}
+.reading-markdown h2 {
+  font-size: 1.3rem;
+  padding-bottom: 0.25em;
+  border-bottom: 1px solid var(--border);
+}
+.reading-markdown h3 {
+  font-size: 1.12rem;
+}
+.reading-markdown :is(h4, h5, h6) {
+  font-size: 1rem;
+}
+.reading-markdown > div > :first-child,
+.reading-markdown > :first-child {
+  margin-top: 0;
+}
+.reading-markdown :is(p, ul, ol, blockquote, table, pre) {
+  margin: 0 0 0.9em;
+}
+.reading-markdown ul {
+  list-style: disc;
+  padding-left: 1.6em;
+}
+.reading-markdown ol {
+  list-style: decimal;
+  padding-left: 1.6em;
+}
+.reading-markdown blockquote {
+  padding-left: 1em;
+  border-left: 3px solid var(--border);
+  color: var(--muted-foreground);
+}
+.reading-markdown :not(pre) > code {
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  background: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+.reading-markdown pre {
+  --reading-cover: var(--muted);
+  overflow-x: auto;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: 0.93rem;
+}
+.reading-markdown table {
+  display: block;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+/* A table or code wider than the text shows a soft shadow on each side that
+   has more: the covers move with the content, the shadows stay at the edges. */
+.reading-markdown :is(table, pre) {
+  background:
+    linear-gradient(
+        to right,
+        var(--reading-cover, var(--reading-surface)) 30%,
+        transparent
+      )
+      left / 32px 100% no-repeat local,
+    linear-gradient(
+        to left,
+        var(--reading-cover, var(--reading-surface)) 30%,
+        transparent
+      )
+      right / 32px 100% no-repeat local,
+    radial-gradient(farthest-side at 0 50%, var(--reading-edge), transparent)
+      left / 12px 100% no-repeat scroll,
+    radial-gradient(farthest-side at 100% 50%, var(--reading-edge), transparent)
+      right / 12px 100% no-repeat scroll,
+    var(--reading-cover, var(--reading-surface));
+}
+.reading-markdown :is(th, td) {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+}
+.reading-markdown hr {
+  margin: 1.5em 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+.reading-header [aria-pressed="true"],
+.reading-overlay [aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+/* A phone goes back with the frame's back (the location row and the OS back),
+   which closes a detail before leaving the View; the View shows no second one. */
+.mobile-retained-view [data-iori-action="reading-back"] {
+  display: none;
+}
+
+.files-tree[data-drop-root],
+.files-tree-row[data-drop-target] {
+  background: var(--accent);
+  outline: 1px solid var(--ring);
+  outline-offset: -1px;
+}
+.files-transfer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border-top: 1px solid var(--border);
+}
+.files-transfer-detail {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+}
+.files-transfer-detail > span:first-child {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.files-transfer progress {
+  width: 100%;
+  height: 4px;
+  accent-color: var(--primary);
+}
+.files-replace-names {
+  overflow: auto;
+  overflow-wrap: anywhere;
+  max-height: 45dvh;
+}
+
+/* Size the menu from full names, then fit the visible name to that width. */
+.reading-worktree-choice-name {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr);
+}
+.reading-worktree-choice-name > span {
+  grid-area: 1 / 1;
+  white-space: nowrap;
+}
+.reading-worktree-choice-name > span:first-child {
+  visibility: hidden;
+}
+.reading-worktree-choice-fitted {
+  min-width: 0;
+  overflow: hidden;
+}
+.reading-worktree-choice[data-state="checked"] {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+.reading-markdown [data-streamdown="code-block"] {
+  margin: 0 0 0.9em;
+  gap: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--muted);
+}
+.reading-markdown [data-streamdown="code-block-header"] {
+  padding: 0 12px;
+}
+.reading-markdown [data-streamdown="code-block-header"]:not([data-language]),
+.reading-markdown [data-streamdown="code-block-header"][data-language=""] {
+  display: none;
+}
+.reading-markdown [data-streamdown="code-block"] pre {
+  margin: 0;
+}

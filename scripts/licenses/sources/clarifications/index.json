@@ -1,0 +1,16 @@
+{
+  "cesu8@1.1.0": {
+    "license": "MIT",
+    "author": "Eric Kidd",
+    "reason": "The crate declares Apache-2.0/MIT and Eric Kidd as author. Its README states that its code is distributed under the same terms as the included Rust copyright notice. The crate and its repository do not include the MIT license text.",
+    "text": "MIT.txt",
+    "source": "https://raw.githubusercontent.com/spdx/license-list-data/31846481de7ea17d92f2f46fad76abe58b2e9bb0/text/MIT.txt"
+  },
+  "selectors@0.38.0": {
+    "license": "MPL-2.0",
+    "author": "The Servo Project Developers",
+    "reason": "The crate declares MPL-2.0 and The Servo Project Developers as authors. Its source headers refer to the Mozilla Public License 2.0, but the crate and fixed upstream repository do not contain the license text.",
+    "text": "MPL-2.0.txt",
+    "source": "https://raw.githubusercontent.com/spdx/license-list-data/31846481de7ea17d92f2f46fad76abe58b2e9bb0/text/MPL-2.0.txt"
+  }
+}

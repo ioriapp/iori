@@ -1,0 +1,78 @@
+[package]
+license = "MIT"
+name = "iori-client"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98"
+
+[workspace]
+members = ["plugins/apk-installer", "plugins/clipboard-image"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+# 原則の検査を抑える時は #[expect(..., reason = "...")] で理由を書く（DEVELOPMENT.md）。
+[lints.clippy]
+allow_attributes = "deny"
+allow_attributes_without_reason = "deny"
+
+[lib]
+name = "iori_client_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.7.0", features = [] }
+
+[dependencies]
+futures-lite = "=2.6.1"
+tauri = { version = "2.12.0", features = [] }
+iori-iroh-config = { path = "../../../crates/iori-iroh-config" }
+iroh = "=1.1.0"
+rusqlite = { version = "=0.40.2", features = ["bundled"] }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"
+sys-locale = "=0.3.2"
+zeroize = "=1.9.1"
+tokio = { version = "=1.53.2", features = ["sync", "macros", "process", "net", "io-util"] }
+tauri-plugin-clipboard-manager = "=2.4.2"
+tauri-plugin-opener = "=2.7.1"
+tauri-plugin-dialog = "=2.8.3"
+tauri-plugin-fs = "=2.7.1"
+base64 = "=0.23.1"
+tauri-plugin-notification = "=2.6.0"
+tauri-plugin-apk-installer = { path = "plugins/apk-installer" }
+
+[target.'cfg(any(windows, target_os = "linux", target_os = "android"))'.dependencies]
+reqwest = { version = "=0.13.5", default-features = false, features = ["rustls"] }
+
+semver = { version = "=1.0.28", features = ["serde"] }
+ed25519-dalek = "=3.0.0"
+sha2 = "=0.11.0"
+
+[target.'cfg(target_os = "android")'.dependencies]
+webpki-root-certs = "=1.0.9"
+tauri-plugin-clipboard-image = { path = "plugins/clipboard-image" }
+
+# Already provided by arboard; reuse its PNG encoder without adding codecs.
+[target.'cfg(not(target_os = "android"))'.dependencies]
+image = { version = "=0.25.10", default-features = false, features = ["png"] }
+
+[target.'cfg(any(windows, target_os = "linux", target_os = "macos"))'.dependencies]
+glob = "=0.3.4"
+tauri-plugin-window-state = "=2.5.0"
+
+[target.'cfg(windows)'.dependencies]
+tauri = { version = "2.12.0", features = ["tray-icon"] }
+tauri-plugin-deep-link = "=2.6.1"
+tauri-plugin-single-instance = { version = "=2.5.3", features = ["deep-link"] }
+windows = { version = "=0.62.2", features = ["Data_Xml_Dom", "UI_Notifications"] }
+windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_LibraryLoader", "Win32_UI_HiDpi", "Win32_UI_Input_KeyboardAndMouse", "Win32_Security_Cryptography", "Win32_UI_WindowsAndMessaging"] }
+
+[target.'cfg(any(windows, target_os = "linux"))'.dependencies]
+tauri-plugin-updater = "=2.13.3"
+url = "=2.5.8"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+tauri-plugin-single-instance = "=2.5.3"
+tempfile = "=3.27.0"
+secret-service = { version = "=5.2.0", features = ["rt-tokio-crypto-rust"] }
+aes-gcm = { version = "=0.11.1", features = ["getrandom"] }

@@ -1,0 +1,558 @@
+.nav-sidebar {
+  --nav-tree-indent: 7px;
+  --nav-icon-size: 1rem;
+  --nav-session-gap: 0.375rem;
+  --nav-state-dot-size: 6px;
+  background: var(--sidebar);
+  font-size: 0.875rem;
+}
+.nav-sidebar [data-slot="sidebar-header"] {
+  padding: 8px 7px 0;
+  gap: 5px;
+}
+.nav-sidebar .nav-search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 1.75rem;
+  height: auto;
+  padding: 0 9px;
+  border-radius: 7px;
+  background: var(--sidebar-accent);
+  color: var(--muted-foreground);
+}
+.nav-sidebar .nav-search input {
+  border: 0;
+  background: transparent;
+  box-shadow: none !important;
+  min-height: 1.75rem;
+  height: auto;
+  padding: 0;
+  font-size: 0.875rem;
+}
+.nav-sidebar .nav-pending {
+  min-height: 2rem;
+  height: auto;
+  padding: 0 8px;
+  font-size: 0.875rem;
+  font-weight: 400;
+  gap: 7px;
+}
+.nav-pending .nav-count {
+  margin-left: auto;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+.nav-sidebar .nav-host-section {
+  margin-top: 16px;
+}
+.nav-sidebar .nav-host-title {
+  display: flex;
+  align-items: center;
+  min-height: 1.875rem;
+  height: auto;
+  padding: 0 12px;
+  gap: 7px;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+.nav-host-title .nav-host-os {
+  margin-left: auto;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  font-weight: 400;
+}
+.nav-connected-mark {
+  width: 6px;
+  height: 6px;
+  margin-left: 4px;
+  flex: 0 0 6px;
+  border-radius: 50%;
+  background: var(--status-green);
+}
+.nav-sidebar .nav-repository {
+  margin: 12px 7px 2px;
+}
+.nav-sidebar .nav-repository-button {
+  min-height: 1.6875rem;
+  height: auto;
+  padding: 0 5px;
+  gap: 7px;
+  font-size: 0.875rem;
+  color: var(--foreground);
+}
+.nav-sidebar .nav-worktree {
+  margin: 0 var(--nav-tree-indent) 4px;
+}
+.nav-sidebar .nav-worktree-button {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  min-height: 35px;
+  height: auto;
+  padding: 5px 8px;
+  gap: 3px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  text-align: left;
+}
+.nav-sidebar .nav-worktree-button.is-selected {
+  background: transparent;
+  font-weight: 600;
+  position: relative;
+}
+.nav-worktree-titleline {
+  display: flex;
+  align-items: center;
+  gap: 0.4375rem;
+  min-width: 0;
+  width: 100%;
+}
+.nav-worktree-titleline > svg {
+  flex: 0 0 auto;
+  color: var(--muted-foreground);
+}
+.nav-worktree-name {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 0.875rem;
+  font-weight: 400;
+}
+.nav-branch {
+  max-width: 6.5625rem;
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  font-weight: 400;
+}
+.nav-worktree-activity {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  min-width: 0;
+  padding-left: 1.4375rem;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+.nav-worktree-activity > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nav-sidebar .nav-view-links {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 4px 3px 8px;
+  flex-wrap: wrap;
+}
+.nav-view-link {
+  min-height: 1.5625rem;
+  height: auto;
+  padding: 0 6px;
+  gap: 4px;
+  font-size: 0.875rem;
+  font-weight: 400;
+  color: var(--muted-foreground);
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+.nav-view-link:hover {
+  color: var(--foreground);
+  background: var(--sidebar-accent);
+}
+.nav-session-list {
+  gap: 1px;
+  padding: 0 0 3px;
+}
+.nav-sidebar .nav-session {
+  display: flex;
+  align-items: center;
+  min-height: 27px;
+  height: auto;
+  padding: 2px 8px 2px 0.9375rem;
+  gap: var(--nav-session-gap);
+  font-size: 0.875rem;
+  color: var(--muted-foreground);
+}
+.nav-session .state-dot {
+  width: var(--nav-state-dot-size);
+  height: var(--nav-state-dot-size);
+  flex-basis: var(--nav-state-dot-size);
+}
+.nav-session > svg:not(.state-dot svg) {
+  flex: 0 0 auto;
+}
+/* Brand images and fallback SVGs occupy the same parent icon column. CliIcon
+   writes its requested size inline, so the column is set by the flex basis. */
+.nav-session > .cli-icon {
+  flex: 0 0 var(--nav-icon-size);
+  min-height: var(--nav-icon-size);
+}
+.nav-session > .cli-icon > img {
+  width: var(--nav-icon-size);
+  height: var(--nav-icon-size);
+  flex-shrink: 0;
+}
+.nav-session-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+}
+.nav-session-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.5;
+}
+.nav-session-exited {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  flex: 0 0 auto;
+}
+.nav-session time {
+  flex: 0 0 auto;
+  align-self: center;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+.nav-session.is-current {
+  color: var(--foreground);
+  background: color-mix(in oklch, var(--primary) 16%, transparent);
+  font-weight: 600;
+}
+.nav-session.is-unread .nav-session-title {
+  color: var(--foreground);
+  font-weight: 650;
+}
+.nav-sidebar [data-slot="sidebar-content"],
+.nav-sidebar [data-slot="sidebar-menu"] {
+  gap: 0;
+}
+.nav-sidebar [data-slot="sidebar-footer"] {
+  padding: 0 7px;
+  border-top: 1px solid var(--border);
+}
+.nav-footer-actions {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+  min-height: 2rem;
+  height: auto;
+}
+.nav-footer-actions button {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  color: var(--muted-foreground);
+}
+.navigation-scroll {
+  height: 100%;
+}
+.nav-sidebar[data-mobile="true"] {
+  --sidebar-width: min(326px, calc(100vw - 44px)) !important;
+  width: var(--sidebar-width);
+  max-width: calc(100vw - 44px);
+  font-size: 0.875rem;
+}
+.nav-sidebar[data-mobile="true"] .nav-view-link {
+  min-height: 2rem;
+  height: auto;
+}
+
+.nav-worktree-activity.is-unread > span:last-child {
+  color: var(--foreground);
+  font-weight: 650;
+}
+
+/* Sidebar surface and tree motion from the sample workspace. */
+.nav-sidebar {
+  border-right: 0;
+}
+.workspace [data-slot="sidebar-inner"] {
+  border-right: 0 !important;
+}
+.navigation-scroll [data-slot="scroll-area-viewport"] > div {
+  display: block !important;
+  min-width: 0 !important;
+  padding-right: 10px;
+}
+
+/* Host actions stay outside the heading so each is a separate target. */
+.nav-host-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.nav-sidebar .nav-host-row .nav-host-title {
+  min-width: 0;
+  flex: 1;
+}
+.nav-host-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nav-host-title .nav-connected-mark {
+  margin-left: auto;
+}
+.nav-host-title .nav-host-os + .nav-connected-mark {
+  margin-left: 4px;
+}
+.nav-connected-mark[data-connected="false"] {
+  background: var(--status-gray);
+}
+.nav-host-add,
+.nav-host-settings {
+  position: relative;
+  width: 24px;
+  height: 24px;
+  color: var(--muted-foreground);
+}
+.nav-host-settings [data-iori-state="update-available"] {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+}
+.nav-host-add:hover,
+.nav-host-settings:hover {
+  color: var(--foreground);
+}
+.nav-sidebar .nav-add-folder {
+  min-height: 1.875rem;
+  height: auto;
+  padding: 0 8px;
+  gap: 7px;
+  font-size: 0.875rem;
+  color: var(--muted-foreground);
+}
+.nav-inline-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 4px 12px;
+  color: var(--status-failed-text);
+  font-size: 0.875rem;
+}
+/* The selection rule is drawn as a bar so focus styles never hide it. */
+.nav-sidebar .nav-worktree-button.is-selected::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  border-radius: 8px 0 0 8px;
+  background: var(--primary);
+}
+
+/* Keep tree icons and indentation in step with the user's text size. */
+.nav-sidebar svg:not(.state-dot svg) {
+  width: var(--nav-icon-size, 1rem);
+  height: var(--nav-icon-size, 1rem);
+  flex-shrink: 0;
+}
+
+.nav-worktree-row {
+  position: relative;
+}
+.nav-sidebar .nav-worktree-row .nav-worktree-button {
+  width: 100%;
+  padding-right: calc(8px + var(--nav-worktree-controls-width, 0px));
+}
+.nav-worktree-row:hover .nav-worktree-button {
+  background: var(--sidebar-accent);
+  color: var(--sidebar-accent-foreground);
+}
+.nav-worktree-controls {
+  position: absolute;
+  right: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+/* Repository and plain-folder rows sit one tree indent wider than the
+   worktree rows; inset their controls so the toggles and ＋ line up. */
+.nav-plain-folder .nav-worktree-controls {
+  right: calc(var(--nav-tree-indent) + 2px);
+}
+.nav-sidebar .nav-plain-folder .nav-worktree-row .nav-worktree-button {
+  padding-right: calc(
+    8px + var(--nav-tree-indent) + 2px + var(--nav-worktree-controls-width, 0px)
+  );
+}
+.nav-sidebar .nav-plain-folder .nav-worktree-button {
+  padding-left: 4px;
+}
+.nav-sidebar .nav-worktree-toggle {
+  width: 26px;
+  height: 26px;
+  color: var(--muted-foreground);
+}
+.nav-sidebar
+  .nav-worktree-toggle[aria-expanded="true"]:not(:hover):not(:focus-visible) {
+  background: transparent;
+}
+.nav-sidebar .nav-worktree-toggle:focus-visible {
+  background: var(--muted);
+}
+.nav-worktree-titleline .nav-branch {
+  flex: 0 0 auto;
+}
+.nav-activity-summary {
+  position: relative;
+  flex: 0 0 auto;
+  width: max-content;
+  max-width: 45%;
+  overflow: hidden;
+  min-width: 0;
+  margin-left: auto;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+.nav-activity-measure,
+.nav-activity-visible,
+.nav-activity-kind {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+.nav-activity-measure {
+  width: max-content;
+  visibility: hidden;
+  pointer-events: none;
+}
+.nav-activity-visible {
+  position: absolute;
+  inset: 0 auto auto 0;
+  min-height: 1rem;
+}
+.nav-activity-kind {
+  flex-shrink: 0;
+}
+.nav-activity-measure > :last-child {
+  position: absolute;
+}
+
+.nav-repository-heading {
+  display: flex;
+  align-items: center;
+  padding-right: calc(var(--nav-tree-indent) + 2px);
+}
+.nav-repository-heading .nav-repository-button {
+  flex: 1;
+  min-width: 0;
+}
+/* The row's actions (Issues, worktree creation) as in the v14 sample. */
+.nav-sidebar .nav-repository-action,
+.nav-sidebar .nav-folder-start {
+  width: 26px;
+  height: 26px;
+  color: var(--muted-foreground);
+}
+.nav-sidebar .nav-repository-action:hover,
+.nav-sidebar .nav-folder-start:hover {
+  color: var(--foreground);
+}
+.nav-sidebar[data-mobile="true"] .nav-repository-action,
+.nav-sidebar[data-mobile="true"] .nav-folder-start {
+  width: 36px;
+  height: 36px;
+}
+
+[data-sidebar-sort-id] {
+  position: relative;
+}
+[data-sidebar-sorting="true"] {
+  z-index: 10;
+  background: var(--popover);
+  box-shadow: var(--shadow-popover);
+  border-radius: var(--radius);
+}
+.nav-host-title,
+.nav-repository-button,
+.nav-worktree-button {
+  touch-action: manipulation;
+}
+[data-sidebar-sorting="true"] button {
+  cursor: grabbing;
+}
+
+.nav-forge-marks {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+}
+.nav-sidebar .nav-forge-mark {
+  width: auto;
+  min-width: 26px;
+  height: 26px;
+  padding: 3px;
+  gap: 3px;
+  font-size: 0.75rem;
+}
+.nav-forge-passed,
+.nav-forge-open {
+  color: var(--status-running-text);
+}
+.nav-forge-failed,
+.nav-forge-closed {
+  color: var(--status-failed-text);
+}
+/* Amber means Attention in iori; running is gray with heavier dashes. */
+.nav-forge-running svg {
+  stroke-width: 2.6;
+}
+.nav-forge-running,
+.nav-forge-draft,
+.nav-forge-merged,
+.nav-forge-other {
+  color: var(--muted-foreground);
+}
+.nav-folder-menu-name {
+  overflow-wrap: anywhere;
+  max-width: 22rem;
+}
+
+.nav-sidebar .nav-worktree-button.is-selected .nav-worktree-titleline > svg {
+  color: var(--primary);
+}
+
+.nav-sidebar [data-slot="sidebar-menu-button"][data-active="true"] {
+  background: color-mix(in oklch, var(--primary) 16%, transparent);
+  font-weight: 600;
+}
+.nav-sidebar [data-slot="sidebar-menu-button"][data-active="true"] > svg {
+  color: var(--primary);
+}
+
+.nav-sidebar .nav-worktree[data-sidebar-sort-id] {
+  margin-top: 12px;
+}
+.nav-session.is-current > svg {
+  color: var(--primary);
+}
+
+.nav-worktree-button.is-selected .nav-worktree-name {
+  font-weight: 600;
+}
+
+.nav-sidebar[data-mobile="true"] {
+  background: var(--sidebar);
+}

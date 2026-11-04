@@ -1,0 +1,51 @@
+.mobile-board .mobile-board-heading {
+  align-items: flex-start;
+}
+.mobile-board-heading strong {
+  min-width: 0;
+  flex: 1;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.mobile-board-heading time {
+  flex: none;
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+.mobile-board-heading svg {
+  flex: none;
+}
+.mobile-board .mobile-board-location {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mobile-board .mobile-board-conversation {
+  align-items: baseline;
+  margin: 8px 0;
+}
+.mobile-board .mobile-board-conversation > span {
+  flex-shrink: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--foreground);
+  border: 0;
+  padding: 0;
+  overflow-wrap: anywhere;
+}
+.mobile-board .mobile-board-states {
+  flex-wrap: wrap;
+  gap: 8px 14px;
+}
+.mobile-board .mobile-board-states > .mobile-board-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  padding: 0;
+  font-size: 11px;
+}
+.mobile-boards-empty {
+  font-size: 13px;
+  color: var(--muted-foreground);
+}

@@ -1,0 +1,89 @@
+{
+  "schema": 1,
+  "id": "qoder",
+  "name": "Qoder CLI",
+  "command": "qoder",
+  "icon": { "light": "qoder.svg" },
+  "version": { "args": ["--version"] },
+  "launch": {
+    "model": ["--model", "{model}"],
+    "effort": ["--reasoning-effort", "{effort}"],
+    "permissions": {
+      "default": ["--permission-mode", "default"],
+      "plan": ["--permission-mode", "plan"],
+      "auto": ["--permission-mode", "auto"],
+      "accept_edits": ["--permission-mode", "accept_edits"],
+      "dont_ask": ["--permission-mode", "dont_ask"],
+      "bypass_permissions": ["--permission-mode", "bypass_permissions"]
+    },
+    "directories": ["--add-dir", "{directory}"],
+    "initialPrompt": { "mode": "argument", "args": ["-i", "{prompt}"] },
+    "managedArguments": [
+      { "names": ["--model", "-m"] },
+      { "names": ["--reasoning-effort"] },
+      {
+        "names": ["--permission-mode"],
+        "alsoRemove": [
+          {
+            "names": ["--yolo", "--dangerously-skip-permissions"],
+            "arity": "none"
+          }
+        ]
+      },
+      { "names": ["-i", "--prompt-interactive"] }
+    ]
+  },
+  "resume": { "args": ["--resume", "{sessionId}"] },
+  "hooks": {
+    "format": "claude-settings",
+    "file": {
+      "env": "QODER_CONFIG_DIR",
+      "default": "~/.qoder",
+      "path": "settings.json"
+    },
+    "sessionId": "session_id",
+    "transcript": "transcript_path",
+    "toolId": "tool_use_id",
+    "rules": [
+      {
+        "event": "SessionStart",
+        "when": { "source": "compact" },
+        "ignore": true
+      },
+      { "event": "SessionStart", "state": "idle" },
+      { "event": "UserPromptSubmit", "state": "active" },
+      { "event": "PreToolUse", "state": "active", "tool": "tool_name" },
+      { "event": "PostToolUse", "toolFinished": true },
+      { "event": "PostToolUseFailure", "toolFinished": true },
+      {
+        "event": "PermissionRequest",
+        "state": "waiting",
+        "attention": "approval",
+        "tool": "tool_name"
+      },
+      {
+        "event": "Notification",
+        "when": { "notification_type": "permission_prompt" },
+        "state": "waiting",
+        "attention": "approval"
+      },
+      {
+        "event": "Stop",
+        "when": { "stop_hook_active": true },
+        "ignore": true
+      },
+      {
+        "event": "Stop",
+        "state": "done",
+        "response": "last_assistant_message"
+      },
+      {
+        "event": "StopFailure",
+        "state": "done",
+        "outcome": "failure",
+        "failure": ["error_details", "error"]
+      },
+      { "event": "SessionEnd", "state": "stopped" }
+    ]
+  }
+}

@@ -1,0 +1,13 @@
+packages:
+  - apps/*
+  - apps/host/native
+  - apps/host/terminal-native
+  - packages/*
+allowBuilds:
+  node-pty: true
+patchedDependencies:
+  node-pty@1.1.0: apps/host/patches/node-pty@1.1.0.patch
+  "@xterm/addon-serialize@0.15.0-beta.300": apps/host/patches/@xterm__addon-serialize@0.15.0-beta.300.patch
+  "@xterm/xterm@6.1.0-beta.303": apps/client/patches/@xterm__xterm@6.1.0-beta.303.patch
+  "@xterm/addon-search@0.17.0-beta.300": apps/client/patches/@xterm__addon-search@0.17.0-beta.300.patch
+  "@xterm/addon-webgl@0.20.0-beta.299": apps/client/patches/@xterm__addon-webgl@0.20.0-beta.299.patch

@@ -1,0 +1,33 @@
+[package]
+license = "MIT"
+name = "iori-iroh-host-native"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+build = "build.rs"
+
+[lib]
+name = "iori_iroh_host_native"
+crate-type = ["cdylib"]
+
+[dependencies]
+iroh.workspace = true
+iori-iroh-config = { path = "../../../crates/iori-iroh-config" }
+napi = { version = "=3.14.2", features = ["async"] }
+napi-derive = "=3.6.12"
+tokio.workspace = true
+tracing-subscriber = { version = "=0.3.23", features = ["env-filter"] }
+
+[build-dependencies]
+napi-build = "=2.6.0"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "=0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Cryptography",
+] }
+
+[lints.clippy]
+allow_attributes = "deny"
+allow_attributes_without_reason = "deny"

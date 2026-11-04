@@ -1,0 +1,9 @@
+# 添付
+
+読むのは、CLIの画面とTerminalへ画像を貼り付ける操作・保存を変える時である。CLIの起動と状態は[CLIの画面](cli-screen.md)、文字の入力は[Terminal](terminal.md)、責任境界は[技術設計](../architecture.md)が持つ。
+
+## 操作と見え方
+
+Windows Clientとブラウザーでは、貼り付け時に文字があれば文字を優先し、文字が無く画像があればPNGをHostへ送り、その絶対パスを入力欄へ貼る。Enterは送らない。画像はそのTerminal専用の一時フォルダーに置き、Terminalの終了・閉じる操作で消す。Terminalを持つ係が新しく起動した時（係が失われた後）にも、前の係が残した画像を消す。Android Clientでは、キーの帯の「画像」で選んだ画像と、画像だけの貼り付けを同じに扱う（[スマホでのTerminalとCLIの画面](mobile-terminal.md#画像を渡す)）。
+
+画像の転送に失敗した時は、貼り付け先に失敗を示す。

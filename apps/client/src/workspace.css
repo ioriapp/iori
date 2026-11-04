@@ -1,0 +1,524 @@
+/* Shared surface rules from the sample workspace. */
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+code,
+pre {
+  font-family: var(--font-mono);
+}
+* {
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+  scrollbar-width: thin;
+}
+:focus-visible {
+  outline: 1px solid var(--ring) !important;
+  outline-offset: -1px;
+  box-shadow: none !important;
+}
+:focus:not(:focus-visible) {
+  outline: none !important;
+  box-shadow: none !important;
+}
+[data-slot="dropdown-menu-content"]:focus-visible,
+[data-slot="dropdown-menu-sub-content"]:focus-visible,
+[data-slot="select-content"]:focus-visible,
+[data-slot="sheet-content"]:focus-visible,
+[data-slot="sidebar"][data-mobile="true"]:focus-visible,
+html[data-input-modality="pointer"]
+  :is(
+    [data-slot="dropdown-menu-content"],
+    [data-slot="dropdown-menu-sub-content"],
+    [data-slot="select-content"],
+    [data-slot="sheet-content"],
+    [data-slot="sidebar"][data-mobile="true"]
+  )
+  :focus-visible {
+  outline: none !important;
+}
+button {
+  cursor: pointer;
+}
+/* Composite inputs own one focus outline on their outer frame. */
+[data-slot="input-group"]:has([data-slot="input-group-control"]:focus-visible) {
+  outline: 1px solid var(--ring);
+  outline-offset: -1px;
+}
+[data-slot="input-group-control"]:focus-visible {
+  outline: none !important;
+}
+[data-slot="popover-content"] {
+  transition: opacity 120ms !important;
+}
+/* Other sheets (such as team history) appear immediately. The mobile
+   sidebar overrides data-slot and keeps its own opening animation. */
+[data-slot="sheet-content"] {
+  animation: none;
+  transition: none;
+}
+[data-slot="dialog-overlay"],
+[data-slot="sheet-overlay"] {
+  background: var(--modal-scrim);
+}
+[data-slot="popover-content"],
+[data-slot="select-content"],
+[data-slot="dropdown-menu-content"],
+[data-slot="context-menu-content"] {
+  background: var(--popover);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-popover) !important;
+}
+[data-slot="switch"][data-state="unchecked"] {
+  border-color: var(--muted-foreground);
+}
+[data-slot="switch"][data-state="checked"] {
+  background: var(--foreground) !important;
+  border-color: var(--foreground) !important;
+}
+[data-slot="switch"][data-state="checked"] [data-slot="switch-thumb"] {
+  background: var(--background) !important;
+}
+[data-slot="select-item"] {
+  font-size: var(--text-xs);
+}
+.auxiliary,
+time {
+  font-size: 0.86rem;
+  color: var(--muted-foreground);
+  font-weight: 400;
+}
+
+/* v6: one restrained elevation system. */
+:root {
+  --shadow-color: oklch(0 0 0 / 0.16);
+  --shadow-popover: 0 10px 28px var(--shadow-color);
+  --shadow-workspace: 0 2px 12px oklch(0 0 0 / 0.06);
+  --modal-scrim: oklch(0 0 0 / 0.55);
+}
+.dark {
+  --shadow-color: oklch(0 0 0 / 0.35);
+  --shadow-workspace: 0 2px 12px oklch(0 0 0 / 0.12);
+  --modal-scrim: oklch(0 0 0 / 0.65);
+}
+:root,
+.dark {
+  --status-green: var(--status-running);
+  --status-red: var(--status-failed);
+  --status-yellow: var(--status-waiting);
+  --status-green-text: var(--status-running-text);
+  --status-red-text: var(--status-failed-text);
+  --status-yellow-text: var(--status-waiting-text);
+  --status-gray: var(--status-stopped);
+  --status-done: var(--status-complete);
+}
+/* A completed item is a check mark, not a second kind of dot. */
+.state-dot[data-status="done"] {
+  background: transparent !important;
+  color: var(--status-complete);
+}
+
+.workspace-app {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.workspace {
+  flex: 1;
+  min-height: 0 !important;
+  height: 0;
+  --sidebar-width: clamp(
+    240px,
+    var(--sidebar-preferred-width),
+    50vw
+  ) !important;
+  position: relative;
+  overflow: clip;
+  isolation: isolate;
+  background: var(--sidebar);
+}
+.workspace [data-slot="sidebar"] {
+  position: relative;
+  height: 100%;
+  flex-shrink: 0;
+}
+.workspace [data-slot="sidebar-gap"] {
+  height: 100%;
+  transition: width 150ms !important;
+}
+.workspace [data-slot="sidebar-container"] {
+  position: absolute;
+  height: 100%;
+  inset: 0 auto 0 0;
+  transition: transform 150ms !important;
+}
+.workspace
+  [data-slot="sidebar"][data-state="collapsed"]
+  [data-slot="sidebar-container"] {
+  transform: translateX(-100%);
+}
+.workspace [data-slot="sidebar-content"],
+.workspace [data-slot="sidebar-menu"] {
+  gap: 0;
+}
+[data-slot="sidebar"][data-mobile="true"] {
+  --sidebar-width: min(326px, calc(100vw - 44px)) !important;
+}
+
+/* The work surface is a slightly raised plate separated from the sidebar. */
+.workspace-main {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  margin: 6px 8px 6px 6px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--background);
+  box-shadow: var(--shadow-workspace);
+}
+.workspace-main .iori-dock {
+  border-radius: 8px;
+  overflow: hidden;
+}
+.workspace-content {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.workspace-start-toggle {
+  position: absolute;
+  z-index: 2;
+  top: 4px;
+  left: 4px;
+}
+
+/* Owner: the status bar uses only the auxiliary typography tier. */
+.status-bar {
+  height: 22px;
+  min-height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  flex-shrink: 0;
+  gap: 12px;
+  padding: 0 8px;
+  background: var(--sidebar);
+  border-top: 1px solid var(--border);
+  color: var(--muted-foreground);
+  font-size: 0.86rem;
+  font-weight: 400;
+  overflow-x: auto;
+  white-space: nowrap;
+  scrollbar-width: none;
+}
+.status-bar > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.status-bar [data-slot="button"] {
+  height: 18px;
+  padding: 0 6px;
+  font-size: 0.86rem;
+  font-weight: 400;
+  color: var(--muted-foreground);
+}
+
+.start-workspace-scroll {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+.start-workspace-scroll [data-slot="scroll-area-viewport"] > div {
+  display: flex !important;
+  min-height: 100%;
+}
+.start-workspace-scroll .start-workspace {
+  overflow: visible;
+}
+.start-workspace {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: safe center;
+  gap: 8px;
+  overflow: auto;
+  padding: 32px;
+}
+.start-workspace > * {
+  flex-shrink: 0;
+}
+.start-workspace h1 {
+  margin: 0;
+  font-family: var(--font-heading);
+  font-size: 20px;
+  font-weight: 600;
+}
+.start-workspace p {
+  margin: 0 0 22px;
+  color: var(--muted-foreground);
+  font-size: 0.93rem;
+}
+
+.workspace-panel-placeholder {
+  margin: 16px;
+  color: var(--muted-foreground);
+  font-size: 0.93rem;
+}
+.workspace-panel-placeholder h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  color: var(--foreground);
+  font-family: var(--font-heading);
+  font-size: 1rem;
+  font-weight: 600;
+}
+.workspace-panel-placeholder dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 6px 16px;
+  margin: 0;
+}
+.workspace-panel-placeholder dt {
+  color: var(--foreground);
+}
+.workspace-panel-placeholder dd {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 0.86rem;
+}
+
+.workspace-inline-alert {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--status-failed-text);
+  font-size: 0.93rem;
+}
+.workspace-inline-alert p {
+  margin: 0;
+}
+
+/* Maximize: the same Dockview group is lifted into a centered overlay. */
+.workspace-maximize-backdrop {
+  position: fixed;
+  z-index: 40;
+  inset: 0;
+  width: 100%;
+  border: 0;
+  background: var(--modal-scrim);
+}
+.workspace-dock-shell {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+.workspace-dock-shell.has-maximized .dv-sash {
+  pointer-events: none;
+  visibility: hidden;
+}
+.iori-dock-maximized {
+  position: fixed !important;
+  z-index: 45 !important;
+  inset: auto !important;
+  top: 50% !important;
+  left: 50% !important;
+  width: var(--iori-pane-width, min(920px, calc(100vw - 24px))) !important;
+  max-width: calc(100vw - 24px) !important;
+  height: calc(100dvh - 32px) !important;
+  transform: translate(-50%, -50%);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--background);
+  box-shadow: var(--shadow-popover);
+}
+.workspace-dock-shell.has-maximized
+  .dv-render-overlay.iori-dock-maximized-overlay {
+  position: fixed !important;
+  z-index: 46 !important;
+  top: calc(17px + var(--dv-tabs-and-actions-container-height)) !important;
+  left: 50% !important;
+  width: calc(var(--iori-maximized-pane-width) - 2px) !important;
+  height: calc(
+    100dvh - 34px - var(--dv-tabs-and-actions-container-height)
+  ) !important;
+  transform: translateX(-50%) !important;
+}
+.workspace-maximize-close {
+  position: fixed;
+  z-index: 50;
+  top: 8px;
+  right: 8px;
+  background: var(--background);
+}
+.workspace-resize-handle {
+  position: absolute;
+  z-index: 48;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: ew-resize;
+  touch-action: none;
+}
+.workspace-resize-left {
+  left: 0;
+}
+.workspace-resize-right {
+  right: 0;
+}
+
+/* Folder picker */
+.folder-dialog[data-slot="dialog-content"] {
+  width: min(560px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
+  background: var(--popover);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-popover) !important;
+}
+.folder-dialog-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  font-size: 0.93rem;
+}
+.folder-dialog-row [data-slot="select-trigger"] {
+  width: 200px;
+}
+.folder-dialog-list {
+  height: min(320px, 45dvh);
+  min-height: min(320px, 45dvh);
+  max-height: min(320px, 45dvh);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.folder-dialog-item {
+  justify-content: flex-start;
+  width: 100%;
+  height: 32px;
+  padding: 0 8px;
+  gap: 8px;
+  font-size: 0.93rem;
+  font-weight: 400;
+}
+.folder-dialog-item > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.folder-dialog-item svg {
+  flex-shrink: 0;
+  color: var(--muted-foreground);
+}
+.folder-dialog-note {
+  margin: 8px;
+  color: var(--muted-foreground);
+  font-size: 0.93rem;
+}
+.folder-dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+@media (pointer: coarse) {
+  .folder-dialog-shortcut {
+    display: none;
+  }
+}
+
+@media (max-width: 767px) {
+  .workspace-main {
+    margin: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .status-bar {
+    font-size: 10px;
+    overflow: hidden;
+  }
+  .start-workspace {
+    padding: 22px 16px;
+    justify-content: flex-start;
+  }
+  .start-workspace h1 {
+    margin-top: 36px;
+  }
+  .start-workspace p {
+    margin-bottom: 18px;
+  }
+  .start-workspace .cli-launcher {
+    width: 100%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* In the work surface the status bar sits below the key band, and the OS bars
+   are already kept clear by the native window insets. */
+.workspace-app .terminal-mobile-controls {
+  padding-bottom: 5px;
+}
+
+.workspace[data-sidebar-resizing] [data-slot="sidebar-gap"],
+.workspace[data-sidebar-resizing] [data-slot="sidebar-container"] {
+  transition: none !important;
+}
+.workspace .sidebar-resize-handle {
+  position: absolute;
+  z-index: 20;
+  top: var(--window-caption-height);
+  bottom: 0;
+  left: calc(var(--sidebar-width) - 4px);
+  width: 8px;
+  cursor: ew-resize;
+  touch-action: none;
+}
+.workspace .sidebar-resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 2px;
+}
+.workspace .sidebar-resize-handle:hover::after,
+.workspace[data-sidebar-resizing] .sidebar-resize-handle::after {
+  background: var(--sidebar-border);
+}

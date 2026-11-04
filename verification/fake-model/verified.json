@@ -1,0 +1,30 @@
+{
+  "clis": {
+    "claude": "2.1.318 (Claude Code)",
+    "codex": "codex-cli 0.164.0",
+    "pi": "1.4.0",
+    "opencode": "1.19.2",
+    "omp": "omp/18.12.6"
+  },
+  "instructionsCommit": "0d10d78d397f83c540625105242d0b921482edd9",
+  "instructionFiles": [
+    "apps/host/src/teams/manager.ts",
+    "apps/host/src/teams/commands.ts",
+    "apps/host/src/teams/local-command.ts",
+    "apps/host/src/forge-commands.ts",
+    "packages/protocol/src/team-text.ts",
+    "apps/host/src/cli/definitions.ts",
+    "apps/host/src/terminal/runtime.ts",
+    "apps/host/src/automations/manager.ts",
+    "apps/host/src/automations/received.ts",
+    "apps/host/src/cli/claude/definition.json",
+    "apps/host/src/cli/claude/definition.ts",
+    "apps/host/src/cli/codex/definition.json",
+    "apps/host/src/cli/codex/definition.ts",
+    "apps/host/src/cli/pi/definition.json",
+    "apps/host/src/cli/pi/definition.ts",
+    "apps/host/src/cli/opencode/definition.json",
+    "apps/host/src/cli/opencode/definition.ts",
+    "apps/host/src/cli/omp/definition.json"
+  ]
+}

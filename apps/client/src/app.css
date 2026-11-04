@@ -1,0 +1,313 @@
+.app-root {
+  position: relative;
+  width: 100%;
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.app-settings-trigger {
+  position: fixed;
+  z-index: 30;
+  top: 12px;
+  right: 12px;
+  border: 1px solid var(--border);
+  background: var(--card);
+}
+
+.add-host-dialog,
+.discard-add-host-dialog {
+  width: min(520px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
+}
+
+.add-host-dialog form {
+  display: grid;
+  gap: 14px;
+}
+
+.onboarding-screen {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  overflow: auto;
+  padding: 24px;
+}
+
+.onboarding-panel {
+  display: grid;
+  width: min(520px, 100%);
+  gap: 16px;
+  padding: 28px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: var(--card);
+}
+
+.app-wordmark {
+  width: fit-content;
+  color: var(--foreground);
+  font-family: var(--font-heading);
+  font-size: 1.15rem;
+  font-weight: 650;
+  letter-spacing: -0.025em;
+}
+
+.onboarding-panel h1 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.onboarding-guidance,
+.settings-note {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+  line-height: 1.55;
+}
+
+.connection-field {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.connection-field [data-slot="textarea"] {
+  min-height: 82px;
+  resize: vertical;
+}
+
+.connection-field [data-slot="input"] {
+  height: 34px;
+}
+
+.connection-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.connection-error {
+  margin: 0;
+  color: var(--status-failed-text);
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+
+.host-confirmation {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+}
+
+.host-confirmation > div {
+  display: grid;
+  grid-template-columns: 100px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.host-confirmation dt {
+  color: var(--muted-foreground);
+}
+
+.host-confirmation dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+.address-line {
+  display: block;
+}
+
+.settings-section {
+  max-width: 100%;
+}
+
+.settings-section > h3,
+.settings-section-heading h3 {
+  margin: 0 0 14px;
+  font-size: 0.98rem;
+  font-weight: 600;
+}
+
+.settings-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.settings-section-heading h3 {
+  margin: 0;
+}
+
+.settings-recovery {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  color: var(--status-failed-text);
+}
+
+.settings-recovery p {
+  margin: 0;
+}
+
+.connection-form {
+  display: grid;
+  justify-items: start;
+  gap: 10px;
+}
+
+.connection-form .connection-field {
+  width: min(520px, 100%);
+}
+
+.connection-form .connection-field [data-slot="textarea"] {
+  min-height: 72px;
+  font-family: var(--font-mono);
+}
+
+.connection-form .settings-note {
+  font-weight: 400;
+}
+
+.device-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.device-list > li {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.device-details,
+.device-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.device-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.device-badge {
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.invitation {
+  display: grid;
+  justify-items: start;
+  gap: 10px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.invitation > p {
+  margin: 0;
+}
+
+.invitation-qr {
+  width: min(240px, 100%);
+  height: auto;
+  padding: 8px;
+  border-radius: var(--radius);
+  background: white;
+}
+
+.registered-message {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+
+.registered-message svg {
+  width: 16px;
+  height: 16px;
+  color: var(--status-running-text);
+}
+
+.revoke-dialog[data-slot="dialog-content"] {
+  width: min(440px, calc(100vw - 32px));
+  max-width: min(440px, calc(100vw - 32px));
+}
+
+.revoke-details p {
+  margin: 8px 0;
+  color: var(--muted-foreground);
+}
+
+.storage-retry {
+  position: fixed;
+  z-index: 60;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  max-width: min(560px, calc(100vw - 32px));
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--popover);
+  box-shadow: 0 6px 24px color-mix(in oklch, var(--foreground) 12%, transparent);
+}
+
+@media (max-width: 700px) {
+  .onboarding-screen {
+    align-items: start;
+    padding: 18px;
+  }
+
+  .onboarding-panel {
+    margin: auto 0;
+    padding: 20px;
+  }
+
+  .device-list > li {
+    align-items: flex-start;
+    flex-direction: column;
+    padding-block: 8px;
+  }
+
+  .device-actions {
+    margin-left: auto;
+  }
+
+  .storage-retry {
+    right: 8px;
+    bottom: 8px;
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+}

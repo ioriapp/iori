@@ -1,0 +1,875 @@
+/* Settings modal: the sample's v9 settings pane in a shadcn Dialog. */
+.settings-modal[data-slot="dialog-content"] {
+  display: flex;
+  width: min(960px, calc(100vw - 28px));
+  max-width: calc(100vw - 28px);
+  height: min(820px, calc(100dvh - 64px));
+  max-height: none;
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--popover);
+  box-shadow: var(--shadow-popover) !important;
+  outline: none;
+}
+.settings-modal .settings-pane {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+.settings-modal .settings-close {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  z-index: 2;
+  background: var(--background);
+}
+.settings-pane {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  overflow: hidden;
+}
+.settings-nav {
+  overflow: auto;
+  padding: var(--space-3) var(--space-2);
+  background: var(--sidebar);
+  border-right: 1px solid var(--border);
+}
+.settings-nav [data-slot="sidebar-menu"] {
+  gap: var(--space-2);
+}
+.settings-nav [data-slot="sidebar-menu-button"] {
+  display: flex;
+  width: 100%;
+  justify-content: flex-start;
+  min-height: 34px;
+  height: auto;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  color: var(--foreground);
+  font-size: 14px;
+  border-radius: var(--radius);
+}
+.settings-nav [data-slot="sidebar-menu-button"] svg {
+  color: var(--muted-foreground);
+  stroke-width: 1.7;
+}
+/* Hover only with a pointer: a touch leaves the tapped row in :hover. */
+@media (hover: hover) {
+  .settings-nav [data-slot="sidebar-menu-button"]:hover {
+    background: var(--sidebar-accent);
+  }
+}
+/* Selection shows only where the list sits beside its detail; a phone
+   list is its own screen (ui.md「選択中の印」). */
+@media (min-width: 768px) {
+  .settings-nav [data-slot="sidebar-menu-button"][data-active="true"] {
+    background: var(--sidebar-accent);
+    color: var(--foreground);
+    font-weight: 600;
+  }
+  .settings-nav [data-slot="sidebar-menu-button"][data-active="true"] svg {
+    color: var(--foreground);
+  }
+}
+.settings-nav .v9-settings-host-select {
+  justify-content: space-between;
+  min-height: 32px;
+  border-color: var(--input);
+  background: var(--card);
+  font-size: 13px;
+}
+.settings-content {
+  margin-top: calc(var(--space-8) + var(--space-3));
+  padding: var(--space-6) var(--space-8);
+  overflow: auto;
+  min-width: 0;
+  background: var(--popover);
+}
+.settings-content [data-slot="separator"] {
+  margin: var(--space-4) 0;
+}
+.settings-modal .v9-settings-content {
+  padding-right: var(--space-8);
+}
+@media (max-width: 767px) {
+  .settings-modal .settings-pane {
+    grid-template-columns: 126px minmax(0, 1fr);
+  }
+  .settings-modal .v9-settings-content {
+    padding: var(--space-4) var(--space-3);
+  }
+}
+
+.v9-settings-pane {
+  grid-template-columns: 220px minmax(0, 1fr);
+}
+
+.v9-settings-nav {
+  padding: var(--space-3) var(--space-2);
+}
+
+.v9-settings-section-title {
+  padding: var(--space-2) var(--space-2) var(--space-2);
+  color: var(--muted-foreground);
+  font-size: 0.86rem;
+  font-weight: 400;
+}
+
+.v9-settings-host-title {
+  padding-top: var(--space-4);
+}
+
+.v9-settings-host-select {
+  width: 100%;
+  margin: 0 0 var(--space-2);
+}
+
+.v9-settings-content {
+  padding: var(--space-6) var(--space-8);
+}
+
+.settings-content.v9-settings-content h2 {
+  margin: 0 0 var(--space-6);
+  font-family: var(--font-heading);
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.v9-settings-content h3 {
+  margin: 0;
+  font-family: var(--font-heading);
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.v9-settings-row,
+.v9-settings-info-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  max-width: 650px;
+  min-height: 34px;
+  margin: 0 0 var(--space-4);
+  font-family: var(--font-heading);
+  font-weight: 500;
+}
+
+.v9-settings-row [data-slot="select-trigger"] {
+  width: 180px;
+  min-width: 140px;
+  flex-shrink: 0;
+}
+
+.v9-settings-switch-row {
+  justify-content: space-between;
+}
+
+.v9-settings-info-row > :last-child {
+  color: var(--muted-foreground);
+  font-size: 0.93rem;
+  font-weight: 400;
+}
+
+.v9-connection-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.v9-folder-list {
+  display: grid;
+  max-width: 650px;
+}
+
+.v9-folder-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 36px;
+  border-bottom: 1px solid var(--border);
+}
+
+.v9-folder-row svg {
+  color: var(--muted-foreground);
+}
+
+.v9-settings-note {
+  max-width: 520px;
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.93rem;
+}
+
+.v9-agents-settings {
+  max-width: 650px;
+}
+
+.v9-agents-settings > p {
+  margin: 0 0 var(--space-2);
+  color: var(--muted-foreground);
+  font-size: 0.86rem;
+}
+
+.v9-agent-list {
+  display: grid;
+  margin-bottom: var(--space-4);
+}
+
+.v9-agent-row {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 42px;
+  border-bottom: 1px solid var(--border);
+}
+
+.v9-agent-row .cli-icon {
+  flex-shrink: 0;
+}
+
+.v9-agent-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.v9-agent-version {
+  color: var(--muted-foreground);
+  font-size: 0.86rem;
+  white-space: nowrap;
+}
+
+.v9-agents-settings [data-slot="separator"] {
+  margin: var(--space-4) 0;
+}
+
+.v9-agent-add {
+  display: grid;
+  gap: var(--space-3);
+  max-width: 440px;
+}
+
+.v9-agent-add h3 {
+  margin-bottom: var(--space-2);
+}
+
+.v9-settings-content .v9-agent-add label,
+.v9-settings-content .v9-key-add-field {
+  display: grid;
+  align-items: start;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--foreground);
+  font-family: var(--font-heading);
+  font-size: 0.93rem;
+  font-weight: 500;
+}
+
+.v9-settings-content .v9-agent-add input,
+.v9-settings-content .v9-key-add input:not([type="checkbox"]) {
+  width: 100%;
+  min-width: 0;
+  color: var(--foreground);
+  font-size: 1rem;
+}
+
+.v9-agent-add > button {
+  justify-self: start;
+}
+
+.v9-key-settings {
+  max-width: 620px;
+}
+
+.v9-key-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+.v9-key-list {
+  display: grid;
+  /* The settings pane scrolls; the switches' widened hit areas must not
+     scroll the list sideways. */
+  overflow-x: clip;
+  border-top: 1px solid var(--border);
+}
+
+.v9-key-row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 34px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Added keys carry a remove button before the switch; switches stay aligned. */
+.v9-key-row > [data-slot="switch"] {
+  grid-column: 4;
+}
+
+.v9-key-row code {
+  overflow: hidden;
+  color: var(--foreground);
+  font-family: var(--font-mono);
+  font-size: 0.93rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.v9-key-drag {
+  display: grid;
+  width: 26px;
+  height: 30px;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: grab;
+  touch-action: none;
+}
+
+.v9-key-drag:hover {
+  background: var(--sidebar-accent);
+  color: var(--foreground);
+}
+
+.v9-key-drag:active {
+  cursor: grabbing;
+}
+
+.v9-key-settings > [data-slot="separator"] {
+  margin: var(--space-4) 0;
+}
+
+.v9-key-settings > h3 {
+  margin-bottom: var(--space-2);
+}
+
+.v9-key-add {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: var(--space-3);
+  max-width: 620px;
+}
+
+.v9-key-modifiers {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 32px;
+}
+
+.v9-settings-content .v9-key-modifiers label,
+.v9-settings-content label.v9-key-enter-option {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.86rem;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.v9-key-enter-option {
+  justify-self: start;
+  min-height: 32px;
+}
+
+.v9-key-error {
+  grid-column: 1 / -1;
+  color: var(--status-failed-text);
+  font-size: 0.86rem;
+}
+
+@media (max-width: 1100px) {
+  .v9-settings-pane {
+    grid-template-columns: 126px minmax(0, 1fr);
+  }
+
+  .v9-settings-nav {
+    padding: var(--space-2) var(--space-2);
+  }
+
+  .v9-settings-nav button {
+    height: auto;
+    min-height: 28px;
+    padding: var(--space-2) var(--space-2);
+    white-space: normal;
+  }
+
+  .v9-settings-section-title {
+    padding: var(--space-2) var(--space-2) var(--space-2);
+  }
+
+  .v9-settings-host-select {
+    width: 100%;
+  }
+
+  .v9-settings-content {
+    padding: var(--space-4) var(--space-3);
+  }
+
+  .settings-content.v9-settings-content h2 {
+    margin-bottom: var(--space-4);
+  }
+
+  .v9-settings-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-2);
+  }
+
+  .v9-settings-row [data-slot="select-trigger"] {
+    width: 100%;
+  }
+}
+
+@media (max-width: 420px) {
+  .v9-key-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .v9-key-add {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .v9-key-add > button {
+    justify-self: start;
+  }
+}
+
+/* The key field pairs a typed character with the special-key choice. */
+.v9-key-input-row {
+  display: flex;
+  gap: var(--space-2);
+}
+.v9-key-input-row [data-slot="select-trigger"] {
+  width: 150px;
+  flex-shrink: 0;
+}
+@media (max-width: 767px) {
+  .v9-key-add {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+  }
+  .v9-key-add > button {
+    justify-self: start;
+  }
+  .v9-key-input-row [data-slot="select-trigger"] {
+    width: 130px;
+  }
+}
+
+.settings-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.ssh-candidates {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  max-height: 12rem;
+  overflow-y: auto;
+}
+.ssh-candidates > button {
+  justify-content: flex-start;
+}
+.ssh-destination,
+.ssh-prompt {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.git-setting-field {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  margin-block: var(--space-4);
+}
+.git-setting-field label {
+  font-size: 0.875rem;
+}
+.git-setting-field [data-slot="select-trigger"] {
+  width: 100%;
+}
+.git-remote {
+  margin-block: var(--space-4) var(--space-6);
+  min-width: 0;
+}
+.git-remote p,
+.git-setting-field p {
+  margin-block: 0;
+}
+.git-remote-url {
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+}
+.git-remote .settings-note {
+  overflow-wrap: anywhere;
+}
+
+/* Shared page rhythm, including the settings navigation controls. */
+.settings-nav [data-slot="sidebar-menu"] {
+  gap: var(--space-2);
+}
+.settings-nav > [data-iori-action="register-new-host"] {
+  width: 100%;
+  margin-bottom: var(--space-3);
+}
+.settings-content .page-body > .field-row {
+  margin-bottom: var(--space-4);
+}
+.settings-content .page-header h1 {
+  margin: 0;
+}
+/* Preserve the desktop title's gap formerly left by the hidden back row. */
+.settings-content .settings-page-header {
+  padding-top: var(--space-2);
+}
+.settings-content .connection-field {
+  gap: var(--space-2);
+  min-width: 0;
+}
+.settings-content [data-slot="separator"] {
+  margin-block: var(--space-8);
+}
+.settings-content .connection-actions {
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+.settings-content .connection-actions:has([data-iori-action="host-forget"]) {
+  margin-top: var(--space-8);
+}
+/* The uninstall result's actions follow its own line, without a section's gap. */
+.settings-content [data-iori-view="host-removal-result"] .connection-actions {
+  margin-top: 0;
+}
+.git-settings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+}
+.git-settings > .layout-section + .layout-section {
+  margin-top: 0;
+}
+.git-remote {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin: 0;
+}
+.git-remote + .git-remote {
+  margin-top: var(--space-4);
+}
+.git-remote .layout-section {
+  gap: var(--space-3);
+}
+.git-settings .section-heading h2 {
+  margin: 0;
+}
+.v9-settings-row {
+  margin-bottom: var(--space-4);
+}
+.settings-content.v9-settings-content .section-heading h2 {
+  margin: 0;
+}
+.v9-key-list {
+  gap: var(--space-4);
+}
+
+.settings-content .field-row:has(> .connection-error) {
+  flex-wrap: wrap;
+}
+.settings-content .field-row > .connection-error {
+  flex-basis: 100%;
+}
+
+/* The sidebar part brings its own selected look; a phone list drops it. */
+@media (max-width: 767px) {
+  .settings-nav [data-slot="sidebar-menu-button"][data-active="true"] {
+    background: transparent;
+    font-weight: inherit;
+  }
+}
+@media (min-width: 768px) {
+  .settings-nav [data-slot="sidebar-menu-button"][data-active="true"] {
+    background: color-mix(in oklch, var(--primary) 16%, transparent);
+    font-weight: 600;
+  }
+  .settings-nav [data-slot="sidebar-menu-button"][data-active="true"] svg {
+    color: var(--primary);
+  }
+}
+.settings-content.v9-settings-content {
+  padding-block: 28px 64px;
+}
+.settings-content .section-body > .v9-settings-row,
+.settings-content .section-body > .v9-settings-info-row {
+  margin: 0;
+  padding: 12px 16px;
+  max-width: none;
+}
+.settings-content .section-body > .connection-field {
+  padding: 12px 16px;
+}
+.settings-content .section-body > .connection-actions {
+  margin: 0;
+}
+.settings-content .v9-settings-row {
+  flex-direction: row;
+  align-items: center;
+}
+.settings-content .v9-settings-row > span:first-child {
+  flex: 1;
+  min-width: 0;
+}
+.settings-content
+  .section-body
+  > .v9-settings-row
+  [data-slot="select-trigger"] {
+  width: 180px;
+  min-width: 0;
+}
+.settings-content .section-body > .section-heading {
+  padding: 0;
+}
+.update-current-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.update-current-controls .settings-note {
+  flex-basis: 100%;
+  text-align: right;
+}
+.v9-key-list {
+  gap: 0;
+}
+.v9-key-row {
+  padding-block: 8px;
+}
+@media (max-width: 767px) {
+  .settings-content.v9-settings-content {
+    padding: 20px 16px 48px;
+  }
+  .settings-content .v9-settings-row {
+    gap: 8px;
+  }
+}
+
+.git-remote .layout-section {
+  gap: 8px;
+}
+.git-remote .section-body {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+.git-remote .section-body > * {
+  padding: 12px 0;
+}
+.git-remote .section-heading {
+  padding: 0;
+}
+.settings-content .section-body > .section-save {
+  padding: 12px 16px;
+}
+
+.settings-location {
+  display: contents;
+}
+.settings-mobile-back,
+.settings-mobile-title {
+  display: none;
+}
+@media (max-width: 767px) {
+  .settings-modal[data-slot="dialog-content"] {
+    flex-direction: column;
+    background: var(--background);
+  }
+  .settings-location {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    height: calc(var(--spacing) * 12);
+    padding: 0 6px;
+    border-bottom: 1px solid var(--border);
+    background: var(--background);
+    flex: none;
+    min-width: 0;
+  }
+  .settings-location:not(:has(.settings-mobile-back)) {
+    padding-left: var(--space-6);
+  }
+  .settings-mobile-title {
+    display: block;
+    flex: 1;
+    min-width: 0;
+    font-size: 0.86rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .settings-mobile-back,
+  .settings-modal .settings-close {
+    position: static;
+    flex: none;
+    width: calc(var(--spacing) * 12);
+    height: calc(var(--spacing) * 12);
+    background: transparent;
+  }
+  .settings-modal .settings-content {
+    margin-top: 0;
+    background: var(--background);
+  }
+  .settings-modal .settings-pane {
+    height: auto;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .settings-modal .settings-nav {
+    border: 0;
+    padding: 20px 16px 48px;
+    background: var(--background);
+  }
+  .settings-modal .settings-content {
+    display: none;
+  }
+  .settings-mobile-detail .settings-nav {
+    display: none;
+  }
+  .settings-mobile-detail .settings-content {
+    display: block;
+  }
+  .settings-nav [data-slot="sidebar-menu-button"] {
+    min-height: 44px;
+  }
+  .settings-mobile-back {
+    display: inline-flex;
+  }
+  /* The band shows the location, so the same width rule hides the title. */
+  .settings-content .settings-page-header {
+    display: none;
+  }
+}
+
+.git-settings .section-body {
+  width: 100%;
+}
+
+.settings-content .field-row.host-maintenance-status {
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+}
+.host-maintenance-status .field-control {
+  flex: none;
+  align-self: center;
+}
+.host-maintenance-status .field-control > button {
+  width: auto;
+  flex: none;
+}
+
+[data-iori-view="github-settings"] code {
+  white-space: nowrap;
+}
+
+/* The Host's Integrations: GitHub (gh) and a token per Forgejo/Gitea site. */
+.integrations-settings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+}
+.integrations-settings > .layout-section + .layout-section {
+  margin-top: 0;
+}
+.integrations-settings code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--muted);
+  font-size: 0.9em;
+}
+.site-url {
+  overflow-wrap: anywhere;
+}
+.site-state.is-problem {
+  color: var(--destructive);
+}
+.forge-site,
+.site-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.forge-site .site-form {
+  padding-left: var(--space-4);
+}
+.site-form .section-save {
+  padding: 0;
+}
+/*
+ * On a narrow screen the result takes its own line above the buttons instead
+ * of breaking beside them (ui.md「欄の形」).
+ */
+.site-form {
+  container: site-form / inline-size;
+}
+@container site-form (max-width: 480px) {
+  .site-form-actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .site-form-actions > .section-save-result {
+    height: auto;
+    justify-content: flex-start;
+    text-align: left;
+  }
+  .site-form-actions > .section-save-result:empty {
+    display: none;
+  }
+  .site-form-buttons {
+    justify-self: end;
+  }
+}
+/* The notes about where the token goes sit under its field. */
+.site-form .field-stacked > .field-control {
+  flex-direction: column;
+}
+.site-form-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.device-badge[data-iori-state="this-device"] {
+  background: var(--secondary);
+  color: var(--secondary-foreground);
+}
+
+.dark .device-badge[data-iori-state="this-device"] {
+  background: var(--popover);
+  color: var(--popover-foreground);
+}

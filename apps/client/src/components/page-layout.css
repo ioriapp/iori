@@ -1,0 +1,267 @@
+:root {
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --page-content-width: 680px;
+  --editor-content-width: 960px;
+}
+.page-header {
+  display: grid;
+  gap: var(--space-2);
+  margin-bottom: var(--space-8);
+  min-width: 0;
+}
+.page-back {
+  min-width: 0;
+}
+.page-header-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-2) var(--space-4);
+  min-width: 0;
+}
+.page-heading {
+  display: contents;
+}
+.page-header h1 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.page-description {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+  font-weight: 400;
+  line-height: 1.55;
+}
+.page-heading .page-description {
+  grid-column: 1 / -1;
+  grid-row: 2;
+}
+/* With a title of several lines, the actions stay on its first line. */
+.page-actions {
+  grid-column: 2;
+  grid-row: 1;
+  align-self: start;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.page-body {
+  width: 100%;
+  max-width: var(--page-content-width);
+  min-width: 0;
+  margin-inline: auto;
+}
+.page-body-editor {
+  --page-content-width: var(--editor-content-width);
+}
+.page-body-full {
+  max-width: none;
+}
+.layout-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.layout-section + .layout-section {
+  margin-top: var(--space-8);
+}
+.section-heading {
+  display: grid;
+  padding-inline: 4px;
+  gap: 2px;
+}
+.section-heading h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+.field-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+  min-width: 0;
+}
+/* The name keeps its own width and actions that do not fit beside it move
+   below; the description wraps under the name in the width that is left.
+   A name breaks only between words, or anywhere once it is wider than the row. */
+.field-copy {
+  flex: 1 1 max-content;
+  min-width: 0;
+  max-width: 100%;
+  font-weight: 500;
+}
+.field-copy > :first-child {
+  word-break: auto-phrase;
+  overflow-wrap: break-word;
+}
+.field-copy .page-description {
+  margin-top: var(--space-2);
+  /* Japanese wraps between phrases (needs lang="ja"); others as usual. */
+  word-break: auto-phrase;
+}
+.field-control {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.field-control:empty {
+  display: none;
+}
+.section-save {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.section-save-result {
+  height: 3.1em;
+  overflow: auto;
+  display: flex;
+  align-items: safe center;
+  justify-content: flex-end;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 767px) {
+  .field-control {
+    margin-left: auto;
+    max-width: 100%;
+  }
+  /* A description beside the action would wrap into a narrow column. */
+  .field-row > .field-copy:has(> .page-description) {
+    flex-basis: 100%;
+  }
+}
+.page-save-result {
+  height: 3.1em;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+
+.section-body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--card);
+  border: 1px solid color-mix(in oklch, var(--border) 70%, transparent);
+  border-radius: 10px;
+}
+.section-body > * {
+  min-width: 0;
+  margin: 0;
+  padding: 12px 16px;
+}
+.section-body > * + * {
+  border-top: 1px solid color-mix(in oklch, var(--border) 55%, transparent);
+}
+.section-body > :first-child {
+  border-start-start-radius: 10px;
+  border-start-end-radius: 10px;
+}
+.section-body > :last-child {
+  border-end-start-radius: 10px;
+  border-end-end-radius: 10px;
+}
+.field-copy {
+  font-size: 14px;
+}
+.field-copy .page-description {
+  margin-top: 2px;
+  font-size: 13px;
+}
+.field-row.field-stacked {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+.field-stacked > .field-control {
+  width: 100%;
+  justify-content: flex-start;
+  align-items: stretch;
+}
+.field-stacked .field-control > input,
+.field-stacked .field-control > textarea {
+  width: 100%;
+}
+.field-stacked .field-control > textarea {
+  min-height: calc(3lh + 16px);
+}
+.section-save {
+  padding: 12px 16px;
+}
+.page-body [data-slot="toggle-group-item"][data-state="on"],
+.page-body button[aria-pressed="true"] {
+  background: color-mix(in oklch, var(--primary) 18%, transparent);
+  border-color: color-mix(in oklch, var(--primary) 55%, transparent);
+  font-weight: 600;
+}
+
+.section-body > .section-rows {
+  padding: 0;
+}
+.section-rows > .field-row {
+  padding: 12px 16px;
+}
+.section-rows > .field-row + .field-row {
+  border-top: 1px solid color-mix(in oklch, var(--border) 55%, transparent);
+}
+
+.page-header h1,
+.page-link-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.page-back > button {
+  max-width: 100%;
+  min-width: 0;
+}
+.field-stacked .field-control {
+  min-width: 0;
+  max-width: 100%;
+}
+.field-stacked .field-control > input,
+.field-stacked .field-control > textarea {
+  min-width: 0;
+  max-width: 100%;
+}
+.field-code input,
+.field-code textarea,
+code {
+  font-family: var(--font-mono);
+}
+.section-body > [data-slot="collapsible"] {
+  border: 0;
+}
+
+[data-slot="select-trigger"] {
+  min-width: 0;
+}
+[data-slot="select-trigger"] > [data-slot="select-value"] {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+[data-slot="select-trigger"] > svg {
+  flex: none;
+}

@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "id": "amp",
+  "name": "Amp",
+  "command": "amp",
+  "icon": { "light": "amp.svg" },
+  "version": { "args": ["version"] },
+  "resume": { "args": ["threads", "continue", "{sessionId}"] },
+  "hooks": {
+    "format": "plugin-file",
+    "install": {
+      "copy": "iori-bridge.js",
+      "to": {
+        "env": "XDG_CONFIG_HOME",
+        "default": "~/.config",
+        "path": "amp/plugins"
+      }
+    }
+  },
+  "usage": { "unavailable": true }
+}

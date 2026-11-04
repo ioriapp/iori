@@ -1,0 +1,21 @@
+[package]
+license = "MIT"
+name = "tauri-plugin-clipboard-image"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98"
+links = "tauri-plugin-clipboard-image"
+
+[lints.clippy]
+allow_attributes = "deny"
+allow_attributes_without_reason = "deny"
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }
+
+[dependencies]
+tauri = { version = "2.12.0", default-features = false }
+serde = { version = "=1.0.229", features = ["derive"] }
+
+[package.metadata.platforms.support]
+android = { level = "full" }

@@ -1,0 +1,812 @@
+{
+  "inputs": {
+    "apps/client/src-tauri/gen/android/settings.gradle": "99856053f245337d20d308dbeaf9cd7250ad0c186ebbb6866ab46a6e7005ee19",
+    "apps/client/src-tauri/gen/android/build.gradle.kts": "975b86375423d877cfd5a90648bed227bae5665a82fce99e3ebd901419e80bf9",
+    "apps/client/src-tauri/gen/android/app/build.gradle.kts": "e076885d5c4b7318866ff84fc862f17b2aa9309f30e43d22b150bcbc5da64d27",
+    "apps/client/src-tauri/gen/android/gradle/wrapper/gradle-wrapper.properties": "b347084df5a6747528d85c39c1ec723ac38110c91a4a6a950e4483509f209945",
+    "apps/client/src-tauri/plugins/apk-installer/android/build.gradle.kts": "7855c680f266966cdd1b52a7cdf5ea9f553432fcd1507110bc20515d8de768a8",
+    "apps/client/src-tauri/plugins/clipboard-image/android/build.gradle.kts": "0975e480c11609f8c64b76e934a35b164d5860e82131647dfbe36118fbdf0f65",
+    "apps/client/src-tauri/Cargo.lock#tauri": "9fd50e19905530230e9ccd194bbc6bff143d5c572c644e0181209643f7f6367a",
+    "verification/connection/build-android.mjs#scannerDependency": "9d23a255cfe86981df7f14cb722e4beb1befe97453631e367076754f52d77a75",
+    "verification/connection/build-android.mjs#gradleSetup": "33aa8f584a762ea30e46e737012eadae9f322e2d12459e15ca1c9a97d1c325b0"
+  },
+  "count": 68,
+  "packages": {
+    "androidx.activity:activity-ktx:1.10.1": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/activity/activity-ktx/1.10.1/activity-ktx-1.10.1.pom",
+      "files": [
+        {
+          "name": "META-INF/androidx/activity/activity-ktx/LICENSE.txt",
+          "source": "https://dl.google.com/dl/android/maven2/androidx/activity/activity-ktx/1.10.1/activity-ktx-1.10.1.aar!/META-INF/androidx/activity/activity-ktx/LICENSE.txt",
+          "hash": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+        }
+      ]
+    },
+    "androidx.activity:activity:1.10.1": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/activity/activity/1.10.1/activity-1.10.1.pom",
+      "files": [
+        {
+          "name": "META-INF/androidx/activity/activity/LICENSE.txt",
+          "source": "https://dl.google.com/dl/android/maven2/androidx/activity/activity/1.10.1/activity-1.10.1.aar!/META-INF/androidx/activity/activity/LICENSE.txt",
+          "hash": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+        }
+      ]
+    },
+    "androidx.annotation:annotation-experimental:1.4.1": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/annotation/annotation-experimental/1.4.1/annotation-experimental-1.4.1.pom",
+      "files": [
+        {
+          "name": "clarification (Apache-2.0)",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31846481de7ea17d92f2f46fad76abe58b2e9bb0/text/Apache-2.0.txt",
+          "hash": "7b486391d8e9d3e2bc149e31808414cfb6d0d38fabf4e6eca74652f03ae241a6"
+        }
+      ]
+    },
+    "androidx.annotation:annotation-jvm:1.9.1": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/annotation/annotation-jvm/1.9.1/annotation-jvm-1.9.1.pom",
+      "files": [
+        {
+          "name": "META-INF/androidx/annotation/annotation/LICENSE.txt",
+          "source": "https://dl.google.com/dl/android/maven2/androidx/annotation/annotation-jvm/1.9.1/annotation-jvm-1.9.1.jar!/META-INF/androidx/annotation/annotation/LICENSE.txt",
+          "hash": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+        }
+      ]
+    },
+    "androidx.appcompat:appcompat-resources:1.7.1": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/appcompat/appcompat-resources/1.7.1/appcompat-resources-1.7.1.pom",
+      "files": [
+        {
+          "name": "clarification (Apache-2.0)",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31846481de7ea17d92f2f46fad76abe58b2e9bb0/text/Apache-2.0.txt",
+          "hash": "66d52b4b06fbbc55f513099960fd0073600d098ddaa18965d74bb6dadf48bb57"
+        }
+      ]
+    },
+    "androidx.appcompat:appcompat:1.7.1": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/appcompat/appcompat/1.7.1/appcompat-1.7.1.pom",
+      "files": [
+        {
+          "name": "clarification (Apache-2.0)",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31846481de7ea17d92f2f46fad76abe58b2e9bb0/text/Apache-2.0.txt",
+          "hash": "d438c149fc6ea88c07f40152d91309de9b33ee41a38973261d54c4cd44993252"
+        }
+      ]
+    },
+    "androidx.arch.core:core-common:2.2.0": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/arch/core/core-common/2.2.0/core-common-2.2.0.pom",
+      "files": [
+        {
+          "name": "clarification (Apache-2.0)",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31846481de7ea17d92f2f46fad76abe58b2e9bb0/text/Apache-2.0.txt",
+          "hash": "7668ab8d3c0df68abefbf394ad3526c1b7b973c56be2ce514061fea2a1f3c23e"
+        }
+      ]
+    },
+    "androidx.arch.core:core-runtime:2.2.0": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/arch/core/core-runtime/2.2.0/core-runtime-2.2.0.pom",
+      "files": [
+        {
+          "name": "clarification (Apache-2.0)",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31846481de7ea17d92f2f46fad76abe58b2e9bb0/text/Apache-2.0.txt",
+          "hash": "2801b3aeb2f0c3863c16c01d51d73ba1806361c23924d267b8178ee26c0fe1fd"
+        }
+      ]
+    },
+    "androidx.browser:browser:1.8.0": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/browser/browser/1.8.0/browser-1.8.0.pom",
+      "files": [
+        {
+          "name": "clarification (Apache-2.0)",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31846481de7ea17d92f2f46fad76abe58b2e9bb0/text/Apache-2.0.txt",
+          "hash": "339f1ea4d94fa7602d3f42877ba286cd2a0cbb627f3e49697465b4e7954e3d0e"
+        }
+      ]
+    },
+    "androidx.cardview:cardview:1.0.0": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/cardview/cardview/1.0.0/cardview-1.0.0.pom",
+      "files": [
+        {
+          "name": "clarification (Apache-2.0)",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31846481de7ea17d92f2f46fad76abe58b2e9bb0/text/Apache-2.0.txt",
+          "hash": "d5bd673b1cf4b348663a4a63bc43aed833c9c129ad19ec388a53da91b8996529"
+        }
+      ]
+    },
+    "androidx.collection:collection-jvm:1.4.2": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/collection/collection-jvm/1.4.2/collection-jvm-1.4.2.pom",
+      "files": [
+        {
+          "name": "clarification (Apache-2.0)",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31846481de7ea17d92f2f46fad76abe58b2e9bb0/text/Apache-2.0.txt",
+          "hash": "db777d55c73309ee57d21f0e4874b390f3e182da53426534f09b59d66e606e71"
+        }
+      ]
+    },
+    "androidx.concurrent:concurrent-futures:1.1.0": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/concurrent/concurrent-futures/1.1.0/concurrent-futures-1.1.0.pom",
+      "files": [
+        {
+          "name": "clarification (Apache-2.0)",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31846481de7ea17d92f2f46fad76abe58b2e9bb0/text/Apache-2.0.txt",
+          "hash": "265d03d05222e45e5811697cd41615e62da96aeb44dcdfcba0965665309cb1a9"
+        }
+      ]
+    },
+    "androidx.constraintlayout:constraintlayout-core:1.0.0": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/constraintlayout/constraintlayout-core/1.0.0/constraintlayout-core-1.0.0.pom",
+      "files": [
+        {
+          "name": "LICENSE",
+          "source": "https://raw.githubusercontent.com/androidx/constraintlayout/9cd4b5a4079a14175f91dc897abd83270799364a/LICENSE",
+          "hash": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+        }
+      ]
+    },
+    "androidx.constraintlayout:constraintlayout:2.1.0": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/constraintlayout/constraintlayout/2.1.0/constraintlayout-2.1.0.pom",
+      "files": [
+        {
+          "name": "LICENSE",
+          "source": "https://raw.githubusercontent.com/androidx/constraintlayout/9cd4b5a4079a14175f91dc897abd83270799364a/LICENSE",
+          "hash": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+        }
+      ]
+    },
+    "androidx.coordinatorlayout:coordinatorlayout:1.1.0": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/coordinatorlayout/coordinatorlayout/1.1.0/coordinatorlayout-1.1.0.pom",
+      "files": [
+        {
+          "name": "clarification (Apache-2.0)",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31846481de7ea17d92f2f46fad76abe58b2e9bb0/text/Apache-2.0.txt",
+          "hash": "63d9a6d06fa61f63f1495d9c7961ef0b1a34fd537cc76dba034e515dcc32cbac"
+        }
+      ]
+    },
+    "androidx.core:core-ktx:1.13.1": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/core/core-ktx/1.13.1/core-ktx-1.13.1.pom",
+      "files": [
+        {
+          "name": "clarification (Apache-2.0)",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31846481de7ea17d92f2f46fad76abe58b2e9bb0/text/Apache-2.0.txt",
+          "hash": "ac316fd038ef5a19d8cd1de4cf2e44c9fb0a7b99e580c3335f7ff2e55bbee313"
+        }
+      ]
+    },
+    "androidx.core:core-viewtree:1.0.0": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/core/core-viewtree/1.0.0/core-viewtree-1.0.0.pom",
+      "files": [
+        {
+          "name": "META-INF/androidx/core/core-viewtree/LICENSE.txt",
+          "source": "https://dl.google.com/dl/android/maven2/androidx/core/core-viewtree/1.0.0/core-viewtree-1.0.0.aar!/META-INF/androidx/core/core-viewtree/LICENSE.txt",
+          "hash": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+        }
+      ]
+    },
+    "androidx.core:core:1.13.1": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/core/core/1.13.1/core-1.13.1.pom",
+      "files": [
+        {
+          "name": "clarification (Apache-2.0)",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31846481de7ea17d92f2f46fad76abe58b2e9bb0/text/Apache-2.0.txt",
+          "hash": "d52a7712d4893e996e75bdd7e53e738f11f8b8cae652a7b301408a479d33a9d8"
+        }
+      ]
+    },
+    "androidx.cursoradapter:cursoradapter:1.0.0": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/cursoradapter/cursoradapter/1.0.0/cursoradapter-1.0.0.pom",
+      "files": [
+        {
+          "name": "clarification (Apache-2.0)",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31846481de7ea17d92f2f46fad76abe58b2e9bb0/text/Apache-2.0.txt",
+          "hash": "74c4f58725c4d3bd6bd02082f07a3f4f4a9dbd2bc7376fc16bff5b147ecded8b"
+        }
+      ]
+    },
+    "androidx.customview:customview:1.1.0": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/customview/customview/1.1.0/customview-1.1.0.pom",
+      "files": [
+        {
+          "name": "clarification (Apache-2.0)",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31846481de7ea17d92f2f46fad76abe58b2e9bb0/text/Apache-2.0.txt",
+          "hash": "93f051539f98e542fa3438d3bab0e68474d1c93b95a8a3b1ee9fe239775ab16f"
+        }
+      ]
+    },
+    "androidx.drawerlayout:drawerlayout:1.1.1": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/drawerlayout/drawerlayout/1.1.1/drawerlayout-1.1.1.pom",
+      "files": [
+        {
+          "name": "clarification (Apache-2.0)",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31846481de7ea17d92f2f46fad76abe58b2e9bb0/text/Apache-2.0.txt",
+          "hash": "ae525377ce924cbf0e7d13390fa51d18179f4d0d01bfea60082d25e7d26990fe"
+        }
+      ]
+    },
+    "androidx.dynamicanimation:dynamicanimation:1.1.0": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/dynamicanimation/dynamicanimation/1.1.0/dynamicanimation-1.1.0.pom",
+      "files": [
+        {
+          "name": "META-INF/androidx/dynamicanimation/dynamicanimation/LICENSE.txt",
+          "source": "https://dl.google.com/dl/android/maven2/androidx/dynamicanimation/dynamicanimation/1.1.0/dynamicanimation-1.1.0.aar!/META-INF/androidx/dynamicanimation/dynamicanimation/LICENSE.txt",
+          "hash": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+        }
+      ]
+    },
+    "androidx.emoji2:emoji2-views-helper:1.3.0": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/emoji2/emoji2-views-helper/1.3.0/emoji2-views-helper-1.3.0.pom",
+      "files": [
+        {
+          "name": "clarification (Apache-2.0)",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31846481de7ea17d92f2f46fad76abe58b2e9bb0/text/Apache-2.0.txt",
+          "hash": "35ba426640160e66a7d1613ff44acef53830319a2c864a0dde8d43508f094685"
+        }
+      ]
+    },
+    "androidx.emoji2:emoji2:1.3.0": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/emoji2/emoji2/1.3.0/emoji2-1.3.0.pom",
+      "files": [
+        {
+          "name": "clarification (Apache-2.0)",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31846481de7ea17d92f2f46fad76abe58b2e9bb0/text/Apache-2.0.txt",
+          "hash": "5f1eb68914634597a0747185ac98f5caaf9bf6922708a5e229ecf8650993bfb1"
+        }
+      ]
+    },
+    "androidx.fragment:fragment:1.5.4": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/fragment/fragment/1.5.4/fragment-1.5.4.pom",
+      "files": [
+        {
+          "name": "clarification (Apache-2.0)",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31846481de7ea17d92f2f46fad76abe58b2e9bb0/text/Apache-2.0.txt",
+          "hash": "9b5a5593919f2baff1ff4edd281d1d5763c36c46d62697fb9fe59412cada3167"
+        }
+      ]
+    },
+    "androidx.graphics:graphics-shapes-android:1.0.1": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/graphics/graphics-shapes-android/1.0.1/graphics-shapes-android-1.0.1.pom",
+      "files": [
+        {
+          "name": "META-INF/androidx/graphics/graphics-shapes/LICENSE.txt",
+          "source": "https://dl.google.com/dl/android/maven2/androidx/graphics/graphics-shapes-android/1.0.1/graphics-shapes-release.aar!/META-INF/androidx/graphics/graphics-shapes/LICENSE.txt",
+          "hash": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+        }
+      ]
+    },
+    "androidx.interpolator:interpolator:1.0.0": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/interpolator/interpolator/1.0.0/interpolator-1.0.0.pom",
+      "files": [
+        {
+          "name": "clarification (Apache-2.0)",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31846481de7ea17d92f2f46fad76abe58b2e9bb0/text/Apache-2.0.txt",
+          "hash": "28b27e3c16a553298e68fbb567f3c6b11ddcdd5dc60d3ef0879e65361f77a141"
+        }
+      ]
+    },
+    "androidx.lifecycle:lifecycle-common-jvm:2.10.0": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-common-jvm/2.10.0/lifecycle-common-jvm-2.10.0.pom",
+      "files": [
+        {
+          "name": "META-INF/androidx/lifecycle/lifecycle-common/LICENSE.txt",
+          "source": "https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-common-jvm/2.10.0/lifecycle-common-jvm-2.10.0.jar!/META-INF/androidx/lifecycle/lifecycle-common/LICENSE.txt",
+          "hash": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+        }
+      ]
+    },
+    "androidx.lifecycle:lifecycle-livedata-core-ktx:2.10.0": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-livedata-core-ktx/2.10.0/lifecycle-livedata-core-ktx-2.10.0.pom",
+      "files": [
+        {
+          "name": "META-INF/androidx/lifecycle/lifecycle-livedata-core-ktx/LICENSE.txt",
+          "source": "https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-livedata-core-ktx/2.10.0/lifecycle-livedata-core-ktx-2.10.0.aar!/META-INF/androidx/lifecycle/lifecycle-livedata-core-ktx/LICENSE.txt",
+          "hash": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+        }
+      ]
+    },
+    "androidx.lifecycle:lifecycle-livedata-core:2.10.0": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-livedata-core/2.10.0/lifecycle-livedata-core-2.10.0.pom",
+      "files": [
+        {
+          "name": "META-INF/androidx/lifecycle/lifecycle-livedata-core/LICENSE.txt",
+          "source": "https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-livedata-core/2.10.0/lifecycle-livedata-core-2.10.0.aar!/META-INF/androidx/lifecycle/lifecycle-livedata-core/LICENSE.txt",
+          "hash": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+        }
+      ]
+    },
+    "androidx.lifecycle:lifecycle-livedata:2.10.0": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-livedata/2.10.0/lifecycle-livedata-2.10.0.pom",
+      "files": [
+        {
+          "name": "META-INF/androidx/lifecycle/lifecycle-livedata/LICENSE.txt",
+          "source": "https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-livedata/2.10.0/lifecycle-livedata-2.10.0.aar!/META-INF/androidx/lifecycle/lifecycle-livedata/LICENSE.txt",
+          "hash": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+        }
+      ]
+    },
+    "androidx.lifecycle:lifecycle-process:2.10.0": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-process/2.10.0/lifecycle-process-2.10.0.pom",
+      "files": [
+        {
+          "name": "META-INF/androidx/lifecycle/lifecycle-process/LICENSE.txt",
+          "source": "https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-process/2.10.0/lifecycle-process-2.10.0.aar!/META-INF/androidx/lifecycle/lifecycle-process/LICENSE.txt",
+          "hash": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+        }
+      ]
+    },
+    "androidx.lifecycle:lifecycle-runtime-android:2.10.0": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-runtime-android/2.10.0/lifecycle-runtime-android-2.10.0.pom",
+      "files": [
+        {
+          "name": "META-INF/androidx/lifecycle/lifecycle-runtime/LICENSE.txt",
+          "source": "https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-runtime-android/2.10.0/lifecycle-runtime.aar!/META-INF/androidx/lifecycle/lifecycle-runtime/LICENSE.txt",
+          "hash": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+        }
+      ]
+    },
+    "androidx.lifecycle:lifecycle-runtime-ktx-android:2.10.0": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-runtime-ktx-android/2.10.0/lifecycle-runtime-ktx-android-2.10.0.pom",
+      "files": [
+        {
+          "name": "META-INF/androidx/lifecycle/lifecycle-runtime-ktx/LICENSE.txt",
+          "source": "https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-runtime-ktx-android/2.10.0/lifecycle-runtime-ktx.aar!/META-INF/androidx/lifecycle/lifecycle-runtime-ktx/LICENSE.txt",
+          "hash": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+        }
+      ]
+    },
+    "androidx.lifecycle:lifecycle-viewmodel-android:2.10.0": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-viewmodel-android/2.10.0/lifecycle-viewmodel-android-2.10.0.pom",
+      "files": [
+        {
+          "name": "META-INF/androidx/lifecycle/lifecycle-viewmodel/LICENSE.txt",
+          "source": "https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-viewmodel-android/2.10.0/lifecycle-viewmodel.aar!/META-INF/androidx/lifecycle/lifecycle-viewmodel/LICENSE.txt",
+          "hash": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+        }
+      ]
+    },
+    "androidx.lifecycle:lifecycle-viewmodel-ktx:2.10.0": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-viewmodel-ktx/2.10.0/lifecycle-viewmodel-ktx-2.10.0.pom",
+      "files": [
+        {
+          "name": "META-INF/androidx/lifecycle/lifecycle-viewmodel-ktx/LICENSE.txt",
+          "source": "https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-viewmodel-ktx/2.10.0/lifecycle-viewmodel-ktx-2.10.0.aar!/META-INF/androidx/lifecycle/lifecycle-viewmodel-ktx/LICENSE.txt",
+          "hash": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+        }
+      ]
+    },
+    "androidx.lifecycle:lifecycle-viewmodel-savedstate-android:2.10.0": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-viewmodel-savedstate-android/2.10.0/lifecycle-viewmodel-savedstate-android-2.10.0.pom",
+      "files": [
+        {
+          "name": "META-INF/androidx/lifecycle/lifecycle-viewmodel-savedstate/LICENSE.txt",
+          "source": "https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-viewmodel-savedstate-android/2.10.0/lifecycle-viewmodel-savedstate.aar!/META-INF/androidx/lifecycle/lifecycle-viewmodel-savedstate/LICENSE.txt",
+          "hash": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+        }
+      ]
+    },
+    "androidx.lifecycle:lifecycle-viewmodel:2.10.0": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-viewmodel/2.10.0/lifecycle-viewmodel-2.10.0.pom",
+      "files": [
+        {
+          "name": "META-INF/androidx/lifecycle/lifecycle-viewmodel/LICENSE.txt",
+          "source": "https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-viewmodel/2.10.0/lifecycle-viewmodel-2.10.0.aar!/META-INF/androidx/lifecycle/lifecycle-viewmodel/LICENSE.txt",
+          "hash": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+        }
+      ]
+    },
+    "androidx.loader:loader:1.0.0": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/loader/loader/1.0.0/loader-1.0.0.pom",
+      "files": [
+        {
+          "name": "clarification (Apache-2.0)",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31846481de7ea17d92f2f46fad76abe58b2e9bb0/text/Apache-2.0.txt",
+          "hash": "e6d74a8f2a6a380961717cb0ffdf79011946d8e1123710a7a0fce3d81c7025ba"
+        }
+      ]
+    },
+    "androidx.profileinstaller:profileinstaller:1.4.0": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/profileinstaller/profileinstaller/1.4.0/profileinstaller-1.4.0.pom",
+      "files": [
+        {
+          "name": "META-INF/androidx/profileinstaller/profileinstaller/LICENSE.txt",
+          "source": "https://dl.google.com/dl/android/maven2/androidx/profileinstaller/profileinstaller/1.4.0/profileinstaller-1.4.0.aar!/META-INF/androidx/profileinstaller/profileinstaller/LICENSE.txt",
+          "hash": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+        }
+      ]
+    },
+    "androidx.recyclerview:recyclerview:1.2.1": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/recyclerview/recyclerview/1.2.1/recyclerview-1.2.1.pom",
+      "files": [
+        {
+          "name": "clarification (Apache-2.0)",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31846481de7ea17d92f2f46fad76abe58b2e9bb0/text/Apache-2.0.txt",
+          "hash": "b87247dc28dc7917a4fac276571217456adf9531b41c18887cacf07687da706d"
+        }
+      ]
+    },
+    "androidx.resourceinspection:resourceinspection-annotation:1.0.1": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/resourceinspection/resourceinspection-annotation/1.0.1/resourceinspection-annotation-1.0.1.pom",
+      "files": [
+        {
+          "name": "clarification (Apache-2.0)",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31846481de7ea17d92f2f46fad76abe58b2e9bb0/text/Apache-2.0.txt",
+          "hash": "ba6b21d9141faaf695874aa06e1308c9064e3450a7e2649399e018bc8e080f79"
+        }
+      ]
+    },
+    "androidx.savedstate:savedstate-android:1.4.0": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/savedstate/savedstate-android/1.4.0/savedstate-android-1.4.0.pom",
+      "files": [
+        {
+          "name": "META-INF/androidx/savedstate/savedstate/LICENSE.txt",
+          "source": "https://dl.google.com/dl/android/maven2/androidx/savedstate/savedstate-android/1.4.0/savedstate.aar!/META-INF/androidx/savedstate/savedstate/LICENSE.txt",
+          "hash": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+        }
+      ]
+    },
+    "androidx.savedstate:savedstate-ktx:1.4.0": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/savedstate/savedstate-ktx/1.4.0/savedstate-ktx-1.4.0.pom",
+      "files": [
+        {
+          "name": "META-INF/androidx/savedstate/savedstate-ktx/LICENSE.txt",
+          "source": "https://dl.google.com/dl/android/maven2/androidx/savedstate/savedstate-ktx/1.4.0/savedstate-ktx-1.4.0.aar!/META-INF/androidx/savedstate/savedstate-ktx/LICENSE.txt",
+          "hash": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+        }
+      ]
+    },
+    "androidx.startup:startup-runtime:1.1.1": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/startup/startup-runtime/1.1.1/startup-runtime-1.1.1.pom",
+      "files": [
+        {
+          "name": "clarification (Apache-2.0)",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31846481de7ea17d92f2f46fad76abe58b2e9bb0/text/Apache-2.0.txt",
+          "hash": "f7aafed84d42f2a04a20a2cc7e8788882d698b0db2513ca2a2e88c6831ab2404"
+        }
+      ]
+    },
+    "androidx.tracing:tracing:1.0.0": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/tracing/tracing/1.0.0/tracing-1.0.0.pom",
+      "files": [
+        {
+          "name": "clarification (Apache-2.0)",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31846481de7ea17d92f2f46fad76abe58b2e9bb0/text/Apache-2.0.txt",
+          "hash": "a51720579b9ed25180be1d2b61517ce77f79ef89a240d1cfeebcbaaa5d8a9338"
+        }
+      ]
+    },
+    "androidx.transition:transition:1.5.0": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/transition/transition/1.5.0/transition-1.5.0.pom",
+      "files": [
+        {
+          "name": "clarification (Apache-2.0)",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31846481de7ea17d92f2f46fad76abe58b2e9bb0/text/Apache-2.0.txt",
+          "hash": "73f67bbf48ba4c2940eb43eeba0bdbba23ccd41d8a54fa5ce3d6eb614dd86e14"
+        }
+      ]
+    },
+    "androidx.vectordrawable:vectordrawable-animated:1.1.0": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/vectordrawable/vectordrawable-animated/1.1.0/vectordrawable-animated-1.1.0.pom",
+      "files": [
+        {
+          "name": "clarification (Apache-2.0)",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31846481de7ea17d92f2f46fad76abe58b2e9bb0/text/Apache-2.0.txt",
+          "hash": "304149de9b85f350fcf5e7129df8f20cfe97d54df72d7f1df8c432e448b5183f"
+        }
+      ]
+    },
+    "androidx.vectordrawable:vectordrawable:1.1.0": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/vectordrawable/vectordrawable/1.1.0/vectordrawable-1.1.0.pom",
+      "files": [
+        {
+          "name": "clarification (Apache-2.0)",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31846481de7ea17d92f2f46fad76abe58b2e9bb0/text/Apache-2.0.txt",
+          "hash": "fca28265f61138ca81f67546fb639963903bf2e28af23da4dd7f93122d4bc1b4"
+        }
+      ]
+    },
+    "androidx.versionedparcelable:versionedparcelable:1.1.1": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/versionedparcelable/versionedparcelable/1.1.1/versionedparcelable-1.1.1.pom",
+      "files": [
+        {
+          "name": "clarification (Apache-2.0)",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31846481de7ea17d92f2f46fad76abe58b2e9bb0/text/Apache-2.0.txt",
+          "hash": "953aea9a48c4765e0f3817561fe790623f226c8f7308d51dac57c40e67a4784f"
+        }
+      ]
+    },
+    "androidx.viewpager2:viewpager2:1.0.0": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/viewpager2/viewpager2/1.0.0/viewpager2-1.0.0.pom",
+      "files": [
+        {
+          "name": "clarification (Apache-2.0)",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31846481de7ea17d92f2f46fad76abe58b2e9bb0/text/Apache-2.0.txt",
+          "hash": "96d2d641e51c0a85f4e2eff7d121150d3fc0de1ab94498e20a2101f44bb6f5aa"
+        }
+      ]
+    },
+    "androidx.viewpager:viewpager:1.0.0": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/viewpager/viewpager/1.0.0/viewpager-1.0.0.pom",
+      "files": [
+        {
+          "name": "clarification (Apache-2.0)",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31846481de7ea17d92f2f46fad76abe58b2e9bb0/text/Apache-2.0.txt",
+          "hash": "612c03518e0cdd4359266b53639ab4d4d7a4cd85f81531cb6ab7b6f3745ab554"
+        }
+      ]
+    },
+    "androidx.webkit:webkit:1.14.0": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/androidx/webkit/webkit/1.14.0/webkit-1.14.0.pom",
+      "files": [
+        {
+          "name": "META-INF/androidx/webkit/webkit/LICENSE.txt",
+          "source": "https://dl.google.com/dl/android/maven2/androidx/webkit/webkit/1.14.0/webkit-1.14.0.aar!/META-INF/androidx/webkit/webkit/LICENSE.txt",
+          "hash": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+        }
+      ]
+    },
+    "com.fasterxml.jackson.core:jackson-annotations:2.15.3": {
+      "metadata": "https://repo.maven.apache.org/maven2/com/fasterxml/jackson/core/jackson-annotations/2.15.3/jackson-annotations-2.15.3.pom",
+      "files": [
+        {
+          "name": "META-INF/LICENSE",
+          "source": "https://repo.maven.apache.org/maven2/com/fasterxml/jackson/core/jackson-annotations/2.15.3/jackson-annotations-2.15.3.jar!/META-INF/LICENSE",
+          "hash": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+        },
+        {
+          "name": "META-INF/NOTICE",
+          "source": "https://repo.maven.apache.org/maven2/com/fasterxml/jackson/core/jackson-annotations/2.15.3/jackson-annotations-2.15.3.jar!/META-INF/NOTICE",
+          "hash": "612b14bc77c944ce229cbba0d14919162cfea8ed802cbf06a8e865e032d03201"
+        }
+      ]
+    },
+    "com.fasterxml.jackson.core:jackson-core:2.15.3": {
+      "metadata": "https://repo.maven.apache.org/maven2/com/fasterxml/jackson/core/jackson-core/2.15.3/jackson-core-2.15.3.pom",
+      "files": [
+        {
+          "name": "META-INF/LICENSE",
+          "source": "https://repo.maven.apache.org/maven2/com/fasterxml/jackson/core/jackson-core/2.15.3/jackson-core-2.15.3.jar!/META-INF/LICENSE",
+          "hash": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+        },
+        {
+          "name": "META-INF/NOTICE",
+          "source": "https://repo.maven.apache.org/maven2/com/fasterxml/jackson/core/jackson-core/2.15.3/jackson-core-2.15.3.jar!/META-INF/NOTICE",
+          "hash": "0a0042db627fe915c6a1d9ef74927af5081446063e8888494be6718d692dd2b8"
+        }
+      ]
+    },
+    "com.fasterxml.jackson.core:jackson-databind:2.15.3": {
+      "metadata": "https://repo.maven.apache.org/maven2/com/fasterxml/jackson/core/jackson-databind/2.15.3/jackson-databind-2.15.3.pom",
+      "files": [
+        {
+          "name": "META-INF/LICENSE",
+          "source": "https://repo.maven.apache.org/maven2/com/fasterxml/jackson/core/jackson-databind/2.15.3/jackson-databind-2.15.3.jar!/META-INF/LICENSE",
+          "hash": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+        },
+        {
+          "name": "META-INF/NOTICE",
+          "source": "https://repo.maven.apache.org/maven2/com/fasterxml/jackson/core/jackson-databind/2.15.3/jackson-databind-2.15.3.jar!/META-INF/NOTICE",
+          "hash": "612b14bc77c944ce229cbba0d14919162cfea8ed802cbf06a8e865e032d03201"
+        }
+      ]
+    },
+    "com.fasterxml.jackson.datatype:jackson-datatype-json-org:2.15.3": {
+      "metadata": "https://repo.maven.apache.org/maven2/com/fasterxml/jackson/datatype/jackson-datatype-json-org/2.15.3/jackson-datatype-json-org-2.15.3.pom",
+      "files": [
+        {
+          "name": "META-INF/LICENSE",
+          "source": "https://repo.maven.apache.org/maven2/com/fasterxml/jackson/datatype/jackson-datatype-json-org/2.15.3/jackson-datatype-json-org-2.15.3.jar!/META-INF/LICENSE",
+          "hash": "713eb53860bd112655daa3c7fec7fc30a840541972a7d0b2d525d8391e00eb38"
+        },
+        {
+          "name": "META-INF/NOTICE",
+          "source": "https://repo.maven.apache.org/maven2/com/fasterxml/jackson/datatype/jackson-datatype-json-org/2.15.3/jackson-datatype-json-org-2.15.3.jar!/META-INF/NOTICE",
+          "hash": "7347397a0665f6898b32894a1869a514251abef7da7620902b0e57c5026cf1ed"
+        }
+      ]
+    },
+    "com.google.android.material:material:1.13.0": {
+      "author": "The Android Open Source Project",
+      "metadata": "https://dl.google.com/dl/android/maven2/com/google/android/material/material/1.13.0/material-1.13.0.pom",
+      "files": [
+        {
+          "name": "LICENSE",
+          "source": "https://raw.githubusercontent.com/material-components/material-components-android/66b0eeb53afeb6025ffbbd37734b08e5bce197ed/LICENSE",
+          "hash": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+        }
+      ]
+    },
+    "com.google.errorprone:error_prone_annotations:2.15.0": {
+      "metadata": "https://repo.maven.apache.org/maven2/com/google/errorprone/error_prone_annotations/2.15.0/error_prone_annotations-2.15.0.pom",
+      "files": [
+        {
+          "name": "COPYING",
+          "source": "https://raw.githubusercontent.com/google/error-prone/e188bc5ce81975299588346248e6616f340443eb/COPYING",
+          "hash": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+        }
+      ]
+    },
+    "com.google.guava:listenablefuture:1.0": {
+      "metadata": "https://repo.maven.apache.org/maven2/com/google/guava/listenablefuture/1.0/listenablefuture-1.0.pom",
+      "files": [
+        {
+          "name": "LICENSE",
+          "source": "https://raw.githubusercontent.com/google/guava/e98ea2340f6acc94ed9e2cca08976ccae68c3412/LICENSE",
+          "hash": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+        }
+      ]
+    },
+    "com.google.zxing:core:3.4.1": {
+      "metadata": "https://repo.maven.apache.org/maven2/com/google/zxing/core/3.4.1/core-3.4.1.pom",
+      "files": [
+        {
+          "name": "LICENSE",
+          "source": "https://raw.githubusercontent.com/zxing/zxing/56b8a9a7b53392097891463023a26c406b422225/LICENSE",
+          "hash": "3f62881f0566227a24b12e5a754cc79f39aaa94883038e95c94812e1f50af42f"
+        },
+        {
+          "name": "NOTICE",
+          "source": "https://raw.githubusercontent.com/zxing/zxing/56b8a9a7b53392097891463023a26c406b422225/NOTICE",
+          "hash": "4db4b60aace29ec6c5c4f13ca9cac1930d3c0c54bcc67dceead0c10771120e66"
+        }
+      ]
+    },
+    "com.journeyapps:zxing-android-embedded:4.3.0": {
+      "author": "Ralf Kistner",
+      "metadata": "https://repo.maven.apache.org/maven2/com/journeyapps/zxing-android-embedded/4.3.0/zxing-android-embedded-4.3.0.pom",
+      "files": [
+        {
+          "name": "COPYING",
+          "source": "https://raw.githubusercontent.com/journeyapps/zxing-android-embedded/d09b7c76c3124fbfbd096a65d60b1997f37ff90f/COPYING",
+          "hash": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+        }
+      ]
+    },
+    "org.jetbrains.kotlin:kotlin-stdlib:2.2.10": {
+      "author": "Kotlin Team",
+      "metadata": "https://repo.maven.apache.org/maven2/org/jetbrains/kotlin/kotlin-stdlib/2.2.10/kotlin-stdlib-2.2.10.pom",
+      "files": [
+        {
+          "name": "license/LICENSE.txt",
+          "source": "https://raw.githubusercontent.com/JetBrains/kotlin/4fcadcb8303f3752e173b1b4e3da60f80227a824/license/LICENSE.txt",
+          "hash": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+        },
+        {
+          "name": "license/COPYRIGHT.txt",
+          "source": "https://raw.githubusercontent.com/JetBrains/kotlin/4fcadcb8303f3752e173b1b4e3da60f80227a824/license/COPYRIGHT.txt",
+          "hash": "8f1a1700adb5490604c6094fb137bf73f6c28d3ee554b58f3ff8ef975a79672d"
+        },
+        {
+          "name": "license/NOTICE.txt",
+          "source": "https://raw.githubusercontent.com/JetBrains/kotlin/4fcadcb8303f3752e173b1b4e3da60f80227a824/license/NOTICE.txt",
+          "hash": "0b09a83d3ef7795c7dec65e815866597c066c53898f2852a76599b8f5552941a"
+        }
+      ]
+    },
+    "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0": {
+      "author": "JetBrains Team",
+      "metadata": "https://repo.maven.apache.org/maven2/org/jetbrains/kotlinx/kotlinx-coroutines-android/1.9.0/kotlinx-coroutines-android-1.9.0.pom",
+      "files": [
+        {
+          "name": "LICENSE.txt",
+          "source": "https://raw.githubusercontent.com/Kotlin/kotlinx.coroutines/7e0d1b3e9ca83652427ae00dda7d1673f058a743/LICENSE.txt",
+          "hash": "b1febe6399dffb10d19d35e7663ab16300c93cb0476a94115df1cc0097a8ffd8"
+        },
+        {
+          "name": "license/NOTICE.txt",
+          "source": "https://raw.githubusercontent.com/Kotlin/kotlinx.coroutines/7e0d1b3e9ca83652427ae00dda7d1673f058a743/license/NOTICE.txt",
+          "hash": "1ab6de67ef738bffae63f9aa6a8798a35e87341c83ea28d09c8dc8ca6993232a"
+        }
+      ]
+    },
+    "org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.9.0": {
+      "author": "JetBrains Team",
+      "metadata": "https://repo.maven.apache.org/maven2/org/jetbrains/kotlinx/kotlinx-coroutines-core-jvm/1.9.0/kotlinx-coroutines-core-jvm-1.9.0.pom",
+      "files": [
+        {
+          "name": "LICENSE.txt",
+          "source": "https://raw.githubusercontent.com/Kotlin/kotlinx.coroutines/7e0d1b3e9ca83652427ae00dda7d1673f058a743/LICENSE.txt",
+          "hash": "b1febe6399dffb10d19d35e7663ab16300c93cb0476a94115df1cc0097a8ffd8"
+        },
+        {
+          "name": "license/NOTICE.txt",
+          "source": "https://raw.githubusercontent.com/Kotlin/kotlinx.coroutines/7e0d1b3e9ca83652427ae00dda7d1673f058a743/license/NOTICE.txt",
+          "hash": "1ab6de67ef738bffae63f9aa6a8798a35e87341c83ea28d09c8dc8ca6993232a"
+        }
+      ]
+    },
+    "org.jetbrains.kotlinx:kotlinx-serialization-core-jvm:1.7.3": {
+      "author": "JetBrains Team",
+      "metadata": "https://repo.maven.apache.org/maven2/org/jetbrains/kotlinx/kotlinx-serialization-core-jvm/1.7.3/kotlinx-serialization-core-jvm-1.7.3.pom",
+      "files": [
+        {
+          "name": "LICENSE.txt",
+          "source": "https://raw.githubusercontent.com/Kotlin/kotlinx.serialization/6f6a2e66c3dbf4a34e86a030368ecb0f7a734d22/LICENSE.txt",
+          "hash": "c5accbbd8546e94c34aed24afe689a617627d18eed5a6c48277e48db57c23851"
+        },
+        {
+          "name": "license/LICENSE.txt",
+          "source": "https://raw.githubusercontent.com/Kotlin/kotlinx.serialization/6f6a2e66c3dbf4a34e86a030368ecb0f7a734d22/license/LICENSE.txt",
+          "hash": "0eec219eba99cd8da85c3c781732a515fba284c55e9531739f11762c80a754b4"
+        },
+        {
+          "name": "license/NOTICE.txt",
+          "source": "https://raw.githubusercontent.com/Kotlin/kotlinx.serialization/6f6a2e66c3dbf4a34e86a030368ecb0f7a734d22/license/NOTICE.txt",
+          "hash": "ec77bba5c852830abfdefcdefbf4a22577ff4df79ec323a898d5100ca1d6f8d6"
+        }
+      ]
+    },
+    "org.jetbrains:annotations:23.0.0": {
+      "author": "JetBrains Team",
+      "metadata": "https://repo.maven.apache.org/maven2/org/jetbrains/annotations/23.0.0/annotations-23.0.0.pom",
+      "files": [
+        {
+          "name": "LICENSE.txt",
+          "source": "https://raw.githubusercontent.com/JetBrains/java-annotations/b5c263d764f18f491d09d46ca88f192e951f0b3d/LICENSE.txt",
+          "hash": "8c1e966c7855fb54027bcaf6ebe7a43abe4785791e8cf9148c363761d493d097"
+        }
+      ]
+    },
+    "org.jspecify:jspecify:1.0.0": {
+      "author": "Kevin Bourrillion",
+      "metadata": "https://repo.maven.apache.org/maven2/org/jspecify/jspecify/1.0.0/jspecify-1.0.0.pom",
+      "files": [
+        {
+          "name": "LICENSE",
+          "source": "https://raw.githubusercontent.com/jspecify/jspecify/d4c88c7450e603afbf57727e664319699ace71d6/LICENSE",
+          "hash": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+        }
+      ]
+    }
+  }
+}

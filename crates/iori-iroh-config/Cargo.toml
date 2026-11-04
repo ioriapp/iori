@@ -1,0 +1,13 @@
+[package]
+license = "MIT"
+name = "iori-iroh-config"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+iroh.workspace = true
+
+[lints.clippy]
+allow_attributes = "deny"
+allow_attributes_without_reason = "deny"

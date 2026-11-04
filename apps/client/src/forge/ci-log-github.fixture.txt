@@ -1,0 +1,103 @@
+2026-10-22T03:51:47.4404296Z  [31m×[39m specs/playwright-trace.test.ts[2m > [22mplaywright tracing[2m > [22mvitest generates trace files when running with `on-all-retries`[33m 360008[2mms[22m[39m
+2026-10-22T03:51:47.4407735Z [31m   → Test timed out in 360000ms.
+2026-10-22T03:51:47.4408707Z If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".[39m
+2026-10-22T03:51:50.4365227Z  [31m×[39m specs/playwright-trace.test.ts[2m > [22mplaywright tracing[2m > [22mvitest generates trace files when running with `on-first-retries`[33m 2991[2mms[22m[39m
+2026-10-22T03:51:50.4366411Z [31m   → Snapshot `playwright tracing > vitest generates trace files when running with `on-first-retries` 2` mismatched[39m
+2026-10-22T03:51:54.6212455Z  [32m✓[39m specs/playwright-trace.test.ts[2m > [22mplaywright tracing[2m > [22mvitest generates trace files when running with `retain-on-failure`[33m 4304[2mms[22m[39m
+2026-10-22T03:52:05.8159006Z  [32m✓[39m specs/pointer.test.ts[2m > [22mpointer API works with UI enabled[33m 10974[2mms[22m[39m
+2026-10-22T03:52:08.2359119Z  [32m✓[39m specs/project-name-encoding.test.ts[2m > [22mruns tests correctly when project name contains special characters[33m 2211[2mms[22m[39m
+2026-10-22T03:52:09.3713603Z  [32m✓[39m specs/readiness.test.ts[2m > [22mprepare waits until the tester can receive browser channel events[33m 926[2mms[22m[39m
+2026-10-22T03:52:11.8084211Z  [32m✓[39m specs/readiness.test.ts[2m > [22mfails instead of hanging when the tester never becomes ready[33m 2437[2mms[22m[39m
+2026-10-22T03:52:14.1970990Z  [32m✓[39m specs/readiness.test.ts[2m > [22mfails instead of hanging when the tester stops responding to messages[33m 2389[2mms[22m[39m
+2026-10-22T03:52:16.8373776Z  [32m✓[39m specs/server-url.test.ts[2m > [22mserver-url http[33m 2437[2mms[22m[39m
+2026-10-22T03:52:19.1039770Z  [32m✓[39m specs/server-url.test.ts[2m > [22mserver-url https[33m 2266[2mms[22m[39m
+2026-10-22T03:52:23.6834653Z  [32m✓[39m specs/trace.test.ts[2m > [22mtrace view artifacts[33m 4344[2mms[22m[39m
+2026-10-22T03:52:24.7643476Z  [32m✓[39m specs/ui.test.ts[2m > [22mbrowser ui[2m > [22menabled in projects setup (#10993)[33m 878[2mms[22m[39m
+2026-10-22T03:52:25.6474973Z  [32m✓[39m specs/ui.test.ts[2m > [22mbrowser ui[2m > [22msplit-pane handle does not block iframe interactions (#11170)[33m 883[2mms[22m[39m
+2026-10-22T03:52:25.6509527Z 
+2026-10-22T03:52:25.6510157Z [31m⎯⎯⎯⎯⎯⎯⎯[39m[1m[41m Failed Tests 2 [49m[22m[31m⎯⎯⎯⎯⎯⎯⎯[39m
+2026-10-22T03:52:25.6510484Z 
+2026-10-22T03:52:25.6514224Z [41m[1m FAIL [22m[49m specs/playwright-trace.test.ts[2m > [22mplaywright tracing[2m > [22mvitest generates trace files when running with `on-all-retries`
+2026-10-22T03:52:25.6516602Z [31m[1mError[22m: Test timed out in 360000ms.
+2026-10-22T03:52:25.6517243Z If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".[39m
+2026-10-22T03:52:25.6518146Z [36m [2m❯[22m specs/playwright-trace.test.ts:[2m95:3[22m[39m
+2026-10-22T03:52:25.6551734Z     [90m 93|[39m   })
+2026-10-22T03:52:25.6551948Z 
+2026-10-22T03:52:25.6553096Z     [90m 94|[39m
+2026-10-22T03:52:25.6553598Z     [90m 95|[39m   test('vitest generates trace files when running with `on-all-retries…
+2026-10-22T03:52:25.6554054Z     [90m   |[39m   [31m^[39m
+2026-10-22T03:52:25.6554381Z     [90m 96|[39m     const { stderr } = await runBrowserTests({
+2026-10-22T03:52:25.6554803Z     [90m 97|[39m       root: './fixtures/trace-view',
+2026-10-22T03:52:25.6555000Z 
+2026-10-22T03:52:25.6555225Z [31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯[22m[39m
+2026-10-22T03:52:25.6555414Z 
+2026-10-22T03:52:25.6556060Z [41m[1m FAIL [22m[49m specs/playwright-trace.test.ts[2m > [22mplaywright tracing[2m > [22mvitest generates trace files when running with `on-first-retries`
+2026-10-22T03:52:25.6557037Z [31m[1mError[22m: Snapshot `playwright tracing > vitest generates trace files when running with `on-first-retries` 2` mismatched[39m
+2026-10-22T03:52:25.6557489Z 
+2026-10-22T03:52:25.6557572Z - Expected
+2026-10-22T03:52:25.6558065Z + Received
+2026-10-22T03:52:25.6558161Z 
+2026-10-22T03:52:25.6558246Z @@ -2,7 +2,8 @@
+2026-10-22T03:52:25.6558509Z     "chromium-repeated-retried-tests-0-1.trace.zip",
+2026-10-22T03:52:25.6558970Z     "chromium-retried-test-0-1.trace.zip",
+2026-10-22T03:52:25.6559277Z     "firefox-repeated-retried-tests-0-1.trace.zip",
+2026-10-22T03:52:25.6559628Z     "firefox-retried-test-0-1.trace.zip",
+2026-10-22T03:52:25.6559951Z     "webkit-repeated-retried-tests-0-1.trace.zip",
+2026-10-22T03:52:25.6560328Z +   "webkit-repeated-retried-tests-0-2.trace.zip",
+2026-10-22T03:52:25.6560621Z     "webkit-retried-test-0-1.trace.zip",
+2026-10-22T03:52:25.6561005Z [2m  Snapshots [22m [1m[31m2 failed[39m[22m
+2026-10-22T03:52:25.6561358Z   ]
+2026-10-22T03:52:25.6561446Z 
+2026-10-22T03:52:25.6561830Z [2m Test Files [22m [1m[31m1 failed[39m[22m[2m | [22m[1m[32m23 passed[39m[22m[90m (24)[39m
+2026-10-22T03:52:25.6562625Z [36m [2m❯[22m specs/playwright-trace.test.ts:[2m133:55[22m[39m
+2026-10-22T03:52:25.6563196Z [2m      Tests [22m [1m[31m2 failed[39m[22m[2m | [22m[1m[32m78 passed[39m[22m[90m (80)[39m
+2026-10-22T03:52:25.6563659Z     [90m131|[39m     expect(stderr).toBe('')
+2026-10-22T03:52:25.6563994Z [2m   Start at [22m 03:42:38
+2026-10-22T03:52:25.6564452Z     [90m132|[39m     expect(readdirSync(tracesFolder)).toEqual(['basic.test.ts'])
+2026-10-22T03:52:25.6565936Z     [90m133|[39m     expect(readdirSync(basicTestTracesFolder).sort()).toMatchInlineSna…
+2026-10-22T03:52:25.6566669Z     [90m   |[39m                                                       [31m^[39m
+2026-10-22T03:52:25.6568379Z     [90m134|[39m     [
+2026-10-22T03:52:25.6569033Z     [90m135|[39m       "chromium-repeated-retried-tests-0-1.trace.zip",
+2026-10-22T03:52:25.6569498Z 
+2026-10-22T03:52:25.6569894Z [31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯[22m[39m
+2026-10-22T03:52:25.6570209Z 
+2026-10-22T03:52:25.6573462Z [2m   Duration [22m 586.89s[2m (tests 99%, import 1%)[22m
+2026-10-22T03:52:25.6577159Z 
+2026-10-22T03:52:25.7280514Z [ELIFECYCLE] Command failed with exit code 1.
+2026-10-22T03:52:25.7685115Z [ELIFECYCLE] Command failed with exit code 1.
+2026-10-22T03:52:25.8063678Z [ELIFECYCLE] Command failed with exit code 1.
+2026-10-22T03:52:25.8360196Z ##[error]Process completed with exit code 1.
+2026-10-22T03:52:25.8460914Z Post job cleanup.
+2026-10-22T03:52:25.8464224Z ##[start-action display=Cache Playwright v1.64.1;id=__03c1d0b6-0b33-45bb-a17b-9d0b6062cbdf.playwright-cache]
+2026-10-22T03:52:25.8465469Z ##[end-action id=__03c1d0b6-0b33-45bb-a17b-9d0b6062cbdf.playwright-cache;outcome=skipped;conclusion=skipped;duration_ms=0]
+2026-10-22T03:52:25.8490567Z Post job cleanup.
+2026-10-22T03:52:25.8493203Z ##[start-action display=Set node version to 24;id=__b5472e82-9fcb-43ae-bc6f-256b853a6c5b.__actions_setup-node]
+2026-10-22T03:52:25.8494455Z ##[end-action id=__b5472e82-9fcb-43ae-bc6f-256b853a6c5b.__actions_setup-node;outcome=skipped;conclusion=skipped;duration_ms=0]
+2026-10-22T03:52:25.8495486Z ##[start-action display=Install pnpm;id=__b5472e82-9fcb-43ae-bc6f-256b853a6c5b.__pnpm_action-setup]
+2026-10-22T03:52:25.8515427Z Post job cleanup.
+2026-10-22T03:52:25.8518786Z ##[command]/usr/bin/docker exec  87c497057e72599847a85c7554c1ef95df5e69d3d87b06f17adc3e4527d863ec sh -c "cat /etc/*release | grep ^ID"
+2026-10-22T03:52:26.0085090Z Pruning is unnecessary.
+2026-10-22T03:52:26.0200839Z ##[end-action id=__b5472e82-9fcb-43ae-bc6f-256b853a6c5b.__pnpm_action-setup;outcome=success;conclusion=success;duration_ms=170]
+2026-10-22T03:52:26.0245954Z Post job cleanup.
+2026-10-22T03:52:26.0250654Z ##[command]/usr/bin/docker exec  87c497057e72599847a85c7554c1ef95df5e69d3d87b06f17adc3e4527d863ec sh -c "cat /etc/*release | grep ^ID"
+2026-10-22T03:52:26.1567902Z [command]/usr/bin/git version
+2026-10-22T03:52:26.1598831Z git version 2.39.5
+2026-10-22T03:52:26.1621762Z Temporarily overriding HOME='/__w/_temp/95e04844-6f91-46b7-bdb0-0daa44e0f898' before making global git config changes
+2026-10-22T03:52:26.1622633Z Adding repository directory to the temporary git global config as a safe directory
+2026-10-22T03:52:26.1624172Z [command]/usr/bin/git config --global --add safe.directory /__w/vitest/vitest
+2026-10-22T03:52:26.1646157Z Removing SSH command configuration
+2026-10-22T03:52:26.1649133Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-10-22T03:52:26.1674048Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-10-22T03:52:26.1838113Z Removing HTTP extra header
+2026-10-22T03:52:26.1840119Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-22T03:52:26.1863495Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-10-22T03:52:26.2022499Z Removing includeIf entries pointing to credentials config files
+2026-10-22T03:52:26.2026084Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-10-22T03:52:26.2046983Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-10-22T03:52:26.2321661Z Stop and remove container: 76f89ecdf03d4fa1a0c1e073b02322ed_ghcriovitestdevvitestplaywrightdeps16417edfbd9622e0_8706fa
+2026-10-22T03:52:26.2325306Z ##[command]/usr/bin/docker rm --force 87c497057e72599847a85c7554c1ef95df5e69d3d87b06f17adc3e4527d863ec
+2026-10-22T03:52:26.3836535Z 87c497057e72599847a85c7554c1ef95df5e69d3d87b06f17adc3e4527d863ec
+2026-10-22T03:52:26.3861224Z Remove container network: github_network_9ef8f1132f374ad99d8525dc90756b2c
+2026-10-22T03:52:26.3864117Z ##[command]/usr/bin/docker network rm github_network_9ef8f1132f374ad99d8525dc90756b2c
+2026-10-22T03:52:26.4691652Z github_network_9ef8f1132f374ad99d8525dc90756b2c
+2026-10-22T03:52:26.4753914Z Cleaning up orphan processes

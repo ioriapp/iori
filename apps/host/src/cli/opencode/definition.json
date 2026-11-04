@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "id": "opencode",
+  "name": "OpenCode",
+  "command": "opencode",
+  "icon": { "light": "opencode-light.svg", "dark": "opencode-dark.svg" },
+  "version": { "args": ["--version"] },
+  "launch": {
+    "permissions": { "Auto-approve permissions": ["--auto"] },
+    "model": ["--model", "{model}"],
+    "initialPrompt": { "mode": "argument", "args": ["--prompt", "{prompt}"] },
+    "managedArguments": [
+      { "names": ["--model", "-m"] },
+      { "names": ["--auto"], "arity": "none" },
+      { "names": ["--prompt"] }
+    ]
+  },
+  "resume": { "args": ["--session", "{sessionId}"] }
+}

@@ -1,0 +1,366 @@
+/* AIエージェントの画面のCLIの定義（見本v15）。CLIの行と同時実行の上限は
+   team-editor.css の今の形を使い、ここは定義・対応状況・追加の部分だけを持つ。 */
+.team-agents-page code {
+  font-family: var(--font-mono);
+}
+.team-agent-list .team-agent-name.cli-def-title,
+.cli-def-title > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.team-agents-page .team-agent-list .team-agent-toggle {
+  grid-template-columns: auto auto minmax(0, max-content) auto;
+}
+.team-agents-page .team-agent-list .cli-def-mark {
+  grid-area: 1 / 4;
+}
+/* 「ユーザーの定義」の印（見本v15）: 細い枠の小さな印。名前の行より低く、印の有無で
+   行の高さを変えない。背景を持たず、行の hover・open の背景と重ならない。 */
+.cli-def-mark {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  font-weight: 400;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+/* アイコンは同じ幅の枠に入れ、全ての行の名前の始まりをそろえる。 */
+.cli-def-icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+}
+/* 狭い一覧では名前に1行を使い、印と版を次の行へ置く。 */
+@container team-agent-list (max-width: 480px) {
+  .team-agents-page .team-agent-list .team-agent-toggle {
+    grid-template-columns: auto auto minmax(0, 1fr) auto;
+  }
+  .team-agents-page .team-agent-list .team-agent-name {
+    grid-area: 1 / 3 / 2 / -1;
+  }
+  .team-agents-page .team-agent-list .cli-def-mark {
+    grid-area: 2 / 3;
+    justify-self: start;
+  }
+  .team-agents-page .team-agent-list .team-agent-copy > .team-usage {
+    grid-area: 3 / 3 / 4 / -1;
+  }
+}
+.cli-def-missing {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+
+/* 開いた詳細の行は、AgentSettings の行と同じく名前の位置にそろえ、
+   細い線で区切る。 */
+.cli-def-detail > *,
+.cli-def-editor > * {
+  margin: 0;
+  padding: 12px 16px 12px 42px;
+  border-top: 1px solid color-mix(in oklch, var(--border) 55%, transparent);
+}
+.cli-def-detail > .cli-def-editor {
+  padding: 0;
+}
+.cli-def-editor > :first-child {
+  border-top: 0;
+}
+.cli-def-label {
+  font-size: 14px;
+  font-weight: 500;
+}
+.cli-def-actions .field-control {
+  flex-wrap: wrap;
+}
+@media (max-width: 767px) {
+  .team-agents-page .team-agent-settings > *,
+  .cli-def-detail > *,
+  .cli-def-editor > * {
+    padding-left: 16px;
+  }
+  .cli-def-detail > .cli-def-editor {
+    padding: 0;
+  }
+}
+
+/* 対応状況: 機能を列にした横向きの表。狭い幅では3列ずつ2段に折り返し、
+   横にスクロールさせない。利用可能のほかは補助文字の色。 */
+.cli-def-feature-tables {
+  display: flex;
+  flex-wrap: wrap;
+  row-gap: 8px;
+  margin-top: 4px;
+}
+.cli-def-feature-tables > [data-slot="table-container"] {
+  flex: 1 1 260px;
+  width: auto;
+  min-width: 0;
+  overflow: visible;
+}
+.cli-def-feature-tables table {
+  table-layout: fixed;
+  font-size: 0.86rem;
+}
+.cli-def-feature-tables th,
+.cli-def-feature-tables td {
+  height: auto;
+  padding: 6px 12px 6px 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.cli-def-feature-tables td:not([data-support="available"]) {
+  color: var(--muted-foreground);
+}
+.cli-def-feature-tables tr:hover {
+  background: transparent;
+}
+.cli-def-howto {
+  margin: 8px 0 0 -8px;
+  color: var(--muted-foreground);
+  font-weight: 400;
+}
+.cli-def-howto:hover {
+  color: var(--foreground);
+}
+
+/* 読み込みに失敗した定義: 赤は印だけにし、失敗と理由は前景色の2行。 */
+.team-agent-list .section-body > .cli-def-failed {
+  padding: 0;
+}
+/* 列の幅と間は CLI の行（シェブロン 1rem・アイコンの枠・名前、間 8px）と同じ。 */
+.cli-def-failed-head {
+  display: grid;
+  grid-template-columns: 1rem 18px minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--space-2);
+  row-gap: 8px;
+  padding: 12px 16px;
+}
+.cli-def-failed-icon {
+  grid-column: 2;
+  color: var(--destructive);
+}
+.cli-def-failed-copy {
+  grid-column: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.cli-def-failed-actions {
+  grid-column: 4;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+.cli-def-reason {
+  font-size: 0.86rem;
+  color: var(--foreground);
+  overflow-wrap: anywhere;
+}
+@media (max-width: 767px) {
+  .cli-def-failed-actions {
+    grid-column: 1 / -1;
+  }
+}
+
+/* 定義の編集と追加。説明・理由は欄の下に置き、JSON の欄は決まった高さの
+   中でスクロールする。長い行は折り返さず、欄の中だけで横にスクロールする。 */
+.cli-def-editor .field-stacked .field-control,
+.cli-def-add .field-stacked .field-control,
+.cli-def-file-row {
+  flex-direction: column;
+  align-items: stretch;
+}
+.cli-def-file-row {
+  display: flex;
+  gap: 8px;
+}
+.field-stacked .field-control > input.cli-def-name-input {
+  max-width: 320px;
+}
+.field-stacked .field-control > textarea.cli-def-json {
+  min-height: calc(8lh + 16px);
+  max-height: calc(18lh + 16px);
+  overflow: auto;
+  field-sizing: fixed;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.cli-def-models {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cli-def-model-source[data-slot="select-trigger"] {
+  width: 200px;
+  max-width: 100%;
+}
+.cli-def-help {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.86rem;
+}
+.cli-def-file {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.cli-def-file-name {
+  font-size: 0.86rem;
+  overflow-wrap: anywhere;
+}
+.cli-def-error {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 6px;
+  color: var(--foreground);
+  font-size: 0.86rem;
+  overflow-wrap: anywhere;
+}
+.cli-def-error > svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--destructive);
+}
+.cli-def-foot-message {
+  color: var(--foreground);
+  font-size: 0.875rem;
+  line-height: 1.55;
+}
+/* 下端は理由とボタンのまとまりの2つだけを2列に置き、ボタンは右に横並び。 */
+.cli-def-foot-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+.section-body > .cli-def-add {
+  padding: 0;
+}
+.cli-def-add > * {
+  padding: 12px 16px;
+}
+.cli-def-add > * + * {
+  border-top: 1px solid color-mix(in oklch, var(--border) 55%, transparent);
+}
+.cli-def-modes {
+  flex-wrap: wrap;
+}
+.cli-def-modes [data-slot="toggle-group-item"] {
+  font-size: 0.86rem;
+  padding: 5px 12px;
+  height: 30px;
+}
+@media (max-width: 767px) {
+  .cli-def-mode-row > .field-control,
+  .cli-def-modes {
+    width: 100%;
+  }
+  .cli-def-modes [data-slot="toggle-group-item"] {
+    flex: 1 1 auto;
+  }
+}
+
+/* 確認: 項目は名前の下に中身を置く。 */
+/* 狭い幅では共通のダイアログと同じく左右に 1rem ずつ空ける。 */
+.cli-def-confirm[data-slot="dialog-content"] {
+  max-width: min(520px, calc(100% - 2rem));
+}
+.cli-def-confirm-list {
+  display: grid;
+  gap: 14px;
+  margin: 0;
+  font-size: 0.86rem;
+}
+.cli-def-confirm-list dt {
+  color: var(--muted-foreground);
+}
+.cli-def-confirm-list dd {
+  margin: 4px 0 0;
+  display: grid;
+  gap: 4px;
+  color: var(--foreground);
+  overflow-wrap: anywhere;
+}
+.cli-def-confirm-list code {
+  font-size: 0.86rem;
+}
+.cli-def-command {
+  display: grid;
+  grid-template-columns: 7em minmax(0, 1fr);
+  gap: 8px;
+}
+.cli-def-command > span {
+  color: var(--muted-foreground);
+}
+
+/* 狭い幅の下端は、今の設定の下端（連携の site-form-actions）と同じく、理由をボタンの
+   上の行に左揃えで出し、名前の欄は他の欄と同じく面の幅いっぱいにする。 */
+@media (max-width: 767px) {
+  .cli-def-foot {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .cli-def-foot-message {
+    height: auto;
+    justify-content: flex-start;
+    text-align: left;
+  }
+  .cli-def-foot-message:empty {
+    display: none;
+  }
+  .cli-def-foot-buttons {
+    justify-self: end;
+  }
+  .field-stacked .field-control > input.cli-def-name-input {
+    max-width: 100%;
+  }
+}
+
+/* The image picker shares the existing settings row and wraps on a phone. */
+.cli-def-icon-row .field-control {
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.cli-def-image-picker {
+  display: flex;
+  align-items: center;
+}
+.cli-def-icon-row .cli-def-error {
+  flex-basis: 100%;
+}
+
+.cli-def-selected-files {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 4px;
+}
+.cli-def-selected-files li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.cli-def-selected-files code {
+  min-width: 0;
+}
+.cli-def-selected-files button {
+  flex: none;
+}
+
+.cli-def-add-open {
+  display: flex;
+  justify-content: flex-end;
+}

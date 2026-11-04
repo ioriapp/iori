@@ -1,0 +1,108 @@
+.worktree-create-dialog {
+  max-height: calc(100dvh - 24px);
+  overflow-y: auto;
+}
+.worktree-create-dialog [data-slot="dialog-header"] {
+  padding-right: 28px;
+}
+.worktree-create-dialog [data-slot="dialog-description"] {
+  overflow-wrap: anywhere;
+}
+.worktree-create-field {
+  display: grid;
+  gap: 8px;
+}
+.worktree-create-field [data-slot="select-trigger"] {
+  width: 100%;
+}
+.worktree-create-field textarea {
+  min-height: 84px;
+}
+.worktree-create-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+.worktree-create-dialog [data-slot="dialog-footer"] {
+  flex-wrap: wrap;
+}
+/* The line that names what is deleted is body text, not a hint. */
+.worktree-removal-summary,
+.worktree-removal-loss {
+  color: var(--popover-foreground);
+}
+/* Sections sit 32px apart and line up with the title and their own surface. */
+.worktree-removal-body {
+  display: flex;
+  flex: 1 1 0%;
+  min-height: 0;
+  margin-inline: -16px;
+  padding-inline: 16px;
+}
+.worktree-create-dialog .section-heading {
+  padding-inline: 0;
+}
+/* A scrolling confirmation shows where it is: the app's gray bar stays in
+   view, and the rows keep clear of it. */
+.worktree-removal-scroll {
+  width: 100%;
+  min-height: 0;
+}
+.worktree-removal-scroll [data-slot="scroll-area-viewport"] > div {
+  display: block !important;
+  min-width: 0 !important;
+  padding-right: 10px;
+}
+.worktree-removal-scroll [data-slot="scroll-area-viewport"] > div > * + * {
+  margin-top: 16px;
+}
+.worktree-removal-scroll .layout-section + .layout-section {
+  margin-top: 32px;
+}
+.worktree-removal-heading,
+.worktree-removal-warning-heading {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+.worktree-removal-warning-heading > svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: var(--destructive);
+}
+.worktree-removal-name {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.worktree-removal-fitted-name {
+  display: block;
+  width: 100%;
+}
+.worktree-removal-select {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: default;
+}
+.worktree-removal-select > .worktree-removal-name {
+  flex: 1;
+}
+.worktree-removal-branch-toggle {
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 400;
+  cursor: default;
+}
+/* A long name ends with an ellipsis inside the row, not outside it. */
+.worktree-create-dialog .field-copy {
+  min-width: 0;
+}

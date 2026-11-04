@@ -1,0 +1,18 @@
+{
+  "productName": "iori Reading Test",
+  "identifier": "io.github.ioriapp.iori.readingtest",
+  "app": {
+    "withGlobalTauri": true,
+    "security": {
+      "capabilities": [
+        "window-chrome",
+        {
+          "identifier": "reading-verification",
+          "windows": ["main"],
+          "permissions": ["core:default", "clipboard-manager:allow-read-text"]
+        }
+      ]
+    }
+  },
+  "bundle": { "android": { "debugApplicationIdSuffix": ".debug" } }
+}

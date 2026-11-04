@@ -1,0 +1,45 @@
+{
+  "version": "Forgejo 16.0.5+gitea-1.22.0 (codeberg.org/forgejo/forgejo:16.0.5)",
+  "cases": [
+    {
+      "name": "private-repository-without-token",
+      "source": "GET /api/v1/repos/iori-owner/private-repo (Authorizationなし)",
+      "status": 404,
+      "message": "",
+      "withToken": false,
+      "expected": { "reason": "token-missing" }
+    },
+    {
+      "name": "missing-repository-with-token",
+      "source": "GET /api/v1/repos/iori-owner/missing (read:repository,read:issue,read:user)",
+      "status": 404,
+      "message": "",
+      "withToken": true,
+      "expected": { "reason": "not-found" }
+    },
+    {
+      "name": "token-not-issued-by-the-site",
+      "source": "GET /api/v1/user (サイトが発行していない40桁の16進)",
+      "status": 401,
+      "message": "",
+      "withToken": true,
+      "expected": { "reason": "token-invalid" }
+    },
+    {
+      "name": "token-without-read-issue",
+      "source": "GET /api/v1/repos/iori-owner/private-repo/issues?state=open (read:repositoryだけ)",
+      "status": 403,
+      "message": "token does not have at least one of required scope(s): [read:issue]",
+      "withToken": true,
+      "expected": { "reason": "insufficient-scope", "scope": "read:issue" }
+    },
+    {
+      "name": "token-without-read-user",
+      "source": "GET /api/v1/user (read:repository,read:issue)",
+      "status": 403,
+      "message": "token does not have at least one of required scope(s): [read:user]",
+      "withToken": true,
+      "expected": { "reason": "insufficient-scope", "scope": "read:user" }
+    }
+  ]
+}

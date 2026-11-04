@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <exclude domain="sharedpref" path="iori_identity.xml" />
+    <exclude domain="root" path="registrations.sqlite3" />
+    <exclude domain="root" path="registrations.sqlite3-journal" />
+    <exclude domain="root" path="registrations.sqlite3-wal" />
+    <exclude domain="root" path="registrations.sqlite3-shm" />
+</full-backup-content>

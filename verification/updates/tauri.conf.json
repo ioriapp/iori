@@ -1,0 +1,9 @@
+{
+  "productName": "iori Update Test",
+  "identifier": "io.github.ioriapp.iori.updatetest",
+  "app": { "withGlobalTauri": true },
+  "plugins": {
+    "deep-link": { "desktop": { "schemes": ["iori-update-test"] } }
+  },
+  "bundle": { "android": { "debugApplicationIdSuffix": ".debug" } }
+}

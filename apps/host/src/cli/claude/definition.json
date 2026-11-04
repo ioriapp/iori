@@ -1,0 +1,43 @@
+{
+  "schema": 1,
+  "id": "claude",
+  "name": "Claude Code",
+  "command": "claude",
+  "icon": { "light": "claude.svg" },
+  "version": { "args": ["--version"] },
+  "launch": {
+    "model": ["--model", "{model}"],
+    "effort": ["--effort", "{effort}"],
+    "permissions": {
+      "default": ["--permission-mode", "default"],
+      "acceptEdits": ["--permission-mode", "acceptEdits"],
+      "auto": ["--permission-mode", "auto"],
+      "plan": ["--permission-mode", "plan"],
+      "bypassPermissions": ["--permission-mode", "bypassPermissions"],
+      "dontAsk": ["--permission-mode", "dontAsk"]
+    },
+    "instructionFile": ["--append-system-prompt-file", "{instructionFile}"],
+    "directories": ["--add-dir", "{directory}"],
+    "initialPrompt": { "mode": "argument", "args": ["--", "{prompt}"] },
+    "managedArguments": [
+      { "names": ["--model"] },
+      { "names": ["--effort"] },
+      {
+        "names": ["--permission-mode"],
+        "alsoRemove": [
+          {
+            "names": [
+              "--dangerously-skip-permissions",
+              "--allow-dangerously-skip-permissions"
+            ],
+            "arity": "none"
+          }
+        ]
+      },
+      { "names": ["--append-system-prompt-file"] },
+      { "names": ["--allowedTools", "--allowed-tools"], "arity": "many" },
+      { "names": ["--add-dir"], "arity": "many" }
+    ]
+  },
+  "resume": { "args": ["--resume", "{sessionId}"] }
+}

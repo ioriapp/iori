@@ -1,0 +1,32 @@
+{
+  "license": "MIT",
+  "name": "@iori/host",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/main.ts",
+    "check": "tsc --project tsconfig.json",
+    "invite": "node src/invite-cli.ts",
+    "start": "node src/main.ts",
+    "build:native": "pnpm --filter @iori/host-iroh-native --filter @iori/terminal-native build:release"
+  },
+  "dependencies": {
+    "@xterm/addon-serialize": "0.15.0-beta.300",
+    "@xterm/addon-unicode11": "0.10.0-beta.300",
+    "@xterm/headless": "6.1.0-beta.302",
+    "@iori/host-iroh-native": "workspace:*",
+    "@iori/protocol": "workspace:*",
+    "node-pty": "1.1.0",
+    "qrcode": "1.5.4",
+    "@iori/terminal-native": "workspace:*",
+    "@napi-rs/keyring": "2.1.0",
+    "@decimalturn/toml-patch": "3.3.0",
+    "@shikijs/engine-oniguruma": "4.5.0",
+    "shiki": "4.5.0",
+    "yaml": "2.9.1"
+  },
+  "devDependencies": {
+    "@types/qrcode": "1.5.6",
+    "@xterm/xterm": "6.1.0-beta.303"
+  }
+}

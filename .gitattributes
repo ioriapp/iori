@@ -1,0 +1,15 @@
+# Do not rewrite retained Stage W2 artifacts solely for whitespace after measurement.
+spikes/windows-host-conformance/** -text
+spikes/windows-agent-smoke/** -text
+spikes/windows-host-conformance/PLAN.md whitespace=-trailing-space
+spikes/windows-host-conformance/harness/lib/settings.mjs whitespace=-trailing-space
+spikes/windows-host-conformance/harness/synthetic-self-test.mjs whitespace=-trailing-space
+spikes/windows-host-conformance/evidence/attempt2-controller.json whitespace=-trailing-space
+spikes/windows-host-conformance/evidence/attempt2-setup.json whitespace=-trailing-space
+spikes/windows-host-conformance/evidence/attempt3-controller.json whitespace=-trailing-space
+spikes/windows-host-conformance/evidence/attempt3-setup.json whitespace=-trailing-space
+spikes/windows-host-conformance/evidence/redaction-scan.audit-repair2.json whitespace=-trailing-space
+*.sh text eol=lf
+# Unified patches retain a space on empty context lines; preserve upstream bytes.
+apps/client/patches/*.patch whitespace=-blank-at-eol
+apps/host/patches/*.patch whitespace=-blank-at-eol

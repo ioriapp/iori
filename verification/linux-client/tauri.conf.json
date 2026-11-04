@@ -1,0 +1,12 @@
+{
+  "productName": "iori Linux Verification",
+  "identifier": "io.github.ioriapp.iori.linuxverification",
+  "mainBinaryName": "iori-linux-verification",
+  "bundle": {
+    "linux": {
+      "deb": {
+        "depends": ["pkexec"]
+      }
+    }
+  }
+}

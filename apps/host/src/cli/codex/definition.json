@@ -1,0 +1,59 @@
+{
+  "schema": 1,
+  "id": "codex",
+  "name": "Codex",
+  "command": "codex",
+  "icon": { "light": "openai-black.svg", "dark": "openai-white.svg" },
+  "version": { "args": ["--version"] },
+  "launch": {
+    "model": ["--model", "{model}"],
+    "initialPrompt": { "mode": "argument", "args": ["{prompt}"] },
+    "managedArguments": [
+      { "names": ["--no-daemon"], "arity": "none" },
+      { "names": ["--model", "-m"] },
+      {
+        "names": ["-c", "--config"],
+        "keys": [
+          "model_reasoning_effort",
+          "developer_instructions",
+          "allow_login_shell"
+        ]
+      },
+      {
+        "names": ["-c", "--config"],
+        "keys": ["approval_policy"],
+        "alsoRemove": [
+          { "names": ["-a", "--ask-for-approval"] },
+          {
+            "names": [
+              "--dangerously-bypass-approvals-and-sandbox",
+              "--yolo",
+              "--approve-for-me"
+            ],
+            "arity": "none"
+          }
+        ]
+      },
+      {
+        "names": ["-c", "--config"],
+        "keys": ["sandbox_mode", "default_permissions", "permissions.*"],
+        "alsoRemove": [
+          {
+            "names": ["-c", "--config"],
+            "keys": ["sandbox_mode", "default_permissions", "permissions.*"]
+          },
+          { "names": ["-s", "--sandbox"] },
+          {
+            "names": [
+              "--dangerously-bypass-approvals-and-sandbox",
+              "--yolo",
+              "--approve-for-me"
+            ],
+            "arity": "none"
+          }
+        ]
+      }
+    ]
+  },
+  "resume": { "args": ["resume", "{sessionId}"] }
+}

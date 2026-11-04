@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-can-request-package-installs"
+description = "Enables the can_request_package_installs command without any pre-configured scope."
+commands.allow = ["can_request_package_installs"]
+
+[[permission]]
+identifier = "deny-can-request-package-installs"
+description = "Denies the can_request_package_installs command without any pre-configured scope."
+commands.deny = ["can_request_package_installs"]

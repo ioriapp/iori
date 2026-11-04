@@ -1,0 +1,57 @@
+2026-10-19T07:27:57.8769675Z     ✔ const View = () => <span>unknown</span>; (8.967438ms)
+2026-10-19T07:27:57.8769760Z     ✔ const View = () => <span>{'unknown'}</span>; (6.379677ms)
+2026-10-19T07:27:57.8769830Z     ✔ const View = () => <span>{value ?? "未確認"}</span>; (4.500601ms)
+2026-10-19T07:27:57.8769894Z     ✔ const View = () => <input placeholder="N/A" />; (9.400583ms)
+2026-10-19T07:27:57.8769962Z     ✔ const View = () => <input placeholder={value || "-"} />; (4.515298ms)
+2026-10-19T07:27:57.8770020Z     ✔ export const en = { connection: "未確認" }; (3.096247ms)
+2026-10-19T07:27:57.8770093Z     ✔ function statusLabel(s) { return s ?? "Unknown"; } (6.594862ms)
+2026-10-19T07:27:57.8770148Z     ✔ const fallback = "不明"; (3.554721ms)
+2026-10-19T07:27:57.8770201Z     ✔ const View = () => <span>{v ?? "–"}</span>; (4.182231ms)
+2026-10-19T07:27:57.8770265Z     ✔ const View = () => <Widget subtitle="N/A" />; (10.373003ms)
+2026-10-19T07:27:57.8770796Z     ✔ const View = () => <span aria-label="—">Waiting</span>; (4.233859ms)
+2026-10-19T07:27:57.8770983Z   ✔ invalid (67.353284ms)
+2026-10-19T07:27:57.8771032Z ✔ no-unknown-display (184.555716ms)
+2026-10-19T07:27:57.8771089Z ✔ Host rollback preserves data when stop is denied (551.135644ms)
+2026-10-19T07:27:57.8771230Z ✔ screen observation excludes unchanged rows after clear, separates streams, and joins wrapped lines (31.224918ms)
+2026-10-19T07:27:57.8771318Z ✔ screen observation replays alternate-screen snapshots and preserves parser state across clear (15.554915ms)
+2026-10-19T07:27:57.8771532Z ✔ an initial empty snapshot does not leave restoration pending when layout resizes (57.042968ms)
+2026-10-19T07:27:57.8771817Z ℹ tests 146
+2026-10-19T07:27:57.8771999Z ℹ suites 15
+2026-10-19T07:27:57.8772102Z ℹ pass 144
+2026-10-19T07:27:57.8772345Z ℹ fail 1
+2026-10-19T07:27:57.8772557Z ℹ cancelled 0
+2026-10-19T07:27:57.8773223Z ℹ skipped 1
+2026-10-19T07:27:57.8773311Z ℹ todo 0
+2026-10-19T07:27:57.8773403Z ℹ duration_ms 17924.119033
+2026-10-19T07:27:57.8773510Z 
+2026-10-19T07:27:57.8773580Z ✖ failing tests:
+2026-10-19T07:27:57.8773659Z 
+2026-10-19T07:27:57.8773745Z test at apps/host/src/terminal/runtime-shutdown.integration.test.ts:187:1
+2026-10-19T07:27:57.8773828Z ✖ failed team CLI restoration never leaves an unhandled screen rejection (749.248196ms)
+2026-10-19T07:27:57.8773903Z   Error: Terminal daemon connection closed
+2026-10-19T07:27:57.8773970Z       at Socket.<anonymous> (file:///work/apps/host/src/terminal/daemon/channel.ts:62:24)
+2026-10-19T07:27:57.8774042Z       at Socket.emit (node:events:514:28)
+2026-10-19T07:27:57.8774131Z       at Pipe.<anonymous> (node:net:362:12)
+2026-10-19T07:27:57.8774203Z [ELIFECYCLE] Test failed. See above for more details.
+2026-10-19T07:27:58.5468522Z {"exit":1,"totalSeconds":91,"imageSeconds":0,"copySeconds":1,"checkSeconds":89}
+2026-10-19T07:27:58.5473440Z CI evidence: /workspace/example/iori/.local/evidence/ci/run-maZwSN8Q
+2026-10-19T07:27:58.5760341Z ⚙️ [runner]: exitcode '1': failure
+2026-10-19T07:27:58.6053466Z ⭐ Run Post actions/checkout@v4
+2026-10-19T07:27:58.6229976Z   🐳  docker exec cmd=[node /var/run/act/actions/b1/d0d9aecb2633ba44ea4ffe06d5cf18cfa8e850015ec0eb3fdd57c30ee1e2d9/dist/index.js] user= workdir=
+2026-10-19T07:27:58.9156261Z [command]/usr/bin/git version
+2026-10-19T07:27:58.9243029Z git version 2.55.0
+2026-10-19T07:27:58.9282870Z   ⚙  ***
+2026-10-19T07:27:58.9319203Z Temporarily overriding HOME='/tmp/e37d5f06-8e06-459d-a3a0-a4d9e9b2c4a3' before making global git config changes
+2026-10-19T07:27:58.9321657Z Adding repository directory to the temporary git global config as a safe directory
+2026-10-19T07:27:58.9328576Z [command]/usr/bin/git config --global --add safe.directory /workspace/example/iori
+2026-10-19T07:27:58.9393098Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-10-19T07:27:58.9441630Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-10-19T07:27:58.9824347Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/forgejo\.example\.com\/\.extraheader
+2026-10-19T07:27:58.9855707Z http.https://forgejo.example.com/.extraheader
+2026-10-19T07:27:58.9872282Z [command]/usr/bin/git config --local --unset-all http.https://forgejo.example.com/.extraheader
+2026-10-19T07:27:58.9922721Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/forgejo\.example\.com\/\.extraheader' && git config --local --unset-all 'http.https://forgejo.example.com/.extraheader' || :"
+2026-10-19T07:27:59.0207318Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-10-19T07:27:59.0250002Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-10-19T07:27:59.0681941Z   ✅  Success - Post actions/checkout@v4
+2026-10-19T07:27:59.1065940Z 🏁  Job failed
+2026-10-19T07:27:59.4215748Z Job 'check' failed

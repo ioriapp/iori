@@ -1,0 +1,6 @@
+{
+  "default": "icon-1024.png",
+  "bg_color": "#26324B",
+  "android_fg": "glyph-transparent-1024.png",
+  "android_fg_scale": 100
+}

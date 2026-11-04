@@ -1,0 +1,15 @@
+{
+  "productName": "iori CLI Status Test",
+  "identifier": "io.github.ioriapp.iori.clistatustest",
+  "app": {
+    "withGlobalTauri": true
+  },
+  "plugins": {
+    "deep-link": { "desktop": { "schemes": ["iori-clistatustest"] } }
+  },
+  "bundle": {
+    "android": {
+      "debugApplicationIdSuffix": ".debug"
+    }
+  }
+}

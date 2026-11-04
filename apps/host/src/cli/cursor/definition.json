@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "id": "cursor",
+  "name": "Cursor CLI",
+  "command": "cursor-agent",
+  "icon": { "light": "cursor-light.png", "dark": "cursor-dark.png" },
+  "version": { "args": ["--version"] },
+  "launch": {
+    "model": ["--model", "{model}"],
+    "initialPrompt": { "mode": "argument", "args": ["{prompt}"] },
+    "managedArguments": [{ "names": ["--model"] }]
+  },
+  "resume": { "args": ["--resume", "{sessionId}"] }
+}

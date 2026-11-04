@@ -1,0 +1,166 @@
+/* Windows caption buttons use 46 × 32 logical pixels. Keep the existing
+   35px tab row; no extra title bar is added to the workspace. */
+:root {
+  --window-caption-height: 35px;
+}
+.has-window-chrome,
+body:has(.has-window-chrome) {
+  --window-controls-width: 138px;
+}
+.window-controls {
+  pointer-events: auto;
+  position: fixed;
+  top: 0;
+  right: 0;
+  height: 32px;
+  display: flex;
+  z-index: 100;
+  background: var(--sidebar);
+  color: var(--foreground);
+}
+.window-controls [data-slot="button"] {
+  width: 46px;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  cursor: default;
+  transform: none;
+}
+.window-controls [data-hover="true"],
+.window-controls [data-pressed="true"] {
+  background: var(--muted);
+}
+.dark .window-controls [data-hover="true"],
+.dark .window-controls [data-pressed="true"] {
+  background: color-mix(in oklab, var(--muted) 50%, transparent);
+}
+.window-controls .window-close:hover {
+  background: var(--destructive);
+  color: var(--primary-foreground);
+}
+.window-drag-strip {
+  position: fixed;
+  inset: 0 var(--window-controls-width) auto 0;
+  height: var(--window-caption-height);
+  background: var(--sidebar);
+}
+.has-window-chrome .workspace-app {
+  position: relative;
+}
+.has-window-chrome .dv-tabs-and-actions-container.window-caption-right {
+  padding-right: var(--window-controls-width);
+}
+.has-window-chrome
+  .workspace-main:not(:has(.workspace-content:not([hidden]) .iori-dock)) {
+  padding-top: var(--window-caption-height);
+}
+.has-window-chrome .onboarding-screen {
+  padding-top: var(--window-caption-height);
+}
+.has-window-chrome .workspace-main {
+  margin-top: 0;
+  margin-right: 0;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+.has-window-chrome .workspace-main .iori-dock {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+.window-workspace-drag-strip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: var(--window-controls-width);
+  height: var(--window-caption-height);
+  background: var(--sidebar);
+  z-index: 1;
+}
+.workspace-main:has(.workspace-content:not([hidden]) .iori-dock)
+  > .window-workspace-drag-strip,
+.workspace-main:has(.workspace-content:not([hidden]) .mobile-location)
+  > .window-workspace-drag-strip {
+  display: none;
+}
+.has-window-chrome
+  .workspace-main:has(.workspace-content:not([hidden]) .mobile-location) {
+  padding-top: 0;
+}
+.has-window-chrome .mobile-location {
+  padding-right: var(--window-controls-width);
+}
+.has-window-chrome .mobile-location .mobile-location-label {
+  flex: 0 1 auto;
+}
+.window-mobile-drag-region {
+  flex: 1 0 32px;
+  align-self: stretch;
+}
+
+/* Only modal backdrops turn the inactive top row into a caption. Radix
+   menus also disable body input; raising the strip then would cover the tabs. */
+body:has(
+    [data-slot="dialog-overlay"],
+    [data-slot="sheet-overlay"],
+    [data-slot="alert-dialog-overlay"]
+  )
+  .window-drag-strip {
+  z-index: 100;
+  pointer-events: auto;
+}
+body:has(.has-window-chrome) [data-slot="sheet-content"][data-side="left"],
+body:has(.has-window-chrome) [data-slot="sheet-content"][data-side="right"],
+body:has(.has-window-chrome) [data-slot="sidebar"][data-mobile="true"] {
+  top: var(--window-caption-height);
+  height: calc(100dvh - var(--window-caption-height));
+}
+/* Dialogs keep their margins inside the area below the caption. */
+body:has(.has-window-chrome) [data-slot="dialog-content"] {
+  top: calc(50% + var(--window-caption-height) / 2);
+  max-height: calc(100dvh - 2rem - var(--window-caption-height));
+}
+@media (max-width: 767px) {
+  body:has(.has-window-chrome) .dialog-full-screen[data-slot="dialog-content"] {
+    top: var(--window-caption-height);
+    height: calc(100dvh - var(--window-caption-height));
+    max-height: none;
+  }
+}
+
+.dark .window-controls .window-close:hover {
+  color: var(--foreground);
+}
+.has-window-chrome .app-settings-trigger {
+  top: calc(var(--window-caption-height) + 12px);
+}
+
+/* The sidebar's existing 8px top padding is also part of the caption row. */
+.window-sidebar-drag-strip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 8px;
+}
+
+/* The pane stays below the caption; its backdrop covers the whole window. */
+.has-window-chrome .iori-dock-maximized {
+  top: calc(50% + var(--window-caption-height) / 2) !important;
+  height: calc(100dvh - 32px - var(--window-caption-height)) !important;
+}
+.has-window-chrome
+  .workspace-dock-shell.has-maximized
+  .dv-render-overlay.iori-dock-maximized-overlay {
+  top: calc(
+    17px + var(--window-caption-height) +
+      var(--dv-tabs-and-actions-container-height)
+  ) !important;
+  height: calc(
+    100dvh - 34px - var(--window-caption-height) -
+      var(--dv-tabs-and-actions-container-height)
+  ) !important;
+}
+.has-window-chrome .workspace-maximize-close {
+  top: calc(8px + var(--window-caption-height));
+}

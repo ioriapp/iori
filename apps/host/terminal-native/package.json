@@ -1,0 +1,18 @@
+{
+  "name": "@iori/terminal-native",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "scripts": {
+    "build": "napi build --manifest-path ../../../Cargo.toml --package iori-terminal-native --package-json-path package.json --output-dir . --no-dts-header -- --locked && node build-command.mjs && pnpm exec prettier --write index.d.ts",
+    "build:release": "napi build --manifest-path ../../../Cargo.toml --package iori-terminal-native --package-json-path package.json --output-dir . --no-dts-header --release -- --locked && node build-command.mjs --release && pnpm exec prettier --write index.d.ts"
+  },
+  "napi": {
+    "binaryName": "iori_terminal_native"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "3.10.8"
+  }
+}

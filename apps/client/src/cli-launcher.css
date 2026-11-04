@@ -1,0 +1,187 @@
+.cli-launcher {
+  width: 280px;
+  max-width: 100%;
+  color: var(--foreground);
+}
+.cli-launcher-search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0;
+  margin-bottom: 8px;
+  color: var(--muted-foreground);
+}
+.cli-launcher-search input {
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  font-size: 13px;
+}
+.cli-launcher-section {
+  padding: 4px 0;
+}
+.cli-launcher-heading {
+  padding: 4px 10px 6px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  font-weight: 500;
+}
+.cli-launcher-options {
+  display: grid;
+  gap: 2px;
+}
+.cli-launcher-item {
+  justify-content: flex-start;
+  width: 100%;
+  height: 32px;
+  padding: 0 10px;
+  gap: 9px;
+  font-size: 13px;
+  font-weight: 400;
+}
+.cli-launcher-item svg {
+  flex-shrink: 0;
+}
+.cli-launcher-team {
+  min-width: 0;
+}
+.cli-launcher-team > .inline-flex {
+  min-width: 0;
+  width: 100%;
+}
+.cli-launcher-team-copy {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+  text-align: left;
+  line-height: 1.2;
+}
+.cli-launcher-team-name {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cli-launcher-team-hint {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cli-launcher-item.cli-launcher-team-unconfigured {
+  height: auto;
+  min-height: 40px;
+  padding-block: 4px;
+}
+.cli-launcher-item:hover,
+.cli-launcher-add:hover {
+  background: var(--accent);
+}
+.cli-launcher-shells {
+  margin-top: 6px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+.cli-launcher-large {
+  width: 640px;
+  max-width: 100%;
+}
+.cli-launcher-large .cli-launcher-search {
+  margin-bottom: 16px;
+  padding: 0;
+  height: 40px;
+  background: var(--muted);
+  border-radius: var(--radius);
+}
+.cli-launcher-large .cli-launcher-options {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.cli-launcher-large .cli-launcher-item {
+  height: 52px;
+  padding: 0 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: transparent;
+  font-size: 14px;
+  gap: 12px;
+}
+.cli-launcher-large .cli-launcher-item:hover {
+  background: var(--accent);
+}
+.cli-launcher-large .cli-launcher-team-unconfigured {
+  min-height: 52px;
+}
+.cli-launcher-large .cli-launcher-shells {
+  border-top: 0;
+  margin-top: 22px;
+  padding-top: 0;
+}
+.cli-launcher-large .cli-launcher-section {
+  padding: 0;
+}
+.cli-launcher-large .cli-launcher-section + .cli-launcher-section {
+  margin-top: 32px;
+}
+.cli-launcher-large .cli-launcher-heading {
+  padding: 0 0 8px;
+  font-size: 12px;
+}
+@media (max-width: 480px) {
+  .cli-launcher-large .cli-launcher-options {
+    grid-template-columns: 1fr;
+  }
+  .cli-launcher-large .cli-launcher-item {
+    height: 46px;
+  }
+  .cli-launcher-large .cli-launcher-team-unconfigured {
+    min-height: 46px;
+  }
+}
+/* Shell list states use the launcher's auxiliary tier. */
+.cli-launcher-empty,
+.cli-launcher-recovery {
+  margin: 0;
+  padding: 4px 10px;
+  color: var(--muted-foreground);
+  font-size: 13px;
+}
+.cli-launcher-recovery {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.cli-launcher-large .cli-launcher-empty,
+.cli-launcher-large .cli-launcher-recovery {
+  padding: 0;
+  font-size: 14px;
+}
+
+.cli-launcher-add {
+  justify-content: flex-start;
+  width: 100%;
+  height: 34px;
+  margin-top: 6px;
+  padding: 0 10px;
+  gap: 9px;
+  color: var(--muted-foreground);
+  font-size: 13px;
+  font-weight: 400;
+}
+.cli-launcher-large .cli-launcher-add {
+  margin-top: 18px;
+  width: auto;
+}
+
+[data-iori-view="shell-picker"] .cli-launcher {
+  width: 100%;
+}

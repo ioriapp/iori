@@ -1,0 +1,36 @@
+{
+  "schema": 1,
+  "id": "kiro",
+  "name": "Kiro CLI",
+  "command": { "shell": "kiro-cli chat" },
+  "icon": { "light": "kiro.svg" },
+  "version": { "args": ["--version"] },
+  "launch": {
+    "model": ["--model", "{model}"],
+    "effort": ["--effort", "{effort}"],
+    "permissions": { "trust-all-tools": ["--trust-all-tools"] },
+    "initialPrompt": { "mode": "argument", "args": ["{prompt}"] }
+  },
+  "resume": { "args": ["--resume-id", "{sessionId}"] },
+  "hooks": {
+    "file": "~/.kiro/hooks/iori.json",
+    "own": true,
+    "base": { "version": "v1" },
+    "format": "list",
+    "at": "hooks",
+    "entry": {
+      "name": "iori {event}",
+      "trigger": "{event}",
+      "action": { "type": "command", "command": "{command}" }
+    },
+    "sessionId": "session_id",
+    "rules": [
+      { "event": "SessionStart", "state": "idle" },
+      { "event": "UserPromptSubmit", "state": "active" },
+      { "event": "PreToolUse", "state": "active", "tool": "tool_name" },
+      { "event": "PostToolUse", "toolFinished": true },
+      { "event": "Stop", "state": "done" },
+      { "event": "SessionEnd", "state": "stopped" }
+    ]
+  }
+}

@@ -1,0 +1,2 @@
+https://registry.npmjs.org/%40xterm%2Fheadless/6.1.0-beta.302
+https://raw.githubusercontent.com/xtermjs/xterm.js/d3e32b344dfe7dd6015cff6a9aeaaeaeccdc2789/LICENSE

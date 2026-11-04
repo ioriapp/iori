@@ -1,0 +1,61 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "iori",
+  "version": "../../../release-version.json",
+  "identifier": "io.github.ioriapp.iori",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeDevCommand": "pnpm --filter @iori/client dev",
+    "beforeBuildCommand": "pnpm --filter @iori/client build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "iori",
+        "width": 1280,
+        "height": 860,
+        "center": true,
+        "resizable": true,
+        "dragDropEnabled": false,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:"
+    }
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["iori"]
+      }
+    },
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEVGNTkyNEYzQjg0ODY0MDMKUldRRFpFaTQ4eVJaNzBGd0tFeXRpYjFMWGZIQ3RoWUZ2ZklQNzI0WUJiREp5enBFYkRtY3R5VGMK"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "publisher": "iori",
+    "shortDescription": "Client for iori",
+    "longDescription": "Connect to your iori Hosts and continue development with AI agents, Files, Git and Terminal.",
+    "category": "DeveloperTool",
+    "targets": ["nsis"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "android": {
+      "debugApplicationIdSuffix": ".debug"
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    }
+  }
+}

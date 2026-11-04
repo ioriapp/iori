@@ -1,0 +1,22 @@
+{
+  "windows": {
+    "host": "windows-verification",
+    "home": "C:\\Users\\Example",
+    "address": "192.0.2.2",
+    "user": "Example"
+  },
+  "linux": {
+    "host": "linux-verification",
+    "address": "192.0.2.3"
+  },
+  "android": {
+    "device": "192.0.2.4:40145"
+  },
+  "network": {
+    "hostAddress": "192.0.2.1"
+  },
+  "forge": {
+    "origin": "https://forgejo.example.com",
+    "repository": "example/iori"
+  }
+}

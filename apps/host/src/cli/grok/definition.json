@@ -1,0 +1,78 @@
+{
+  "schema": 1,
+  "id": "grok",
+  "name": "Grok Build",
+  "command": "grok",
+  "icon": { "light": "grok-black.svg", "dark": "grok-white.svg" },
+  "version": { "args": ["--version"] },
+  "launch": {
+    "model": ["--model", "{model}"],
+    "effort": ["--reasoning-effort", "{effort}"],
+    "permissions": {
+      "default": ["--permission-mode", "default"],
+      "acceptEdits": ["--permission-mode", "acceptEdits"],
+      "auto": ["--permission-mode", "auto"],
+      "dontAsk": ["--permission-mode", "dontAsk"],
+      "bypassPermissions": ["--permission-mode", "bypassPermissions"],
+      "plan": ["--permission-mode", "plan"]
+    },
+    "initialPrompt": { "mode": "argument", "args": ["{prompt}"] },
+    "managedArguments": [
+      { "names": ["--model", "-m"] },
+      { "names": ["--reasoning-effort"] },
+      {
+        "names": ["--permission-mode"],
+        "alsoRemove": [
+          {
+            "names": [
+              "--always-approve",
+              "--yolo",
+              "--dangerously-skip-permissions"
+            ],
+            "arity": "none"
+          }
+        ]
+      }
+    ]
+  },
+  "resume": { "args": ["--resume", "{sessionId}"] },
+  "hooks": {
+    "file": {
+      "env": "GROK_HOME",
+      "default": "~/.grok",
+      "path": "hooks/iori.json"
+    },
+    "own": true,
+    "format": "claude-settings",
+    "sessionId": "sessionId",
+    "transcript": "transcriptPath",
+    "toolId": "toolUseId",
+    "rules": [
+      { "event": "SessionStart", "state": "idle" },
+      { "event": "UserPromptSubmit", "state": "active" },
+      { "event": "PreToolUse", "state": "active", "tool": "toolName" },
+      { "event": "PostToolUse", "toolFinished": true },
+      { "event": "PostToolUseFailure", "toolFinished": true },
+      {
+        "event": "Notification",
+        "when": { "notificationType": "permission_prompt" },
+        "state": "waiting",
+        "attention": "approval"
+      },
+      {
+        "event": "Stop",
+        "when": { "reason": { "not": "end_turn" } },
+        "ignore": true
+      },
+      { "event": "Stop", "state": "done", "response": "lastAssistantMessage" },
+      {
+        "event": "StopFailure",
+        "state": "done",
+        "outcome": "failure",
+        "failure": ["errorDetails", "lastAssistantMessage", "error"]
+      },
+      { "event": "StopCancelled", "state": "stopped" },
+      { "event": "SessionEnd", "state": "stopped" }
+    ]
+  }
+}

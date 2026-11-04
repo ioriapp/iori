@@ -1,0 +1,102 @@
+{
+  "version": "gh version 2.98.0 (2026-08-20)",
+  "cases": [
+    {
+      "name": "404",
+      "source": "gh version 2.98.0 (2026-08-20); gh api --hostname github.com /repos/sskksk1/iori-nonexistent-error-fixture",
+      "code": 1,
+      "stderr": "gh: Not Found (HTTP 404)\n",
+      "launchFailed": false,
+      "expected": "unreadable",
+      "kind": "captured",
+      "condition": "Hostのghの有効なアカウントで存在しない公開リポジトリをGET",
+      "reason": "not-found"
+    },
+    {
+      "name": "401",
+      "source": "gh version 2.98.0 (2026-08-20); gh api --hostname github.com /user",
+      "code": 1,
+      "stderr": "gh: Bad credentials (HTTP 401)\n",
+      "launchFailed": false,
+      "expected": "unreadable",
+      "kind": "captured",
+      "condition": "この子processのGH_TOKENだけを無効な試験用文字列にしてGET（保存済み認証は変更しない）",
+      "reason": "token-invalid"
+    },
+    {
+      "name": "connection-refused",
+      "source": "gh version 2.98.0 (2026-08-20); gh api --hostname github.com /user",
+      "code": 1,
+      "stderr": "Get \"https://api.github.com/user\": proxyconnect tcp: dial tcp 127.0.0.1:1: connect: connection refused\n",
+      "launchFailed": false,
+      "expected": "unavailable",
+      "kind": "captured",
+      "condition": "この子processのHTTPS_PROXYだけをhttp://127.0.0.1:1へ変更してGET",
+      "reason": "unreachable"
+    },
+    {
+      "name": "missing-gh",
+      "source": "gh version 2.98.0 (2026-08-20); gh api --hostname github.com /user",
+      "code": null,
+      "stderr": "",
+      "launchFailed": true,
+      "launchError": "ENOENT",
+      "expected": "unavailable",
+      "kind": "captured",
+      "condition": "この子processのPATHだけを空のdirectoryへ変更。偽のghは配置しない",
+      "reason": "token-missing"
+    },
+    {
+      "name": "403-without-message",
+      "kind": "official-source-derived",
+      "source": [
+        "https://github.com/cli/cli/blob/fa92838bef95fe4a29c1587693885d5e9bdb6cf1/pkg/cmd/api/api.go"
+      ],
+      "condition": "ローカルの実403は未取得。公式sourceのmessageとgh apiのstderr出力形式から構成",
+      "code": 1,
+      "stderr": "gh: HTTP 403\n",
+      "launchFailed": false,
+      "expected": "unreadable",
+      "reason": "insufficient-scope"
+    },
+    {
+      "name": "403-primary-rate-limit",
+      "kind": "official-source-derived",
+      "source": [
+        "https://github.com/cli/cli/blob/fa92838bef95fe4a29c1587693885d5e9bdb6cf1/pkg/cmd/skills/search/search_test.go",
+        "https://github.com/cli/cli/blob/fa92838bef95fe4a29c1587693885d5e9bdb6cf1/pkg/cmd/api/api.go"
+      ],
+      "condition": "ローカルの実403は未取得。公式sourceのmessageとgh apiのstderr出力形式から構成",
+      "code": 1,
+      "stderr": "gh: API rate limit exceeded (HTTP 403)\n",
+      "launchFailed": false,
+      "expected": "rate-limit",
+      "reason": "rate-limited"
+    },
+    {
+      "name": "403-secondary-rate-limit",
+      "kind": "official-source-derived",
+      "source": [
+        "https://github.com/cli/cli/blob/fa92838bef95fe4a29c1587693885d5e9bdb6cf1/pkg/cmd/skills/search/search_test.go",
+        "https://github.com/cli/cli/blob/fa92838bef95fe4a29c1587693885d5e9bdb6cf1/pkg/cmd/api/api.go"
+      ],
+      "condition": "ローカルの実403は未取得。公式sourceのmessageとgh apiのstderr出力形式から構成",
+      "code": 1,
+      "stderr": "gh: secondary rate limit (HTTP 403)\n",
+      "launchFailed": false,
+      "expected": "rate-limit",
+      "reason": "rate-limited"
+    },
+    {
+      "name": "not-logged-in",
+      "source": "gh version 2.98.0 (2026-08-20); gh api --hostname github.com /user",
+      "code": 4,
+      "stderr": "To get started with GitHub CLI, please run:  gh auth login\nAlternatively, populate the GH_TOKEN environment variable with a GitHub API authentication token.\n",
+      "launchFailed": false,
+      "expected": "unavailable",
+      "reason": "token-missing",
+      "kind": "captured",
+      "condition": "この子processのGH_CONFIG_DIRだけを空のフォルダーにし、GH_TOKEN・GITHUB_TOKENを外してGET（保存済み認証は変更しない）"
+    }
+  ]
+}

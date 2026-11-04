@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "id": "hermes",
+  "name": "Hermes Agent",
+  "command": "hermes",
+  "icon": { "light": "hermes.svg" },
+  "version": { "args": ["--version"] },
+  "launch": {
+    "initialPrompt": {
+      "mode": "argument",
+      "args": ["chat", "-q", "{prompt}"]
+    },
+    "model": ["-m", "{model}"],
+    "permissions": { "yolo": ["--yolo"] },
+    "managedArguments": [
+      { "names": ["-m", "--model"] },
+      { "names": ["--yolo"], "arity": "none" }
+    ]
+  },
+  "resume": { "args": ["--resume", "{sessionId}"] },
+  "hooks": {
+    "file": {
+      "env": "HERMES_HOME",
+      "default": "~/.hermes",
+      "path": "config.yaml"
+    },
+    "format": "events",
+    "at": "hooks",
+    "entry": { "command": "{command}" },
+    "sessionId": "session_id",
+    "rules": [
+      { "event": "pre_llm_call", "state": "active" },
+      { "event": "pre_tool_call", "state": "active", "tool": "tool_name" },
+      { "event": "post_tool_call", "toolFinished": true },
+      { "event": "on_human_input_request", "state": "waiting" },
+      { "event": "on_human_input_resolved", "state": "active" },
+      { "event": "on_session_end", "state": "done" }
+    ]
+  }
+}

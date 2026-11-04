@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "id": "pi",
+  "name": "Pi",
+  "command": "pi",
+  "icon": { "light": "pi-badge.svg" },
+  "version": { "args": ["--version"] },
+  "launch": {
+    "model": ["--model", "{model}"],
+    "effort": ["--thinking", "{effort}"],
+    "instructionFile": ["--append-system-prompt", "{instructionFile}"],
+    "initialPrompt": { "mode": "argument", "args": ["{prompt}"] },
+    "managedArguments": [
+      { "names": ["--model"] },
+      { "names": ["--thinking"] },
+      { "names": ["--tools", "-t"] }
+    ]
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "productName": "iori Workspace Test",
+  "identifier": "io.github.ioriapp.iori.workspacetest",
+  "app": { "withGlobalTauri": true },
+  "bundle": { "android": { "debugApplicationIdSuffix": ".debug" } }
+}

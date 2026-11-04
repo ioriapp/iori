@@ -1,0 +1,333 @@
+/* The CI View: the v14-forge sample's parts on the reading Views' tokens. */
+.ci-pane {
+  --row: calc(1rem * 1.7);
+  --reading-row: clamp(22px, var(--row), 27px);
+  --list-hover: var(--muted);
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--background);
+  font-size: 0.93rem;
+}
+.ci-pane[hidden] {
+  display: none;
+}
+.ci-pane {
+  container-type: inline-size;
+}
+
+.ci-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  min-width: 0;
+  padding: 7px 8px;
+}
+.ci-head .reading-worktree {
+  flex: none;
+  max-width: 40%;
+  min-width: 0;
+  font-size: 0.93rem;
+  font-weight: 400;
+}
+.ci-commit {
+  display: flex;
+  flex: 1;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.ci-commit code {
+  flex: none;
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 0.86rem;
+}
+/* A narrow top keeps the short hash; the subject is in its tooltip. */
+@container (max-width: 520px) {
+  .ci-commit .reading-truncate {
+    display: none;
+  }
+}
+.ci-head-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+.ci-browser {
+  color: var(--muted-foreground);
+  font-weight: 400;
+}
+.ci-browser:hover {
+  color: var(--foreground);
+}
+
+/* The list: runs with their jobs, then the results without jobs. */
+.ci-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 0 12px;
+}
+.reading-list[data-wide="true"] .ci-list {
+  background: var(--background);
+}
+.ci-run + .ci-run {
+  margin-top: 8px;
+}
+.ci-run-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--reading-row);
+  margin-top: 8px;
+  padding: 0 12px;
+  font-weight: 600;
+}
+.ci-run-plain {
+  color: var(--muted-foreground);
+  font-size: 0.86rem;
+  font-weight: 500;
+}
+.ci-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: var(--reading-row);
+  padding: 4px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--foreground);
+  font: inherit;
+  text-align: left;
+  cursor: default;
+}
+/* Hover only with a pointer: a touch leaves the tapped row in :hover. */
+@media (hover: hover) {
+  .ci-row:hover {
+    background: var(--list-hover);
+  }
+}
+/* In a narrow pane the list and the detail take turns, so the list keeps no
+   selected row (ui.md「選択中の印」). */
+.reading-split:not([data-narrow="true"]) .ci-row[aria-current="true"] {
+  background: color-mix(in oklch, var(--primary) 16%, transparent);
+  box-shadow: inset 2px 0 0 var(--primary);
+}
+.ci-job {
+  padding-left: 32px;
+}
+.ci-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The name takes the room left, so the time and the chevron sit at the end. */
+.ci-row .ci-name,
+.ci-run-head .ci-name {
+  flex: 1 1 auto;
+}
+/* An event or a description gives way to the name first, then goes. */
+.ci-note {
+  flex: 0 1000 auto;
+  min-width: 0;
+  padding-left: 8px;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: 0.86rem;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ci-note:has(+ .ci-meta)::after {
+  content: " ·";
+}
+.ci-meta {
+  flex: none;
+  max-width: 55%;
+  margin-left: auto;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: 0.86rem;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ci-row .ci-meta {
+  padding-left: 8px;
+}
+.ci-chevron {
+  flex: none;
+  color: var(--muted-foreground);
+}
+@media (pointer: coarse) {
+  .ci-row,
+  .ci-run-head {
+    min-height: 44px;
+  }
+}
+
+/* The same marks and colors as the sidebar's CI mark. */
+.ci-state {
+  flex: none;
+}
+.ci-passed {
+  color: var(--status-running-text);
+}
+.ci-failed {
+  color: var(--status-failed-text);
+}
+/* Amber means Attention in iori; running is gray with heavier dashes. */
+.ci-running {
+  color: var(--muted-foreground);
+  stroke-width: 2.6;
+}
+.ci-skipped,
+.ci-other {
+  color: var(--muted-foreground);
+}
+
+/* The detail: the chosen job or result. */
+.ci-detail {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+}
+.ci-pane .ci-detail-head {
+  gap: 8px;
+  height: auto;
+  min-height: 44px;
+  padding: 6px 8px;
+}
+.ci-detail-title {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+  min-width: 0;
+}
+.ci-detail-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+.ci-detail-name {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ci-detail-meta {
+  max-width: 100%;
+  margin-left: 0;
+}
+
+.ci-steps {
+  flex: none;
+  border-bottom: 1px solid var(--border);
+}
+.ci-steps-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: var(--reading-row);
+  padding: 2px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 600;
+  text-align: left;
+}
+.ci-steps-toggle .ci-meta {
+  margin-left: 0;
+}
+.ci-steps-current {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin-left: 8px;
+  color: var(--foreground);
+  font-weight: 400;
+}
+/* The steps take at most about eight rows; the half row shows that more scroll. */
+.ci-step-list {
+  max-height: min(30vh, calc(26px * 8.5));
+  overflow: auto;
+}
+.ci-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 26px;
+  padding: 2px 12px 2px 28px;
+  font-size: 0.86rem;
+}
+.ci-step[data-current] .ci-name {
+  font-weight: 600;
+}
+
+.ci-log {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  background: color-mix(in oklch, var(--foreground) 3%, var(--background));
+  font-family: var(--font-mono);
+  font-size: 0.86rem;
+  line-height: 22px;
+}
+.ci-log-line {
+  min-height: 22px;
+  padding: 0 16px;
+  white-space: pre;
+}
+.ci-log[data-wrap="true"] .ci-log-line {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ci-log-line[data-kind="error"] {
+  color: var(--status-failed-text);
+}
+.ci-log-line[data-kind="warning"] {
+  color: var(--status-waiting-text);
+}
+.ci-log-earlier {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-sans, inherit);
+}
+
+.ci-browser-only {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 64px 24px;
+  color: var(--muted-foreground);
+  text-align: center;
+}
+.ci-browser-only p {
+  margin: 0;
+}

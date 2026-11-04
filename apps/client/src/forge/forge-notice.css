@@ -1,0 +1,54 @@
+/*
+ * The CI and Issues Views' notices: an empty View, a read that failed with
+ * nothing else to show (in place of the content), and a failed reload above
+ * the content it keeps (one line under the head). Red is only the heading.
+ */
+.forge-notice {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin: 0;
+  padding: 48px 24px;
+  text-align: center;
+  color: var(--muted-foreground);
+}
+.forge-notice p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.forge-notice.is-failure {
+  color: var(--foreground);
+}
+.forge-failure-heading {
+  color: var(--status-failed-text);
+  font-weight: 600;
+}
+.forge-failure-line {
+  display: flex;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  min-width: 0;
+  max-width: 100%;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 6px 12px;
+  color: var(--foreground);
+  font-size: 0.86rem;
+}
+.forge-failure-line p {
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.forge-failure-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  color: var(--foreground);
+  font-family: var(--font-sans, inherit);
+  white-space: normal;
+}

@@ -1,0 +1,78 @@
+### Workflow Failure
+
+**Workflow:** [Issue Triage (skills-driven)](https://github.com/cli/cli/blob/trunk/.github/workflows/issue-triage.md)  
+**Branch:** trunk  
+**Run:** https://github.com/cli/cli/actions/runs/38587606740
+
+
+**Agent Timed Out**: The agent job exceeded the maximum allowed execution time (10 minutes).
+
+To increase the timeout, add or update the `timeout-minutes` setting in your workflow's frontmatter:
+
+```yaml
+---
+timeout-minutes: 20
+---
+```
+
+
+### Action Required
+
+**Assign this issue to an agent** to debug and fix the issue.
+
+<details>
+<summary>Optimize token consumption</summary>
+
+This failure was triggered by a guardrail limit (max-turns / timeout). Use this prompt with any coding agent (GitHub Copilot, Claude, Gemini, etc.) to analyze token usage and reduce costs:
+
+````
+Optimize the agentic workflow token consumption using https://raw.githubusercontent.com/github/gh-aw/main/optimize.md
+
+The workflow run is at https://github.com/cli/cli/actions/runs/38587606740
+````
+
+</details>
+
+
+<details>
+<summary>Debug with any coding agent</summary>
+
+Use this prompt with any coding agent (GitHub Copilot, Claude, Gemini, etc.):
+
+````
+Debug the agentic workflow failure using https://raw.githubusercontent.com/github/gh-aw/main/debug.md
+
+The failed workflow run is at https://github.com/cli/cli/actions/runs/38587606740
+````
+
+</details>
+
+<details>
+<summary>Manually invoke the agent</summary>
+
+Debug this workflow failure using your favorite Agent CLI and the `agentic-workflows` prompt.
+
+- Start your agent
+- Load the `agentic-workflows` skill from `.github/skills/agentic-workflows/SKILL.md` or <https://github.com/github/gh-aw/blob/main/.github/skills/agentic-workflows/SKILL.md>
+- Type `debug the agentic workflow issue-triage failure in https://github.com/cli/cli/actions/runs/38587606740`
+
+</details>
+
+> [!TIP]
+> <details>
+> <summary>Stop reporting this workflow as a failure</summary>
+>
+> To stop a workflow from creating failure issues, set `report-failure-as-issue: false` in its frontmatter:
+> ```yaml
+> safe-outputs:
+>   report-failure-as-issue: false
+> ```
+>
+> </details>
+
+
+> Generated from [Issue Triage (skills-driven)](https://github.com/cli/cli/actions/runs/38587606740) · copilot · 150.9 AIC · [◷](https://github.com/search?q=repo%3Acli%2Fcli+is%3Aissue+%22gh-aw-workflow-id%3A+issue-triage%22&type=issues)
+> - [x] expires <!-- gh-aw-expires: 2026-10-21T15:28:37.291Z --> on Oct 21, 2026, 3:28 PM UTC
+
+<!-- gh-aw-agentic-workflow: Issue Triage (skills-driven), engine: copilot, id: 38587606740, workflow_id: issue-triage, run: https://github.com/cli/cli/actions/runs/38587606740 -->
+<!-- gh-aw-failure-issue: true, workflow_id: issue-triage, branch: trunk, failure_categories: timed_out -->

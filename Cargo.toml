@@ -1,0 +1,12 @@
+[workspace]
+resolver = "2"
+members = ["crates/iori-iroh-config", "apps/host/native", "apps/host/terminal-native"]
+exclude = ["apps/client/src-tauri"]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.91"
+
+[workspace.dependencies]
+iroh = "=1.1.0"
+tokio = { version = "1", features = ["macros", "sync"] }

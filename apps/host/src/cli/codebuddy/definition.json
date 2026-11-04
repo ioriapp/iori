@@ -1,0 +1,60 @@
+{
+  "schema": 1,
+  "id": "codebuddy",
+  "name": "CodeBuddy Code",
+  "command": "codebuddy",
+  "icon": { "light": "codebuddy.svg" },
+  "version": { "args": ["--version"] },
+  "launch": {
+    "model": ["--model", "{model}"],
+    "permissions": {
+      "default": ["--permission-mode", "default"],
+      "acceptEdits": ["--permission-mode", "acceptEdits"],
+      "auto": ["--permission-mode", "auto"],
+      "dontAsk": ["--permission-mode", "dontAsk"],
+      "plan": ["--permission-mode", "plan"],
+      "bypassPermissions": ["--permission-mode", "bypassPermissions"]
+    },
+    "initialPrompt": { "mode": "argument", "args": ["{prompt}"] },
+    "managedArguments": [
+      { "names": ["--model"] },
+      {
+        "names": ["--permission-mode"],
+        "alsoRemove": [
+          { "names": ["-y", "--dangerously-skip-permissions"], "arity": "none" }
+        ]
+      }
+    ]
+  },
+  "resume": { "args": ["--resume", "{sessionId}"] },
+  "hooks": {
+    "format": "claude-settings",
+    "file": "~/.codebuddy/settings.json",
+    "sessionId": "session_id",
+    "transcript": "transcript_path",
+    "rules": [
+      {
+        "event": "SessionStart",
+        "when": { "source": "compact" },
+        "ignore": true
+      },
+      { "event": "SessionStart", "state": "idle" },
+      { "event": "UserPromptSubmit", "state": "active" },
+      { "event": "PreToolUse", "state": "active", "tool": "tool_name" },
+      { "event": "PostToolUse", "toolFinished": true },
+      {
+        "event": "Notification",
+        "when": { "notification_type": "permission_prompt" },
+        "state": "waiting",
+        "attention": "approval"
+      },
+      {
+        "event": "Stop",
+        "when": { "stop_hook_active": true },
+        "ignore": true
+      },
+      { "event": "Stop", "state": "done" },
+      { "event": "SessionEnd", "state": "stopped" }
+    ]
+  }
+}

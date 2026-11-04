@@ -1,0 +1,5 @@
+{
+  "com.google.errorprone:error_prone_annotations": "https://github.com/google/error-prone",
+  "com.google.guava:listenablefuture": "https://github.com/google/guava",
+  "com.google.zxing:core": "https://github.com/zxing/zxing"
+}

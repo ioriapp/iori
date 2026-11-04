@@ -1,0 +1,17 @@
+{
+  "app": {
+    "windows": [
+      {
+        "title": "iori",
+        "width": 1280,
+        "height": 860,
+        "center": true,
+        "resizable": true,
+        "dragDropEnabled": false,
+        "fullscreen": false,
+        "decorations": false,
+        "visible": false
+      }
+    ]
+  }
+}

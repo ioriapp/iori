@@ -1,0 +1,63 @@
+{
+  "schema": 1,
+  "id": "vibe",
+  "name": "Mistral Vibe",
+  "command": "vibe",
+  "icon": { "light": "mistral.svg" },
+  "version": { "args": ["--version"] },
+  "launch": {
+    "permissions": {
+      "ask": ["--agent", "ask"],
+      "accept-edits": ["--agent", "accept-edits"],
+      "smart-approve": ["--agent", "smart-approve"],
+      "auto-approve": ["--agent", "auto-approve"]
+    },
+    "directories": ["--add-dir", "{directory}"],
+    "initialPrompt": { "mode": "argument", "args": ["--", "{prompt}"] },
+    "managedArguments": [
+      {
+        "names": ["--agent"],
+        "alsoRemove": [
+          {
+            "names": ["--auto-approve", "--yolo", "--smart-approve"],
+            "arity": "none"
+          }
+        ]
+      }
+    ]
+  },
+  "resume": { "args": ["--resume", "{sessionId}"] },
+  "hooks": {
+    "file": { "env": "VIBE_HOME", "default": "~/.vibe", "path": "hooks.toml" },
+    "format": "list",
+    "at": "hooks",
+    "entry": {
+      "name": "iori-{event}",
+      "type": "{event}",
+      "command": "{command}"
+    },
+    "sessionId": "session_id",
+    "transcript": "transcript_path",
+    "toolId": "tool_call_id",
+    "rules": [
+      {
+        "event": "pre_tool",
+        "when": { "parent_session_id": { "not": null } },
+        "ignore": true
+      },
+      {
+        "event": "post_tool",
+        "when": { "parent_session_id": { "not": null } },
+        "ignore": true
+      },
+      {
+        "event": "post_agent",
+        "when": { "parent_session_id": { "not": null } },
+        "ignore": true
+      },
+      { "event": "pre_tool", "state": "active", "tool": "tool_name" },
+      { "event": "post_tool", "toolFinished": true },
+      { "event": "post_agent", "state": "done" }
+    ]
+  }
+}

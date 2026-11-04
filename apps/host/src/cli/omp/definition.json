@@ -1,0 +1,44 @@
+{
+  "schema": 1,
+  "id": "omp",
+  "name": "omp",
+  "command": "omp",
+  "icon": { "light": "omp-light.svg", "dark": "omp.svg" },
+  "version": { "args": ["--version"] },
+  "models": {
+    "list": {
+      "args": ["models", "--json"],
+      "format": "json",
+      "items": "$.models[*]",
+      "name": "selector",
+      "label": "name",
+      "efforts": "thinking"
+    }
+  },
+  "launch": {
+    "model": ["--model", "{model}"],
+    "effort": ["--thinking", "{effort}"],
+    "permissions": { "yolo": ["--yolo"] },
+    "instructionFile": ["--append-system-prompt", "{instructionFile}"],
+    "directories": ["--add-dir", "{directory}"],
+    "initialPrompt": { "mode": "argument", "args": ["{prompt}"] },
+    "managedArguments": [
+      { "names": ["--model"] },
+      { "names": ["--thinking"] },
+      { "names": ["--yolo"], "arity": "none" },
+      { "names": ["--auto-approve"], "arity": "none" },
+      { "names": ["--approval-mode"] },
+      { "names": ["--append-system-prompt"] },
+      { "names": ["--add-dir"] }
+    ]
+  },
+  "resume": { "args": ["-r", "{sessionId}"] },
+  "hooks": {
+    "format": "plugin-file",
+    "install": {
+      "copy": "iori-bridge.js",
+      "args": ["--hook", "{plugin}"]
+    },
+    "sends": ["attention", "tokens"]
+  }
+}

@@ -1,0 +1,20 @@
+# Rust側の作りの原則（DEVELOPMENT.mdの「起動と検査」）。
+# 固定の時間切れで失敗・不在と決める関数を止める。使う時は
+# #[expect(clippy::disallowed_methods, reason = "...")] で理由を書く。
+# Unix専用の関数はWindowsに無いため、解決できない時も警告にしない（allow-invalid）。
+disallowed-methods = [
+  { path = "tokio::time::timeout", reason = "固定の時間切れで失敗と決めない。相手が居なくなったことは通信の仕組みで知る" },
+  { path = "tokio::time::timeout_at", reason = "固定の時間切れで失敗と決めない。相手が居なくなったことは通信の仕組みで知る" },
+  { path = "std::sync::mpsc::Receiver::recv_timeout", reason = "固定の時間切れで失敗と決めない" },
+  { path = "std::sync::Condvar::wait_timeout", reason = "固定の時間切れで失敗と決めない" },
+  { path = "std::sync::Condvar::wait_timeout_while", reason = "固定の時間切れで失敗と決めない" },
+  { path = "std::net::TcpStream::connect_timeout", reason = "固定の時間切れで失敗と決めない" },
+  { path = "std::net::TcpStream::set_read_timeout", reason = "固定の時間切れで失敗と決めない" },
+  { path = "std::net::TcpStream::set_write_timeout", reason = "固定の時間切れで失敗と決めない" },
+  { path = "std::net::UdpSocket::set_read_timeout", reason = "固定の時間切れで失敗と決めない" },
+  { path = "std::net::UdpSocket::set_write_timeout", reason = "固定の時間切れで失敗と決めない" },
+  { path = "std::os::unix::net::UnixStream::set_read_timeout", allow-invalid = true, reason = "固定の時間切れで失敗と決めない" },
+  { path = "std::os::unix::net::UnixStream::set_write_timeout", allow-invalid = true, reason = "固定の時間切れで失敗と決めない" },
+  { path = "std::os::unix::net::UnixDatagram::set_read_timeout", allow-invalid = true, reason = "固定の時間切れで失敗と決めない" },
+  { path = "std::os::unix::net::UnixDatagram::set_write_timeout", allow-invalid = true, reason = "固定の時間切れで失敗と決めない" },
+]

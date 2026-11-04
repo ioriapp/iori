@@ -1,0 +1,32 @@
+node_modules/
+/target/
+dist/
+dist-process/
+dist-runtime/
+screenshots/
+.DS_Store
+*.local
+.playwright-mcp/
+*.tsbuildinfo
+__pycache__/
+*.py[cod]
+.forgejo/.env
+.pnpm-store/
+/.pnpm/
+playwright-report/
+test-results/
+.playwright-browsers/
+.impeccable/review/
+.pi/
+.omp/
+.env
+.env.*
+!.env.example
+
+# Run-specific evidence stays local; documentation contains only current contracts.
+/.local/
+/spikes/*/evidence/
+# Claude Code personal files (shared settings/skills stay tracked).
+.claude/*.local.json
+.claude/**/*.log
+CLAUDE.local.md

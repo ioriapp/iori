@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "id": "antigravity",
+  "name": "Antigravity CLI",
+  "command": "agy",
+  "icon": { "light": "antigravity.svg" },
+  "version": { "args": ["--version"] },
+  "launch": {
+    "directories": ["--add-dir", "{directory}"],
+    "model": ["--model", "{model}"],
+    "effort": ["--effort", "{effort}"],
+    "initialPrompt": { "mode": "paste" },
+    "managedArguments": [{ "names": ["--model"] }, { "names": ["--effort"] }]
+  },
+  "resume": { "args": ["--conversation", "{sessionId}"] }
+}

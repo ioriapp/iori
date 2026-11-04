@@ -1,0 +1,72 @@
+{
+  "schema": 1,
+  "id": "kimi-code",
+  "name": "Kimi Code",
+  "command": "kimi",
+  "version": { "args": ["--version"] },
+  "launch": {
+    "model": ["--model", "{model}"],
+    "permissions": {
+      "yolo": ["--yolo"],
+      "auto": ["--auto"],
+      "plan": ["--plan"]
+    },
+    "directories": ["--add-dir", "{directory}"],
+    "managedArguments": [
+      { "names": ["--model", "-m"] },
+      {
+        "names": ["--yolo", "-y", "--yes", "--auto-approve"],
+        "arity": "none",
+        "alsoRemove": [{ "names": ["--auto"], "arity": "none" }]
+      },
+      {
+        "names": ["--auto"],
+        "arity": "none",
+        "alsoRemove": [
+          {
+            "names": ["--yolo", "-y", "--yes", "--auto-approve"],
+            "arity": "none"
+          }
+        ]
+      },
+      { "names": ["--plan"], "arity": "none" }
+    ]
+  },
+  "resume": { "args": ["--session", "{sessionId}"] },
+  "hooks": {
+    "file": {
+      "env": "KIMI_CODE_HOME",
+      "default": "~/.kimi-code",
+      "path": "config.toml"
+    },
+    "format": "list",
+    "at": "hooks",
+    "entry": { "event": "{event}", "command": "{command}" },
+    "sessionId": "session_id",
+    "toolId": "tool_call_id",
+    "rules": [
+      { "event": "SessionStart", "state": "idle" },
+      { "event": "UserPromptSubmit", "state": "active" },
+      { "event": "TurnStarted", "state": "active" },
+      { "event": "PreToolUse", "state": "active", "tool": "tool_name" },
+      { "event": "PostToolUse", "toolFinished": true },
+      { "event": "PostToolUseFailure", "toolFinished": true },
+      {
+        "event": "PermissionRequest",
+        "state": "waiting",
+        "attention": "approval",
+        "tool": "tool_name"
+      },
+      { "event": "PermissionResult", "state": "active" },
+      { "event": "Stop", "state": "done" },
+      {
+        "event": "StopFailure",
+        "state": "done",
+        "outcome": "failure",
+        "failure": ["error_message", "error_type"]
+      },
+      { "event": "Interrupt", "state": "stopped" },
+      { "event": "SessionEnd", "state": "stopped" }
+    ]
+  }
+}

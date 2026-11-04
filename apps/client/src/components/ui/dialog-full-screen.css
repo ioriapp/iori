@@ -1,0 +1,35 @@
+/* A dialog shown in full on a phone is the screen itself: it has no frame,
+   rounded corners or shadow (dialogs.md). */
+@media (max-width: 767px) {
+  /* Above each dialog's own frame, whatever order the styles load in. */
+  .dialog-full-screen[data-slot="dialog-content"][role="dialog"] {
+    inset: 0;
+    width: 100%;
+    max-width: 100%;
+    height: 100dvh;
+    max-height: 100dvh;
+    translate: none;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none !important;
+    align-content: start;
+  }
+}
+
+[data-slot="dialog-content"]:focus-visible {
+  outline: none !important;
+}
+[data-body-scrollable] > [data-slot="dialog-footer"] {
+  position: relative;
+}
+[data-body-scrollable] > [data-slot="dialog-footer"]::before {
+  content: "";
+  position: absolute;
+  inset: calc(-1 * var(--space-2)) 0 auto;
+  border-top: 1px solid var(--border);
+}
+@media (max-width: 767px) {
+  [data-slot="dialog-footer"] button {
+    min-height: 44px;
+  }
+}

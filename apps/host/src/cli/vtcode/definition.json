@@ -1,0 +1,70 @@
+{
+  "schema": 1,
+  "id": "vtcode",
+  "name": "VT Code",
+  "command": "vtcode",
+  "icon": { "light": "vtcode.svg" },
+  "version": { "args": ["--version"] },
+  "launch": {
+    "model": ["--model", "{model}"],
+    "permissions": {
+      "dangerously-skip-permissions": ["--dangerously-skip-permissions"]
+    },
+    "managedArguments": [
+      { "names": ["--model"] },
+      {
+        "names": ["--dangerously-skip-permissions"],
+        "arity": "none",
+        "alsoRemove": [{ "names": ["--skip-confirmations"], "arity": "none" }]
+      }
+    ]
+  },
+  "resume": { "args": ["--resume", "{sessionId}"] },
+  "hooks": {
+    "file": {
+      "env": "VTCODE_HOME",
+      "default": "~/.vtcode",
+      "path": "vtcode.toml"
+    },
+    "format": "events",
+    "at": "hooks.lifecycle",
+    "entry": { "hooks": [{ "command": "{command}" }] },
+    "sessionId": "session_id",
+    "transcript": "transcript_path",
+    "toolId": "tool_call_id",
+    "rules": [
+      {
+        "event": "session_start",
+        "when": { "source": "compact" },
+        "ignore": true
+      },
+      { "event": "session_start", "state": "idle" },
+      { "event": "user_prompt_submit", "state": "active" },
+      { "event": "pre_tool_use", "state": "active", "tool": "tool_name" },
+      { "event": "post_tool_use", "toolFinished": true },
+      {
+        "event": "permission_request",
+        "state": "waiting",
+        "attention": "approval",
+        "tool": "tool_name"
+      },
+      {
+        "event": "notification",
+        "when": { "notification_type": "permission_prompt" },
+        "state": "waiting",
+        "attention": "approval"
+      },
+      {
+        "event": "stop",
+        "when": { "stop_hook_active": true },
+        "ignore": true
+      },
+      {
+        "event": "stop",
+        "state": "done",
+        "response": "last_assistant_message"
+      },
+      { "event": "session_end", "state": "stopped" }
+    ]
+  }
+}
