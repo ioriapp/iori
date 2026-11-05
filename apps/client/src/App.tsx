@@ -1,5 +1,7 @@
 import { ConnectedHostUpdates } from "./updates/ConnectedHostUpdates.tsx";
 import { HostRemovalFeedback } from "./updates/HostRemovalResult.tsx";
+import { onRemovalComplete, removalReader } from "./updates/removal-reader.ts";
+import { flushSync } from "react-dom";
 import {
   HostSetupDialog,
   HostSetupChoices,
@@ -172,6 +174,10 @@ export default function App() {
     connection.subscribe,
     connection.getSnapshot,
   );
+  const removalReads = useSyncExternalStore(
+    removalReader.subscribe,
+    removalReader.getSnapshot,
+  );
   const [setupOpen, setSetupOpen] = useState(false);
   const [addHostChoiceOpen, setAddHostChoiceOpen] = useState(false);
   const [setupStarted, setSetupStarted] = useState(false);
@@ -192,6 +198,25 @@ export default function App() {
   useEffect(startHostMaintenance, []);
   const clientUpdate = useClientUpdate();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  useEffect(
+    () =>
+      onRemovalComplete((hostKey, status) => {
+        const host = connection
+          .getSnapshot()
+          .initial?.hosts.find((value) => value.publicKey === hostKey);
+        if (!host) return;
+        // Commit the result and close settings before forgetHost selects a remaining Host.
+        flushSync(() => {
+          setSettingsOpen(false);
+          setSetupNotice({
+            name: host.hostName,
+            localOnly: false,
+            uninstall: status,
+          });
+        });
+      }),
+    [],
+  );
   const [settingsInitialDetail, setSettingsInitialDetail] = useState(false);
   const [settingsRepository, setSettingsRepository] = useState<string>();
   const [terminalToOpen, setTerminalToOpen] = useState<{
@@ -609,7 +634,14 @@ export default function App() {
   return (
     <div className={`app-root${hasWindowChrome ? " has-window-chrome" : ""}`}>
       <WindowChrome t={t} />
-      <HostRemovalFeedback t={t} />
+      <HostRemovalFeedback
+        t={t}
+        inline={
+          settingsOpen &&
+          settingsSection === "version" &&
+          state.host?.publicKey === removalReads.prompt?.hostKey
+        }
+      />
       {!state.initial ? (
         <main className="onboarding-screen" data-iori-view="initializing">
           <section className="onboarding-panel">

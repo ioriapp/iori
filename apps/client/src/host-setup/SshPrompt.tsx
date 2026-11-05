@@ -13,11 +13,15 @@ export function SshPrompt({
   t,
   onAnswer,
   onCancel,
+  label,
+  cancelLabel,
 }: {
   prompt: SshPromptValue;
   t: (key: string) => string;
   onAnswer: (answer: string) => void;
-  onCancel: (answer: string | null) => void;
+  onCancel?: (answer: string | null) => void;
+  label?: string;
+  cancelLabel?: string;
 }) {
   const [answer, setAnswer] = useState("");
   const yesNo = prompt.text.includes(
@@ -25,12 +29,12 @@ export function SshPrompt({
   );
   return (
     <div className="connection-field" data-iori-state="ssh-prompt">
-      <p className="ssh-prompt">{prompt.text}</p>
+      <p className="ssh-prompt">{label ?? prompt.text}</p>
       {!yesNo && !prompt.notification && (
         <Input
           type="password"
           autoComplete="off"
-          aria-label={t("SSH response")}
+          aria-label={label ?? t("SSH response")}
           data-iori-field="ssh-answer"
           value={answer}
           onChange={(event) => setAnswer(event.target.value)}
@@ -51,13 +55,16 @@ export function SshPrompt({
           >
             {t(yesNo ? "Connect" : "Send")}
           </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={() => onCancel(yesNo ? "no" : null)}
-          >
-            {t("Cancel setup")}
-          </Button>
+          {onCancel && (
+            <Button
+              type="button"
+              variant="ghost"
+              data-iori-action="ssh-cancel"
+              onClick={() => onCancel(yesNo ? "no" : null)}
+            >
+              {cancelLabel ?? t("Cancel setup")}
+            </Button>
+          )}
         </div>
       )}
     </div>

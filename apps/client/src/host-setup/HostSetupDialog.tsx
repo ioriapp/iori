@@ -178,9 +178,7 @@ export function HostSetupDialog({
           "This invitation cannot be used. Create a new invitation on the Host."
         ) {
           setInvitation(undefined);
-          setError(
-            "Could not use the invitation. Retry to request a new invitation and register.",
-          );
+          setError("The invitation could not be used. Select Retry.");
         } else setError(failure);
       }
     } catch (cause) {
@@ -305,7 +303,7 @@ export function HostSetupDialog({
                   ) < 0 && (
                     <p className="settings-note">
                       {t(
-                        "You can update iori Host in Settings after registration.",
+                        "To update iori Host, select “Update iori Host” in Settings after registration.",
                       )}
                     </p>
                   )}
@@ -331,7 +329,7 @@ export function HostSetupDialog({
             {allowed === false && (
               <p className="settings-note">
                 {t(
-                  "You can use this PC. Other devices cannot connect yet. Allow connections in Settings → Connection.",
+                  "This PC can connect. To connect from other devices, select “Allow connections from other devices” in Connection settings.",
                 )}
               </p>
             )}
@@ -451,7 +449,7 @@ export function LocalHostConnections({
         {failed && (
           <p role="alert" className="connection-error">
             {t(
-              "Could not allow connections. You can use this PC and retry this setting later.",
+              "Could not allow connections. This PC can connect. To connect from other devices, select “Allow connections from other devices” in Connection settings.",
             )}
           </p>
         )}

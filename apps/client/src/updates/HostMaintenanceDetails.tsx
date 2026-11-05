@@ -18,7 +18,7 @@ export const failures: Record<string, string> = {
   verification: "The Host update could not be verified. Retry the update.",
   download: "The Host could not download the update. Retry the update.",
   startup:
-    "The new iori Host exited before it was ready. The previous version and saved data have been restored.",
+    "The new version of iori Host could not start, so iori Host was returned to the previous version. Saved data is unchanged.",
   restore:
     "The previous iori Host could not start. Check the service on the Host machine, then reconnect.",
   "restore-data":
@@ -26,7 +26,7 @@ export const failures: Record<string, string> = {
   install:
     "The Host update could not be installed. Check the service on the Host machine, then retry.",
   restart:
-    "The Host could not request a restart. Check the service on the Host machine, then retry.",
+    "Could not restart iori Host. On the iori Host's machine, check that iori Host is running, then try again.",
   updater:
     "The Host update process exited without leaving a result. Retry the update.",
   request: "The Host could not complete this operation. Retry.",

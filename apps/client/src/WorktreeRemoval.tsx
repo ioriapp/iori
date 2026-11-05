@@ -236,10 +236,10 @@ export function WorktreeRemoval({
           )}
         </DialogHeader>
         {body && (
-          // The app's own scroll area keeps a visible scrollbar, as on the
-          // sidebar, while the title and the buttons stay in place.
+          // Only the body scrolls when it overflows; the title and buttons
+          // stay in place.
           <div data-slot="dialog-body" className="worktree-removal-body">
-            <ScrollArea type="always" className="worktree-removal-scroll">
+            <ScrollArea type="auto" className="worktree-removal-scroll">
               {preview?.fetchFailed && (
                 <p role="status" data-iori-fetch-warning="true">
                   {t(

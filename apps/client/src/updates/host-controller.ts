@@ -1,5 +1,6 @@
 import { native } from "../native.ts";
 import { hostRemoval } from "./host-lifecycle.ts";
+import { removalComplete } from "./removal-reader.ts";
 import { useSyncExternalStore } from "react";
 import {
   compareVersions,
@@ -61,6 +62,14 @@ export function startHostMaintenance() {
       if (!own || own.status?.operationId !== event.status.operationId) return;
       void connection
         .setRemoval(hostKey, { ...own, status: event.status })
+        .then(() => {
+          if (
+            event.status.phase === "removing" &&
+            !own.local &&
+            !own.sshDestination
+          )
+            removalComplete(hostKey, event.status);
+        })
         .catch(() => {});
     }
     if (event.type === "host.maintenance.changed") {
@@ -226,6 +235,12 @@ export async function performHostMaintenance(
       if (kind === "uninstall") {
         const own = hostRemoval(hostKey)!;
         await connection.setRemoval(hostKey, { ...own, status: result.result });
+        if (
+          result.result.phase === "removing" &&
+          !own.local &&
+          !own.sshDestination
+        )
+          removalComplete(hostKey, result.result);
       }
       change(hostKey, {
         ...operations[hostKey],

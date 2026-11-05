@@ -223,6 +223,7 @@ async fn connect(
                     );
                     let answer = tokio::select! { answer = receive => answer.unwrap_or(None), _ = inner_cancel.changed() => None };
                     answers.lock().await.remove(&id);
+                    emit(&app, &session, json!({"type":"promptClosed", "id":id}));
                     let response = Zeroizing::new(
                         serde_json::to_string(&answer).map_err(|e| e.to_string())? + "\n",
                     );

@@ -126,7 +126,7 @@ export function ConnectedHostUpdates({
           </DialogDescription>
         </DialogHeader>
         <div data-slot="dialog-body" className="worktree-removal-body">
-          <ScrollArea type="always" className="worktree-removal-scroll">
+          <ScrollArea type="auto" className="worktree-removal-scroll">
             {items.map((item) => (
               <HostUpdateRow
                 key={item.host.publicKey}

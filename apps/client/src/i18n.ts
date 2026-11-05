@@ -21,7 +21,7 @@ const japanese: Record<string, string> = {
   "This workspace is not a Git repository, so there are no Git settings.":
     "このワークスペースはGitリポジトリではないため、Gitの設定はありません。",
   "Could not verify": "確認できません",
-  "Checking website…": "Webサイトを確認しています…",
+  "Checking website…": "Webサイトを確認中",
   "Website URL": "WebサイトのURL",
   "Remotes and websites": "remoteとWebサイト",
   "GitHub account": "GitHubのアカウント",
@@ -146,7 +146,7 @@ const japanese: Record<string, string> = {
   "1 commit will be lost.": "1件のcommitが消えます。",
   "{count} commits will be lost.": "{count}件のcommitが消えます。",
   "{count} worktrees will be deleted.": "{count}件のworktreeを削除します。",
-  "Fetching and checking worktrees…": "fetchしてworktreeを確認しています…",
+  "Fetching and checking worktrees…": "worktreeを確認中",
   "No merged worktrees to delete.": "削除できるMergedのworktreeはありません。",
   "Could not load worktrees. Check Git and retry.":
     "worktreeを取得できませんでした。Gitの状態を確認して再試行してください。",
@@ -198,24 +198,15 @@ const japanese: Record<string, string> = {
   "The uninstall result was saved, but its receipt file could not be deleted.":
     "アンインストールの結果を保存しましたが、結果のファイルを削除できませんでした。",
   ...teamJapanese,
-  "Waiting for iori Host to stop and remove its files":
-    "iori Hostの停止と削除を待っています",
+  "Waiting for iori Host to stop and remove its files": "iori Hostを停止中",
   "Could not connect to this Host. Reinstall iori Host, then retry.":
     "Hostに接続できませんでした。iori Hostを再インストールしてから再試行してください。",
   "Could not remove this Host from the list. Retry.":
     "Hostを一覧から外せませんでした。再試行してください。",
-  "Terminals and agents stopped": "TerminalとAgentを停止しました",
-  "iori CLI hooks removed": "ioriのCLI hooksを解除しました",
-  "Automatic startup removed": "自動起動の登録を解除しました",
-  "iori Host stopped": "iori Hostを停止しました",
-  "iori Host program files removed": "iori Hostのプログラムを削除しました",
-  "iori Host saved data removed": "iori Hostの保存データを削除しました",
-  "Forgejo and Gitea tokens removed from the OS credential store":
-    "OSの資格情報の保管所からForgejo・Giteaのtokenを削除しました",
-  "Could not remove the tokens of these sites from the OS credential store:":
-    "次のサイトのtokenを、OSの資格情報の保管所から削除できませんでした:",
-  "Remove them in the OS credential store. A token stays usable until it is revoked on its site.":
-    "保管所から手動で削除してください。tokenそのものは、サイトで無効にするまで使えます。",
+  "The tokens for these sites could not be deleted. Delete them manually from the OS credential store.":
+    "次のサイトのtokenは削除できませんでした。OSの資格情報の保管所から手動で削除してください。",
+  "A token can still be used until you revoke it on the site.":
+    "tokenは、サイトで無効にするまで使えます。",
   "Could not restore:": "次の項目を元に戻せませんでした:",
   "Terminals and agents": "TerminalとAgent",
   "Could not prepare the uninstall request":
@@ -225,7 +216,7 @@ const japanese: Record<string, string> = {
   "CLI hooks": "CLI hooks",
   "Automatic startup": "自動起動",
   "iori Host is being uninstalled. Wait for it to finish.":
-    "iori Hostをアンインストールしています。完了をお待ちください。",
+    "iori Hostをアンインストール中です。完了までお待ちください。",
 
   "Uninstall iori Host on “{name}”":
     "「{name}」のiori Hostをアンインストールする",
@@ -247,9 +238,17 @@ const japanese: Record<string, string> = {
   "Remove “{name}” from the list?": "「{name}」を一覧から外しますか？",
   "This removes only this Client’s list entry and connection information. Device registrations, data and programs on the Host stay unchanged. To use this Host again, connect with an invitation.":
     "外すのは、このClientの一覧と接続の情報だけです。Host側の端末の登録・データ・プログラムは変わりません。また使う時は、招待から再接続してください。",
-  "Uninstall requested": "アンインストールを依頼しました",
-  "Uninstall requested. Program files will be removed after iori Host stops.":
-    "アンインストールを依頼しました。プログラムの削除はiori Hostの停止後に行われます。",
+  "Uninstall requested": "アンインストールを開始しました",
+  Connecting: "接続中",
+  Checking: "確認中",
+  "Password for {user}@{host}": "{user}@{host} のパスワード",
+  "Passphrase for {key}": "{key} のパスフレーズ",
+  "{name}'s iori Host was uninstalled.":
+    "「{name}」のiori Hostをアンインストールしました。",
+  "{name}'s iori Host and its saved data were deleted.":
+    "「{name}」のiori Hostと保存データを削除しました。",
+  "Uninstall of {name}'s iori Host started.":
+    "「{name}」のiori Hostのアンインストールを開始しました。",
   "Could not read the uninstall result. Retry.":
     "アンインストールの結果を読み取れませんでした。再試行してください。",
   "Check uninstall result": "アンインストールの結果を確認する",
@@ -265,14 +264,14 @@ const japanese: Record<string, string> = {
   "Could not uninstall iori Host":
     "iori Hostをアンインストールできませんでした",
   "iori Host uninstalled": "iori Hostをアンインストールしました",
-  "Uninstalling iori Host": "iori Hostをアンインストールしています",
+  "Uninstalling iori Host": "iori Hostをアンインストール中",
   "Could not finish uninstalling iori Host. Check the failed step, then retry.":
     "iori Hostのアンインストールを完了できませんでした。失敗した処理を確認して再試行してください。",
-  "Stopping Terminals and agents": "TerminalとAgentを停止しています",
-  "Removing iori CLI hooks": "ioriのCLI hooksを解除しています",
-  "Removing automatic startup": "自動起動の登録を解除しています",
-  "Removing iori Host program files": "iori Hostのプログラムを削除しています",
-  "Removing iori Host saved data": "iori Hostの保存データを削除しています",
+  "Stopping Terminals and agents": "TerminalとAgentを停止中",
+  "Removing iori CLI hooks": "CLIの設定からioriの項目を削除中",
+  "Removing automatic startup": "自動起動の登録を解除中",
+  "Removing iori Host program files": "iori Hostのプログラムを削除中",
+  "Removing iori Host saved data": "iori Hostの保存データを削除中",
   "The Host could not complete the request: {message}":
     "Hostへの要求に失敗しました: {message}",
   "SSH exited with code {code}: {message}":
@@ -321,16 +320,14 @@ const japanese: Record<string, string> = {
   "Enter manually…": "手動で指定する…",
   "Use this destination": "この接続先を選ぶ",
   "SSH response": "SSHの確認への回答",
-  "Checking the SSH destination": "SSHの接続先を確認しています",
-  "The destination machine is downloading iori Host":
-    "接続先のマシンがiori Hostを取得しています",
-  "Extracting iori Host on the destination":
-    "接続先でiori Hostを展開しています",
-  "Setting up iori Host to run after logout":
-    "ログアウト後もiori Hostを動かす設定をしています",
-  "Starting iori Host on the destination": "接続先でiori Hostを起動しています",
+  "Checking the SSH destination": "接続先を確認中",
+  "Downloading iori Host on the destination":
+    "接続先でiori Hostをダウンロード中",
+  "Extracting iori Host on the destination": "接続先でiori Hostを展開中",
+  "Setting up iori Host to run after logout": "ログアウト後も動くように設定中",
+  "Starting iori Host on the destination": "接続先でiori Hostを起動中",
   "{platform} is not supported yet.": "{platform}にはまだ対応していません",
-  "Cancelling SSH…": "SSHの終了を待っています…",
+  Cancelling: "キャンセル中",
   Allow: "許可する",
   Cancelled: "キャンセルしました",
   "To let other devices connect, permission for iori Host is added to Windows Firewall.":
@@ -351,8 +348,8 @@ const japanese: Record<string, string> = {
     "その PC の管理者の PowerShell で、次を実行する:",
   'If Windows asks on that PC, choose "Allow" (an administrator password is needed).':
     "その PC で Windows の確認が出たら「許可」を押す（管理者のパスワードが要ります）。",
-  "iori Host starts when {user} signs in to that PC. After it starts, choose the same connection again to register.":
-    "{user} がその PC にサインインすると iori Host が起動します。起動した後に、同じ接続先を選ぶと登録できます。",
+  "Sign in to that PC as {user}. iori Host starts when you sign in. Then select “Register with this iori Host”.":
+    "その PC に {user} でサインインしてください。サインインすると iori Host が起動します。その後「このiori Hostに登録する」を押してください。",
   "iori Host will stop after logout. An administrator can enable it with:":
     "ログアウトするとiori Hostが止まります。管理者が次のコマンドで有効にできます:",
   "SSH connected, but the iori connection could not reach the Host. Check the Host’s listening addresses and network route in Connection settings.":
@@ -364,8 +361,8 @@ const japanese: Record<string, string> = {
   "Enter [user@]host or ssh://[user@]host[:port].":
     "[user@]hostまたはssh://[user@]host[:port]の形で入力してください。",
 
-  "Could not use the invitation. Retry to request a new invitation and register.":
-    "招待を使用できませんでした。再試行すると新しい招待を取得し、登録します。",
+  "The invitation could not be used. Select Retry.":
+    "招待を使えませんでした。「再試行」を押してください。",
   "Set up iori Host": "iori Hostを用意する",
   "Set up iori Host on this PC": "このPCでiori Hostを用意する",
   "Connect with an invitation": "招待で接続する",
@@ -376,23 +373,22 @@ const japanese: Record<string, string> = {
   "Cancel setup": "キャンセル",
   "Register this device with the existing iori Host without reinstalling it.":
     "再インストールせずに、この端末をこのiori Hostに登録します。",
-  "You can update iori Host in Settings after registration.":
-    "登録した後、設定の「iori Hostを更新」から新しいバージョンにできます。",
+  "To update iori Host, select “Update iori Host” in Settings after registration.":
+    "新しいバージョンにするには、登録した後に設定の「iori Hostを更新」を押してください。",
   "Allow connections from other devices": "ほかの端末からの接続を許可する",
   "Windows will ask for administrator approval to allow other devices to connect.":
     "ほかの端末から接続できるよう、途中でWindowsの管理者の確認が出ます。",
-  "You can use this PC. Other devices cannot connect yet. Allow connections in Settings → Connection.":
-    "このPCからは使えます。ほかの端末からはまだつなげません。設定の「接続」で許可できます。",
+  "This PC can connect. To connect from other devices, select “Allow connections from other devices” in Connection settings.":
+    "このPCからは使えます。ほかの端末からつなぐには、設定の「接続」で「ほかの端末からの接続を許可する」を押してください。",
   "Connections from other devices are allowed":
     "ほかの端末からの接続は許可済みです",
-  "Could not allow connections. You can use this PC and retry this setting later.":
-    "接続を許可できませんでした。このPCからは使えます。後からこの設定を再試行できます。",
-  "Downloading iori Host": "iori Hostを取得しています",
-  "Verifying iori Host": "iori Hostを確認しています",
-  "Extracting iori Host": "iori Hostを展開しています",
-  "Allowing connections from other devices":
-    "ほかの端末からの接続を許可しています",
-  "Registering this device": "この端末を登録しています",
+  "Could not allow connections. This PC can connect. To connect from other devices, select “Allow connections from other devices” in Connection settings.":
+    "接続を許可できませんでした。このPCからは使えます。ほかの端末からつなぐには、設定の「接続」で「ほかの端末からの接続を許可する」を押してください。",
+  "Downloading iori Host": "iori Hostをダウンロード中",
+  "Verifying iori Host": "iori Hostを確認中",
+  "Extracting iori Host": "iori Hostを展開中",
+  "Allowing connections from other devices": "ほかの端末からの接続を許可中",
+  "Registering this device": "この端末を登録中",
   "Could not download iori Host. Check the connection and retry.":
     "iori Hostを取得できませんでした。接続を確認して再試行してください。",
   "Could not verify iori Host. Retry downloading.":
@@ -403,19 +399,19 @@ const japanese: Record<string, string> = {
     "このPCのHostから招待を取得できませんでした。Hostの起動を確認して再試行してください。",
   "Could not complete registration. Retry registration.":
     "登録を完了できませんでした。登録を再試行してください。",
-  "Registered “{name}”": "「{name}」を登録しました",
+  "Registered “{name}”.": "「{name}」を登録しました。",
   "Choose how to add iori Host.": "iori Hostの追加方法を選びます。",
-  "Checking iori Host on this PC": "このPCのiori Hostを確認しています",
+  "Checking iori Host on this PC": "このPCのiori Hostを確認中",
 
   Version: "バージョン",
-  "Downloading the Host update": "配布物を取得しています",
-  "Extracting the Host update": "配布物を展開しています",
-  "Preparing the Host update": "更新を準備しています",
-  "Stopping iori Host": "iori Hostを停止しています",
-  "Backing up iori Host": "iori Hostをバックアップしています",
-  "Replacing iori Host": "iori Hostを入れ替えています",
-  "Starting iori Host": "iori Hostを起動しています",
-  "Restoring iori Host": "iori Hostを復元しています",
+  "Downloading the Host update": "ダウンロード中",
+  "Extracting the Host update": "展開中",
+  "Preparing the Host update": "更新を準備中",
+  "Stopping iori Host": "iori Hostを停止中",
+  "Backing up iori Host": "iori Hostをバックアップ中",
+  "Replacing iori Host": "iori Hostを入れ替え中",
+  "Starting iori Host": "iori Hostを起動中",
+  "Restoring iori Host": "iori Hostを復元中",
   "Update to": "更新先のバージョン",
   "Update iori Host": "iori Hostを更新",
   "This iori Host is not running as a service. Uninstall it on the Host machine.":
@@ -428,7 +424,7 @@ const japanese: Record<string, string> = {
     "iori Hostのプログラムと自動起動の登録を削除します。",
   "Restart iori Host": "iori Hostを再起動",
   "Open Client updates": "Clientの更新欄を開く",
-  "Preparing confirmation": "確認を準備しています",
+  "Preparing confirmation": "準備中",
   Update: "更新する",
   Restart: "再起動する",
   "{name} will be restarted.": "{name}を再起動します。",
@@ -446,8 +442,8 @@ const japanese: Record<string, string> = {
   "Could not restart iori Host": "iori Hostを再起動できませんでした",
   "iori Host updated": "iori Hostを更新しました",
   "iori Host restarted": "iori Hostを再起動しました",
-  "Updating iori Host": "iori Hostを更新しています",
-  "Restarting iori Host": "iori Hostを再起動しています",
+  "Updating iori Host": "iori Hostを更新中",
+  "Restarting iori Host": "iori Hostを再起動中",
   "This iori Host is not running as a service. Start it using the installation script to update or restart it here.":
     "このiori Hostはサービスとして動いていないため、ここから更新・再起動できません。Hostのマシンでインストールスクリプトを使って起動してください。",
   "The Host could not reach the release source. Retry, or run the installation script on the Host machine.":
@@ -458,16 +454,16 @@ const japanese: Record<string, string> = {
     "Hostの更新処理が結果を残さず終了しました。もう一度更新してください。",
   "The Host could not download the update. Retry the update.":
     "Hostが配布物を取得できませんでした。もう一度更新してください。",
-  "The new iori Host exited before it was ready. The previous version and saved data have been restored.":
-    "新しいiori Hostが起動を完了する前に終了しました。前のバージョンと保存データに戻って動いています。",
+  "The new version of iori Host could not start, so iori Host was returned to the previous version. Saved data is unchanged.":
+    "新しいバージョンのiori Hostを起動できなかったため、前のバージョンに戻しました。保存データは変わっていません。",
   "The previous iori Host could not start. Check the service on the Host machine, then reconnect.":
     "前のバージョンのiori Hostも起動できませんでした。Hostのマシンでサービスの状態を確認してから、再接続してください。",
   "The saved data could not be restored. Check the Host and its backup on the Host machine before retrying.":
     "保存データを元に戻せませんでした。もう一度更新する前に、HostのマシンでHostとバックアップの状態を確認してください。",
   "The Host update could not be installed. Check the service on the Host machine, then retry.":
     "Hostを入れ替えられませんでした。Hostのマシンでサービスの状態を確認してから、再試行してください。",
-  "The Host could not request a restart. Check the service on the Host machine, then retry.":
-    "Hostの再起動を依頼できませんでした。Hostのマシンでサービスの状態を確認してから、再試行してください。",
+  "Could not restart iori Host. On the iori Host's machine, check that iori Host is running, then try again.":
+    "iori Hostを再起動できませんでした。iori Hostのマシンで iori Host が動いているか確かめて、もう一度押してください。",
   "This Host is newer than this Client. Update the Client in General settings.":
     "Hostの方が新しいバージョンです。「一般」の更新欄でClientを更新してください。",
   "Running Terminals will stop, and work in progress will be lost.":
@@ -501,8 +497,8 @@ const japanese: Record<string, string> = {
     "OSのキーリングからioriの鍵を読めません。",
   "Retry download": "ダウンロードを再試行",
   "Download and install": "ダウンロードしてインストール",
-  "Downloading update": "ダウンロードしています",
-  "Installing update": "インストールしています",
+  "Downloading update": "ダウンロード中",
+  "Installing update": "インストール中",
   "Installation cancelled. You can try again.":
     "インストールをキャンセルしました。再試行してください。",
   "Continue installation": "インストールを続ける",
@@ -534,7 +530,7 @@ const japanese: Record<string, string> = {
     "通知を設定できませんでした。設定の「通知」から再試行してください。",
   "iori receives notifications from connected Hosts.":
     "接続中のHostから通知を受け取ります。",
-  "Connected in the background": "バックグラウンドで接続しています",
+  "Connected in the background": "バックグラウンドで接続中",
   "Allow only while using the app": "アプリの使用中だけ許可",
   "Allow and keep connected": "許可して接続を保つ",
   "To receive notifications while the app is in the background, keep the connection active. This shows one persistent notification and uses battery.":
@@ -557,7 +553,6 @@ const japanese: Record<string, string> = {
   Attention: "Attention",
   Idle: "待機中",
   Done: "完了",
-  "Completed steps": "完了した処理",
   Stopped: "停止",
   "No decisions waiting.": "Attentionはありません。",
   "No open team conversations.": "開いているTeamの会話はありません。",
@@ -628,7 +623,7 @@ const japanese: Record<string, string> = {
   Register: "登録する",
   Back: "戻る",
   Connected: "Connected",
-  "Reconnecting…": "再接続しています…",
+  "Reconnecting…": "再接続中",
   Reconnect: "再接続",
   Devices: "端末",
   Connection: "接続",
@@ -668,7 +663,7 @@ const japanese: Record<string, string> = {
   "If the CLI permission skips approvals, the agent can run commands without approval after reading what was received.":
     "CLIの許可で確認を省いていると、外から届いた内容を読んだAgentが確認なしでコマンドを実行できます。",
   "Webhooks are not being accepted because port {port} could not be opened.":
-    "ポート{port}を開けないため、Webhookを受け付けていません。",
+    "ポート{port}を使えないため、Webhookを受信できません。",
   From: "送信元",
   "Not run yet.": "まだ実行していません。",
   "Received content": "受け取った内容",
@@ -732,7 +727,7 @@ const japanese: Record<string, string> = {
   "Case sensitive": "大文字と小文字を区別",
   "Previous match": "前の一致",
   "Next match": "次の一致",
-  "Opening terminal…": "Terminalを開いています…",
+  "Opening terminal…": "Terminalを起動中",
   "Could not open this terminal. Refresh the list to check its state.":
     "Terminalを開けませんでした。一覧を更新して状態を確認してください。",
   "Could not reopen this terminal. Refresh the list to check its state.":
@@ -884,7 +879,7 @@ const japanese: Record<string, string> = {
   permission_denied: "フォルダーを読み取る権限がありません。",
   internal_error: "Hostで処理できませんでした。再試行してください。",
   host_uninstalling:
-    "iori Hostをアンインストールしています。完了をお待ちください。",
+    "iori Hostをアンインストール中です。完了までお待ちください。",
 };
 const englishErrors: Record<string, string> = {
   invalid_request: "Check the input and try again.",
@@ -907,8 +902,8 @@ export function translator(language: string) {
 }
 export function registeredMessage(language: string, name: string) {
   return language.toLowerCase().startsWith("ja")
-    ? `${name}を登録しました`
-    : `${name} was registered`;
+    ? `${name}を登録しました。`
+    : `${name} was registered.`;
 }
 
 export function registeredDateMessage(language: string, registeredAt: number) {

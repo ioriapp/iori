@@ -27,6 +27,11 @@ export async function uninstallFromSettings(
   await openSettingsSection(screen, "open-host-version");
   await screen.click('[data-iori-action="host-uninstall"]');
   await screen.wait('[data-iori-view="host-maintenance-confirmation"]');
+  await waitFor(() =>
+    screen.evaluate(
+      `document.querySelector('[data-iori-action="host-maintenance-confirm"]')?.disabled === false`,
+    ),
+  );
   assert.equal(
     await screen.attribute(
       '[data-iori-field="host-uninstall-data"]',
@@ -40,9 +45,50 @@ export async function uninstallFromSettings(
     deleteData ? "delete-data-confirmation" : "keep-data-confirmation",
   );
   await screen.click('[data-iori-action="host-maintenance-confirm"]');
-  if (answerPrompt) await answerPrompt();
-  await removed();
+  let cancelledRead = false;
   let manualRead = false;
+  async function answerRemovalPrompt() {
+    await screen.wait('[data-iori-field="ssh-answer"]');
+    assert.equal(
+      await screen.visible(
+        '[data-iori-view="host-maintenance-confirmation"] [data-iori-field="ssh-answer"]',
+      ),
+      true,
+    );
+    assert.match(
+      await screen.attribute('[data-iori-field="ssh-answer"]', "aria-label"),
+      /Password for|Passphrase for|のパスワード|のパスフレーズ/u,
+    );
+    assert.match(
+      await screen.text('[data-iori-action="ssh-cancel"]'),
+      /Cancel|キャンセル/u,
+    );
+    if (!cancelledRead) {
+      await screen.click('[data-iori-action="ssh-cancel"]');
+      await waitFor(
+        () => screen.visible('[data-iori-field="ssh-answer"]'),
+        (visible) => !visible,
+      );
+      await waitFor(() =>
+        screen.evaluate(
+          `document.querySelector('[data-iori-action="host-uninstall-result"]')?.disabled === false`,
+        ),
+      );
+      record("uninstall-ssh-read-cancelled", true);
+      cancelledRead = true;
+      manualRead = true;
+      await screen.click('[data-iori-action="host-uninstall-result"]');
+      await screen.wait('[data-iori-field="ssh-answer"]');
+    }
+    await answerPrompt();
+    await waitFor(
+      () => screen.visible('[data-iori-field="ssh-answer"]'),
+      (visible) => !visible,
+    );
+    record("uninstall-ssh-answer-closed", true);
+  }
+  if (answerPrompt) await answerRemovalPrompt();
+  await removed();
   let guidanceShown = false;
   // A read that raced with the final OS write is explicitly repeatable.
   if (
@@ -63,15 +109,15 @@ export async function uninstallFromSettings(
       );
       manualRead = true;
       await screen.click('[data-iori-action="host-uninstall-result"]');
-      if (answerPrompt) await answerPrompt();
+      if (answerPrompt) await answerRemovalPrompt();
     }
   }
-  if (deleteData)
-    await waitFor(
-      () => screen.visible('[data-iori-view="host-version"]'),
-      (visible) => !visible,
-    );
-  else await screen.wait('[data-iori-state="host-succeeded"]');
+  await screen.wait('[data-iori-state="uninstall-complete"]');
+  assert.equal(
+    await screen.visible('[data-iori-action="settings-close"]'),
+    false,
+  );
+  assert.equal(await screen.visible('[data-iori-view="host-version"]'), false);
   if (answerPrompt)
     record("ssh-uninstall-result-source", {
       deleteData,

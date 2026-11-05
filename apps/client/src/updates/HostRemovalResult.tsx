@@ -1,8 +1,8 @@
 import { useState, useSyncExternalStore } from "react";
 import { connection } from "../connection.ts";
-import { native } from "../native.ts";
+import { FieldRow } from "../components/page-layout.tsx";
 import { Button } from "../components/ui/button.tsx";
-import { Input } from "../components/ui/input.tsx";
+import { SshPrompt } from "../host-setup/SshPrompt.tsx";
 import { Spinner } from "../components/ui/spinner.tsx";
 import {
   Dialog,
@@ -12,13 +12,52 @@ import {
 } from "../components/ui/dialog.tsx";
 import { removalReader, readRemovalResult } from "./removal-reader.ts";
 
-export function HostRemovalFeedback({ t }: { t: (key: string) => string }) {
+export function HostRemovalPrompt({
+  hostKey,
+  t,
+}: {
+  hostKey?: string;
+  t: (key: string) => string;
+}) {
+  const { prompt } = useSyncExternalStore(
+    removalReader.subscribe,
+    removalReader.getSnapshot,
+  );
+  if (!prompt || (hostKey && prompt.hostKey !== hostKey)) return null;
+  const password = /^(?:\(.*?\)\s*)?([^\s@]+)@(.+?)'s password: ?$/i.exec(
+    prompt.text,
+  );
+  const key = /Enter passphrase for key ['"](.+?)['"]:/i.exec(prompt.text);
+  const label = password
+    ? t("Password for {user}@{host}")
+        .replace("{user}", password[1]!)
+        .replace("{host}", password[2]!)
+    : key
+      ? t("Passphrase for {key}").replace("{key}", key[1]!)
+      : undefined;
+  return (
+    <SshPrompt
+      key={prompt.id}
+      prompt={prompt}
+      label={label}
+      t={t}
+      onAnswer={removalReader.answerPrompt}
+      onCancel={() => removalReader.cancelPrompt()}
+      cancelLabel={t("Cancel")}
+    />
+  );
+}
+export function HostRemovalFeedback({
+  t,
+  inline,
+}: {
+  t: (key: string) => string;
+  inline: boolean;
+}) {
   const { prompt, hosts } = useSyncExternalStore(
     removalReader.subscribe,
     removalReader.getSnapshot,
   );
-  const [answer, setAnswer] = useState("");
-  const yesNo = prompt?.text.includes("(yes/no");
   return (
     <>
       {Object.values(hosts).some((value) => value.cleanupFailed) && (
@@ -37,44 +76,15 @@ export function HostRemovalFeedback({ t }: { t: (key: string) => string }) {
         </div>
       )}
       <Dialog
-        open={Boolean(prompt)}
+        open={Boolean(prompt) && !inline}
         onOpenChange={(open) => {
-          if (!open && prompt) void native.sshCancel(prompt.session);
+          if (!open) removalReader.cancelPrompt();
         }}
       >
-        <DialogContent data-iori-state="ssh-prompt">
+        <DialogContent>
           <DialogTitle>{t("Check uninstall result")}</DialogTitle>
-          <DialogDescription>{prompt?.text}</DialogDescription>
-          {!yesNo && !prompt?.notification && (
-            <Input
-              type="password"
-              autoComplete="off"
-              aria-label={t("SSH response")}
-              data-iori-field="ssh-answer"
-              value={answer}
-              onChange={(event) => setAnswer(event.target.value)}
-            />
-          )}
-          {!prompt?.notification && (
-            <Button
-              data-iori-action="ssh-answer"
-              onClick={() => {
-                if (prompt)
-                  void native.sshAnswer(prompt.id, yesNo ? "yes" : answer);
-                setAnswer("");
-              }}
-            >
-              {t(yesNo ? "Connect" : "Send")}
-            </Button>
-          )}
-          <Button
-            variant="outline"
-            onClick={() => {
-              if (prompt) void native.sshCancel(prompt.session);
-            }}
-          >
-            {t("Cancel")}
-          </Button>
+          <DialogDescription>{t("Checking")}</DialogDescription>
+          <HostRemovalPrompt t={t} />
         </DialogContent>
       </Dialog>
     </>
@@ -83,7 +93,9 @@ export function HostRemovalFeedback({ t }: { t: (key: string) => string }) {
 export function HostRemovalResult({
   hostKey,
   t,
+  active = false,
 }: {
+  active?: boolean;
   hostKey: string;
   t: (key: string) => string;
 }) {
@@ -101,10 +113,12 @@ export function HostRemovalResult({
   const paused =
     removal.status.phase === "removing" || removal.status.phase === "succeeded";
   const busy = reads.hosts[hostKey]?.busy;
+  const prompt = reads.prompt?.hostKey === hostKey;
   const missing = !busy && reads.hosts[hostKey]?.missing;
   return (
     <div data-iori-view="host-removal-result">
-      {removal.status.phase === "removing" && (
+      {prompt && <HostRemovalPrompt hostKey={hostKey} t={t} />}
+      {removal.status.phase === "removing" && !prompt && (
         <p
           role="status"
           className="flex items-center gap-2"
@@ -124,8 +138,14 @@ export function HostRemovalResult({
               missing
                 ? "No result is available yet. Wait a moment, then select “Check uninstall result”."
                 : removal.local || removal.sshDestination
-                  ? "Waiting for iori Host to stop and remove its files"
-                  : "Uninstall requested. Program files will be removed after iori Host stops.",
+                  ? busy
+                    ? "Checking"
+                    : "Waiting for iori Host to stop and remove its files"
+                  : "Uninstall of {name}'s iori Host started.",
+            ).replace(
+              "{name}",
+              state.initial?.hosts.find((host) => host.publicKey === hostKey)
+                ?.hostName ?? "",
             )}
           </span>
         </p>
@@ -144,11 +164,26 @@ export function HostRemovalResult({
               void readRemovalResult(connection, hostKey);
             }}
           >
-            {t("Check uninstall result")}
+            {t(
+              reads.hosts[hostKey]?.error ? "Retry" : "Check uninstall result",
+            )}
           </Button>
         )}
-      {paused && (
-        <div className="connection-actions">
+      {paused && !active && (
+        <FieldRow
+          label={
+            <span
+              role="status"
+              data-iori-state={`host-${removal.status.phase}`}
+            >
+              {t(
+                removal.status.phase === "succeeded"
+                  ? "iori Host uninstalled"
+                  : "Uninstall requested",
+              )}
+            </span>
+          }
+        >
           <Button
             variant="outline"
             data-iori-action="host-uninstall-connect"
@@ -179,7 +214,7 @@ export function HostRemovalResult({
           >
             {t("Remove from list")}
           </Button>
-        </div>
+        </FieldRow>
       )}
     </div>
   );

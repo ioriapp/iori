@@ -1006,6 +1006,7 @@ input.on('line',async line=>{if(!line.startsWith('DELEGATE'))return; const optio
               worktree,
               cliHome,
               uninstallStatuses,
+              disconnect: () => host.close(),
               reload: () => page.reload(),
               reinstall: async () => {
                 await host.close();

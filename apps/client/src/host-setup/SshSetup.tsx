@@ -470,7 +470,9 @@ export function SshSetup({
           {machine.host?.version &&
             compareVersions(machine.host.version, clientVersion) < 0 && (
               <p className="settings-note">
-                {t("You can update iori Host in Settings after registration.")}
+                {t(
+                  "To update iori Host, select “Update iori Host” in Settings after registration.",
+                )}
               </p>
             )}
         </div>
@@ -509,7 +511,7 @@ export function SshSetup({
       {signInRequired && (
         <p className="settings-note" data-iori-state="setup-sign-in-required">
           {t(
-            "iori Host starts when {user} signs in to that PC. After it starts, choose the same connection again to register.",
+            "Sign in to that PC as {user}. iori Host starts when you sign in. Then select “Register with this iori Host”.",
           ).replace("{user}", machine?.user ?? "")}
         </p>
       )}
@@ -528,7 +530,7 @@ export function SshSetup({
       )}
       {cancelling && (
         <p role="status" data-iori-state="ssh-cancelling">
-          {t("Cancelling SSH…")}
+          {t("Cancelling")}
         </p>
       )}
       {cancelled && <p role="status">{t("Cancelled")}</p>}

@@ -8,7 +8,13 @@ import {
 import { SettingsSection, FieldRow } from "../components/page-layout.tsx";
 import { Checkbox } from "../components/ui/checkbox.tsx";
 import { HostRemovalResult } from "./HostRemovalResult.tsx";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import {
   compareVersions,
   type HostInfo,
@@ -29,6 +35,7 @@ import {
 } from "../components/ui/dialog.tsx";
 import { connection } from "../connection.ts";
 import { native } from "../native.ts";
+import { removalReader } from "./removal-reader.ts";
 import {
   clientVersion,
   hostNeedsUpdate,
@@ -38,16 +45,6 @@ import {
   useHostMaintenance,
 } from "./host-controller.ts";
 
-const completedStages: Record<string, string> = {
-  terminals: "Terminals and agents stopped",
-  hooks: "iori CLI hooks removed",
-  registration: "Automatic startup removed",
-  stop: "iori Host stopped",
-  program: "iori Host program files removed",
-  data: "iori Host saved data removed",
-  "forge-tokens":
-    "Forgejo and Gitea tokens removed from the OS credential store",
-};
 export function HostVersionSettings({
   onOpenTerminal,
   host,
@@ -81,11 +78,20 @@ export function HostVersionSettings({
   const cancelConfirmation = useRef<HTMLButtonElement>(null);
   const [confirmation, setConfirmation] = useState<{
     kind: MaintenanceKind;
-    plan: MaintenancePlan;
+    plan?: MaintenancePlan;
   }>();
   const [preparing, setPreparing] = useState<MaintenanceKind>();
   const [startingUninstall, setStartingUninstall] = useState(false);
+  const [uninstallStarted, setUninstallStarted] = useState(false);
+  const preparation = useRef(0);
+  const uninstallConfirmation = confirmation?.kind === "uninstall";
+  const uninstallRunning = uninstallConfirmation && uninstallStarted;
+  const connected = state.connectedHosts.includes(host.publicKey);
   const [error, setError] = useState<string>();
+  const uninstallLocked =
+    uninstallRunning &&
+    !error &&
+    (startingUninstall || status?.phase !== "failed");
   const pending = Boolean(
     status &&
     !status.plan &&
@@ -97,30 +103,161 @@ export function HostVersionSettings({
     pending &&
     Boolean(operation?.sentOn) &&
     operation?.sentOn === connection.connectionIdOf(host.publicKey);
-  const unavailable = paused || host.maintenanceAvailable === false;
+  const unavailable =
+    paused || startingUninstall || host.maintenanceAvailable === false;
+  const closeConfirmation = useCallback(() => {
+    preparation.current++;
+    setPreparing(undefined);
+    setConfirmation(undefined);
+    if (removalReader.getSnapshot().prompt?.hostKey === host.publicKey)
+      removalReader.cancelPrompt();
+  }, [host.publicKey]);
   useEffect(() => {
-    onNestedBack(confirmation ? () => setConfirmation(undefined) : undefined);
+    onNestedBack(confirmation ? closeConfirmation : undefined);
     return () => onNestedBack(undefined);
-  }, [confirmation, onNestedBack]);
+  }, [confirmation, onNestedBack, closeConfirmation]);
   async function prepare(kind: MaintenanceKind) {
-    if (kind === "uninstall") setDeleteData(false);
+    const request = ++preparation.current;
+    if (kind === "uninstall") {
+      setDeleteData(false);
+      setUninstallStarted(false);
+      setConfirmation({ kind });
+    }
     setPreparing(kind);
     setError(undefined);
     try {
       const plan = await prepareHostMaintenance(host.publicKey, kind);
+      if (request !== preparation.current) return;
       if (plan.error) setError(plan.error);
       else setConfirmation({ kind, plan });
     } catch {
-      setError("request");
+      if (request === preparation.current) setError("request");
     } finally {
-      setPreparing(undefined);
+      if (request === preparation.current) setPreparing(undefined);
     }
   }
-  const reason = error ?? status?.reason;
+  const reason =
+    error ??
+    (!uninstallConfirmation || uninstallRunning ? status?.reason : undefined);
   const waitingForHost =
     status?.kind !== "uninstall" && pending && disconnectedSeconds > 10;
   const showReconnect =
     status?.kind !== "uninstall" && (waitingForHost || reason === "restore");
+  async function start() {
+    if (!confirmation?.plan) return;
+    const selected = confirmation;
+    const request = preparation.current;
+    if (selected.kind === "uninstall") {
+      setStartingUninstall(true);
+      setUninstallStarted(true);
+      setError(undefined);
+    } else setConfirmation(undefined);
+    try {
+      const plan = await performHostMaintenance(
+        host.publicKey,
+        selected.kind,
+        selected.plan!,
+        deleteData,
+      );
+      if (plan && request === preparation.current) {
+        setUninstallStarted(false);
+        setConfirmation({ kind: selected.kind, plan });
+      }
+    } catch {
+      setError("save-removal");
+    } finally {
+      setStartingUninstall(false);
+    }
+  }
+  const removalDetails = (
+    <>
+      {Boolean(status?.forgeTokensRemaining?.length) && (
+        <p role="alert" data-iori-state="forge-tokens-remaining">
+          {t(
+            "The tokens for these sites could not be deleted. Delete them manually from the OS credential store.",
+          )}
+          {status!.forgeTokensRemaining!.map((site) => (
+            <span key={site} className="block wrap-anywhere">
+              {site}
+            </span>
+          ))}
+          <span className="block">
+            {t("A token can still be used until you revoke it on the site.")}
+          </span>
+        </p>
+      )}
+      {Boolean(status?.rollbackFailed?.length) && (
+        <p role="alert">
+          {t("Could not restore:")}{" "}
+          {status!
+            .rollbackFailed!.map((stage) =>
+              t(
+                stage === "terminals"
+                  ? "Terminals and agents"
+                  : stage === "hooks"
+                    ? "CLI hooks"
+                    : "Automatic startup",
+              ),
+            )
+            .join(t(", "))}
+        </p>
+      )}
+      {reason && (
+        <p
+          role="alert"
+          className="connection-error"
+          data-iori-state="host-maintenance-error"
+        >
+          {t(
+            removalFilesFailed
+              ? "Could not delete all iori Host files."
+              : (failures[reason] ?? failures.request!),
+          )}
+          {status?.stage && stages[status.stage] && (
+            <span className="block">
+              {t(stages[status.stage]!)}
+              {status.osError && status.osError !== "unknown"
+                ? ` (${status.osError})`
+                : ""}
+            </span>
+          )}
+          {removalFilesFailed && (
+            <>
+              {status.processErrors?.length ? (
+                <span className="block">
+                  {t("Could not stop these processes:")}
+                  {status.processErrors.map((error) => (
+                    <span key={error} className="block wrap-anywhere">
+                      {error}
+                    </span>
+                  ))}
+                </span>
+              ) : null}
+              {status.failedPaths?.map((path) => (
+                <span key={path} className="block wrap-anywhere">
+                  {path}
+                </span>
+              ))}
+              <span className="block">
+                {t(
+                  !status.failedPaths?.length
+                    ? "Reinstall using “Set up iori Host”."
+                    : host.os === "Windows"
+                      ? "Restart the PC, then delete those folders, or reinstall using “Set up iori Host”."
+                      : "Delete the remaining folders, or reinstall using “Set up iori Host”.",
+                )}
+              </span>
+              <span className="block">
+                {t(
+                  "You can remove this Host from the list in Settings → Connection.",
+                )}
+              </span>
+            </>
+          )}
+        </p>
+      )}
+    </>
+  );
   return (
     <SettingsSection data-iori-view="host-version">
       {host.version && (
@@ -129,15 +266,17 @@ export function HostVersionSettings({
           <span data-iori-value="host-version">{host.version}</span>
         </FieldRow>
       )}
-      {status && (
-        <HostMaintenanceProgress
-          status={status}
-          pending={pending}
-          waitingForHost={waitingForHost}
-          showReconnect={showReconnect}
-          t={t}
-        />
-      )}
+      {status &&
+        !uninstallConfirmation &&
+        !(paused && status.kind === "uninstall") && (
+          <HostMaintenanceProgress
+            status={status}
+            pending={pending}
+            waitingForHost={waitingForHost}
+            showReconnect={showReconnect}
+            t={t}
+          />
+        )}
       {!paused && (!host.version || hostNeedsUpdate(host)) && (
         <FieldRow
           description={
@@ -223,130 +362,47 @@ export function HostVersionSettings({
                 <p>{t("Use iori on a PC to uninstall iori Host.")}</p>
               )
             ) : (
-              <Button
-                variant="destructive"
-                data-iori-action="host-uninstall"
-                disabled={Boolean(preparing) || sending || unavailable}
-                pending={
-                  startingUninstall ||
-                  preparing === "uninstall" ||
-                  (sending && status?.kind === "uninstall")
-                }
-                onClick={() => void prepare("uninstall")}
-              >
-                {t("Uninstall")}
-              </Button>
+              <>
+                {!connected && (
+                  <span
+                    role="status"
+                    data-iori-state="host-uninstall-connecting"
+                  >
+                    {t("Connecting")}
+                  </span>
+                )}
+                <Button
+                  variant="destructive"
+                  data-iori-action="host-uninstall"
+                  disabled={
+                    !connected || Boolean(preparing) || sending || unavailable
+                  }
+                  onClick={() => void prepare("uninstall")}
+                >
+                  {t("Uninstall")}
+                </Button>
+              </>
             )}
           </FieldRow>
         </>
       )}
-      <HostRemovalResult hostKey={host.publicKey} t={t} />
+      {!uninstallConfirmation && (
+        <HostRemovalResult hostKey={host.publicKey} t={t} />
+      )}
       {!paused && host.terminalDaemonCanContinue === false && (
         <p className="text-destructive">
           {t("Running Terminals will stop, and work in progress will be lost.")}
         </p>
       )}
-      {preparing && <p role="status">{t("Preparing confirmation")}</p>}
-      {status?.kind === "uninstall" && Boolean(status.completed?.length) && (
-        <div className="settings-note">
-          <p>{t("Completed steps")}</p>
-          <ul className="list-disc pl-5">
-            {status.completed!.map((stage) => (
-              <li key={stage}>{t(completedStages[stage] ?? stage)}</li>
-            ))}
-          </ul>
-        </div>
+      {preparing && !uninstallConfirmation && (
+        <p role="status">{t("Preparing confirmation")}</p>
       )}
-      {Boolean(status?.forgeTokensRemaining?.length) && (
-        <p role="alert" data-iori-state="forge-tokens-remaining">
-          {t(
-            "Could not remove the tokens of these sites from the OS credential store:",
-          )}
-          {status!.forgeTokensRemaining!.map((site) => (
-            <span key={site} className="block wrap-anywhere">
-              {site}
-            </span>
-          ))}
-          <span className="block">
-            {t(
-              "Remove them in the OS credential store. A token stays usable until it is revoked on its site.",
-            )}
-          </span>
-        </p>
-      )}
-      {Boolean(status?.rollbackFailed?.length) && (
-        <p role="alert">
-          {t("Could not restore:")}{" "}
-          {status!
-            .rollbackFailed!.map((stage) =>
-              t(
-                stage === "terminals"
-                  ? "Terminals and agents"
-                  : stage === "hooks"
-                    ? "CLI hooks"
-                    : "Automatic startup",
-              ),
-            )
-            .join(t(", "))}
-        </p>
-      )}
-      {reason && (
-        <p
-          role="alert"
-          className="connection-error"
-          data-iori-state="host-maintenance-error"
-        >
-          {t(
-            removalFilesFailed
-              ? "Could not delete all iori Host files."
-              : (failures[reason] ?? failures.request!),
-          )}
-          {status?.stage && stages[status.stage] && (
-            <span className="block">
-              {t(stages[status.stage]!)}
-              {status.osError && status.osError !== "unknown"
-                ? ` (${status.osError})`
-                : ""}
-            </span>
-          )}
-          {removalFilesFailed && (
-            <>
-              {status.processErrors?.length ? (
-                <span className="block">
-                  {t("Could not stop these processes:")}
-                  {status.processErrors.map((error) => (
-                    <span key={error} className="block wrap-anywhere">
-                      {error}
-                    </span>
-                  ))}
-                </span>
-              ) : null}
-              {status.failedPaths?.map((path) => (
-                <span key={path} className="block wrap-anywhere">
-                  {path}
-                </span>
-              ))}
-              <span className="block">
-                {t(
-                  !status.failedPaths?.length
-                    ? "Reinstall using “Set up iori Host”."
-                    : host.os === "Windows"
-                      ? "Restart the PC, then delete those folders, or reinstall using “Set up iori Host”."
-                      : "Delete the remaining folders, or reinstall using “Set up iori Host”.",
-                )}
-              </span>
-              <span className="block">
-                {t(
-                  "You can remove this Host from the list in Settings → Connection.",
-                )}
-              </span>
-            </>
-          )}
-        </p>
-      )}
+      {!uninstallConfirmation && removalDetails}
       <Dialog
         open={Boolean(confirmation)}
-        onOpenChange={(open) => !open && setConfirmation(undefined)}
+        onOpenChange={(open) => {
+          if (!open) closeConfirmation();
+        }}
       >
         <DialogContent
           className="folder-dialog worktree-create-dialog"
@@ -385,11 +441,11 @@ export function HostVersionSettings({
           </DialogHeader>
           {confirmation &&
             (confirmation.kind === "uninstall" ||
-              (!confirmation.plan.canContinue &&
-                confirmation.plan.hasOpenTerminals)) && (
+              (!confirmation.plan?.canContinue &&
+                confirmation.plan?.hasOpenTerminals)) && (
               <div data-slot="dialog-body" className="worktree-removal-body">
-                <ScrollArea type="always" className="worktree-removal-scroll">
-                  {confirmation.kind === "uninstall" && (
+                <ScrollArea type="auto" className="worktree-removal-scroll">
+                  {confirmation.kind === "uninstall" && !uninstallRunning && (
                     <p>
                       {t(
                         deleteData
@@ -398,12 +454,14 @@ export function HostVersionSettings({
                       )}
                     </p>
                   )}
-                  <HostMaintenanceStopWarning
-                    plan={confirmation.plan}
-                    kind={confirmation.kind}
-                    t={t}
-                  />
-                  {confirmation.kind === "uninstall" && (
+                  {!uninstallRunning && confirmation.plan && (
+                    <HostMaintenanceStopWarning
+                      plan={confirmation.plan}
+                      kind={confirmation.kind}
+                      t={t}
+                    />
+                  )}
+                  {confirmation.kind === "uninstall" && !uninstallRunning && (
                     <label className="flex items-center worktree-removal-branch-toggle">
                       <Checkbox
                         data-iori-field="host-uninstall-data"
@@ -415,63 +473,117 @@ export function HostVersionSettings({
                       {t("Also delete iori Host saved data")}
                     </label>
                   )}
-                  <HostMaintenanceWork
-                    plan={confirmation.plan}
-                    hostKey={host.publicKey}
-                    onOpenTerminal={onOpenTerminal}
-                    t={t}
-                  />
+                  {uninstallConfirmation && preparing === "uninstall" && (
+                    <SettingsSection title={t("Work that will be interrupted")}>
+                      <p role="status">{t("Checking")}</p>
+                    </SettingsSection>
+                  )}
+                  {uninstallRunning && (
+                    <>
+                      {(status?.kind !== "uninstall" ||
+                        status.phase !== "removing") && (
+                        <p
+                          role="status"
+                          data-iori-state={`host-${error ? "failed" : status?.kind === "uninstall" ? status.phase : "uninstalling"}`}
+                        >
+                          {t(
+                            error ||
+                              (status?.kind === "uninstall" &&
+                                status.phase === "failed")
+                              ? "Could not uninstall iori Host"
+                              : status?.stage === "terminals"
+                                ? "Stopping Terminals and agents"
+                                : "Uninstalling iori Host",
+                          )}
+                        </p>
+                      )}
+                      <HostRemovalResult
+                        hostKey={host.publicKey}
+                        active
+                        t={t}
+                      />
+                      {removalDetails}
+                    </>
+                  )}
+                  {!uninstallRunning && confirmation.plan && (
+                    <HostMaintenanceWork
+                      plan={confirmation.plan}
+                      hostKey={host.publicKey}
+                      onOpenTerminal={onOpenTerminal}
+                      t={t}
+                    />
+                  )}
+                  {uninstallConfirmation &&
+                    !uninstallRunning &&
+                    reason &&
+                    removalDetails}
                 </ScrollArea>
               </div>
             )}
           <DialogFooter>
             <DialogClose asChild>
-              <Button variant="outline" ref={cancelConfirmation}>
-                {t("Cancel")}
+              <Button
+                variant="outline"
+                ref={cancelConfirmation}
+                data-iori-action="host-maintenance-close"
+              >
+                {t(
+                  uninstallStarted && uninstallConfirmation
+                    ? "Close"
+                    : "Cancel",
+                )}
               </Button>
             </DialogClose>
-            <Button
-              data-iori-action="host-maintenance-confirm"
-              variant={
-                confirmation?.kind === "uninstall" ||
-                confirmation?.plan.targets.length
-                  ? "destructive"
-                  : "default"
-              }
-              onClick={() => {
-                if (!confirmation) return;
-                const selected = confirmation;
-                setConfirmation(undefined);
-                if (selected.kind === "uninstall") setStartingUninstall(true);
-                void performHostMaintenance(
-                  host.publicKey,
-                  selected.kind,
-                  selected.plan,
-                  deleteData,
-                )
-                  .then((plan) => {
-                    if (plan) setConfirmation({ kind: selected.kind, plan });
-                  })
-                  .finally(() => {
-                    if (selected.kind === "uninstall")
-                      setStartingUninstall(false);
-                  });
-              }}
-            >
-              {t(
-                confirmation?.kind === "uninstall"
-                  ? confirmation.plan.targets.length
-                    ? "Stop and uninstall"
-                    : "Uninstall"
-                  : confirmation?.kind === "update"
-                    ? confirmation.plan.targets.length
-                      ? "Stop and update"
-                      : "Update"
-                    : confirmation?.plan.targets.length
-                      ? "Stop and restart"
-                      : "Restart",
-              )}
-            </Button>
+            {uninstallConfirmation && !uninstallRunning && !connected && (
+              <span role="status" data-iori-state="host-maintenance-connecting">
+                {t("Connecting")}
+              </span>
+            )}
+            {!uninstallLocked && !(uninstallRunning && removalFilesFailed) && (
+              <Button
+                data-iori-action="host-maintenance-confirm"
+                variant={
+                  confirmation?.kind === "uninstall" ||
+                  confirmation?.plan?.targets.length
+                    ? "destructive"
+                    : "default"
+                }
+                disabled={
+                  Boolean(preparing) ||
+                  uninstallLocked ||
+                  startingUninstall ||
+                  (!confirmation?.plan && !error) ||
+                  (uninstallConfirmation && !connected && !uninstallRunning)
+                }
+                pending={startingUninstall}
+                onClick={() => {
+                  if (
+                    uninstallConfirmation &&
+                    (error || status?.phase === "failed")
+                  ) {
+                    if (!confirmation.plan) void prepare("uninstall");
+                    else void start();
+                  } else void start();
+                }}
+              >
+                {t(
+                  uninstallConfirmation &&
+                    (error || (uninstallRunning && status?.phase === "failed"))
+                    ? "Retry"
+                    : confirmation?.kind === "uninstall"
+                      ? confirmation.plan?.targets.length
+                        ? "Stop and uninstall"
+                        : "Uninstall"
+                      : confirmation?.kind === "update"
+                        ? confirmation.plan?.targets.length
+                          ? "Stop and update"
+                          : "Update"
+                        : confirmation?.plan?.targets.length
+                          ? "Stop and restart"
+                          : "Restart",
+                )}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

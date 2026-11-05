@@ -1,4 +1,4 @@
-import { parseMaintenanceStatus } from "@iori/protocol";
+import { parseMaintenanceStatus, type MaintenanceStatus } from "@iori/protocol";
 import { native } from "../native.ts";
 import type { ConnectionController } from "../connection.ts";
 
@@ -9,6 +9,7 @@ type ReadState = {
   cleanupFailed?: boolean;
 };
 type Prompt = {
+  hostKey: string;
   id: string;
   session: string;
   text: string;
@@ -18,10 +19,29 @@ let state: { hosts: Record<string, ReadState>; prompt?: Prompt } = {
   hosts: {},
 };
 const listeners = new Set<() => void>();
+const completionListeners = new Set<
+  (hostKey: string, status: MaintenanceStatus) => void
+>();
+const notifiedOperations = new Set<string>();
+export function onRemovalComplete(
+  listener: (hostKey: string, status: MaintenanceStatus) => void,
+) {
+  completionListeners.add(listener);
+  return () => {
+    completionListeners.delete(listener);
+  };
+}
+export function removalComplete(hostKey: string, status: MaintenanceStatus) {
+  if (notifiedOperations.has(status.operationId)) return;
+  notifiedOperations.add(status.operationId);
+  for (const listener of completionListeners) listener(hostKey, status);
+}
 const attempted = new Set<string>();
 const localAttempts = new Map<string, string>();
 const timers = new Map<string, ReturnType<typeof setTimeout>>();
 let session = "";
+let sessionHostKey = "";
+let cancelledSession = "";
 export const removalReader = {
   subscribe(listener: () => void) {
     listeners.add(listener);
@@ -30,6 +50,24 @@ export const removalReader = {
     };
   },
   getSnapshot: () => state,
+  answerPrompt(answer: string) {
+    const current = state.prompt;
+    if (!current) return;
+    prompt();
+    void native.sshAnswer(current.id, answer).catch(() => {
+      publish(current.hostKey, {
+        ...state.hosts[current.hostKey],
+        error: "Could not read the uninstall result. Retry.",
+      });
+    });
+  },
+  cancelPrompt() {
+    const current = state.prompt;
+    if (!current) return;
+    cancelledSession = current.session;
+    prompt();
+    void native.sshCancel(current.session).catch(() => {});
+  },
   dismissCleanupWarnings() {
     state = {
       ...state,
@@ -74,6 +112,7 @@ export async function readRemovalResult(
   let sshSession = "";
   try {
     if (!removal.local) {
+      sessionHostKey = key;
       sshSession = session = crypto.randomUUID();
       await native.sshConnect(removal.sshDestination!, session);
     }
@@ -90,6 +129,7 @@ export async function readRemovalResult(
     if (value) {
       const status = parseMaintenanceStatus(value);
       await connection.setRemoval(key, { ...removal, status });
+      if (status.phase === "succeeded") removalComplete(key, status);
       try {
         await read(true);
       } catch {
@@ -107,11 +147,14 @@ export async function readRemovalResult(
       }
     } else if (!removal.local) publish(key, { busy: true, missing: true });
   } catch {
-    publish(key, { error: "Could not read the uninstall result. Retry." });
+    if (!sshSession || sshSession !== cancelledSession)
+      publish(key, { error: "Could not read the uninstall result. Retry." });
   } finally {
     if (sshSession) {
       await native.sshCancel(sshSession).catch(() => {});
+      if (cancelledSession === sshSession) cancelledSession = "";
       session = "";
+      sessionHostKey = "";
       prompt();
     }
     publish(key, { ...state.hosts[key], busy: false });
@@ -137,6 +180,7 @@ export function startRemovalReader(connection: ConnectionController) {
     if (id !== session) return;
     if (value.type === "prompt" && value.id && value.prompt)
       prompt({
+        hostKey: sessionHostKey,
         id: value.id,
         session: id,
         text: value.prompt,

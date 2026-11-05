@@ -1,5 +1,6 @@
 import { Button } from "../components/ui/button.tsx";
 import { FirewallCommand } from "./FirewallCommand.tsx";
+import type { MaintenanceStatus } from "@iori/protocol";
 
 export type SetupNotice = {
   name: string;
@@ -7,6 +8,7 @@ export type SetupNotice = {
   lingerUser?: string;
   firewallCommand?: string;
   firewallTarget?: string;
+  uninstall?: MaintenanceStatus;
 };
 
 export function HostSetupNotice({
@@ -22,10 +24,41 @@ export function HostSetupNotice({
     <div
       className="storage-retry setup-notice"
       role="status"
-      data-iori-state="setup-complete"
+      data-iori-state={
+        notice.uninstall ? "uninstall-complete" : "setup-complete"
+      }
     >
-      <div>
-        {t("Registered “{name}”").replace("{name}", notice.name)}
+      <div className="flex flex-col gap-2 self-center [&>p]:m-0">
+        <p>
+          {t(
+            notice.uninstall
+              ? notice.uninstall.phase !== "succeeded"
+                ? "Uninstall of {name}'s iori Host started."
+                : notice.uninstall.deleteData
+                  ? "{name}'s iori Host and its saved data were deleted."
+                  : "{name}'s iori Host was uninstalled."
+              : "Registered “{name}”.",
+          ).replace("{name}", notice.name)}
+        </p>
+        {Boolean(notice.uninstall?.forgeTokensRemaining?.length) && (
+          <div role="alert" className="flex flex-col gap-2">
+            <p className="m-0">
+              {t(
+                "The tokens for these sites could not be deleted. Delete them manually from the OS credential store.",
+              )}
+            </p>
+            <div>
+              {notice.uninstall!.forgeTokensRemaining!.map((site) => (
+                <span className="block wrap-anywhere" key={site}>
+                  {site}
+                </span>
+              ))}
+            </div>
+            <p className="m-0">
+              {t("A token can still be used until you revoke it on the site.")}
+            </p>
+          </div>
+        )}
         {notice.lingerUser && (
           <p>
             {t(
@@ -38,7 +71,7 @@ export function HostSetupNotice({
           <span>
             {" "}
             {t(
-              "You can use this PC. Other devices cannot connect yet. Allow connections in Settings → Connection.",
+              "This PC can connect. To connect from other devices, select “Allow connections from other devices” in Connection settings.",
             )}
           </span>
         )}
@@ -50,7 +83,7 @@ export function HostSetupNotice({
           />
         )}
       </div>
-      <Button variant="ghost" onClick={onClose}>
+      <Button className="self-center" variant="ghost" onClick={onClose}>
         {t("Close")}
       </Button>
     </div>

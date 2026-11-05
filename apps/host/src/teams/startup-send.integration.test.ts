@@ -163,9 +163,14 @@ process.stdin.resume(); setInterval(()=>{},1000);
       const child = store
         .teamChildren()
         .find((item) => item.id === delegated.data.child)!;
-      const files = await readdir(dirname(child.requestFile));
-      const copied = files.find((file) => file.startsWith("delegation-"));
-      assert.ok(copied);
+      // The child's copy of the request is written alongside its start, so
+      // wait for it instead of reading the folder once.
+      let copied: string | undefined;
+      while (!copied) {
+        const files = await readdir(dirname(child.requestFile));
+        copied = files.find((file) => file.startsWith("delegation-"));
+        if (!copied) await delay(10);
+      }
       assert.match(
         await readFile(join(dirname(child.requestFile), copied), "utf8"),
         /original request/u,

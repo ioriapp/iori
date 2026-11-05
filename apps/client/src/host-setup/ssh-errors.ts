@@ -1,6 +1,6 @@
 export const stages: Record<string, string> = {
   connect: "Checking the SSH destination",
-  download: "The destination machine is downloading iori Host",
+  download: "Downloading iori Host on the destination",
   verification: "Verifying iori Host",
   extract: "Extracting iori Host on the destination",
   service: "Setting up iori Host to run after logout",
