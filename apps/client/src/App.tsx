@@ -1207,10 +1207,22 @@ export default function App() {
           deviceName={state.initial.deviceName}
           t={t}
           onClose={() => setSetupOpen(false)}
-          onComplete={(name, localOnly, lingerUser, firewallCommand) => {
+          onComplete={(
+            name,
+            localOnly,
+            lingerUser,
+            firewallCommand,
+            firewallTarget,
+          ) => {
             setSetupOpen(false);
             setSetupStarted(false);
-            setSetupNotice({ name, localOnly, lingerUser, firewallCommand });
+            setSetupNotice({
+              name,
+              localOnly,
+              lingerUser,
+              firewallCommand,
+              firewallTarget,
+            });
           }}
         />
       )}

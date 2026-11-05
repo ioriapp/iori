@@ -62,6 +62,7 @@ export function HostSetupDialog({
     localOnly: boolean,
     lingerUser?: string,
     firewallCommand?: string,
+    firewallTarget?: string,
   ) => void;
 }) {
   const state = useSyncExternalStore(

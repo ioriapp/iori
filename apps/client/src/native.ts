@@ -58,6 +58,11 @@ export const native = {
         allowConnections,
       },
     ),
+  sshAllow: (target: string, user: string, session: string) =>
+    invoke<{ allowed: boolean; administrator: boolean; message?: string }>(
+      "native_ssh_allow",
+      { target, user, session },
+    ),
   sshCancel: (session: string) =>
     invoke<void>("native_ssh_cancel", { session }),
   sshAnswer: (prompt: string, answer: string | null) =>

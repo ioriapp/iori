@@ -6,6 +6,7 @@ export type SetupNotice = {
   localOnly: boolean;
   lingerUser?: string;
   firewallCommand?: string;
+  firewallTarget?: string;
 };
 
 export function HostSetupNotice({
@@ -42,7 +43,11 @@ export function HostSetupNotice({
           </span>
         )}
         {notice.firewallCommand && (
-          <FirewallCommand command={notice.firewallCommand} t={t} />
+          <FirewallCommand
+            command={notice.firewallCommand}
+            target={notice.firewallTarget}
+            t={t}
+          />
         )}
       </div>
       <Button variant="ghost" onClick={onClose}>

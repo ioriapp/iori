@@ -97,6 +97,17 @@ New-Item -ItemType Directory -Force -Path $env:USERPROFILE | Out-Null`,
         (await readFile(service, "utf8")),
     );
     if (sshWindows) {
+      const firewall = path.join(
+        source,
+        "apps/client/src-tauri/src/host_setup/firewall.ps1",
+      );
+      await writeFile(
+        firewall,
+        (await readFile(firewall, "utf8")).replace(
+          "AppData\\Local\\Programs\\iori-host\\runtime\\node.exe",
+          "AppData\\Local\\iori-ssh-host-verification\\Programs\\iori-host\\runtime\\node.exe",
+        ),
+      );
       const remote = path.join(
         source,
         "apps/client/src-tauri/src/host_setup/ssh/remote.rs",

@@ -78,7 +78,7 @@ printf 'IORI_SETUP {"type":"machine","os":"%s","cpu":"%s","user":"%s","home":"%s
 $run = Get-ItemPropertyValue -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'iori Host' -ErrorAction SilentlyContinue
 $installed = (Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'Programs\iori-host\iori-host.cmd')) -and [bool]$run
 $cpu = $env:PROCESSOR_ARCHITECTURE
-[Console]::WriteLine('IORI_SETUP ' + (ConvertTo-Json -Compress @{type='machine';os=(encode 'Windows');cpu=(encode $cpu);user=(encode ([Security.Principal.WindowsIdentity]::GetCurrent().Name));home=(encode $env:USERPROFILE);installed=$installed}))"#;
+[Console]::WriteLine('IORI_SETUP ' + (ConvertTo-Json -Compress @{type='machine';os=(encode 'Windows');cpu=(encode $cpu);user=(encode ([Security.Principal.WindowsIdentity]::GetCurrent().Name));home=(encode $env:USERPROFILE);installed=$installed;administrator=([Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator))}))"#;
     format!(
         "sh -c 'echo {} | base64 -d | sh'\n{}",
         base64::engine::general_purpose::STANDARD.encode(linux),

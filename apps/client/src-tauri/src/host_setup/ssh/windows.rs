@@ -10,7 +10,6 @@ pub async fn install(
     session: &str,
     commands: &mpsc::UnboundedSender<Request>,
     installed: bool,
-    running: bool,
     allow_connections: bool,
 ) -> Result<Value, String> {
     if !installed {
@@ -65,7 +64,21 @@ try {{
         );
         request(commands, Shell::Windows, script).await?;
     }
-    if !running {
+    // The initial probe can predate sign-in. Recheck the local control endpoint
+    // for every registration attempt before scheduling another Host.
+    let responding = request(
+        commands,
+        Shell::Windows,
+        remote::control(Shell::Windows, "host.info"),
+    )
+    .await
+    .ok()
+    .is_some_and(|values| {
+        values
+            .iter()
+            .any(|v| v["type"] == "control" && v["ok"] == true)
+    });
+    if !responding {
         emit(app, session, json!({"type":"stage","stage":"start"}));
         let values = request(commands, Shell::Windows, format!(
             "& {{ {} }} -Bundle (Join-Path $env:LOCALAPPDATA 'Programs\\iori-host') -StartOnly -Ssh",

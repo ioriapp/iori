@@ -106,6 +106,8 @@ pub fn run() {
             #[cfg(any(windows, target_os = "linux"))]
             host_setup::ssh::native_ssh_install,
             #[cfg(any(windows, target_os = "linux"))]
+            host_setup::ssh::native_ssh_allow,
+            #[cfg(any(windows, target_os = "linux"))]
             host_setup::ssh::native_ssh_cancel,
             #[cfg(any(windows, target_os = "linux"))]
             host_setup::ssh::native_ssh_answer,

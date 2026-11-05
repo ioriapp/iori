@@ -20,6 +20,7 @@ import { removeWindowsProgramRules } from "../native/windows-firewall.mjs";
 import { cleanupFolders } from "../connection/cleanup.mjs";
 import { startDistribution } from "../updates/distribution.mjs";
 import { waitForOperation } from "../ui.mjs";
+import { interactiveWindowsUser } from "./windows-sign-in.mjs";
 import { uninstallFromSettings } from "./uninstall-scenario.mjs";
 
 function cleanupWindowsSshHost(hostRoot, { target, removeLogon, result }) {
@@ -86,6 +87,7 @@ export async function windowsSshScenario() {
     process.argv.find((arg) => arg.startsWith("--shell="))?.slice(8) ?? "cmd";
   assert.ok(["cmd", "powershell"].includes(shell));
   const signedOut = process.argv.includes("--signed-out");
+  const reconnect = process.argv.includes("--reconnect");
   const state = JSON.parse(
     await readFile(path.join(evidence, "build-state.json"), "utf8"),
   );
@@ -98,6 +100,7 @@ export async function windowsSshScenario() {
     client: selectedClient,
     shell,
     signedOut,
+    reconnect,
     steps: [],
     created: [],
     removed: [],
@@ -122,7 +125,11 @@ export async function windowsSshScenario() {
     windowsHome,
     hostRoot,
     ruleName,
-    authorizedFile;
+    authorizedFile,
+    administratorAuthorizedFile,
+    originalAdministratorKeys,
+    disposablePassword,
+    interactiveUser;
   let createdUser = false,
     profileCreated = false,
     preparedClient = false,
@@ -158,7 +165,7 @@ export async function windowsSshScenario() {
         return client.screen.visible(selector);
       },
       Boolean,
-      () => client.screen.text('[data-iori-state="error"]'),
+      () => client.screen.text('[data-iori-state="error"], [role="alert"]'),
     );
   }
   async function snapshot(name) {
@@ -310,6 +317,7 @@ export async function windowsSshScenario() {
     if (signedOut) {
       // No password or private key is written to logs or evidence.
       const password = randomBytes(32).toString("base64url") + "aA1!";
+      disposablePassword = password;
       const passwordFile = state.windowsRoot + "\\new-ssh-user.secret";
       await writeWindowsPrivateKey(passwordFile, password);
       const provision = `New-LocalUser -Name ${ps(user)} -Password (ConvertTo-SecureString ([IO.File]::ReadAllText(${ps(passwordFile)})) -AsPlainText -Force) -AccountNeverExpires | Out-Null;Add-LocalGroupMember -SID 'S-1-5-32-545' -Member ${ps(user)}`;
@@ -403,6 +411,18 @@ export async function windowsSshScenario() {
       );
     }
     result.created.push("SSH authorized key");
+    if (signedOut) {
+      administratorAuthorizedFile = target(
+        "Join-Path $env:ProgramData 'ssh\\administrators_authorized_keys'",
+      );
+      originalAdministratorKeys = target(
+        `if(Test-Path -LiteralPath ${ps(administratorAuthorizedFile)}){[Convert]::ToBase64String([IO.File]::ReadAllBytes(${ps(administratorAuthorizedFile)}))}else{'missing'}`,
+      );
+      target(
+        `[IO.File]::AppendAllText(${ps(administratorAuthorizedFile)},[Environment]::NewLine + ${ps(publicKey)} + [Environment]::NewLine,[Text.UTF8Encoding]::new($false))`,
+      );
+      result.created.push("administrator SSH authorized key");
+    }
     await writeWindows(
       caFile,
       await readFile(path.join(evidence, "distribution/tls/ca.pem"), "utf8"),
@@ -442,6 +462,12 @@ export async function windowsSshScenario() {
       ),
       "checked",
     );
+    assert.match(
+      await client.screen.text('[data-iori-view="host-setup"]'),
+      signedOut
+        ? /This user is not an administrator|このユーザーは管理者ではない/u
+        : /permission for iori Host is added to Windows Firewall|Windows ファイアウォールに iori Host の許可/u,
+    );
     await snapshot("destination");
     await client.screen.click(act("setup-submit"));
     if (signedOut) {
@@ -456,7 +482,14 @@ export async function windowsSshScenario() {
       const commandText = await client.screen.text(
         '[data-iori-field="setup-command"]',
       );
-      assert.match(commandText, /^cmd\.exe \/d \/c /u);
+      assert.match(commandText, /^\$program=/u);
+      assert.ok(commandText.includes(program));
+      assert.equal(commandText.split("\n").length, 1);
+      assert.ok(!commandText.includes("EncodedCommand"));
+      assert.match(
+        await client.screen.text('[data-iori-state="setup-firewall-command"]'),
+        /If Windows asks|Windows の確認/u,
+      );
       assert.equal(
         await client.screen.evaluate(`(()=>{
         const code=document.querySelector('[data-iori-field="setup-command"]');
@@ -512,42 +545,107 @@ export async function windowsSshScenario() {
       record(
         "signed-out installation retained and nonadministrator command shown",
       );
-      const cmdFile = state.windowsRoot + "\\permission-command.cmd";
-      const powershellFile = state.windowsRoot + "\\permission-command.ps1";
-      try {
-        await writeWindows(cmdFile, "@echo off\r\n" + commandText + "\r\n");
-        await writeWindows(powershellFile, commandText + "\r\n");
-        for (const [shell, invocation] of [
-          [
-            "cmd",
-            `& "$env:SystemRoot\\System32\\cmd.exe" /d /c ${ps(cmdFile)}`,
-          ],
-          [
-            "Windows PowerShell 5.1",
-            `& "$env:SystemRoot\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ${ps(powershellFile)}`,
-          ],
-          [
-            "PowerShell 7",
-            `& (Get-Command pwsh.exe -CommandType Application).Source -NoProfile -NonInteractive -File ${ps(powershellFile)}`,
-          ],
-        ]) {
-          const execution = JSON.parse(
-            target(
-              `$output=@(${invocation});$code=$LASTEXITCODE;@{exitCode=$code;lines=@($output | ForEach-Object {[string]$_})} | ConvertTo-Json -Compress`,
-              "firewall.manual." + shell,
-            ),
-          );
-          record("administrator permission command", { shell, ...execution });
-          assert.equal(execution.exitCode, 0);
-          assert.deepEqual(execution.lines, [
-            "iori Host: connections from other devices are allowed.",
-          ]);
-        }
-      } finally {
+      interactiveUser = await interactiveWindowsUser({
+        user,
+        password: disposablePassword,
+        hostRoot,
+        workRoot: state.windowsRoot,
+        installer: await readFile(
+          path.join(state.localRoot, "scripts/release/install-bundle.ps1"),
+          "utf8",
+        ),
+      });
+      record(
+        "sign-in substitute: user's interactive logon in verification desktop",
+        interactiveUser.logon,
+      );
+      result.created.push(
+        "secondary interactive logon and its verification task",
+      );
+      const beforeRegistration = target(
+        `ConvertTo-Json -InputObject @(Get-CimInstance Win32_Process | Where-Object ExecutablePath -eq ${ps(program)} | Select-Object -ExpandProperty ProcessId) -Compress`,
+      );
+      assert.notEqual(beforeRegistration, "[]");
+      if (reconnect) {
+        await client.screen.click(act("ssh-cancel"));
+        await client.screen.wait(act("setup-host"));
+        await selectHost();
+      }
+      // In the first case keep this exact screen; the initial probe predates startup.
+      await client.screen.click(act("setup-submit"));
+      await waitForOperation(
+        "same-screen registration after interactive logon",
+        () => client.screen.visible('[data-iori-view="host-setup"]'),
+        (value) => !value,
+        () => client.screen.text('[data-iori-state="error"]'),
+      );
+      await client.screen.wait('[data-iori-view="workspace"]');
+      assert.equal(
         target(
-          `Remove-Item -LiteralPath ${ps(cmdFile)},${ps(powershellFile)} -Force -ErrorAction SilentlyContinue`,
-          "firewall.manual.scripts",
+          `ConvertTo-Json -InputObject @(Get-CimInstance Win32_Process | Where-Object ExecutablePath -eq ${ps(program)} | Select-Object -ExpandProperty ProcessId) -Compress`,
+        ),
+        beforeRegistration,
+      );
+      record(
+        reconnect
+          ? "registered after choosing the same destination again"
+          : "registered from the same screen without restarting the running Host",
+      );
+      if (reconnect) {
+        await observe(
+          '[data-iori-state="setup-complete"] [data-iori-state="setup-firewall-command"]',
+          "permission guidance in the registration notice",
         );
+        const guidance = await client.screen.text(
+          '[data-iori-state="setup-complete"]',
+        );
+        assert.match(
+          guidance,
+          /Allow with an administrator account|管理者のアカウントで許可する/u,
+        );
+        assert.match(guidance, /If Windows asks|Windows の確認/u);
+        assert.ok(
+          (
+            await client.screen.text(
+              '[data-iori-state="setup-complete"] [data-iori-field="setup-command"]',
+            )
+          ).includes(program),
+        );
+        await snapshot("registration-notice");
+        record(
+          "registration notice keeps permission guidance after reconnecting",
+        );
+        // The notice keeps the target path after the original SSH closes.
+        await client.screen.click(act("setup-firewall-admin"));
+        await client.screen.input(
+          '[data-iori-field="setup-administrator"]',
+          local.windows.user,
+        );
+        await client.screen.click(act("setup-firewall-allow"));
+        await observe(
+          '[data-iori-field="ssh-answer"]',
+          "administrator SSH passphrase",
+        );
+        assert.match(
+          await client.screen.text('[data-iori-state="ssh-prompt"]'),
+          /passphrase/iu,
+        );
+        await client.screen.input('[data-iori-field="ssh-answer"]', passphrase);
+        await client.screen.click(act("ssh-answer"));
+        await observe(
+          '[data-iori-state="setup-firewall-allowed"]',
+          "administrator permission",
+        );
+        assert.equal(
+          target(
+            `(Get-NetFirewallRule -Name ${ps(ruleName)} | Get-NetFirewallApplicationFilter).Program`,
+          ),
+          program,
+        );
+        record("administrator SSH allowed the installed user's Host", {
+          program,
+          ruleName,
+        });
       }
     } else {
       await waitForOperation(
@@ -634,7 +732,7 @@ export async function windowsSshScenario() {
       "Run entry iori Host Setup Test",
       "temporary startup task (removed by installer)",
     );
-    if (!signedOut) result.created.push("firewall rule " + ruleName);
+    result.created.push("firewall rule " + ruleName);
     result.passed = true;
   } catch (error) {
     result.passed = false;
@@ -658,6 +756,17 @@ export async function windowsSshScenario() {
         },
       ],
       ["client", closeClient],
+      [
+        "interactive user",
+        async () => {
+          if (interactiveUser) {
+            await interactiveUser.stop();
+            result.removed.push(
+              "secondary interactive logon and its verification task",
+            );
+          }
+        },
+      ],
       [
         "host",
         () => {
@@ -694,6 +803,17 @@ export async function windowsSshScenario() {
               `[IO.File]::WriteAllBytes(${ps(authorizedFile)},[Convert]::FromBase64String(${ps(originalKeys)}))`,
             );
           result.removed.push("SSH authorized key");
+          if (originalAdministratorKeys !== undefined) {
+            if (originalAdministratorKeys === "missing")
+              target(
+                `Remove-Item -LiteralPath ${ps(administratorAuthorizedFile)} -Force`,
+              );
+            else
+              target(
+                `[IO.File]::WriteAllBytes(${ps(administratorAuthorizedFile)},[Convert]::FromBase64String(${ps(originalAdministratorKeys)}))`,
+              );
+            result.removed.push("administrator SSH authorized key");
+          }
         },
       ],
       [

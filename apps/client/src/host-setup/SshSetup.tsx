@@ -20,7 +20,9 @@ import { Checkbox } from "../components/ui/checkbox.tsx";
 import { Button } from "../components/ui/button.tsx";
 import { Input } from "../components/ui/input.tsx";
 import { Spinner } from "../components/ui/spinner.tsx";
+import { SshPrompt } from "./SshPrompt.tsx";
 import { FirewallCommand } from "./FirewallCommand.tsx";
+import { stages, formatError, unreachable } from "./ssh-errors.ts";
 
 export type SshMachine = {
   os: string;
@@ -28,6 +30,7 @@ export type SshMachine = {
   user?: string;
   home?: string;
   installed: boolean;
+  administrator?: boolean;
   host?: HostInfo;
 };
 export type SshEvent = {
@@ -39,52 +42,12 @@ export type SshEvent = {
     prompt?: string;
     notification?: boolean;
     enabled?: boolean;
-    allowed?: boolean;
+    allowed?: boolean | null;
     command?: string;
+    target?: string;
     message?: string;
   };
 };
-const stages: Record<string, string> = {
-  connect: "Checking the SSH destination",
-  download: "The destination machine is downloading iori Host",
-  verification: "Verifying iori Host",
-  extract: "Extracting iori Host on the destination",
-  service: "Setting up iori Host to run after logout",
-  start: "Starting iori Host on the destination",
-  register: "Registering this device",
-  firewall: "Allowing connections from other devices",
-};
-const unreachable =
-  "SSH connected, but the iori connection could not reach the Host. Check the Host’s listening addresses and network route in Connection settings.";
-function formatError(error: string, t: (key: string) => string) {
-  if (error.startsWith("IORI_CONTROL_ERROR: "))
-    return t("The Host could not complete the request: {message}").replace(
-      "{message}",
-      t(error.slice("IORI_CONTROL_ERROR: ".length)),
-    );
-  const exit = /^SSH_EXIT:(-?\d+)\n([\s\S]*)$/.exec(error);
-  if (exit)
-    return t("SSH exited with code {code}: {message}")
-      .replace("{code}", exit[1]!)
-      .replace("{message}", t(exit[2]!));
-  const command = /^SSH_COMMAND_FAILED:(\d+):([^\n]*)\n([\s\S]*)$/.exec(error);
-  if (command)
-    return t(
-      "The destination command failed ({stage}, exit code {code}): {message}",
-    )
-      .replace("{stage}", t(stages[command[2]!] ?? "Command"))
-      .replace("{code}", command[1]!)
-      .replace("{message}", t(command[3]!));
-  if (error.startsWith("SSH_CLOSED\n"))
-    return t("SSH closed: {message}").replace(
-      "{message}",
-      t(error.slice("SSH_CLOSED\n".length)),
-    );
-  const translated = t(error);
-  return translated !== error
-    ? translated
-    : t("Could not complete SSH setup: {message}").replace("{message}", error);
-}
 export function SshSetup({
   name,
   t,
@@ -100,6 +63,7 @@ export function SshSetup({
     localOnly: boolean,
     lingerUser?: string,
     firewallCommand?: string,
+    firewallTarget?: string,
   ) => void;
   onBusy: (busy: boolean) => void;
   onClose: () => void;
@@ -119,7 +83,6 @@ export function SshSetup({
     text: string;
     notification?: boolean;
   }>();
-  const [answer, setAnswer] = useState("");
   const [stage, setStage] = useState<string>();
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
@@ -128,6 +91,9 @@ export function SshSetup({
   const [linger, setLinger] = useState(false);
   const [allow, setAllow] = useState(true);
   const [firewallCommand, setFirewallCommand] = useState<string>();
+  const [firewallTarget, setFirewallTarget] = useState<string>();
+  const [firewallAllowed, setFirewallAllowed] = useState(false);
+  const [firewallBusy, setFirewallBusy] = useState(false);
   const [signInRequired, setSignInRequired] = useState(false);
   const [invite, setInvite] = useState<Invite>();
   const [registered, setRegistered] = useState<string>();
@@ -147,7 +113,6 @@ export function SshSetup({
           text: value.prompt,
           notification: value.notification,
         });
-        setAnswer("");
       }
       if (value.type === "promptClosed")
         setPrompt((current) =>
@@ -156,7 +121,6 @@ export function SshSetup({
       if (value.type === "stage") setStage(value.stage);
       if (value.type === "closed") {
         setPrompt(undefined);
-        setAnswer("");
         setError(value.message);
         setMachine(undefined);
         setStage(undefined);
@@ -166,8 +130,11 @@ export function SshSetup({
         value.type === "firewall" &&
         value.allowed === false &&
         typeof value.command === "string"
-      )
+      ) {
         setFirewallCommand(value.command);
+        setFirewallTarget(value.target);
+        setFirewallAllowed(false);
+      }
       if (value.type === "linger" && value.enabled === false) setLinger(true);
     });
     return () => {
@@ -177,13 +144,14 @@ export function SshSetup({
     };
   }, [session]);
   useEffect(() => {
-    onBusy(busy || !!registered);
-  }, [busy, registered, onBusy]);
+    onBusy(busy || firewallBusy || !!registered);
+  }, [busy, firewallBusy, registered, onBusy]);
   useEffect(() => {
     if (
       registered &&
       !cancelled &&
       !cancelling &&
+      !firewallBusy &&
       state.host?.publicKey === registered &&
       state.connected &&
       !state.storageError &&
@@ -197,7 +165,8 @@ export function SshSetup({
             state.host!.hostName,
             false,
             linger ? machine?.user : undefined,
-            firewallCommand,
+            firewallAllowed ? undefined : firewallCommand,
+            firewallAllowed ? undefined : firewallTarget,
           ),
         );
     }
@@ -212,6 +181,9 @@ export function SshSetup({
     linger,
     machine?.user,
     firewallCommand,
+    firewallTarget,
+    firewallAllowed,
+    firewallBusy,
     session,
   ]);
   async function cancel() {
@@ -219,7 +191,6 @@ export function SshSetup({
     session.current = "";
     setCancelling(true);
     setPrompt(undefined);
-    setAnswer("");
     try {
       await native.sshCancel(id);
       setCancelled(true);
@@ -244,6 +215,8 @@ export function SshSetup({
     setLinger(false);
     setAllow(true);
     setFirewallCommand(undefined);
+    setFirewallTarget(undefined);
+    setFirewallAllowed(false);
     setSignInRequired(false);
     setDestination(value);
     setStage("connect");
@@ -272,7 +245,6 @@ export function SshSetup({
     if (!prompt) return;
     const id = prompt.id;
     setPrompt(undefined);
-    setAnswer("");
     await native.sshAnswer(id, value);
   }
   async function submit() {
@@ -339,9 +311,6 @@ export function SshSetup({
   const supported =
     (machine?.os === "Linux" && machine.cpu === "x86_64") ||
     (machine?.os === "Windows" && machine.cpu.toLowerCase() === "amd64");
-  const yesNo = prompt?.text.includes(
-    "Are you sure you want to continue connecting",
-  );
   return (
     <div className="connection-form">
       <div className="connection-field">
@@ -352,7 +321,7 @@ export function SshSetup({
             <Button
               type="button"
               variant="ghost"
-              disabled={cancelling || !!registered}
+              disabled={cancelling || firewallBusy || !!registered}
               data-iori-action="ssh-change"
               onClick={() => {
                 void cancel().then((stopped) => {
@@ -362,6 +331,8 @@ export function SshSetup({
                   setDestination("");
                   setMachine(undefined);
                   setFirewallCommand(undefined);
+                  setFirewallTarget(undefined);
+                  setFirewallAllowed(false);
                   setSignInRequired(false);
                   setAllow(true);
                   setInvite(undefined);
@@ -471,49 +442,17 @@ export function SshSetup({
         )}
       </div>
       {prompt && (
-        <div className="connection-field" data-iori-state="ssh-prompt">
-          <p className="ssh-prompt">{prompt.text}</p>
-          {!yesNo && !prompt.notification && (
-            <Input
-              type="password"
-              autoComplete="off"
-              aria-label={t("SSH response")}
-              data-iori-field="ssh-answer"
-              value={answer}
-              onChange={(event) => setAnswer(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  void respond(answer);
-                }
-              }}
-            />
-          )}
-          {!prompt.notification && (
-            <div className="connection-actions">
-              <Button
-                type="button"
-                data-iori-action="ssh-answer"
-                onClick={() => {
-                  void respond(yesNo ? "yes" : answer);
-                }}
-              >
-                {t(yesNo ? "Connect" : "Send")}
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => {
-                  void native
-                    .sshAnswer(prompt.id, yesNo ? "no" : null)
-                    .then(cancel);
-                }}
-              >
-                {t("Cancel setup")}
-              </Button>
-            </div>
-          )}
-        </div>
+        <SshPrompt
+          key={prompt.id}
+          prompt={prompt}
+          t={t}
+          onAnswer={(value) => {
+            void respond(value);
+          }}
+          onCancel={(answer) => {
+            void native.sshAnswer(prompt.id, answer).then(cancel);
+          }}
+        />
       )}
       {machine?.installed && (
         <div>
@@ -550,13 +489,23 @@ export function SshSetup({
           {allow && (
             <p className="settings-note">
               {t(
-                "If the user on that PC is an administrator, permission is added during installation.",
+                machine.administrator
+                  ? "To let other devices connect, permission for iori Host is added to Windows Firewall."
+                  : "This user is not an administrator, so the permission cannot be added now. After installation, you can allow it with an administrator account.",
               )}
             </p>
           )}
         </>
       )}
-      {firewallCommand && <FirewallCommand command={firewallCommand} t={t} />}
+      {firewallCommand && (
+        <FirewallCommand
+          command={firewallCommand}
+          target={firewallTarget}
+          t={t}
+          onBusy={setFirewallBusy}
+          onAllowed={() => setFirewallAllowed(true)}
+        />
+      )}
       {signInRequired && (
         <p className="settings-note" data-iori-state="setup-sign-in-required">
           {t(
@@ -632,7 +581,11 @@ export function SshSetup({
           <Button
             type="button"
             disabled={
-              busy || cancelling || !name.trim() || (!!machine && !supported)
+              busy ||
+              firewallBusy ||
+              cancelling ||
+              !name.trim() ||
+              (!!machine && !supported)
             }
             data-iori-action="setup-submit"
             onClick={() => {

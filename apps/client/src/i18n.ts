@@ -331,11 +331,26 @@ const japanese: Record<string, string> = {
   "Starting iori Host on the destination": "接続先でiori Hostを起動しています",
   "{platform} is not supported yet.": "{platform}にはまだ対応していません",
   "Cancelling SSH…": "SSHの終了を待っています…",
+  Allow: "許可する",
   Cancelled: "キャンセルしました",
-  "If the user on that PC is an administrator, permission is added during installation.":
-    "接続先のユーザーが管理者なら、導入の途中で許可を加えます。",
-  "Other devices cannot connect yet. An administrator on that PC can allow it with this command:":
-    "ほかの端末からはまだつなげません。その PC で管理者が次のコマンドを実行すると許可できます:",
+  "To let other devices connect, permission for iori Host is added to Windows Firewall.":
+    "ほかの端末から接続できるよう、Windows ファイアウォールに iori Host の許可を加えます。",
+  "This user is not an administrator, so the permission cannot be added now. After installation, you can allow it with an administrator account.":
+    "このユーザーは管理者ではないため、今は許可を加えられません。インストールの後に、管理者のアカウントで許可できます。",
+  "Other devices cannot connect yet. Allow connections in one of these ways.":
+    "ほかの端末からはまだつなげません。次のどれかで許可してください。",
+  "Allow with an administrator account…": "管理者のアカウントで許可する…",
+  "Administrator user name": "管理者のユーザー名",
+  "Connections from other devices are allowed.":
+    "ほかの端末からの接続を許可しました。",
+  "This account is not running as an administrator. The permission was not added.":
+    "このアカウントは管理者の権限で動いていないため、許可を加えませんでした。",
+  "Could not allow connections from other devices.":
+    "ほかの端末からの接続を許可できませんでした。",
+  "On that PC, run this in PowerShell as an administrator:":
+    "その PC の管理者の PowerShell で、次を実行する:",
+  'If Windows asks on that PC, choose "Allow" (an administrator password is needed).':
+    "その PC で Windows の確認が出たら「許可」を押す（管理者のパスワードが要ります）。",
   "iori Host starts when {user} signs in to that PC. After it starts, choose the same connection again to register.":
     "{user} がその PC にサインインすると iori Host が起動します。起動した後に、同じ接続先を選ぶと登録できます。",
   "iori Host will stop after logout. An administrator can enable it with:":

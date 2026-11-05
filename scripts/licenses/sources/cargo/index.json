@@ -5,7 +5,7 @@
     "apps/host/native/Cargo.toml": "93e8705004854fa70c27e95cbb891a7792dd9e724a73b873588c29384773e03e",
     "apps/host/terminal-native/Cargo.toml": "26c6d4043ac59124bca7af75fdeb719a1957d11ba53984180c46e7bd7abe0934",
     "crates/iori-iroh-config/Cargo.toml": "8922013ae58173d5f63aef308ed7a800175bd9acbf5458a572343652effb2a52",
-    "apps/client/src-tauri/Cargo.lock": "9c70ac9e2a4de45b3bcd59becd9c767c148a223f95587918c6d52fbcb138879e",
+    "apps/client/src-tauri/Cargo.lock": "bad4afc1ddd19923f223d2d5e7180d7c6649806b34f7c1a4e1c8378b595a73c0",
     "apps/client/src-tauri/Cargo.toml": "7f088ae91e59bf2052f4afe2e6e04946a7ad9de27b16826c9183f6a0db1ad42f",
     "apps/client/src-tauri/plugins/apk-installer/Cargo.toml": "d536a9b615c6e7e7fbfc88bae0dc5691ddbf4843bfd844e951102596798ced00",
     "apps/client/src-tauri/plugins/clipboard-image/Cargo.toml": "3cf0e502966548836bc7299feb678528463a17469d1b03ffae911ab02440dc98"

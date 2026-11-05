@@ -18,11 +18,16 @@ use zeroize::Zeroizing;
 
 #[derive(Default)]
 pub struct State {
-    session: Mutex<Option<Session>>,
+    sessions: Mutex<HashMap<String, Session>>,
+    firewall_targets: Arc<Mutex<HashMap<String, FirewallTarget>>>,
     answers: Arc<Mutex<HashMap<String, oneshot::Sender<Option<String>>>>>,
 }
+#[derive(Clone)]
+struct FirewallTarget {
+    destination: String,
+    program: String,
+}
 struct Session {
-    id: String,
     commands: mpsc::UnboundedSender<Request>,
     cancel: watch::Sender<bool>,
     done: watch::Receiver<bool>,
@@ -47,11 +52,8 @@ pub async fn native_ssh_cancel(
     state: tauri::State<'_, State>,
     session: String,
 ) -> Result<(), String> {
-    let mut slot = state.session.lock().await;
-    if slot.as_ref().is_none_or(|current| current.id != session) {
-        return Ok(());
-    }
-    if let Some(session) = slot.as_mut() {
+    let mut slots = state.sessions.lock().await;
+    if let Some(session) = slots.get_mut(&session) {
         let _ = session.cancel.send(true);
         while !*session.done.borrow() {
             if session.done.changed().await.is_err() {
@@ -59,8 +61,7 @@ pub async fn native_ssh_cancel(
             }
         }
     }
-    *slot = None;
-    state.answers.lock().await.clear();
+    slots.remove(&session);
     Ok(())
 }
 #[tauri::command]
@@ -82,9 +83,20 @@ pub async fn native_ssh_connect(
     destination: String,
     session: String,
 ) -> Result<Value, String> {
-    let destination = config::destination(&destination)?;
-    let mut slot = state.session.lock().await;
-    if slot.is_some() {
+    connect(&app, &state, &destination, &session, None).await
+}
+
+async fn connect(
+    app: &tauri::AppHandle,
+    state: &State,
+    destination: &str,
+    session: &str,
+    user: Option<&str>,
+) -> Result<Value, String> {
+    let destination = config::destination(destination)?;
+    let session = session.to_string();
+    let mut slots = state.sessions.lock().await;
+    if slots.contains_key(&session) {
         return Err("Cancel the previous SSH connection first".into());
     }
     let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
@@ -98,6 +110,9 @@ pub async fn native_ssh_connect(
             .collect::<String>(),
     );
     let mut command = platform::command();
+    if let Some(user) = user {
+        command.args(["-l", user]);
+    }
     command
         // Enter cmd on Windows before reading the protocol. On Unix the
         // missing cmd.exe is followed by exec sh. Keep cmd's command echo so
@@ -146,14 +161,16 @@ pub async fn native_ssh_connect(
     let (done_tx, done) = watch::channel(false);
     let (commands, mut requests) = mpsc::unbounded_channel::<Request>();
     let finish_cancel = cancel.clone();
-    *slot = Some(Session {
-        id: session.clone(),
-        commands: commands.clone(),
-        cancel,
-        done,
-        shell: None,
-    });
-    drop(slot);
+    slots.insert(
+        session.clone(),
+        Session {
+            commands: commands.clone(),
+            cancel,
+            done,
+            shell: None,
+        },
+    );
+    drop(slots);
     let answers = state.answers.clone();
     let ask_app = app.clone();
     let ask_session = session.clone();
@@ -230,8 +247,11 @@ pub async fn native_ssh_connect(
             }
         }
     });
+    let administrator_connection = user.is_some();
     let connected_session = session.clone();
+    let firewall_targets = state.firewall_targets.clone();
     let mut cancel_rx = cancelled;
+    let event_app = app.clone();
     tauri::async_runtime::spawn(async move {
         let mut lines = BufReader::new(output).lines();
         let mut pending: Option<oneshot::Sender<Result<Vec<Value>, String>>> = None;
@@ -250,13 +270,21 @@ pub async fn native_ssh_connect(
                     line = lines.next_line() => {
                         let Some(line) = line.map_err(|e| e.to_string())? else { return Err("SSH connection closed".into()) };
                         let parsed = if line.trim() == "IORI_SETUP_PROBE_DONE" { Some(json!({"type":"done","code":0})) } else { parse_line(&line)? };
-                        if let Some(value) = parsed {
+                        if let Some(mut value) = parsed {
                             if value["type"] == "done" {
                                 if let Some(reply) = pending.take() {
                                     let result = if value["code"] == 0 { Ok(std::mem::take(&mut values)) } else { let stage = values.iter().find(|v| v["type"] == "error").and_then(|v| v["stage"].as_str()).unwrap_or("command").to_string(); values.clear(); Err(format!("SSH_COMMAND_FAILED:{}:{stage}\n{}", value["code"], last_error.lock().await)) };
                                     let _ = reply.send(result);
                                 }
-                            } else if value["type"] == "stage" || value["type"] == "linger" || (value["type"] == "firewall" && value["command"].is_string()) { emit(&app, &session, value); }
+                            } else if value["type"] == "firewall" && value["program"].is_string() && !administrator_connection {
+                                let target = iroh::SecretKey::generate().public().to_string();
+                                firewall_targets.lock().await.insert(target.clone(), FirewallTarget {
+                                    destination: destination.clone(),
+                                    program: value["program"].as_str().unwrap_or_default().into(),
+                                });
+                                value["target"] = json!(target);
+                                emit(&event_app, &session, value);
+                            } else if value["type"] == "stage" || value["type"] == "linger" { emit(&event_app, &session, value); }
                             else { values.push(value); }
                         } else if !line.trim().is_empty() { *last_error.lock().await = line; }
                     }
@@ -286,7 +314,11 @@ pub async fn native_ssh_connect(
             }
         };
         if !was_cancelled {
-            emit(&app, &session, json!({"type":"closed", "message":message}));
+            emit(
+                &event_app,
+                &session,
+                json!({"type":"closed", "message":message}),
+            );
         }
         let _ = finish_cancel.send(true);
         ask_task.abort();
@@ -326,13 +358,7 @@ pub async fn native_ssh_connect(
     } else {
         Shell::Linux
     };
-    if let Some(connection) = state
-        .session
-        .lock()
-        .await
-        .as_mut()
-        .filter(|s| s.id == connected_session)
-    {
+    if let Some(connection) = state.sessions.lock().await.get_mut(&connected_session) {
         connection.shell = Some(shell);
     }
     let host = if machine["installed"] == true {
@@ -351,6 +377,16 @@ pub async fn native_ssh_connect(
         })
         .map(|v| v["result"].clone())
         .unwrap_or(Value::Null);
+    if matches!(shell, Shell::Windows) && machine["installed"] == true && user.is_none() {
+        // The policy reader works without elevation. A read failure provides
+        // no guidance, just like the local Host's permission indicator.
+        let _ = request(
+            &commands,
+            shell,
+            format!("& {{ {} }} -Remote -Query", include_str!("../firewall.ps1")),
+        )
+        .await;
+    }
     Ok(machine)
 }
 pub(super) async fn request(
@@ -370,6 +406,59 @@ pub(super) async fn request(
 }
 
 #[tauri::command]
+pub async fn native_ssh_allow(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, State>,
+    target: String,
+    user: String,
+    session: String,
+) -> Result<Value, String> {
+    // Only the user name crosses the UI boundary. The destination and exact
+    // installed program path came from the original installation connection.
+    if user.is_empty() || user.starts_with('-') || user.chars().any(|c| c.is_control()) {
+        return Err("Administrator user name".into());
+    }
+    let target = state
+        .firewall_targets
+        .lock()
+        .await
+        .get(&target)
+        .cloned()
+        .ok_or("Missing SSH destination information")?;
+    let result = async {
+        let machine = connect(&app, &state, &target.destination, &session, Some(&user)).await?;
+        if machine["os"] != "Windows" || machine["administrator"] != true {
+            return Ok(json!({"allowed":false,"administrator":false}));
+        }
+        let commands = state
+            .sessions
+            .lock()
+            .await
+            .get(&session)
+            .ok_or("SSH connection closed")?
+            .commands
+            .clone();
+        let values = request(
+            &commands,
+            Shell::Windows,
+            format!(
+                "& {{ {} }} -AdministratorConnection -ProgramPath {}",
+                include_str!("../firewall.ps1"),
+                remote::literal(&target.program)
+            ),
+        )
+        .await?;
+        values
+            .into_iter()
+            .find(|value| value["type"] == "firewall")
+            .ok_or_else(|| "Could not allow connections from other devices.".into())
+    }
+    .await;
+    native_ssh_cancel(state, session).await?;
+    result
+}
+
+#[tauri::command]
 pub async fn native_ssh_install(
     app: tauri::AppHandle,
     state: tauri::State<'_, State>,
@@ -379,11 +468,8 @@ pub async fn native_ssh_install(
     allow_connections: bool,
 ) -> Result<Value, String> {
     let (commands, shell) = {
-        let slot = state.session.lock().await;
-        let connection = slot
-            .as_ref()
-            .filter(|s| s.id == session)
-            .ok_or("SSH connection closed")?;
+        let slots = state.sessions.lock().await;
+        let connection = slots.get(&session).ok_or("SSH connection closed")?;
         (
             connection.commands.clone(),
             connection
@@ -392,15 +478,8 @@ pub async fn native_ssh_install(
         )
     };
     if matches!(shell, Shell::Windows) {
-        return super::windows::install(
-            &app,
-            &session,
-            &commands,
-            installed,
-            running,
-            allow_connections,
-        )
-        .await;
+        return super::windows::install(&app, &session, &commands, installed, allow_connections)
+            .await;
     }
     if !installed {
         emit(
@@ -447,11 +526,8 @@ pub async fn native_ssh_uninstall_result(
     remove: bool,
 ) -> Result<Value, String> {
     let (commands, shell) = {
-        let slot = state.session.lock().await;
-        let connection = slot
-            .as_ref()
-            .filter(|s| s.id == session)
-            .ok_or("SSH connection closed")?;
+        let slots = state.sessions.lock().await;
+        let connection = slots.get(&session).ok_or("SSH connection closed")?;
         (
             connection.commands.clone(),
             connection
