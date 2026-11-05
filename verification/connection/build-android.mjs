@@ -172,31 +172,8 @@ async function syncIncrementalSource() {
   const manifest = await readFile(manifestPath, "utf8");
   if (!/^\[workspace\]/m.test(manifest))
     await writeFile(manifestPath, manifest.trimEnd() + "\n\n[workspace]\n");
-  const pluginPath =
-    "apps/client/src-tauri/gen/android/app/src/main/java/io/github/ioriapp/iori/IoriNativePlugin.kt";
-  for (const name of ["IoriNativePlugin.kt", "IoriConnectionService.kt"]) {
-    const relative = pluginPath.replace("IoriNativePlugin.kt", name);
-    await cp(path.join(repoRoot, relative), path.join(sourceRoot, relative));
-  }
-  await cp(
-    path.join(
-      repoRoot,
-      "apps/client/src-tauri/gen/android/app/src/main/AndroidManifest.xml",
-    ),
-    path.join(
-      sourceRoot,
-      "apps/client/src-tauri/gen/android/app/src/main/AndroidManifest.xml",
-    ),
-  );
-  await cp(
-    path.join(
-      repoRoot,
-      "apps/client/src-tauri/gen/android/app/src/main/res/drawable/ic_stat_iori.xml",
-    ),
-    path.join(
-      sourceRoot,
-      "apps/client/src-tauri/gen/android/app/src/main/res/drawable/ic_stat_iori.xml",
-    ),
+  await syncAndroidSources(
+    path.join(sourceRoot, "apps/client/src-tauri/gen/android/app/src/main"),
   );
   await run(
     "pnpm",
@@ -304,32 +281,43 @@ async function prepareCargoHome() {
   return cargoHome;
 }
 
+async function syncAndroidSources(destinationRoot) {
+  const androidPath = "apps/client/src-tauri/gen/android";
+  const mainPath = `${androidPath}/app/src/main`;
+  // Same listing as createSourceCopy: tracked and unignored files. The
+  // release build runs in a `git init` copy where nothing is tracked yet.
+  const files = execFileSync(
+    "git",
+    [
+      "ls-files",
+      "--cached",
+      "--others",
+      "--exclude-standard",
+      "-z",
+      "--",
+      mainPath,
+    ],
+    { cwd: repoRoot },
+  )
+    .toString()
+    .split("\0")
+    .filter(Boolean);
+  if (!files.length) fail(`${mainPath} から写すファイルがありません`);
+  for (const file of files) {
+    if (file.endsWith("/MainActivity.kt")) continue;
+    const destination = path.join(
+      destinationRoot,
+      path.relative(mainPath, file),
+    );
+    await mkdir(path.dirname(destination), { recursive: true });
+    await cp(path.join(repoRoot, file), destination);
+  }
+}
+
 async function installScannerPlugin() {
   const config = path.join(sourceRoot, configPath);
   const clientTauri = path.join(sourceRoot, "apps/client/src-tauri");
-  const pluginSource = path.join(
-    clientTauri,
-    "gen/android/app/src/main/java/io/github/ioriapp/iori/IoriNativePlugin.kt",
-  );
-  const plugin = await readFile(pluginSource, "utf8");
-  const connectionService = await readFile(
-    pluginSource.replace("IoriNativePlugin.kt", "IoriConnectionService.kt"),
-    "utf8",
-  );
   const androidRoot = path.join(clientTauri, "gen/android");
-  const productManifest = await readFile(
-    path.join(androidRoot, "app/src/main/AndroidManifest.xml"),
-    "utf8",
-  );
-  const backupResources = new Map();
-  for (const name of ["backup_rules.xml", "data_extraction_rules.xml"])
-    backupResources.set(
-      name,
-      await readFile(
-        path.join(androidRoot, "app/src/main/res/xml", name),
-        "utf8",
-      ),
-    );
   await rm(androidRoot, { recursive: true, force: true });
 
   await run(
@@ -388,80 +376,7 @@ async function installScannerPlugin() {
     androidRoot,
     "app/src/main/AndroidManifest.xml",
   );
-  let manifest = await readFile(manifestFile, "utf8");
-  if (!manifest.includes("android.permission.CAMERA")) {
-    const opening = /<manifest\b[^>]*>/;
-    if (!opening.test(manifest))
-      fail("AndroidManifest.xmlのrootが見つかりません");
-    manifest = manifest.replace(
-      opening,
-      (match) =>
-        `${match}\n    <uses-permission android:name="android.permission.CAMERA" />\n    <uses-feature android:name="android.hardware.camera.any" android:required="false" />`,
-    );
-  }
-  manifest = manifest.replace(
-    "<manifest ",
-    '<manifest xmlns:tools="http://schemas.android.com/tools" ',
-  );
-  const backupAttributes = productManifest.match(
-    /android:(?:fullBackupContent|dataExtractionRules)="[^"]+"/g,
-  );
-  manifest = manifest.replace(
-    "<application",
-    "<application\n        " + backupAttributes.join("\n        "),
-  );
-  const captureActivity = productManifest.match(
-    /<activity\s+android:name="com\.journeyapps\.barcodescanner\.CaptureActivity"[\s\S]*?\/>/,
-  )[0];
-  manifest = manifest.replace(
-    "</application>",
-    captureActivity + "\n    </application>",
-  );
-  const connectionPermissions =
-    productManifest.match(
-      /<uses-permission android:name="android\.permission\.(?:POST_NOTIFICATIONS|FOREGROUND_SERVICE|FOREGROUND_SERVICE_SPECIAL_USE|WAKE_LOCK)" \/>/g,
-    ) ?? [];
-  for (const permission of connectionPermissions)
-    if (!manifest.includes(permission))
-      manifest = manifest.replace(
-        "<application",
-        permission + "\n    <application",
-      );
-  const service = productManifest.match(
-    /<service android:name="io\.github\.ioriapp\.iori\.IoriConnectionService"[\s\S]*?<\/service>/,
-  )?.[0];
-  if (
-    service &&
-    !manifest.includes("io.github.ioriapp.iori.IoriConnectionService")
-  )
-    manifest = manifest.replace("</application>", service + "\n</application>");
-  await writeFile(manifestFile, manifest);
-  for (const [name, content] of backupResources)
-    await writeFile(
-      path.join(androidRoot, "app/src/main/res/xml", name),
-      content,
-    );
-
-  const pluginDestination = path.join(
-    androidRoot,
-    "app/src/main/java/io/github/ioriapp/iori/IoriNativePlugin.kt",
-  );
-  await mkdir(path.dirname(pluginDestination), { recursive: true });
-  await cp(
-    path.join(
-      repoRoot,
-      "apps/client/src-tauri/gen/android/app/src/main/res/drawable/ic_stat_iori.xml",
-    ),
-    path.join(androidRoot, "app/src/main/res/drawable/ic_stat_iori.xml"),
-  );
-  await writeFile(pluginDestination, plugin);
-  await writeFile(
-    pluginDestination.replace(
-      "IoriNativePlugin.kt",
-      "IoriConnectionService.kt",
-    ),
-    connectionService,
-  );
+  await syncAndroidSources(path.dirname(manifestFile));
 
   const gradleAfterInit = await readFile(gradleFile, "utf8");
   if (!gradleAfterInit.includes(`namespace = "${verificationIdentifier}"`)) {

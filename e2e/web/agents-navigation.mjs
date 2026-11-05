@@ -19,6 +19,14 @@ export async function openAgents(screen) {
   await screen.click('[data-iori-action="open-agents-teams"]');
   await screen.click('[data-iori-action="teams-agents"]');
 }
+/** Move an AI Agents control away from the viewport edge before opening it. */
+export async function clickAgentControl(screen, selector) {
+  await screen.reveal(selector);
+  await screen.evaluate(
+    `document.querySelector(${JSON.stringify(selector)}).scrollIntoView({block:'center'})`,
+  );
+  await screen.click(selector);
+}
 /** The `id` of the CLI row named `name` on the AI agents screen. */
 export function cliRowNamed(screen, name) {
   return waitFor(
@@ -304,7 +312,7 @@ export async function saveStartupArguments(screen, cli, value) {
   const row = `[data-iori-cli-row="${cli}"]`;
   const input = `${row} [data-iori-field="cli-arguments"]`;
   if ((await screen.attribute(row, "data-state")) !== "open")
-    await screen.click(`${row} .team-agent-toggle`);
+    await clickAgentControl(screen, `${row} .team-agent-toggle`);
   await screen.input(input, value);
   await screen.click(`${row} [data-iori-action="save-cli-settings"]`);
   await waitFor(() =>
@@ -324,7 +332,8 @@ export async function showEndedChildren(screen) {
 
 /** Open the CLI row menu and choose one of its actions (menu is portalled). */
 export async function cliMenuAction(screen, id, action) {
-  await screen.click(
+  await clickAgentControl(
+    screen,
     `[data-iori-cli-row="${id}"] [data-iori-action="cli-actions"]`,
   );
   await screen.click(`[role="menu"] [data-iori-action="${action}"]`);

@@ -22,12 +22,24 @@ const invite = {
   hostName: "dev-host",
 };
 
-test("招待文字列はURLとcodeの両方から同じ招待を復元する", () => {
-  const text = inviteToText(invite);
-  assert.equal(inviteFromText(text).secret, invite.secret);
+test("招待を詰めてURLと大小文字のコードから復元する", () => {
+  const longInvite = {
+    ...invite,
+    relayUrl: "https://aps1-1.relay.n0.iroh.link./",
+    addresses: [
+      "172.17.0.1:49171",
+      "198.51.100.7:49171",
+      "[2001:db8::8]:49171",
+    ],
+    hostName: "開発用ホスト",
+  };
+  const text = inviteToText(longInvite);
+  const code = inviteToCode(longInvite);
+  assert.deepEqual(inviteFromText(text), longInvite);
+  assert.deepEqual(inviteFromText(`  ${code.toLowerCase()}  `), longInvite);
   assert.deepEqual(
-    inviteFromText(text.slice(text.indexOf("code=") + 5)),
-    invite,
+    inviteFromText(`  iori://pair/${code.toLowerCase()}  `),
+    longInvite,
   );
 });
 
@@ -139,14 +151,6 @@ test("Relayだけの招待はURLを復元しトークンを含めない", () => 
   };
   const text = inviteToText(withExtraneousToken);
   assert.deepEqual(inviteFromText(text), relayInvite);
-  assert.deepEqual(
-    JSON.parse(
-      Buffer.from(inviteToCode(withExtraneousToken), "base64url").toString(
-        "utf8",
-      ),
-    ),
-    relayInvite,
-  );
 });
 
 test("外部からのRelay設定は不正なURLとトークンを拒否する", () => {

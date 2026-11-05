@@ -29,7 +29,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import QRCode from "qrcode";
+import { InviteQr } from "./InviteQr.tsx";
 import { useIsMobile } from "./hooks/use-mobile.ts";
 import {
   ArrowLeft,
@@ -55,7 +55,7 @@ import {
   type TerminalShell,
 } from "@iori/protocol";
 import { connection } from "./connection.ts";
-import { registeredMessage } from "./i18n.ts";
+import { registeredDateMessage, registeredMessage } from "./i18n.ts";
 import { Button } from "./components/ui/button.tsx";
 import { Input } from "./components/ui/input.tsx";
 import { Textarea } from "./components/ui/textarea.tsx";
@@ -199,6 +199,7 @@ function Invitation({
   pending,
   onRevoke,
   onNewInvite,
+  onNestedBack,
   t,
   language,
 }: {
@@ -209,30 +210,13 @@ function Invitation({
   pending: boolean;
   onRevoke: (device: Device) => void;
   onNewInvite: () => void;
+  onNestedBack: (close?: () => void) => void;
   t: (key: string) => string;
   language: string;
 }) {
-  const [qr, setQr] = useState("");
   const [copy, setCopy] = useState(false);
   const [error, setError] = useState<string>();
   const value = inviteToText(invite);
-  useEffect(() => {
-    let active = true;
-    void QRCode.toDataURL(value, {
-      width: 300,
-      margin: 2,
-      errorCorrectionLevel: "M",
-    })
-      .then((url) => {
-        if (active) setQr(url);
-      })
-      .catch(() => {
-        if (active) setQr("");
-      });
-    return () => {
-      active = false;
-    };
-  }, [value]);
   return (
     <section className="invitation" data-iori-view="invitation">
       {device ? (
@@ -272,15 +256,7 @@ function Invitation({
           <p className="settings-note">
             {t("Creating a new invitation invalidates the previous one.")}
           </p>
-          {qr && (
-            <img
-              className="invitation-qr"
-              src={qr}
-              alt={t("Invitation")}
-              width="300"
-              height="300"
-            />
-          )}
+          <InviteQr invite={invite} t={t} onNestedBack={onNestedBack} />
           <label className="connection-field field-code">
             <span>{t("Invitation")}</span>
             <Textarea
@@ -411,19 +387,27 @@ function Devices({
             role="listitem"
             data-iori-row="device"
           >
-            <div className="device-details">
-              <span className="device-name" data-iori-value="device-name">
-                {device.name}
-              </span>
-              {device.publicKey === state.initial?.publicKey ? (
-                <span className="device-badge" data-iori-state="this-device">
-                  {t("This device")}
+            <div className="field-copy">
+              <div className="device-details">
+                <span className="device-name" data-iori-value="device-name">
+                  {device.name}
                 </span>
-              ) : !seen.has(seenDeviceKey(device)) ? (
-                <span className="device-badge" data-iori-state="new-device">
-                  {t("New")}
-                </span>
-              ) : null}
+                {device.publicKey === state.initial?.publicKey ? (
+                  <span className="device-badge" data-iori-state="this-device">
+                    {t("This device")}
+                  </span>
+                ) : !seen.has(seenDeviceKey(device)) ? (
+                  <span className="device-badge" data-iori-state="new-device">
+                    {t("New")}
+                  </span>
+                ) : null}
+              </div>
+              <p
+                className="page-description"
+                data-iori-value="device-registered-date"
+              >
+                {registeredDateMessage(language, device.registeredAt)}
+              </p>
             </div>
             <div className="device-actions">
               {revokeErrors.has(device.publicKey) && (
@@ -450,6 +434,7 @@ function Devices({
           busy={Boolean(busy)}
           pending={busy === "new-invitation"}
           onRevoke={setRevoke}
+          onNestedBack={onNestedBack}
           onNewInvite={() => {
             setBusy("new-invitation");
             void connection.createInvite().finally(() => setBusy(undefined));
@@ -1057,10 +1042,16 @@ export function SettingsDialog({
     hostNeedsUpdate,
   );
   const current =
-    host ||
-    ["general", "notifications", "display", "keyboard"].includes(section)
-      ? section
-      : "general";
+    section === "keyboard" && !state.initial?.mobile
+      ? "general"
+      : host ||
+          ["general", "notifications", "display", "keyboard"].includes(section)
+        ? section
+        : "general";
+  const contentRef = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    if (contentRef.current) contentRef.current.scrollTop = 0;
+  }, [current, host?.publicKey]);
   const title =
     current === "git"
       ? `${repository ? basename(repository.workspacePath) : t("Workspace")} › Git`
@@ -1205,17 +1196,19 @@ export function SettingsDialog({
                   <span>{t("Display")}</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  isActive={current === "keyboard"}
-                  aria-current={current === "keyboard" ? "page" : undefined}
-                  data-iori-action="settings-keyboard"
-                  onClick={() => onSectionChange("keyboard")}
-                >
-                  <Keyboard size={14} aria-hidden="true" />
-                  <span>{t("Keyboard")}</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
+              {state.initial?.mobile && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    isActive={current === "keyboard"}
+                    aria-current={current === "keyboard" ? "page" : undefined}
+                    data-iori-action="settings-keyboard"
+                    onClick={() => onSectionChange("keyboard")}
+                  >
+                    <Keyboard size={14} aria-hidden="true" />
+                    <span>{t("Keyboard")}</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
             </SidebarMenu>
             {host && (
               <>
@@ -1357,7 +1350,10 @@ export function SettingsDialog({
               </>
             )}
           </nav>
-          <section className="settings-content v9-settings-content">
+          <section
+            ref={contentRef}
+            className="settings-content v9-settings-content"
+          >
             <PageBody>
               <PageHeader title={title} className="settings-page-header" />
               {current === "general" && state.initial?.canCloseToExit && (
@@ -1584,13 +1580,13 @@ export function SettingsDialog({
                     {preferenceError("showForgeStatus")}
                   </FieldRow>
                   <FieldRow className="v9-settings-row v9-settings-switch-row">
-                    <span>{t("Maximize on double-click")}</span>
+                    <span>{t("Double-click a tab to maximize")}</span>
                     <Switch
                       checked={preferences.doubleClickMaximize}
                       onCheckedChange={(checked) =>
                         onPreferencesChange({ doubleClickMaximize: checked })
                       }
-                      aria-label={t("Maximize on double-click")}
+                      aria-label={t("Double-click a tab to maximize")}
                       data-iori-action="display-double-click-maximize"
                     />
                     {preferenceError("doubleClickMaximize")}

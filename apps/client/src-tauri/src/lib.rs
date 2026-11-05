@@ -65,6 +65,27 @@ pub fn run() {
             {
                 use tauri::Manager;
                 if let Some(window) = app.get_webview_window("main") {
+                    #[cfg(not(debug_assertions))]
+                    window.with_webview(|webview| {
+                        use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Settings3;
+                        use windows::core::Interface;
+
+                        // WebView2 browser shortcuts take precedence over terminal input.
+                        let result = unsafe {
+                            webview.controller().CoreWebView2().and_then(|view| {
+                                view.Settings().and_then(|settings| {
+                                    settings
+                                        .cast::<ICoreWebView2Settings3>()
+                                        .and_then(|settings| {
+                                            settings.SetAreBrowserAcceleratorKeysEnabled(false)
+                                        })
+                                })
+                            })
+                        };
+                        if let Err(error) = result {
+                            eprintln!("failed to disable WebView2 browser shortcuts: {error}");
+                        }
+                    })?;
                     window.show()?;
                 }
             }

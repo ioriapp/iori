@@ -244,6 +244,7 @@ export class ConnectionController {
                   void native.disconnect(connectionId).catch(() => undefined);
               }
             } else if (event.type === "invite.status") {
+              if (this.state.host?.publicKey !== hostKey) return;
               if (event.operationId === this.invitationOperationId)
                 this.update({ invitationStatus: event.status });
               else if (event.operationId === this.pendingInvitationOperationId)
@@ -453,6 +454,11 @@ export class ConnectionController {
       (candidate) => candidate.publicKey === publicKey,
     );
     if (!host) return;
+    if (this.state.host?.publicKey !== publicKey) {
+      this.invitationOperationId = undefined;
+      this.pendingInvitationOperationId = undefined;
+      this.pendingInvitationStatus = undefined;
+    }
     const record = this.recordFor(host);
     if (record.connectionId && record.promise)
       this.connection = { hostKey: publicKey, promise: record.promise };
@@ -465,6 +471,13 @@ export class ConnectionController {
       devices: record.devices,
       disconnectedAt: record.disconnectedAt ?? Date.now(),
       error: undefined,
+      ...(this.state.host?.publicKey !== publicKey
+        ? {
+            invitation: undefined,
+            invitationStatus: undefined,
+            invitedDevice: undefined,
+          }
+        : {}),
     });
     await this.saveHost(host, true);
     if (!record.connected && !hostReconnectPaused(publicKey))
@@ -899,19 +912,24 @@ export class ConnectionController {
       this.update({ registrationReadHostKey: undefined });
   };
   createInvite = async () => {
-    if (!this.state.connectionId) return;
+    const { connectionId, host } = this.state;
+    if (!connectionId || !host) return;
     this.clearError();
     const operationId = crypto.randomUUID();
     this.pendingInvitationOperationId = operationId;
     this.pendingInvitationStatus = undefined;
     try {
-      const response = await this.send(this.state.connectionId, {
+      const response = await this.send(connectionId, {
         kind: "request",
         method: "invite.create",
         operationId,
         params: {},
       });
-      if (response.ok) {
+      if (
+        response.ok &&
+        this.state.host?.publicKey === host.publicKey &&
+        this.pendingInvitationOperationId === operationId
+      ) {
         const { invite } = parseResult("invite.create", response.result);
         this.invitationOperationId = operationId;
         this.update({
@@ -930,10 +948,12 @@ export class ConnectionController {
     }
   };
   revoke = async (publicKey: string) => {
-    if (!this.state.connectionId) return false;
+    const { connectionId, host } = this.state;
+    if (!connectionId || !host) return false;
+    const record = this.connections.get(host.publicKey);
     try {
       const response = await this.send(
-        this.state.connectionId,
+        connectionId,
         {
           kind: "request",
           method: "devices.revoke",
@@ -943,10 +963,31 @@ export class ConnectionController {
         false,
       );
       if (response.ok) {
-        this.update({
-          devices: this.state.devices.filter((d) => d.publicKey !== publicKey),
-        });
-        if (publicKey === this.state.initial?.publicKey) this.revoked();
+        if (record)
+          record.devices = record.devices.filter(
+            (d) => d.publicKey !== publicKey,
+          );
+        if (this.state.host?.publicKey === host.publicKey) {
+          this.update({
+            devices: this.state.devices.filter(
+              (d) => d.publicKey !== publicKey,
+            ),
+          });
+          if (publicKey === this.state.initial?.publicKey) this.revoked();
+        } else if (publicKey === this.state.initial?.publicKey && record) {
+          record.revoked = true;
+          this.setConnected(record, false);
+          const id = record.connectionId;
+          record.connectionId = undefined;
+          record.promise = undefined;
+          record.ready = undefined;
+          if (record.retry) clearTimeout(record.retry);
+          record.retry = undefined;
+          if (id) {
+            this.connectionHosts.delete(id);
+            void native.disconnect(id).catch(() => undefined);
+          }
+        }
         return true;
       }
       return false;
@@ -986,10 +1027,9 @@ export class ConnectionController {
       record.retry = undefined;
     }
     if (id) this.connectionHosts.delete(id);
-    this.update({ host });
-    await this.saveHost(host);
-    this.update({ connectionId: undefined, connected: false });
+    this.update({ host, connectionId: undefined, connected: false });
     this.connection = undefined;
+    await this.saveHost(host);
     if (id) await native.disconnect(id).catch(() => undefined);
     try {
       await this.reconnectHost(hostKey);

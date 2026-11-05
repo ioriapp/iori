@@ -2568,47 +2568,167 @@ export const eventSchema: ValueSchema<Event | undefined> = {
   parse: parseEvent,
 };
 
+const BASE32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+const INVITE_PREFIX = "iori://pair/";
+
 export function inviteToCode(invite: Invite): string {
-  const normalizedInvite = inviteSchema.parse(invite);
-  const bytes = encoder.encode(JSON.stringify(normalizedInvite));
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return base64UrlEncode(binary);
+  const value = inviteSchema.parse(invite);
+  const bytes: number[] = [1];
+  const append = (data: Uint8Array) => {
+    for (const byte of data) bytes.push(byte);
+  };
+  const integer = (n: number, size: number) => {
+    let remaining = BigInt(n);
+    const result = new Uint8Array(size);
+    for (let i = size - 1; i >= 0; i--) {
+      result[i] = Number(remaining & 255n);
+      remaining >>= 8n;
+    }
+    append(result);
+  };
+  const text = (str: string) => {
+    const encoded = encoder.encode(str);
+    integer(encoded.length, 4);
+    append(encoded);
+  };
+  append(
+    Uint8Array.from(value.hostKey.match(/../gu)!, (part) => parseInt(part, 16)),
+  );
+  append(
+    Uint8Array.from(base64UrlDecode(value.secret), (c) => c.charCodeAt(0)),
+  );
+  integer(value.expiresAt, 8);
+  text(value.relayUrl ?? "");
+  text(value.hostName);
+  integer(value.addresses.length, 4);
+  for (const address of value.addresses) {
+    const ipv6 = address.startsWith("[");
+    const split = address.lastIndexOf(":");
+    const host = address.slice(0, split);
+    integer(ipv6 ? 6 : 4, 1);
+    if (ipv6) {
+      const canonical = new URL(`http://${host}/`).hostname.slice(1, -1);
+      const [left, right = ""] = canonical.split("::");
+      const before = left ? left.split(":") : [];
+      const after = right ? right.split(":") : [];
+      const groups = [
+        ...before,
+        ...Array<string>(8 - before.length - after.length).fill("0"),
+        ...after,
+      ];
+      for (const group of groups) integer(parseInt(group, 16), 2);
+    } else {
+      for (const octet of host.split(".")) integer(Number(octet), 1);
+    }
+    integer(Number(address.slice(split + 1)), 2);
+  }
+  let result = "";
+  let buffer = 0;
+  let bits = 0;
+  for (const byte of bytes) {
+    buffer = (buffer << 8) | byte;
+    bits += 8;
+    while (bits >= 5) {
+      bits -= 5;
+      result += BASE32[(buffer >>> bits) & 31];
+    }
+  }
+  if (bits) result += BASE32[(buffer << (5 - bits)) & 31];
+  return result;
 }
 
 export function inviteToText(invite: Invite): string {
-  return `iori://pair?code=${inviteToCode(invite)}`;
+  return INVITE_PREFIX + inviteToCode(invite);
+}
+
+export function inviteQrSegments(
+  invite: Invite,
+): (
+  { data: Uint8Array; mode: "byte" } | { data: string; mode: "alphanumeric" }
+)[] {
+  return [
+    { data: encoder.encode(INVITE_PREFIX), mode: "byte" },
+    { data: inviteToCode(invite), mode: "alphanumeric" },
+  ];
 }
 
 export function inviteFromText(text: string): Invite {
   let code = text.trim();
   if (code.includes("://")) {
-    let url: URL;
-    try {
-      url = new URL(code);
-    } catch {
-      return fail("invalid invite URL");
-    }
-    if (
-      url.protocol !== "iori:" ||
-      url.hostname !== "pair" ||
-      url.pathname !== ""
-    ) {
+    if (!code.toLowerCase().startsWith(INVITE_PREFIX))
       return fail("unsupported invite URL");
+    code = code.slice(INVITE_PREFIX.length);
+  }
+  code = code.toUpperCase();
+  if (!/^[A-Z2-7]+$/u.test(code)) return fail("invalid invite code");
+  const bytes: number[] = [];
+  let buffer = 0;
+  let bits = 0;
+  for (const character of code) {
+    buffer = (buffer << 5) | BASE32.indexOf(character);
+    bits += 5;
+    if (bits >= 8) {
+      bits -= 8;
+      bytes.push((buffer >>> bits) & 255);
     }
-    const values = url.searchParams.getAll("code");
-    if (values.length !== 1) return fail("invite URL must contain one code");
-    code = values[0] ?? "";
   }
-  const binary = base64UrlDecode(code);
-  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
-  let decoded: unknown;
-  try {
-    decoded = JSON.parse(decoder.decode(bytes));
-  } catch {
-    return fail("invalid invite content");
+  if (bits >= 5 || (buffer & ((1 << bits) - 1)) !== 0)
+    return fail("invalid invite code");
+  let offset = 0;
+  const take = (size: number): Uint8Array => {
+    if (size > bytes.length - offset) return fail("invalid invite content");
+    const result = Uint8Array.from(bytes.slice(offset, offset + size));
+    offset += size;
+    return result;
+  };
+  const integer = (size: number): number => {
+    let result = 0n;
+    for (const byte of take(size)) result = (result << 8n) | BigInt(byte);
+    if (result > BigInt(Number.MAX_SAFE_INTEGER))
+      return fail("invalid invite content");
+    return Number(result);
+  };
+  const readText = (): string => {
+    try {
+      return new TextDecoder("utf-8", { fatal: true }).decode(take(integer(4)));
+    } catch {
+      return fail("invalid invite content");
+    }
+  };
+  if (integer(1) !== 1) return fail("unsupported invite version");
+  const hostKey = Array.from(take(32), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+  const secret = base64UrlEncode(
+    Array.from(take(32), (byte) => String.fromCharCode(byte)).join(""),
+  );
+  const expiresAt = integer(8);
+  const relay = readText();
+  const hostName = readText();
+  const count = integer(4);
+  const addresses: string[] = [];
+  for (let i = 0; i < count; i++) {
+    const family = integer(1);
+    if (family !== 4 && family !== 6) return fail("invalid invite content");
+    const address = take(family === 4 ? 4 : 16);
+    const host =
+      family === 4
+        ? Array.from(address).join(".")
+        : new URL(
+            `http://[${Array.from({ length: 8 }, (_, j) => ((address[j * 2]! << 8) | address[j * 2 + 1]!).toString(16)).join(":")}]/`,
+          ).hostname;
+    addresses.push(`${host}:${integer(2)}`);
   }
-  return inviteSchema.parse(decoded);
+  if (offset !== bytes.length) return fail("invalid invite content");
+  return inviteSchema.parse({
+    version: 1,
+    hostKey,
+    secret,
+    expiresAt,
+    ...(relay ? { relayUrl: relay } : {}),
+    hostName,
+    addresses,
+  });
 }
 
 function base64UrlEncode(binary: string): string {

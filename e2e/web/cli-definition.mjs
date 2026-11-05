@@ -26,6 +26,7 @@ import { submitToCli } from "../cli-screen/input.mjs";
 import {
   cliRowNamed,
   cliMenuAction,
+  clickAgentControl,
   openAgents,
   returnToWorktree,
   saveStartupArguments,
@@ -48,7 +49,7 @@ const cliRow = (id) => `[data-iori-cli-row="${id}"]`;
 /** Open the detail of a CLI row on the AI agents screen. */
 async function openRow(screen, id) {
   if ((await screen.attribute(cliRow(id), "data-state")) !== "open")
-    await screen.click(`${cliRow(id)} .team-agent-toggle`);
+    await clickAgentControl(screen, `${cliRow(id)} .team-agent-toggle`);
 }
 /** Whether the element is gone from the page, not only out of view. */
 const absent = (screen, selector) =>
@@ -655,7 +656,8 @@ export async function cliDefinitionScenario({
   }
   await pictures.capture(
     "visible-menu",
-    () => screen.click(`${cliRow(cliId)} ${action("cli-actions")}`),
+    () =>
+      clickAgentControl(screen, `${cliRow(cliId)} ${action("cli-actions")}`),
     () => screen.key("Escape"),
   );
   await screen.key("Escape");
@@ -675,18 +677,19 @@ export async function cliDefinitionScenario({
   await screen.click(`${hiddenGroup} ${action("hidden-items-toggle")}`);
   await screen.reveal(`${cliRow(cliId)} ${action("cli-actions")}`);
   if ((await screen.attribute(cliRow(cliId), "data-state")) === "open")
-    await screen.click(`${cliRow(cliId)} .team-agent-toggle`);
+    await clickAgentControl(screen, `${cliRow(cliId)} .team-agent-toggle`);
   await pictures.capture("hidden", () =>
     screen.reveal(`${hiddenGroup} > button`),
   );
   await pictures.capture(
     "hidden-menu",
-    () => screen.click(`${cliRow(cliId)} ${action("cli-actions")}`),
+    () =>
+      clickAgentControl(screen, `${cliRow(cliId)} ${action("cli-actions")}`),
     () => screen.key("Escape"),
   );
   await screen.key("Escape");
   await openRow(screen, cliId);
-  await screen.click(`${cliRow(cliId)} .team-add-limit`);
+  await clickAgentControl(screen, `${cliRow(cliId)} .team-add-limit`);
   await screen.wait(
     `[cmdk-item][data-cli="${cliId}"][data-iori-model="${model}"]`,
   );

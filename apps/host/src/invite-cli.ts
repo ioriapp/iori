@@ -8,6 +8,7 @@ import {
   encodeFrame,
   eventSchema,
   inviteToText,
+  inviteQrSegments,
   parseResponse,
 } from "@iori/protocol";
 import { hostControlPath } from "./storage.ts";
@@ -159,7 +160,7 @@ async function main(): Promise<void> {
           ),
         );
         process.stdout.write(
-          `${await QRCode.toString(inviteText, { type: "terminal", small: true })}\n`,
+          `${await QRCode.toString(inviteQrSegments(invite), { type: "terminal", small: true, errorCorrectionLevel: "M" })}\n`,
         );
         process.stdout.write(`${inviteText}\n`);
         process.stdout.write(

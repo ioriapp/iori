@@ -21,6 +21,7 @@ import { observe } from "../terminal/scenario.mjs";
 import { openWorkspaceView } from "../../verification/workspace/interaction.mjs";
 import {
   cliMenuAction,
+  clickAgentControl,
   openAgents,
   returnToWorktree,
 } from "./agents-navigation.mjs";
@@ -37,7 +38,7 @@ const absent = (screen, selector) =>
   screen.evaluate(`!document.querySelector(${JSON.stringify(selector)})`);
 async function openRow(screen, cliId) {
   if ((await screen.attribute(cliRow(cliId), "data-state")) !== "open")
-    await screen.click(`${cliRow(cliId)} .team-agent-toggle`);
+    await clickAgentControl(screen, `${cliRow(cliId)} .team-agent-toggle`);
 }
 async function support(screen, cliId, feature) {
   return screen.attribute(

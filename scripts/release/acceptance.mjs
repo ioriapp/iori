@@ -62,6 +62,7 @@ const fullScenarioOrder = [
   "model-failure",
   "forge-issues",
   "web-workspace",
+  "host-invitation-switch",
   "reading-worktrees",
 ];
 

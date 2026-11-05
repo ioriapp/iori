@@ -183,6 +183,7 @@ export async function dismissNotificationPrompt(client) {
   await waitFor(async () => !(await client.screen.visible(prompt)));
 }
 export async function register(screen, invitation, deviceName) {
+  assert.match(invitation, /^iori:\/\/pair\/[A-Z2-7]+$/u);
   // Right after start the Client may not show its first screen yet.
   await waitFor(
     async () =>
@@ -217,6 +218,12 @@ export async function register(screen, invitation, deviceName) {
   await openSettingsSection(screen, "open-devices");
   await screen.wait('[data-iori-state="connected"]');
   await screen.wait('[data-iori-state="this-device"]');
+  assert.equal(
+    await screen.evaluate(
+      `Array.from(document.querySelectorAll('[data-iori-row="device"]')).every(row => /に登録|Registered /.test(row.textContent))`,
+    ),
+    true,
+  );
   assert.equal(
     await screen.evaluate(
       `document.querySelector('[data-iori-list="devices"]').textContent.includes(${JSON.stringify(deviceName)})`,

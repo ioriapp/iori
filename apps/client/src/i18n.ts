@@ -597,6 +597,7 @@ const japanese: Record<string, string> = {
   "Use an invitation from iori-host invite on the Host or Devices → Invite a new device on a registered device.":
     "Hostではiori-host invite、登録済み端末では「端末」→「新しい端末を招待する」から招待を発行できます。下に貼り付けてください。",
   Invitation: "招待の文字列",
+  "Enlarge QR code": "QRコードを拡大",
   Continue: "次へ",
   "Scan QR code": "QRコードを読み取る",
   "Confirm registration": "登録の確認",
@@ -814,7 +815,7 @@ const japanese: Record<string, string> = {
   "Maximize window": "最大化",
   "Restore window": "元に戻す",
   "Close window": "閉じる",
-  "Maximize on double-click": "ダブルクリックで最大化",
+  "Double-click a tab to maximize": "タブをダブルクリックで最大化",
   "No shells found": "shellが見つかりませんでした",
   "No shells were returned by this Host": "このHostで使えるshellはありません。",
   "Open sidebar": "サイドバーを開く",
@@ -886,4 +887,13 @@ export function registeredMessage(language: string, name: string) {
   return language.toLowerCase().startsWith("ja")
     ? `${name}を登録しました`
     : `${name} was registered`;
+}
+
+export function registeredDateMessage(language: string, registeredAt: number) {
+  const date = new Intl.DateTimeFormat(language, {
+    dateStyle: "medium",
+  }).format(registeredAt);
+  return language.toLowerCase().startsWith("ja")
+    ? `${date}に登録`
+    : `Registered ${date}`;
 }

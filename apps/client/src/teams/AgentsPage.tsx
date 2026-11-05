@@ -702,7 +702,7 @@ export function AgentsPage({
   renderSettings: (cli: CliSummary) => ReactNode;
   renderModelError: (cli: CliSummary) => ReactNode;
 }) {
-  const { t, loadingModels, catalogs } = useI18n();
+  const { t, catalogs } = useI18n();
   const [adding, setAdding] = useState<Adding | null>(null);
   const [editing, setEditing] = useState<Editing | null>(null);
   const [confirm, setConfirm] = useState<Confirm | null>(null);
@@ -1223,7 +1223,7 @@ export function AgentsPage({
                   </div>
                 ) : cli.usage ||
                   !cli.supportsUsage ||
-                  (!loadingModels[cli.id] && catalogs[cli.id]?.error) ? (
+                  catalogs[cli.id]?.error ? (
                   <Usage cliId={cli.id} usage={cli.usage} />
                 ) : (
                   <div className="team-usage" aria-hidden="true">

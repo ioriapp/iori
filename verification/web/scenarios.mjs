@@ -1,6 +1,7 @@
 // The former default web run is split at user workflows. Each selection starts
 // with its own invitation, folder and (when needed) real Terminal.
 export const basicWebScenarios = {
+  "host-invitation-switch": { clis: [], modelClis: [] },
   "sidebar-width": { clis: [], modelClis: [] },
   "web-workspace": { clis: [], modelClis: [] },
   "worktree-removal": {},

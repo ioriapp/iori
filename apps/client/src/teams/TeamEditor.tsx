@@ -762,6 +762,15 @@ function ExecutionRow({
     </div>
   );
 }
+const modelErrorKeys = new WeakMap<object, number>();
+let nextModelErrorKey = 0;
+function modelErrorKey(catalog: object) {
+  const existing = modelErrorKeys.get(catalog);
+  if (existing !== undefined) return existing;
+  const key = nextModelErrorKey++;
+  modelErrorKeys.set(catalog, key);
+  return key;
+}
 function TextPreview({
   title,
   children,
@@ -1617,11 +1626,13 @@ export function TeamEditor({
               className="team-tree-row team-tree-team"
               data-iori-team-id={record.draft.id}
             >
-              {expanded[record.draft.id] ? (
-                <ChevronDown size={14} />
-              ) : (
-                <ChevronRight size={14} />
-              )}
+              <span className="team-tree-chevron">
+                {expanded[record.draft.id] ? (
+                  <ChevronDown size={14} />
+                ) : (
+                  <ChevronRight size={14} />
+                )}
+              </span>
               <span data-iori-team-name={record.draft.id}>
                 {record.draft.name}
               </span>
@@ -2350,9 +2361,12 @@ export function TeamEditor({
               }
               registerEditor={registerEditor}
               renderModelError={(cli) =>
-                !loadingModels[cli.id] &&
                 catalogs[cli.id]?.error && (
-                  <div className="team-model-error" role="alert">
+                  <div
+                    key={modelErrorKey(catalogs[cli.id])}
+                    className="team-model-error"
+                    role="alert"
+                  >
                     <p>{t(modelError(catalogs[cli.id].error))}</p>
                     {catalogs[cli.id]?.errorDetail && (
                       <>
@@ -2382,6 +2396,7 @@ export function TeamEditor({
                     <Button
                       variant="outline"
                       size="sm"
+                      pending={loadingModels[cli.id]}
                       data-iori-action="retry-models"
                       onClick={() => onRetryModels(cli.id)}
                     >

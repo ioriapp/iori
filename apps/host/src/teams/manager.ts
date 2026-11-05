@@ -850,8 +850,8 @@ export class TeamManager {
         teamId: conversation.teamId,
         name:
           conversation.title ??
-          conversation.teamName ??
-          this.store.readTeam(conversation.teamId)?.saved.name,
+          this.store.readTeam(conversation.teamId)?.saved.name ??
+          conversation.teamName,
         createdAt: conversation.createdAt,
         lastActiveAt: conversation.lastActiveAt,
         plan: conversation.plan,
@@ -912,8 +912,8 @@ export class TeamManager {
           title: first.title,
           teamId: conversation.teamId,
           team:
-            conversation.teamName ??
-            this.store.readTeam(conversation.teamId)?.saved.name,
+            this.store.readTeam(conversation.teamId)?.saved.name ??
+            conversation.teamName,
           version: first.teamVersion ?? conversation.teamVersion,
           role: first.role?.name ?? first.roleName,
           difficulty: first.difficulty,

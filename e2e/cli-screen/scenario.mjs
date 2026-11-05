@@ -480,7 +480,38 @@ export async function modelFailureScenario({ client, record }) {
     output,
     /\x1b|cannot set terminal process group|no job control/u,
   );
+  // Hold the real Host response until the loading state has been inspected.
+  await screen.evaluate(`(async () => {
+    const { connection } = await import('/src/connection.ts');
+    const original = connection.requestHost;
+    window.__releaseModelResponse = undefined;
+    connection.requestHost = async (...args) => {
+      const result = await original(...args);
+      if (args[1] === 'cli.models' && args[2].cliId === 'cursor') {
+        await new Promise((resolve) => { window.__releaseModelResponse = resolve; });
+        connection.requestHost = original;
+      }
+      return result;
+    };
+  })()`);
   await screen.click(`${row} [data-iori-action="retry-models"]`);
+  await waitFor(() =>
+    screen.evaluate("Boolean(window.__releaseModelResponse)"),
+  );
+  assert.equal(await screen.visible(`${row} [role="alert"]`), true);
+  assert.equal(await screen.attribute(details, "aria-expanded"), "true");
+  assert.equal(
+    await screen.visible(`${row} [data-iori-model-error-output]`),
+    true,
+  );
+  assert.equal(
+    await screen.attribute(
+      `${row} [data-iori-action="retry-models"]`,
+      "aria-busy",
+    ),
+    "true",
+  );
+  await screen.evaluate("window.__releaseModelResponse()");
   await waitFor(
     () => screen.attribute(details, "aria-expanded"),
     (value) => value === "false",

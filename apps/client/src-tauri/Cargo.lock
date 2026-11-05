@@ -2742,6 +2742,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "url",
+ "webview2-com",
  "webpki-root-certs",
  "windows",
  "windows-sys 0.61.2",

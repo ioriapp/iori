@@ -1467,6 +1467,30 @@ export async function teamDelegationScenario({
   await screen.click(
     `.dock-tab-header:has([data-iori-tab-id="terminal:${child.terminalId}"]) .dock-tab-close`,
   );
+  const renamedTeamName = `${savedTeam.name} renamed after delegation`;
+  await screen.click('[data-iori-action="open-agents-teams"]');
+  await screen.click('[data-iori-action="teams-list"]');
+  await screen.click(`.team-list [data-iori-team-id="${teamId}"]`);
+  await screen.click(
+    `[data-iori-action="team-overview"][data-iori-team-id="${teamId}"]`,
+  );
+  const teamVersion = `.team-save-header[data-iori-team-id="${teamId}"] [data-iori-team-version]`;
+  const versionBeforeRename = await screen.attribute(
+    teamVersion,
+    "data-iori-team-version",
+  );
+  await screen.input('[data-iori-field="team-name"]', renamedTeamName);
+  await screen.click('[data-iori-action="team-save"]');
+  await waitFor(
+    () => screen.attribute(teamVersion, "data-iori-team-version"),
+    (value) => value !== versionBeforeRename,
+    undefined,
+    "委譲後のチーム名を保存",
+  );
+  assert.equal(
+    await screen.value('[data-iori-field="team-name"]'),
+    renamedTeamName,
+  );
   await screen.click('[data-iori-action="open-agents-teams"]');
   await screen.click('[data-iori-action="teams-records"]');
   const period = '.record-period [data-slot="select-trigger"]';
@@ -1501,6 +1525,14 @@ export async function teamDelegationScenario({
   await record(
     "Recordsの日付指定で今日からの記録を表示、明日からは0件、開き直して条件を保持し、解除で全期間に戻る",
   );
+  await screen.click('[data-iori-view="records"] [aria-label="Team"]');
+  const teamOptions = await screen.evaluate(
+    '[...document.querySelectorAll("[data-slot=select-item]")].map(item=>item.textContent.trim())',
+  );
+  assert.ok(teamOptions.includes(renamedTeamName));
+  assert.ok(!teamOptions.includes(savedTeam.name));
+  await screen.key("Escape");
+  await record("RecordsのTeam絞り込みに変更後のチーム名を表示");
   const roleNames = () =>
     screen.evaluate(
       "[...document.querySelectorAll('.record-role h2')].map(el => el.textContent.trim())",
@@ -1548,6 +1580,11 @@ export async function teamDelegationScenario({
   );
   await screen.click(pointSelector);
   await screen.wait('[data-iori-view="record-task-list"]');
+  const taskRecord = `[data-iori-record-task="${child.task}"]`;
+  await screen.wait(taskRecord);
+  const taskRecordText = await screen.text(taskRecord);
+  assert.ok(taskRecordText.includes(`${renamedTeamName} · Version`));
+  assert.ok(!taskRecordText.includes(`${savedTeam.name} · Version`));
   await record(
     "RecordsのInputとCache hitの数値を確認し、Tokens軸の点から担当タスクを開く",
   );

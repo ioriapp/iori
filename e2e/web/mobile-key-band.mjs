@@ -12,11 +12,33 @@ import {
 
 export async function mobileKeyBand({ client, mobile, record, shot }) {
   const id = await create(client);
-  await mobile();
   const screen = client.screen;
+  await screen.click('[data-iori-action="settings-open"]');
+  assert.equal(
+    await screen.visible('[data-iori-action="settings-keyboard"]'),
+    false,
+  );
+  await screen.click('[data-iori-action="settings-close"]');
+  await mobile({ width: 390, height: 844 });
   await screen.wait('[data-iori-view="workspace"]');
   await observe(client, "(await import('/src/native-platform-web.ts')).listen");
   await open(client, id);
+  await openSidebar(screen);
+  await screen.click('[data-iori-action="settings-open"]');
+  assert.equal(
+    await screen.visible('[data-iori-action="settings-keyboard"]'),
+    true,
+  );
+  await screen.click('[data-iori-action="open-devices"]');
+  await screen.click('[data-iori-action="invite"]');
+  await screen.wait(".invitation-qr-button");
+  await screen.click(".invitation-qr-button");
+  await screen.wait(".invitation-qr-dialog");
+  await screen.key("Alt+ArrowLeft");
+  assert.equal(await screen.visible(".invitation-qr-dialog"), false);
+  assert.equal(await screen.visible('[data-iori-view="devices"]'), true);
+  await screen.click('[data-iori-action="settings-close"]');
+  await closeSidebar(screen);
   const pane = `[data-iori-terminal-id="${id}"]`;
   const key = (name) => `${pane} [data-iori-key="${name}"]`;
   const batch = `${pane} [data-iori-field="terminal-batch-input"]`;
@@ -35,6 +57,26 @@ export async function mobileKeyBand({ client, mobile, record, shot }) {
     await openSidebar(screen);
     await screen.click(action("settings-open"));
     await screen.click(action("settings-keyboard"));
+    if (!show) {
+      await screen.evaluate(
+        "document.querySelector('.settings-content').scrollTop = document.querySelector('.settings-content').scrollHeight",
+      );
+      assert.ok(
+        (await screen.evaluate(
+          "document.querySelector('.settings-content').scrollTop",
+        )) > 0,
+      );
+      await screen.click(action("settings-back"));
+      await screen.click(action("open-connection"));
+      assert.equal(
+        await screen.evaluate(
+          "document.querySelector('.settings-content').scrollTop",
+        ),
+        0,
+      );
+      await screen.click(action("settings-back"));
+      await screen.click(action("settings-keyboard"));
+    }
     const toggle = '[data-iori-field="keyboard-show-button-names"]';
     await screen.click(toggle);
     assert.equal(await screen.attribute(toggle, "aria-checked"), String(show));

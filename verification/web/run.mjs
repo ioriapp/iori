@@ -7,6 +7,7 @@ import { startFakeModel } from "../fake-model/server.mjs";
 import { setRealModels } from "../../e2e/fake-model/marker.mjs";
 import { longApprovalCommand } from "../../e2e/fake-model/cli-status.mjs";
 import { basicWebScenarios } from "./scenarios.mjs";
+import { hostInvitationSwitch } from "./host-invitation-switch.mjs";
 import { prepareCliErrorFixture } from "./cli-error-fixture.mjs";
 import { cliCommand, teamCommand } from "./team-command.mjs";
 import { prepareForgeFixture } from "./forge-fixture.mjs";
@@ -951,11 +952,13 @@ input.on('line',async line=>{if(!line.startsWith('DELEGATE'))return; const optio
     );
   };
   await (
-    only === "readme-shots"
-      ? readmeShotsScenario
-      : ["terminal-daemon", "host-update", "host-uninstall"].includes(only)
-        ? terminalDaemonScenario
-        : webScenario
+    only === "host-invitation-switch"
+      ? hostInvitationSwitch
+      : only === "readme-shots"
+        ? readmeShotsScenario
+        : ["terminal-daemon", "host-update", "host-uninstall"].includes(only)
+          ? terminalDaemonScenario
+          : webScenario
   )({
     readmeTheme,
     readmeRecording: (() => {

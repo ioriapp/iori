@@ -235,12 +235,59 @@
   margin: 0;
 }
 
+.invitation-qr-container {
+  width: 100%;
+  min-width: 0;
+}
+
+.invitation-qr-button {
+  display: block;
+  width: min(360px, 100%);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
 .invitation-qr {
-  width: min(240px, 100%);
-  height: auto;
-  padding: 8px;
-  border-radius: var(--radius);
+  display: block;
+  image-rendering: pixelated;
+}
+
+[data-slot="dialog-overlay"]:has(+ .invitation-qr-dialog) {
+  z-index: 60;
+}
+
+.invitation-qr-dialog[data-slot="dialog-content"] {
+  z-index: 61;
+  width: max-content;
+  max-width: calc(100vw - 48px);
+  max-height: calc(100dvh - 48px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0;
+  gap: 0;
   background: white;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  overflow: visible;
+}
+
+.invitation-qr-dialog-header {
+  align-self: stretch;
+  flex: 0 0 40px;
+}
+
+.invitation-qr-dialog [data-slot="dialog-close"] {
+  color: #171717;
+}
+
+.invitation-qr-dialog-area {
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
 
 .registered-message {

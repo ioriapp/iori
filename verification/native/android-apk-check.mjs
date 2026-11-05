@@ -1,8 +1,9 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { performance } from "node:perf_hooks";
 import path from "node:path";
 import { inflateRawSync } from "node:zlib";
+import { fileURLToPath } from "node:url";
 import { localCache } from "./cache.mjs";
 
 const androidTarget = "aarch64-linux-android";
@@ -182,7 +183,7 @@ const endOfCentralDirectory = 0x06054b50;
 const centralDirectoryEntry = 0x02014b50;
 const localFileHeader = 0x04034b50;
 
-function dexEntries(apk) {
+function zipEntries(apk) {
   let end = -1;
   const firstCandidate = Math.max(0, apk.length - 22 - 0xffff);
   for (let offset = apk.length - 22; offset >= firstCandidate; offset -= 1) {
@@ -210,8 +211,7 @@ function dexEntries(apk) {
     const commentLength = apk.readUInt16LE(offset + 32);
     const localOffset = apk.readUInt32LE(offset + 42);
     const name = apk.toString("utf8", offset + 46, offset + 46 + nameLength);
-    if (/^classes\d*\.dex$/u.test(name))
-      entries.push({ name, method, compressedSize, localOffset });
+    entries.push({ name, method, compressedSize, localOffset });
     offset += 46 + nameLength + extraLength + commentLength;
   }
   return entries;
@@ -275,12 +275,176 @@ function dexClassNames(bytes) {
 
 function apkClassNames(apk) {
   const names = new Set();
-  const entries = dexEntries(apk);
+  const entries = zipEntries(apk).filter((entry) =>
+    /^classes\d*\.dex$/u.test(entry.name),
+  );
   if (!entries.length)
     throw new Error("配布APKの静的検査: APKにclasses.dexがありません");
   for (const entry of entries)
     for (const name of dexClassNames(entryBytes(apk, entry))) names.add(name);
   return names;
+}
+
+// Resource names are shortened in release APKs. aapt2 resolves them through
+// the resource table, so compare the actual files rather than ZIP paths.
+export async function checkAndroidLauncherIcons(apk) {
+  const repoRoot = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "../..",
+  );
+  const res = path.join(
+    repoRoot,
+    "apps/client/src-tauri/gen/android/app/src/main/res",
+  );
+  const aapt2 = path.join(
+    localCache,
+    "android/android-sdk/build-tools/36.0.0/aapt2",
+  );
+  const resources = execFileSync(aapt2, ["dump", "resources", apk], {
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  const apkBytes = await readFile(apk);
+  const entries = new Map(
+    zipEntries(apkBytes).map((entry) => [entry.name, entry]),
+  );
+  const table = new Map();
+  let resource;
+  for (const line of resources.split("\n")) {
+    const header = /^\s+resource (0x[0-9a-f]+) (\S+)/u.exec(line);
+    if (header) {
+      resource = { id: header[1], values: new Map() };
+      table.set(header[2], resource);
+    } else {
+      const file = /^\s+\(([^)]*)\) \(file\) (\S+)/u.exec(line);
+      if (file && resource) resource.values.set(file[1], file[2]);
+    }
+  }
+  const manifestSource = await readFile(
+    path.join(res, "../AndroidManifest.xml"),
+    "utf8",
+  );
+  const manifest = execFileSync(
+    aapt2,
+    ["dump", "xmltree", apk, "--file", "AndroidManifest.xml"],
+    { encoding: "utf8" },
+  );
+  const launcherNames = new Set();
+  for (const attribute of ["icon", "roundIcon"]) {
+    const name = new RegExp(`android:${attribute}="@mipmap/([^"]+)"`, "u").exec(
+      manifestSource,
+    )?.[1];
+    const actual = new RegExp(
+      `:${attribute}\\(0x[0-9a-f]+\\)=@(0x[0-9a-f]+)`,
+      "u",
+    ).exec(manifest)?.[1];
+    if (name ? actual !== table.get(`mipmap/${name}`)?.id : Boolean(actual))
+      throw new Error(`配布APKの${attribute}が一致しません`);
+    if (name) launcherNames.add(name);
+  }
+  const imageNames = new Set(launcherNames);
+  for (const name of launcherNames) {
+    const adaptive = table.get(`mipmap/${name}`)?.values.get("anydpi-v26");
+    const expectedXml = await readFile(
+      path.join(res, `mipmap-anydpi-v26/${name}.xml`),
+      "utf8",
+    );
+    if (!adaptive)
+      throw new Error(`配布APKのadaptive iconがありません: ${name}`);
+    const xml = execFileSync(
+      aapt2,
+      ["dump", "xmltree", apk, "--file", adaptive],
+      { encoding: "utf8" },
+    );
+    for (const [, kind, type, reference] of expectedXml.matchAll(
+      /<(foreground|background)\s+android:drawable="@(mipmap|color)\/([^"]+)"/gu,
+    )) {
+      const id = table.get(`${type}/${reference}`)?.id;
+      const section = new RegExp(
+        `E: ${kind}[^\n]*\n([^]*?)(?=\\s+E:|$)`,
+        "u",
+      ).exec(xml)?.[1];
+      if (!id || !section?.includes(id))
+        throw new Error(`配布APKのadaptive iconの${kind}が一致しません`);
+      if (type === "mipmap") imageNames.add(reference);
+      if (type === "color") {
+        const source = await readFile(
+          path.join(res, `values/${reference}.xml`),
+          "utf8",
+        );
+        const color = />(#[0-9a-fA-F]+)</u
+          .exec(source)?.[1]
+          .slice(1)
+          .toLowerCase();
+        const lines = resources.split("\n");
+        const index = lines.findIndex((line) =>
+          line.includes(` ${type}/${reference}`),
+        );
+        if (
+          !color ||
+          index < 0 ||
+          !lines
+            .slice(index, index + 3)
+            .join("\n")
+            .toLowerCase()
+            .includes(color)
+        )
+          throw new Error("配布APKのadaptive iconの背景色が一致しません");
+      }
+    }
+  }
+  const failures = [];
+  for (const directory of await readdir(res)) {
+    if (!directory.startsWith("mipmap-") || directory === "mipmap-anydpi-v26")
+      continue;
+    for (const name of imageNames) {
+      const file = path.join(res, directory, `${name}.png`);
+      try {
+        await stat(file);
+      } catch (error) {
+        if (error.code === "ENOENT") continue;
+        throw error;
+      }
+      const target = table
+        .get(`mipmap/${name}`)
+        ?.values.get(directory.slice(7));
+      const entry = entries.get(target);
+      if (!entry) {
+        failures.push(`${directory}/${name}.png`);
+        continue;
+      }
+      // aapt can change PNG encoding and the RGB values of fully transparent pixels.
+      // Compare visible RGBA pixels, including the alpha channel.
+      const comparison = spawnSync(
+        "python3",
+        [
+          "-c",
+          `from PIL import Image
+import io,sys
+a=Image.open(io.BytesIO(sys.stdin.buffer.read())).convert("RGBA")
+b=Image.open(sys.argv[1]).convert("RGBA")
+def visible(p): return (p[0],p[1],p[2],p[3]) if p[3] else (0,0,0,0)
+sys.exit(0 if a.size==b.size and all(visible(x)==visible(y) for x,y in zip(a.getdata(),b.getdata())) else 1)
+`,
+          file,
+        ],
+        { input: entryBytes(apkBytes, entry) },
+      );
+      if (
+        comparison.error ||
+        comparison.status === null ||
+        comparison.status > 1
+      )
+        throw new Error(
+          `PNGの画素を比較できません: ${comparison.error?.message ?? comparison.stderr.toString()}`,
+        );
+      if (comparison.status !== 0) failures.push(`${directory}/${name}.png`);
+    }
+  }
+  if (failures.length)
+    throw new Error(
+      `配布APKのランチャーアイコンが一致しません: ${failures.join(", ")}`,
+    );
 }
 
 // Verify that every Tauri plugin with an Android library in the Cargo graph
@@ -289,6 +453,7 @@ function apkClassNames(apk) {
 // and crashed on startup.
 export async function checkAndroidApkPlugins({ apk, sourceRoot, evidence }) {
   const started = performance.now();
+  await checkAndroidLauncherIcons(apk);
   const cargoManifest = path.join(
     sourceRoot,
     "apps/client/src-tauri/Cargo.toml",

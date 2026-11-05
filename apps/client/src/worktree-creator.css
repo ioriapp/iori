@@ -8,6 +8,9 @@
 .worktree-create-dialog [data-slot="dialog-description"] {
   overflow-wrap: anywhere;
 }
+.worktree-create-dialog .cli-launcher {
+  width: 100%;
+}
 .worktree-create-field {
   display: grid;
   gap: 8px;
