@@ -885,14 +885,7 @@ export class ConnectionController {
                 activeHostKey: selectHost
                   ? host.publicKey
                   : this.state.initial!.activeHostKey,
-                hosts: selectHost
-                  ? [
-                      host,
-                      ...updated.filter(
-                        (item) => item.publicKey !== host.publicKey,
-                      ),
-                    ]
-                  : updated,
+                hosts: updated,
               };
             })()
           : undefined,

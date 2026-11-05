@@ -50,6 +50,7 @@ fn powershell(script: &str, firewall_query: Option<bool>) -> Result<String, Stri
         ])
         .arg(base64::engine::general_purpose::STANDARD.encode(bytes))
         .env_remove("IORI_FIREWALL_QUERY")
+        .env_remove("PSModulePath")
         .creation_flags(0x08000000);
     if let Some(query) = firewall_query {
         command.env("IORI_FIREWALL_QUERY", if query { "1" } else { "0" });

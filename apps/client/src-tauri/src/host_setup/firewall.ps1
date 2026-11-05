@@ -1,10 +1,11 @@
+param([switch]$Remote)
 $ErrorActionPreference = 'Stop'
 $program = Join-Path $env:LOCALAPPDATA 'Programs\iori-host\runtime\node.exe'
 # Stable per-installation name; paths differ between users on the same PC.
 $sha = [Security.Cryptography.SHA256]::Create()
 $name = 'iori-host-' + [BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($program.ToLowerInvariant()))).Replace('-', '').Substring(0,16)
 $sha.Dispose()
-if ($env:IORI_FIREWALL_QUERY -eq '1') {
+if (-not $Remote -and $env:IORI_FIREWALL_QUERY -eq '1') {
     $rule = Get-NetFirewallRule -Name $name -ErrorAction SilentlyContinue
     $application = if ($rule) { $rule | Get-NetFirewallApplicationFilter }
     $port = if ($rule) { $rule | Get-NetFirewallPortFilter }
@@ -15,7 +16,32 @@ if ($env:IORI_FIREWALL_QUERY -eq '1') {
 $literalProgram = "'" + [Management.Automation.Language.CodeGeneration]::EscapeSingleQuotedStringContent($program) + "'"
 $script = "`$ErrorActionPreference='Stop';try { `$rule=Get-NetFirewallRule -Name '$name' -ErrorAction SilentlyContinue; if (`$rule) { Set-NetFirewallRule -Name '$name' -Direction Inbound -Action Allow -Enabled True -Profile Any -Protocol UDP -Program $literalProgram } else { New-NetFirewallRule -Name '$name' -DisplayName 'iori Host' -Direction Inbound -Action Allow -Enabled True -Profile Any -Protocol UDP -Program $literalProgram | Out-Null }; Get-NetFirewallApplicationFilter | Where-Object { `$_.Program -ieq $literalProgram } | Get-NetFirewallRule | Where-Object { `$_.Direction -eq 'Inbound' -and `$_.Action -eq 'Block' } | Remove-NetFirewallRule;exit 0 } catch { exit 1 }"
 $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($script))
+function Start-IoriFirewallChild([switch]$Elevated) {
+    $options = @{FilePath=(Join-Path $PSHOME 'powershell.exe'); WindowStyle='Hidden'; ArgumentList=@('-NoProfile', '-NonInteractive', '-EncodedCommand', $encoded); Wait=$true; PassThru=$true}
+    if ($Elevated) { $options.Verb = 'RunAs' }
+    $modulePath = $env:PSModulePath
+    try {
+        [Environment]::SetEnvironmentVariable('PSModulePath', $null, 'Process')
+        Start-Process @options
+    } finally { [Environment]::SetEnvironmentVariable('PSModulePath', $modulePath, 'Process') }
+}
+if ($Remote) {
+    $allowed = $false
+    try {
+        $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+        $principal = [Security.Principal.WindowsPrincipal]::new($identity)
+        if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+            $child = Start-IoriFirewallChild
+            $allowed = $child.ExitCode -eq 0
+        }
+    } catch { $allowed = $false }
+    $manualScript = '$ProgressPreference=''SilentlyContinue'';' + $script.Replace('exit 0', "[Console]::WriteLine('iori Host: connections from other devices are allowed.');exit 0").Replace('exit 1', "[Console]::WriteLine('iori Host: could not allow connections from other devices.');exit 1")
+    $manualEncoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($manualScript))
+    $command = 'cmd.exe /d /c "set PSModulePath=&& %SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -NonInteractive -EncodedCommand ' + $manualEncoded + '"'
+    [Console]::WriteLine('IORI_SETUP ' + (ConvertTo-Json -Compress @{type='firewall';allowed=$allowed;command=$command}))
+    return
+}
 try {
-    $child = Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -Verb RunAs -WindowStyle Hidden -ArgumentList @('-NoProfile', '-NonInteractive', '-EncodedCommand', $encoded) -Wait -PassThru
+    $child = Start-IoriFirewallChild -Elevated
     if ($child.ExitCode -eq 0) { 'true' } else { 'false' }
 } catch { [Console]::Error.WriteLine($_.Exception.Message); 'false' }

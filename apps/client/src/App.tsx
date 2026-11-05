@@ -22,6 +22,10 @@ import { Settings as SettingsIcon } from "lucide-react";
 import { inviteFromText, type Invite } from "@iori/protocol";
 import { connection } from "./connection.ts";
 import { WindowChrome } from "./WindowChrome.tsx";
+import {
+  HostSetupNotice,
+  type SetupNotice,
+} from "./host-setup/HostSetupNotice.tsx";
 import { native, hasWindowChrome } from "./native.ts";
 import { translator } from "./i18n.ts";
 import { WorkspaceFrame, type LastWorkspaceTarget } from "./WorkspaceFrame.tsx";
@@ -177,11 +181,7 @@ export default function App() {
     setSetupOpen(true);
   };
   const [invitationEntry, setInvitationEntry] = useState(false);
-  const [setupNotice, setSetupNotice] = useState<{
-    name: string;
-    localOnly: boolean;
-    lingerUser?: string;
-  }>();
+  const [setupNotice, setSetupNotice] = useState<SetupNotice>();
   const [input, setInput] = useState("");
   const [invite, setInvite] = useState<Invite>();
   const [name, setName] = useState("");
@@ -1207,40 +1207,19 @@ export default function App() {
           deviceName={state.initial.deviceName}
           t={t}
           onClose={() => setSetupOpen(false)}
-          onComplete={(name, localOnly, lingerUser) => {
+          onComplete={(name, localOnly, lingerUser, firewallCommand) => {
             setSetupOpen(false);
             setSetupStarted(false);
-            setSetupNotice({ name, localOnly, lingerUser });
+            setSetupNotice({ name, localOnly, lingerUser, firewallCommand });
           }}
         />
       )}
       {setupNotice && (
-        <div className="storage-retry" role="status">
-          <div>
-            {t("Registered “{name}”").replace("{name}", setupNotice.name)}
-            {setupNotice.lingerUser && (
-              <p>
-                {t(
-                  "iori Host will stop after logout. An administrator can enable it with:",
-                )}{" "}
-                <code>
-                  sudo loginctl enable-linger {setupNotice.lingerUser}
-                </code>
-              </p>
-            )}
-            {setupNotice.localOnly && (
-              <span>
-                {" "}
-                {t(
-                  "You can use this PC. Other devices cannot connect yet. Allow connections in Settings → Connection.",
-                )}
-              </span>
-            )}
-          </div>
-          <Button variant="ghost" onClick={() => setSetupNotice(undefined)}>
-            {t("Close")}
-          </Button>
-        </div>
+        <HostSetupNotice
+          notice={setupNotice}
+          t={t}
+          onClose={() => setSetupNotice(undefined)}
+        />
       )}
       <ConnectedHostUpdates
         t={t}

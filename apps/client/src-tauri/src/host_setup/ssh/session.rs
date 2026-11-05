@@ -1,5 +1,10 @@
 use super::super::linux_install::quote;
-use super::{config, output::parse_line, platform};
+use super::{
+    config,
+    output::parse_line,
+    platform,
+    remote::{self, Shell},
+};
 use base64::Engine;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -21,19 +26,14 @@ struct Session {
     commands: mpsc::UnboundedSender<Request>,
     cancel: watch::Sender<bool>,
     done: watch::Receiver<bool>,
+    shell: Option<Shell>,
 }
-struct Request {
+pub(super) struct Request {
+    shell: Shell,
     script: String,
     reply: oneshot::Sender<Result<Vec<Value>, String>>,
 }
-fn control(method: &str) -> String {
-    format!(
-        "\"$HOME/.local/lib/iori-host/runtime/node\" --input-type=module -e {} {} </dev/null",
-        quote(include_str!("control.mjs")),
-        quote(method)
-    )
-}
-fn emit(app: &tauri::AppHandle, id: &str, value: Value) {
+pub(super) fn emit(app: &tauri::AppHandle, id: &str, value: Value) {
     let _ = app.emit("native://ssh-setup", json!({"session": id, "value": value}));
 }
 
@@ -99,7 +99,10 @@ pub async fn native_ssh_connect(
     );
     let mut command = platform::command();
     command
-        .args(["-T", &destination, "sh"])
+        // Enter cmd on Windows before reading the protocol. On Unix the
+        // missing cmd.exe is followed by exec sh. Keep cmd's command echo so
+        // its prompt cannot share a line with a protocol response.
+        .args(["-T", &destination, "cmd.exe /d ; exec sh"])
         .env(
             "SSH_ASKPASS",
             std::env::current_exe().map_err(|e| e.to_string())?,
@@ -148,6 +151,7 @@ pub async fn native_ssh_connect(
         commands: commands.clone(),
         cancel,
         done,
+        shell: None,
     });
     drop(slot);
     let answers = state.answers.clone();
@@ -226,6 +230,7 @@ pub async fn native_ssh_connect(
             }
         }
     });
+    let connected_session = session.clone();
     let mut cancel_rx = cancelled;
     tauri::async_runtime::spawn(async move {
         let mut lines = BufReader::new(output).lines();
@@ -237,20 +242,21 @@ pub async fn native_ssh_connect(
                     _ = cancel_rx.changed() => { break; }
                     request = requests.recv(), if pending.is_none() => {
                         let Some(request) = request else { break };
-                        let script = format!("sh -c {} </dev/null 2>&1; code=$?; printf 'IORI_SETUP {{\"type\":\"done\",\"code\":%s}}\\n' \"$code\"\n", quote(&request.script));
+                        let script = remote::command(request.shell, &request.script);
                         last_error.lock().await.clear();
                         pending = Some(request.reply);
                         input.write_all(script.as_bytes()).await.map_err(|e| e.to_string())?;
                     }
                     line = lines.next_line() => {
                         let Some(line) = line.map_err(|e| e.to_string())? else { return Err("SSH connection closed".into()) };
-                        if let Some(value) = parse_line(&line)? {
+                        let parsed = if line.trim() == "IORI_SETUP_PROBE_DONE" { Some(json!({"type":"done","code":0})) } else { parse_line(&line)? };
+                        if let Some(value) = parsed {
                             if value["type"] == "done" {
                                 if let Some(reply) = pending.take() {
                                     let result = if value["code"] == 0 { Ok(std::mem::take(&mut values)) } else { let stage = values.iter().find(|v| v["type"] == "error").and_then(|v| v["stage"].as_str()).unwrap_or("command").to_string(); values.clear(); Err(format!("SSH_COMMAND_FAILED:{}:{stage}\n{}", value["code"], last_error.lock().await)) };
                                     let _ = reply.send(result);
                                 }
-                            } else if value["type"] == "stage" || value["type"] == "linger" { emit(&app, &session, value); }
+                            } else if value["type"] == "stage" || value["type"] == "linger" || (value["type"] == "firewall" && value["command"].is_string()) { emit(&app, &session, value); }
                             else { values.push(value); }
                         } else if !line.trim().is_empty() { *last_error.lock().await = line; }
                     }
@@ -289,14 +295,16 @@ pub async fn native_ssh_connect(
         }
         let _ = done_tx.send(true);
     });
-    let probe = r#"encode() { printf '%s' "$1" | base64 | tr -d '\n'; }
-installed=false; if [ -f "$HOME/.local/lib/iori-host/iori-host" ] && systemctl --user is-enabled --quiet iori-host.service; then installed=true; fi
-printf 'IORI_SETUP {"type":"machine","os":"%s","cpu":"%s","user":"%s","home":"%s","installed":%s}\n' "$(encode "$(uname -s)")" "$(encode "$(uname -m)")" "$(encode "$(id -un)")" "$(encode "$HOME")" "$installed"
-if [ "$installed" = true ]; then CONTROL; fi"#.replace("CONTROL", &control("host.info"));
-    let values = request(&commands, probe).await?;
+    let values = request(&commands, Shell::Probe, remote::probe()).await?;
     let mut machine = values
         .iter()
-        .find(|v| v["type"] == "machine")
+        .find(|v| v["type"] == "machine" && v["os"] == "TGludXg=")
+        .or_else(|| {
+            values
+                .iter()
+                .find(|v| v["type"] == "machine" && v["os"] == "V2luZG93cw==")
+        })
+        .or_else(|| values.iter().find(|v| v["type"] == "machine"))
         .cloned()
         .ok_or("Missing SSH destination information")?;
     for key in ["os", "cpu", "user", "home"] {
@@ -313,20 +321,50 @@ if [ "$installed" = true ]; then CONTROL; fi"#.replace("CONTROL", &control("host
     if !machine["installed"].is_boolean() {
         return Err("Invalid SSH destination information".into());
     }
-    machine["host"] = values
-        .iter()
-        .find(|v| v["type"] == "control" && v["ok"] == true)
+    let shell = if machine["os"] == "Windows" {
+        Shell::Windows
+    } else {
+        Shell::Linux
+    };
+    if let Some(connection) = state
+        .session
+        .lock()
+        .await
+        .as_mut()
+        .filter(|s| s.id == connected_session)
+    {
+        connection.shell = Some(shell);
+    }
+    let host = if machine["installed"] == true {
+        request(&commands, shell, remote::control(shell, "host.info"))
+            .await
+            .ok()
+    } else {
+        None
+    };
+    machine["host"] = host
+        .as_ref()
+        .and_then(|values| {
+            values
+                .iter()
+                .find(|v| v["type"] == "control" && v["ok"] == true)
+        })
         .map(|v| v["result"].clone())
         .unwrap_or(Value::Null);
     Ok(machine)
 }
-async fn request(
+pub(super) async fn request(
     commands: &mpsc::UnboundedSender<Request>,
+    shell: Shell,
     script: String,
 ) -> Result<Vec<Value>, String> {
     let (reply, receive) = oneshot::channel();
     commands
-        .send(Request { script, reply })
+        .send(Request {
+            shell,
+            script,
+            reply,
+        })
         .map_err(|_| "SSH connection closed")?;
     receive.await.map_err(|_| "SSH connection closed")?
 }
@@ -338,15 +376,32 @@ pub async fn native_ssh_install(
     session: String,
     installed: bool,
     running: bool,
+    allow_connections: bool,
 ) -> Result<Value, String> {
-    let commands = {
+    let (commands, shell) = {
         let slot = state.session.lock().await;
         let connection = slot
             .as_ref()
             .filter(|s| s.id == session)
             .ok_or("SSH connection closed")?;
-        connection.commands.clone()
+        (
+            connection.commands.clone(),
+            connection
+                .shell
+                .ok_or("Missing SSH destination information")?,
+        )
     };
+    if matches!(shell, Shell::Windows) {
+        return super::windows::install(
+            &app,
+            &session,
+            &commands,
+            installed,
+            running,
+            allow_connections,
+        )
+        .await;
+    }
     if !installed {
         emit(
             &app,
@@ -355,18 +410,20 @@ pub async fn native_ssh_install(
         );
         request(
             &commands,
+            shell,
             super::super::linux_install::installer(&app).await?,
         )
         .await?;
     } else if !running {
         request(
             &commands,
+            shell,
             super::super::linux_install::START_EXISTING.into(),
         )
         .await?;
     }
     emit(&app, &session, json!({"type":"stage","stage":"register"}));
-    let values = request(&commands, control("invite.create")).await?;
+    let values = request(&commands, shell, remote::control(shell, "invite.create")).await?;
     let response = values
         .iter()
         .find(|v| v["type"] == "control")
@@ -389,24 +446,44 @@ pub async fn native_ssh_uninstall_result(
     receipt_path: String,
     remove: bool,
 ) -> Result<Value, String> {
-    let commands = {
+    let (commands, shell) = {
         let slot = state.session.lock().await;
-        slot.as_ref()
+        let connection = slot
+            .as_ref()
             .filter(|s| s.id == session)
-            .ok_or("SSH connection closed")?
-            .commands
-            .clone()
+            .ok_or("SSH connection closed")?;
+        (
+            connection.commands.clone(),
+            connection
+                .shell
+                .ok_or("Missing SSH destination information")?,
+        )
     };
-    let path = quote(&receipt_path);
-    let script = format!(
-        "file={path}; if [ -f \"$file\" ]; then printf 'IORI_SETUP '; cat -- \"$file\"; printf '\\n'; fi"
-    );
-    let values = request(&commands, script).await?;
+    let script = if matches!(shell, Shell::Windows) {
+        format!(
+            "$file={};if(Test-Path -LiteralPath $file){{[Console]::WriteLine('IORI_SETUP ' + [IO.File]::ReadAllText($file))}}",
+            remote::literal(&receipt_path)
+        )
+    } else {
+        format!(
+            "file={}; if [ -f \"$file\" ]; then printf 'IORI_SETUP '; cat -- \"$file\"; printf '\\n'; fi",
+            quote(&receipt_path)
+        )
+    };
+    let values = request(&commands, shell, script).await?;
     let Some(value) = values.first() else {
         return Ok(Value::Null);
     };
     if remove {
-        request(&commands, format!("rm -f -- {path}")).await?;
+        let script = if matches!(shell, Shell::Windows) {
+            format!(
+                "Remove-Item -LiteralPath {} -Force",
+                remote::literal(&receipt_path)
+            )
+        } else {
+            format!("rm -f -- {}", quote(&receipt_path))
+        };
+        request(&commands, shell, script).await?;
     }
     Ok(value["status"].clone())
 }

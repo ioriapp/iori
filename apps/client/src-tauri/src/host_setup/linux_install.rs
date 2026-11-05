@@ -5,7 +5,7 @@ pub fn quote(value: &str) -> String {
 }
 
 // Both local and SSH setup use the signed release for this Client's version.
-pub async fn installer(app: &tauri::AppHandle) -> Result<String, String> {
+pub async fn asset_hash(app: &tauri::AppHandle, asset_name: &str) -> Result<String, String> {
     let client = crate::updates::http(reqwest::Client::builder())
         .build()
         .map_err(|e| e.to_string())?;
@@ -40,20 +40,25 @@ pub async fn installer(app: &tauri::AppHandle) -> Result<String, String> {
     }
     let hash = manifest["assets"]
         .as_array()
-        .and_then(|assets| {
-            assets
-                .iter()
-                .find(|a| a["name"] == "iori-host-linux-x64.tar.gz")
-        })
+        .and_then(|assets| assets.iter().find(|a| a["name"] == asset_name))
         .and_then(|a| a["sha256"].as_str())
-        .ok_or("Missing Linux Host release")?;
+        .ok_or(if asset_name == "iori-host-linux-x64.tar.gz" {
+            "Missing Linux Host release"
+        } else {
+            "Could not verify iori Host. Retry downloading."
+        })?;
     if hash.len() != 64 || !hash.bytes().all(|c| c.is_ascii_hexdigit()) {
         return Err("Invalid release SHA-256".into());
     }
+    Ok(hash.to_string())
+}
+
+pub async fn installer(app: &tauri::AppHandle) -> Result<String, String> {
+    let hash = asset_hash(app, "iori-host-linux-x64.tar.gz").await?;
     Ok(format!(
         "IORI_SETUP_CLIENT=1 IORI_VERSION={} IORI_EXPECTED_SHA256={} sh -c {} </dev/null",
         quote(&app.package_info().version.to_string()),
-        quote(hash),
+        quote(&hash),
         quote(
             &include_str!("../../../../../scripts/release/install.sh").replace(
                 "__IORI_RELEASE_SOURCE__",

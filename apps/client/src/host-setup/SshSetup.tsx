@@ -16,9 +16,11 @@ import releaseSource from "../../../../release-source.txt?raw";
 import { clientVersion } from "../updates/host-controller.ts";
 import { native } from "../native.ts";
 import { connection } from "../connection.ts";
+import { Checkbox } from "../components/ui/checkbox.tsx";
 import { Button } from "../components/ui/button.tsx";
 import { Input } from "../components/ui/input.tsx";
 import { Spinner } from "../components/ui/spinner.tsx";
+import { FirewallCommand } from "./FirewallCommand.tsx";
 
 export type SshMachine = {
   os: string;
@@ -37,6 +39,8 @@ export type SshEvent = {
     prompt?: string;
     notification?: boolean;
     enabled?: boolean;
+    allowed?: boolean;
+    command?: string;
     message?: string;
   };
 };
@@ -48,6 +52,7 @@ const stages: Record<string, string> = {
   service: "Setting up iori Host to run after logout",
   start: "Starting iori Host on the destination",
   register: "Registering this device",
+  firewall: "Allowing connections from other devices",
 };
 const unreachable =
   "SSH connected, but the iori connection could not reach the Host. Check the Host’s listening addresses and network route in Connection settings.";
@@ -90,7 +95,12 @@ export function SshSetup({
 }: {
   name: string;
   t: (key: string) => string;
-  onComplete: (name: string, localOnly: boolean, lingerUser?: string) => void;
+  onComplete: (
+    name: string,
+    localOnly: boolean,
+    lingerUser?: string,
+    firewallCommand?: string,
+  ) => void;
   onBusy: (busy: boolean) => void;
   onClose: () => void;
   session: RefObject<string>;
@@ -116,6 +126,9 @@ export function SshSetup({
   const [cancelling, setCancelling] = useState(false);
   const [cancelled, setCancelled] = useState(false);
   const [linger, setLinger] = useState(false);
+  const [allow, setAllow] = useState(true);
+  const [firewallCommand, setFirewallCommand] = useState<string>();
+  const [signInRequired, setSignInRequired] = useState(false);
   const [invite, setInvite] = useState<Invite>();
   const [registered, setRegistered] = useState<string>();
   const complete = useRef(false);
@@ -149,6 +162,12 @@ export function SshSetup({
         setStage(undefined);
         setBusy(false);
       }
+      if (
+        value.type === "firewall" &&
+        value.allowed === false &&
+        typeof value.command === "string"
+      )
+        setFirewallCommand(value.command);
       if (value.type === "linger" && value.enabled === false) setLinger(true);
     });
     return () => {
@@ -178,6 +197,7 @@ export function SshSetup({
             state.host!.hostName,
             false,
             linger ? machine?.user : undefined,
+            firewallCommand,
           ),
         );
     }
@@ -191,6 +211,7 @@ export function SshSetup({
     onComplete,
     linger,
     machine?.user,
+    firewallCommand,
     session,
   ]);
   async function cancel() {
@@ -221,6 +242,9 @@ export function SshSetup({
     setMachine(undefined);
     setInvite(undefined);
     setLinger(false);
+    setAllow(true);
+    setFirewallCommand(undefined);
+    setSignInRequired(false);
     setDestination(value);
     setStage("connect");
     setBusy(true);
@@ -271,11 +295,17 @@ export function SshSetup({
           id,
           machine.installed,
           !!machine.host,
+          allow,
         );
         if (session.current !== id) return;
+        setMachine({ ...machine, installed: true });
+        if (result.signInRequired) {
+          setSignInRequired(true);
+          return;
+        }
+        setSignInRequired(false);
         invitation = inviteSchema.parse(result.invite);
         setInvite(invitation);
-        setMachine({ ...machine, installed: true });
       }
       setStage("register");
       const ok = await connection.pair(invitation, name, destination);
@@ -306,7 +336,9 @@ export function SshSetup({
     }
   }
   const controlError = error?.startsWith("IORI_CONTROL_ERROR: ");
-  const supported = machine?.os === "Linux" && machine.cpu === "x86_64";
+  const supported =
+    (machine?.os === "Linux" && machine.cpu === "x86_64") ||
+    (machine?.os === "Windows" && machine.cpu.toLowerCase() === "amd64");
   const yesNo = prompt?.text.includes(
     "Are you sure you want to continue connecting",
   );
@@ -329,6 +361,9 @@ export function SshSetup({
                   setQuery("");
                   setDestination("");
                   setMachine(undefined);
+                  setFirewallCommand(undefined);
+                  setSignInRequired(false);
+                  setAllow(true);
                   setInvite(undefined);
                   setError(undefined);
                   setCancelled(false);
@@ -428,7 +463,9 @@ export function SshSetup({
           <p role="alert">
             {t("{platform} is not supported yet.").replace(
               "{platform}",
-              machine.os !== "Linux" ? machine.os : machine.cpu,
+              machine.os === "Linux" || machine.os === "Windows"
+                ? machine.cpu
+                : machine.os,
             )}
           </p>
         )}
@@ -499,6 +536,34 @@ export function SshSetup({
             )}
         </div>
       )}
+      {machine?.os === "Windows" && !machine.installed && (
+        <>
+          <label className="settings-checkbox">
+            <Checkbox
+              checked={allow}
+              disabled={busy}
+              data-iori-field="setup-allow-connections"
+              onCheckedChange={(checked) => setAllow(checked === true)}
+            />
+            <span>{t("Allow connections from other devices")}</span>
+          </label>
+          {allow && (
+            <p className="settings-note">
+              {t(
+                "If the user on that PC is an administrator, permission is added during installation.",
+              )}
+            </p>
+          )}
+        </>
+      )}
+      {firewallCommand && <FirewallCommand command={firewallCommand} t={t} />}
+      {signInRequired && (
+        <p className="settings-note" data-iori-state="setup-sign-in-required">
+          {t(
+            "iori Host starts when {user} signs in to that PC. After it starts, choose the same connection again to register.",
+          ).replace("{user}", machine?.user ?? "")}
+        </p>
+      )}
       {linger && (
         <p className="settings-note">
           {t(
@@ -534,13 +599,19 @@ export function SshSetup({
           {t(
             "Update iori Host on the destination with the installation command, then retry registration.",
           )}{" "}
-          <code>
-            {`curl -fsSL ${releaseSource.trim()}/latest/download/install.sh | sh`}
-          </code>
-          <br />
-          <code>
-            {`wget -qO- ${releaseSource.trim()}/latest/download/install.sh | sh`}
-          </code>
+          {machine?.os === "Windows" ? (
+            <code>{`irm ${releaseSource.trim()}/latest/download/install.ps1 | iex`}</code>
+          ) : (
+            <>
+              <code>
+                {`curl -fsSL ${releaseSource.trim()}/latest/download/install.sh | sh`}
+              </code>
+              <br />
+              <code>
+                {`wget -qO- ${releaseSource.trim()}/latest/download/install.sh | sh`}
+              </code>
+            </>
+          )}
         </p>
       )}
       <div className="connection-actions">

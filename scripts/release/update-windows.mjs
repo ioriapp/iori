@@ -16,7 +16,14 @@ const powershell = (script) =>
         "utf16le",
       ).toString("base64"),
     ],
-    { windowsHide: true },
+    {
+      windowsHide: true,
+      env: Object.fromEntries(
+        Object.entries(process.env).filter(
+          ([name]) => name.toUpperCase() !== "PSMODULEPATH",
+        ),
+      ),
+    },
   ).catch((error) => {
     const id = String(error.stderr ?? "").match(
       /FullyQualifiedErrorId\s*:\s*([A-Za-z0-9_.-]+)/,

@@ -19,7 +19,14 @@ const ps = (script) =>
           script,
       ),
     ],
-    { windowsHide: true },
+    {
+      windowsHide: true,
+      env: Object.fromEntries(
+        Object.entries(process.env).filter(
+          ([name]) => name.toUpperCase() !== "PSMODULEPATH",
+        ),
+      ),
+    },
   );
 export async function prepareUnregister(_unit, bundle) {
   const key = "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run";

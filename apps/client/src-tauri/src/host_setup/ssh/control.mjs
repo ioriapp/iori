@@ -10,7 +10,9 @@ try {
   const { port, token } = JSON.parse(
     await readFile(
       join(
-        process.env.XDG_DATA_HOME || join(homedir(), ".local/share"),
+        process.platform === "win32"
+          ? process.env.LOCALAPPDATA
+          : process.env.XDG_DATA_HOME || join(homedir(), ".local/share"),
         "iori-host/control.json",
       ),
       "utf8",

@@ -43,12 +43,21 @@ export const native = {
       "native_ssh_connect",
       { destination, session },
     ),
-  sshInstall: (session: string, installed: boolean, running: boolean) =>
-    invoke<{ invite: unknown }>("native_ssh_install", {
-      session,
-      installed,
-      running,
-    }),
+  sshInstall: (
+    session: string,
+    installed: boolean,
+    running: boolean,
+    allowConnections: boolean,
+  ) =>
+    invoke<{ invite?: unknown; signInRequired?: boolean }>(
+      "native_ssh_install",
+      {
+        session,
+        installed,
+        running,
+        allowConnections,
+      },
+    ),
   sshCancel: (session: string) =>
     invoke<void>("native_ssh_cancel", { session }),
   sshAnswer: (prompt: string, answer: string | null) =>

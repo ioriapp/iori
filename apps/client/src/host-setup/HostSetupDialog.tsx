@@ -57,7 +57,12 @@ export function HostSetupDialog({
   deviceName: string;
   t: (s: string) => string;
   onClose: () => void;
-  onComplete: (name: string, localOnly: boolean, lingerUser?: string) => void;
+  onComplete: (
+    name: string,
+    localOnly: boolean,
+    lingerUser?: string,
+    firewallCommand?: string,
+  ) => void;
 }) {
   const state = useSyncExternalStore(
     connection.subscribe,

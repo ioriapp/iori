@@ -1,4 +1,5 @@
 import { local as verificationLocal } from "../native/local.mjs";
+import { buildLinuxClient } from "../../scripts/release/linux-client.mjs";
 import { removalFailureSource } from "./update-before-uninstall.mjs";
 import { DAEMON_PROTOCOL } from "../../apps/host/src/terminal/daemon/protocol.ts";
 import { readFile, writeFile, mkdir, rm } from "node:fs/promises";
@@ -33,6 +34,7 @@ gate({
   requireFreePorts: false,
 });
 const ssh = process.argv.includes("--ssh");
+const sshWindows = process.argv.includes("--ssh-windows");
 const directory = path.resolve(evidence, "distribution");
 const source = path.resolve(evidence, "source");
 await mkdir(path.join(directory, "assets"), { recursive: true });
@@ -94,6 +96,44 @@ New-Item -ItemType Directory -Force -Path $env:USERPROFILE | Out-Null`,
       `process.env.IORI_HOST_PORT = ${JSON.stringify(String(verificationPort))};\n` +
         (await readFile(service, "utf8")),
     );
+    if (sshWindows) {
+      const remote = path.join(
+        source,
+        "apps/client/src-tauri/src/host_setup/ssh/remote.rs",
+      );
+      await writeFile(
+        remote,
+        (await readFile(remote, "utf8"))
+          .replace(
+            "[Console]::OutputEncoding=",
+            "$env:LOCALAPPDATA=Join-Path $env:LOCALAPPDATA 'iori-ssh-host-verification';[Console]::OutputEncoding=",
+          )
+          .replace("-Name 'iori Host'", "-Name 'iori Host Setup Test'"),
+      );
+      const install = path.join(
+        source,
+        "apps/client/src-tauri/src/host_setup/ssh/windows.rs",
+      );
+      await writeFile(
+        install,
+        (await readFile(install, "utf8")).replace(
+          'Invoke-WebRequest {url} -OutFile "$work\\host.zip" -UseBasicParsing',
+          String.raw`$downloadPreference=$ErrorActionPreference
+    $ErrorActionPreference='Continue'
+    try {{
+        & "$env:SystemRoot\System32\curl.exe" --silent --show-error --fail --location --ssl-revoke-best-effort --cacert (Join-Path $env:USERPROFILE '.iori-ssh-setup-ca.pem') --output "$work\host.zip" {url} 2> "$work\download.stderr"
+        $downloadCode=$LASTEXITCODE
+    }} finally {{ $ErrorActionPreference=$downloadPreference }}
+    [IO.File]::WriteAllText((Join-Path $env:USERPROFILE '.iori-ssh-setup-download.json'),(ConvertTo-Json -Compress @{{code=$downloadCode;stderr=[IO.File]::ReadAllText("$work\download.stderr")}}))
+    if ($downloadCode -ne 0) {{ throw 'download failed' }}`,
+        ),
+      );
+      await writeFile(
+        service,
+        `process.env.LOCALAPPDATA += ${JSON.stringify("\\iori-ssh-host-verification")};\n` +
+          (await readFile(service, "utf8")),
+      );
+    }
     if (ssh) {
       const linuxInstaller = path.join(source, "scripts/release/install.sh");
       await writeFile(
@@ -185,6 +225,13 @@ New-Item -ItemType Directory -Force -Path $env:USERPROFILE | Out-Null`,
       await readFile(path.join(directory, "signing/release.pem")),
     ),
   );
+  if (sshWindows) {
+    await buildLinuxClient({
+      source: state.localRoot,
+      directory: path.join(directory, "client"),
+      config: "verification/linux-client/tauri.conf.json",
+    });
+  }
   console.log(
     JSON.stringify({ built: true, evidence, distribution: directory }),
   );

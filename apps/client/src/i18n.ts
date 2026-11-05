@@ -332,6 +332,12 @@ const japanese: Record<string, string> = {
   "{platform} is not supported yet.": "{platform}にはまだ対応していません",
   "Cancelling SSH…": "SSHの終了を待っています…",
   Cancelled: "キャンセルしました",
+  "If the user on that PC is an administrator, permission is added during installation.":
+    "接続先のユーザーが管理者なら、導入の途中で許可を加えます。",
+  "Other devices cannot connect yet. An administrator on that PC can allow it with this command:":
+    "ほかの端末からはまだつなげません。その PC で管理者が次のコマンドを実行すると許可できます:",
+  "iori Host starts when {user} signs in to that PC. After it starts, choose the same connection again to register.":
+    "{user} がその PC にサインインすると iori Host が起動します。起動した後に、同じ接続先を選ぶと登録できます。",
   "iori Host will stop after logout. An administrator can enable it with:":
     "ログアウトするとiori Hostが止まります。管理者が次のコマンドで有効にできます:",
   "SSH connected, but the iori connection could not reach the Host. Check the Host’s listening addresses and network route in Connection settings.":
@@ -658,6 +664,7 @@ const japanese: Record<string, string> = {
   "Could not copy. Select the text and copy it.":
     "コピーできませんでした。文字を選んでコピーしてください。",
   Copied: "コピーしました",
+  "Copy command": "コマンドをコピー",
   Close: "閉じる",
   "Revoke registration": "登録を取り消す",
   "Could not revoke this registration. Retry.":

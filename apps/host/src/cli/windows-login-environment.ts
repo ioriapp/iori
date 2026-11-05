@@ -94,7 +94,14 @@ export async function readWindowsLoginEnvironment(
     const { stdout } = await query(
       powershell,
       ["-NoProfile", "-NonInteractive", "-Command", registryQuery],
-      { env: base, windowsHide: true },
+      {
+        env: Object.fromEntries(
+          Object.entries(base).filter(
+            ([name]) => name.toUpperCase() !== "PSMODULEPATH",
+          ),
+        ),
+        windowsHide: true,
+      },
     );
     return windowsLoginEnvironment(base, stdout);
   } catch {

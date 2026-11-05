@@ -9,6 +9,7 @@ import {
 } from "../../packages/protocol/src/index.ts";
 import {
   invite,
+  openSettingsSection,
   register,
   registrationNotice,
 } from "../../e2e/connection/scenario.mjs";
@@ -56,6 +57,7 @@ export async function hostInvitationSwitch({
   client,
   invitation,
   additionalHost,
+  reload,
   record,
 }) {
   const screen = client.screen;
@@ -65,6 +67,51 @@ export async function hostInvitationSwitch({
   await register(screen, await additionalHost(), "追加Host用Chromium");
   const hostB = await screen.attribute(picker, "data-iori-host-key");
   assert.notEqual(hostA, hostB);
+  // Reload restores the saved registration order before any manual sorting.
+  await reload();
+  await screen.wait('[data-iori-view="workspace"]');
+  const sidebarHosts = () =>
+    screen.evaluate(
+      `Array.from(document.querySelectorAll('.nav-host-title')).map(e=>e.dataset.ioriHostKey)`,
+    );
+  const settingsHosts = async () => {
+    await screen.click(picker);
+    const keys = await screen.evaluate(
+      `Array.from(document.querySelectorAll('[role="option"][data-iori-host-key]')).map(e=>e.dataset.ioriHostKey)`,
+    );
+    await screen.key("Escape");
+    return keys;
+  };
+  const expectedHosts = [hostA, hostB];
+  await waitFor(sidebarHosts, (keys) => keys.length === 2);
+  assert.deepEqual(await sidebarHosts(), expectedHosts);
+  await openSettingsSection(screen, "open-devices");
+  assert.deepEqual(await settingsHosts(), expectedHosts);
+  await screen.click('[data-iori-action="settings-close"]');
+  const savedActiveHost = () =>
+    screen.evaluateAsync(
+      "import('/src/native-platform-web.ts').then(({invoke}) => invoke('native_initial_state', {language: 'ja', mobile: false})).then(state => state.activeHostKey)",
+    );
+  await screen.click(
+    `[data-iori-action="host-settings-open"][data-iori-host-key=${JSON.stringify(hostA)}]`,
+  );
+  await waitFor(savedActiveHost, (key) => key === hostA);
+  await screen.click('[data-iori-action="settings-close"]');
+  await screen.click(
+    `[data-iori-action="host-settings-open"][data-iori-host-key=${JSON.stringify(hostB)}]`,
+  );
+  await waitFor(savedActiveHost, (key) => key === hostB);
+  assert.deepEqual(await sidebarHosts(), expectedHosts);
+  await openSettingsSection(screen, "open-devices");
+  assert.deepEqual(await settingsHosts(), expectedHosts);
+  await reload();
+  await screen.wait('[data-iori-view="workspace"]');
+  await waitFor(sidebarHosts, (keys) => keys.length === 2);
+  assert.deepEqual(await sidebarHosts(), expectedHosts);
+  await openSettingsSection(screen, "open-devices");
+  assert.equal(await screen.attribute(picker, "data-iori-host-key"), hostB);
+  assert.deepEqual(await settingsHosts(), expectedHosts);
+  await record("未並べ替えのHost順を画面の切替とClient再読込後も保持");
   async function select(key) {
     await screen.click(picker);
     await screen.click(

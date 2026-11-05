@@ -55,7 +55,15 @@ export function devicePlan(file, args = []) {
     case "verification/updates/build-windows.mjs":
     case "verification/connection/build.mjs":
       devices =
-        filter === "Android" || filter === "Linux"
+        (filter === "Android" || filter === "Linux") &&
+        !(
+          relative === "verification/host-setup/run-ssh.mjs" &&
+          host === "Windows"
+        ) &&
+        !(
+          relative === "verification/host-setup/build.mjs" &&
+          args.includes("--ssh-windows")
+        )
           ? [verificationLocal.linux.host]
           : [verificationLocal.linux.host, verificationLocal.windows.host];
       break;

@@ -205,3 +205,17 @@ V1（`opencode-ai`）とV2（`@opencode/cli`）を比べる時は、隔離した
 - 有料の入力には安いモデルを明示する。Claude Codeは `claude-haiku-4-5`、Codexは `gpt-6-luna`、PiとOpenCode V1は提供元 `openai` の `gpt-6-luna`。試験の費用の自己確認として、実際に使われたモデルはCLIの記録で確かめる。製品の受入判定の根拠にはしない。製品のモデルの既定値を試験用に変えない。
 - 認証ファイルをコピーして使わない。ブラウザーのE2Eは検証用の設定へ分離し、実モデルを使うCodex・Pi・OpenCode V1は認証ファイルをCLI自身の保存先へのsymlinkで参照する。認証をコピー・書き戻ししない。OAuthの更新が起きるとコピー側だけが新しいrefresh tokenを受け取り、元のCLIが認証できなくなる。共通のCLI HOME準備helperは、共有認証ファイル（Codex・Pi・OpenCode V1）を読み書き用に開いてすぐ閉じ、本文を読み書きせず更新権限を確認する。書き込み制限がある実行環境では、CLIの通常のOAuth更新ができる権限（Codexの制限付き実行では `require_escalated`）で検証を実行する。検証HostのCLI自身の認証をそのまま使う。
 - Claude Codeは認証ファイルを一時ファイルからrenameで置き換えるため、symlinkでは新しいrefresh tokenを検証用ホームへ書いてしまい、元のログインが使えなくなる。実モデルを使う検証のClaude Codeは、`claude setup-token` で作った試験専用のトークンを 準備時のエラーが示すファイル（0600、`CLAUDE_CODE_OAUTH_TOKEN=<トークン>` の1行）から読み、環境変数 `CLAUDE_CODE_OAUTH_TOKEN` だけで受け取る。検証用ホームに `.credentials.json` は置かず、元のファイルは開かない。Windowsで起動する時は標準入力で渡し、sshやPowerShellのコマンドラインに載せない。ファイルが無い時は準備の始めに置き場所を伝えて止まる。トークンの値はログ・証拠・結果・撮影・会話へ出さない。検証コードがClaudeの `.credentials.json` をリンク・コピーしようとするとlint（`iori/no-claude-credentials-link-copy`）が止める。
+
+## SSHでWindows Hostを導入する
+
+`verification/host-setup/build.mjs --client Windows --ssh-windows` でWindows・Linuxの検証用Clientと署名済みのWindows Hostを作る。準備から回収まで `IORI_VERIFICATION_CONFIG=verification/host-setup/tauri.conf.json`・`IORI_VERIFICATION_EVIDENCE_ROOT`・`IORI_VERIFICATION_PORT` を同じ値にし、Node 24で `node scripts/run-bounded-check.mjs node` に続けて各入口を実行する。
+
+`verification/host-setup/run-ssh.mjs --host Windows --client Windows --shell=cmd --keep-build` と `--host Windows --client Linux --shell=powershell --keep-build` は、SSHの接続先の選択・確認への回答・導入・登録・Direct接続・SSH終了後の継続・既存Hostの登録・撤去結果の読取りを画面から通す。`--signed-out` を加えた実行は、未サインインの使い捨てユーザーへ導入し、サインインの案内、接続許可のコマンドの折り返し・コピー、導入物とログオン時の起動の登録を確かめる。その後、表示された同じコマンドを管理者のcmd・Windows PowerShell 5.1・PowerShell 7から実行し、各1行の結果を残す。最後の実行では `--keep-build` を外してbuildのフォルダーも回収する。 途中で打ち切った時は、同じ設定で `verification/host-setup/run-ssh.mjs --host Windows --client Windows --cleanup-build` を実行し、共通helperでbuild・ClientのSSH秘密鍵・配布元の使い捨ての鍵を回収する。
+
+`--shell=powershell` は既定のshellをPowerShell 7にし、Windows標準のPowerShell 5.1へ渡す経路も確かめる。検証用CAには失効の情報が無いため、検証ソースのcurlだけに `--ssl-revoke-best-effort` を付け、CAと名前の確認は維持する。取得の終了コードと標準エラーは各runの `download.json`、後片付けが失敗した時の残ったフォルダーとプロセスは `host-cleanup.json` に残す。
+
+Linux Clientは使い捨てユーザーの実ホームで動かし、OpenSSHの設定と鍵も同じホームへ置く。ユーザーとホームは終了時に回収する。Hostの回収だけを確かめる時は、同じ設定で `--host Windows --client Windows --cleanup-host` を使う。
+
+Windowsが使い捨てユーザーのprofileをLoadedのまま保持している時は、追加の待ち・プロセスの停止・hiveの強制解放をせず、`cleanup.user` にユーザー名とprofileの場所を残して回収未完とする。Ownerに検証機の再起動を依頼し、再起動後にそのユーザーのprofileとアカウントだけを回収する。
+
+Windows・Linux検証機と配布元の鍵・gateを使う。日常の保存先・portは使わず、検証用Hostは本人のLocalAppDataの専用フォルダーへ置く。既定のshellは実行中だけ切り替え、終了時に元の値へ戻す。追加した鍵・規則・ユーザー・導入物・起動の登録も回収し、結果と作成・回収したものは証拠先の `windows-ssh-*/result.json` へ残す。回答・招待・秘密鍵・パスワードは撮影・記録しない。
