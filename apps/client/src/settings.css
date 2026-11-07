@@ -485,20 +485,129 @@
   gap: 0.75rem;
 }
 
-.ssh-candidates {
+/* 導入の欄と SSH の確認は承認済み v16 の寸法を使う。 */
+.ssh-setup-fields {
+  display: grid;
+  gap: 16px;
+}
+.ssh-setup-field {
+  display: grid;
+  gap: 8px;
+  font-size: 0.93rem;
+  min-width: 0;
+}
+.ssh-setup-field > .field-label {
+  font-weight: 500;
+}
+.ssh-setup-help {
+  font-size: 13px;
+  color: var(--muted-foreground);
+}
+.ssh-setup-manual {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+}
+.ssh-setup-manual > .ssh-setup-help {
+  flex: 1 1 100%;
+}
+.ssh-setup-chosen {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-height: 44px;
+}
+.ssh-setup-chosen > .name {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.ssh-setup-chosen .machine {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--muted-foreground);
+}
+.ssh-setup-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.ssh-fingerprint {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+.ssh-setup-prompt {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+}
+.ssh-setup-prompt .label {
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.ssh-setup-prompt .actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+.ssh-candidates-block {
+  display: grid;
+  gap: 8px;
+}
+.ssh-candidates-box > .group-body,
+.ssh-manual-row > .group-body {
   display: flex;
   flex-direction: column;
-  align-items: stretch;
-  max-height: 12rem;
+  background: var(--card);
+  border: 1px solid color-mix(in oklch, var(--border) 70%, transparent);
+  border-radius: 10px;
+}
+.ssh-candidates .row + .row {
+  border-top: 1px solid color-mix(in oklch, var(--border) 55%, transparent);
+}
+.ssh-candidates .row-chevron,
+.ssh-manual-row .row-chevron {
+  color: var(--muted-foreground);
+}
+.ssh-manual-row [data-slot="button"] {
+  width: 100%;
+  justify-content: space-between;
+  height: 36px;
+  padding: 0 12px;
+  font-size: 0.93rem;
+  font-weight: 400;
+}
+.ssh-candidates {
+  max-height: 216px;
   overflow-y: auto;
+  position: relative;
 }
-.ssh-candidates > button {
-  justify-content: flex-start;
+.ssh-candidates .row {
+  padding: 0;
 }
-.ssh-destination,
-.ssh-prompt {
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
+.ssh-candidates [data-slot="button"] {
+  width: 100%;
+  justify-content: space-between;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 0;
+  font-size: 0.93rem;
+  font-weight: 400;
+}
+.ssh-candidates .ssh-empty-row {
+  padding: 10px 12px;
+  font-size: 13px;
+  color: var(--muted-foreground);
 }
 
 .git-setting-field {

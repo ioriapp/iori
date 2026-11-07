@@ -1,14 +1,21 @@
 use super::super::linux_install::quote;
 use super::{
     config,
-    output::parse_line,
+    output::{self, Failure, parse_line},
     platform,
     remote::{self, Shell},
 };
 use base64::Engine;
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::{collections::HashMap, process::Stdio, sync::Arc};
+use std::{
+    collections::HashMap,
+    process::Stdio,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+};
 use tauri::Emitter;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
@@ -19,27 +26,27 @@ use zeroize::Zeroizing;
 #[derive(Default)]
 pub struct State {
     sessions: Mutex<HashMap<String, Session>>,
-    firewall_targets: Arc<Mutex<HashMap<String, FirewallTarget>>>,
     answers: Arc<Mutex<HashMap<String, oneshot::Sender<Option<String>>>>>,
-}
-#[derive(Clone)]
-struct FirewallTarget {
-    destination: String,
-    program: String,
 }
 struct Session {
     commands: mpsc::UnboundedSender<Request>,
     cancel: watch::Sender<bool>,
     done: watch::Receiver<bool>,
     shell: Option<Shell>,
+    machine: Value,
 }
 pub(super) struct Request {
     shell: Shell,
     script: String,
-    reply: oneshot::Sender<Result<Vec<Value>, String>>,
+    reply: oneshot::Sender<Result<Vec<Value>, Failure>>,
 }
 pub(super) fn emit(app: &tauri::AppHandle, id: &str, value: Value) {
     let _ = app.emit("native://ssh-setup", json!({"session": id, "value": value}));
+}
+
+#[tauri::command]
+pub async fn native_ssh_client() -> Value {
+    json!({"available": platform::command().arg("-V").output().await.is_ok()})
 }
 
 #[tauri::command]
@@ -82,8 +89,28 @@ pub async fn native_ssh_connect(
     state: tauri::State<'_, State>,
     destination: String,
     session: String,
-) -> Result<Value, String> {
-    connect(&app, &state, &destination, &session, None).await
+    purpose: String,
+) -> Result<Value, Failure> {
+    let closed = Arc::new(AtomicBool::new(false));
+    emit(&app, &session, json!({"type":"stage","stage":"connect"}));
+    let result = connect(
+        &app,
+        &state,
+        &destination,
+        &session,
+        &purpose,
+        closed.clone(),
+    )
+    .await;
+    if let Err(failure) = &result
+        && !closed.swap(true, Ordering::SeqCst)
+    {
+        // Probe failures also own a live SSH process. Close it before reporting
+        // a closed session, preserving the original failure rather than cancel.
+        let _ = native_ssh_cancel(state, session.clone()).await;
+        emit(&app, &session, json!({"type":"closed","failure":failure}));
+    }
+    result
 }
 
 async fn connect(
@@ -91,14 +118,11 @@ async fn connect(
     state: &State,
     destination: &str,
     session: &str,
-    user: Option<&str>,
-) -> Result<Value, String> {
+    purpose: &str,
+    closed: Arc<AtomicBool>,
+) -> Result<Value, Failure> {
     let destination = config::destination(destination)?;
     let session = session.to_string();
-    let mut slots = state.sessions.lock().await;
-    if slots.contains_key(&session) {
-        return Err("Cancel the previous SSH connection first".into());
-    }
     let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
         .await
         .map_err(|e| e.to_string())?;
@@ -109,10 +133,37 @@ async fn connect(
             .map(|b| format!("{b:02x}"))
             .collect::<String>(),
     );
+    // Resolve aliases with OpenSSH itself. Removal guidance must name the
+    // known_hosts address, never the user's ~/.ssh/config alias.
+    let configuration = platform::command()
+        .args(["-G", &destination])
+        .output()
+        .await
+        .map_err(|error| {
+            Failure::new(
+                if error.kind() == std::io::ErrorKind::NotFound {
+                    "clientMissing"
+                } else {
+                    "probe"
+                },
+                error.to_string(),
+            )
+        })?;
+    let configuration = String::from_utf8_lossy(&configuration.stdout);
+    let hostname = configuration
+        .lines()
+        .find_map(|line| line.strip_prefix("hostname "))
+        .unwrap_or(&destination);
+    let port = configuration
+        .lines()
+        .find_map(|line| line.strip_prefix("port "))
+        .unwrap_or("22");
+    let address = if port == "22" {
+        hostname.to_string()
+    } else {
+        format!("[{hostname}]:{port}")
+    };
     let mut command = platform::command();
-    if let Some(user) = user {
-        command.args(["-l", user]);
-    }
     command
         // Enter cmd on Windows before reading the protocol. On Unix the
         // missing cmd.exe is followed by exec sh. Keep cmd's command echo so
@@ -123,6 +174,7 @@ async fn connect(
             std::env::current_exe().map_err(|e| e.to_string())?,
         )
         .env("SSH_ASKPASS_REQUIRE", "force")
+        .env("LC_ALL", "C")
         .env(
             "IORI_SSH_ASKPASS_ADDRESS",
             listener
@@ -138,11 +190,15 @@ async fn connect(
     if std::env::var_os("DISPLAY").is_none() {
         command.env("DISPLAY", "iori:0");
     }
+    let mut slots = state.sessions.lock().await;
+    if slots.contains_key(&session) {
+        return Err("Cancel the previous SSH connection first".into());
+    }
     let mut child = command.spawn().map_err(|error| {
         if error.kind() == std::io::ErrorKind::NotFound {
-            platform::missing_client().into()
+            Failure::new("clientMissing", platform::missing_client())
         } else {
-            error.to_string()
+            Failure::new("probe", error.to_string())
         }
     })?;
     let mut input = child
@@ -168,9 +224,14 @@ async fn connect(
             cancel,
             done,
             shell: None,
+            machine: Value::Null,
         },
     );
     drop(slots);
+    let declined = Arc::new(AtomicBool::new(false));
+    let ask_declined = declined.clone();
+    let decline_cancel = finish_cancel.clone();
+    let attempts = Arc::new(Mutex::new(HashMap::<String, u64>::new()));
     let answers = state.answers.clone();
     let ask_app = app.clone();
     let ask_session = session.clone();
@@ -183,6 +244,9 @@ async fn connect(
             let app = ask_app.clone();
             let session = ask_session.clone();
             let mut cancel = ask_cancel.clone();
+            let declined = ask_declined.clone();
+            let decline_cancel = decline_cancel.clone();
+            let attempts = attempts.clone();
             tauri::async_runtime::spawn(async move {
                 let mut inner_cancel = cancel.clone();
                 let result = async {
@@ -203,12 +267,16 @@ async fn connect(
                         return Err("Invalid askpass token".to_string());
                     }
                     let id = iroh::SecretKey::generate().public().to_string();
+                    let mut prompt = output::prompt(&id, &request.prompt, request.notification);
+                    let mut counts = attempts.lock().await;
+                    let count = counts
+                        .entry(prompt["kind"].as_str().unwrap_or("other").to_string())
+                        .or_default();
+                    *count += 1;
+                    prompt["attempt"] = json!(*count);
+                    drop(counts);
                     if request.notification {
-                        emit(
-                            &app,
-                            &session,
-                            json!({"type":"prompt", "id":id, "prompt":request.prompt, "notification":true}),
-                        );
+                        emit(&app, &session, json!({"type":"prompt", "prompt":prompt}));
                         let mut closed = String::new();
                         let _ = tokio::select! { result = socket.read_line(&mut closed) => result, _ = inner_cancel.changed() => Ok(0) };
                         emit(&app, &session, json!({"type":"promptClosed", "id":id}));
@@ -216,12 +284,12 @@ async fn connect(
                     }
                     let (send, receive) = oneshot::channel();
                     answers.lock().await.insert(id.clone(), send);
-                    emit(
-                        &app,
-                        &session,
-                        json!({"type":"prompt", "id":id, "prompt":request.prompt}),
-                    );
+                    emit(&app, &session, json!({"type":"prompt", "prompt":prompt}));
                     let answer = tokio::select! { answer = receive => answer.unwrap_or(None), _ = inner_cancel.changed() => None };
+                    if answer.is_none() && !*inner_cancel.borrow() {
+                        declined.store(true, Ordering::SeqCst);
+                        let _ = decline_cancel.send(true);
+                    }
                     answers.lock().await.remove(&id);
                     emit(&app, &session, json!({"type":"promptClosed", "id":id}));
                     let response = Zeroizing::new(
@@ -239,24 +307,36 @@ async fn connect(
         }
     });
     let last_error = Arc::new(Mutex::new(String::new()));
+    let logging = Arc::new(AtomicBool::new(false));
+    let stderr_logging = logging.clone();
+    let stderr_app = app.clone();
+    let stderr_session = session.clone();
     let errors = last_error.clone();
     let stderr_task = tauri::async_runtime::spawn(async move {
         let mut lines = BufReader::new(stderr).lines();
         while let Ok(Some(line)) = lines.next_line().await {
-            if !line.trim().is_empty() {
-                *errors.lock().await = line;
+            if output::log_line(&line) {
+                if stderr_logging.load(Ordering::SeqCst) {
+                    emit(
+                        &stderr_app,
+                        &stderr_session,
+                        json!({"type":"output","line":line}),
+                    );
+                }
+                let mut errors = errors.lock().await;
+                errors.push_str(&line);
+                errors.push('\n');
             }
         }
     });
-    let administrator_connection = user.is_some();
     let connected_session = session.clone();
-    let firewall_targets = state.firewall_targets.clone();
     let mut cancel_rx = cancelled;
     let event_app = app.clone();
     tauri::async_runtime::spawn(async move {
         let mut lines = BufReader::new(output).lines();
-        let mut pending: Option<oneshot::Sender<Result<Vec<Value>, String>>> = None;
+        let mut pending: Option<oneshot::Sender<Result<Vec<Value>, Failure>>> = None;
         let mut values: Vec<Value> = Vec::new();
+        let mut authenticated = false;
         let outcome: Result<(), String> = async {
             loop {
                 tokio::select! {
@@ -265,29 +345,31 @@ async fn connect(
                         let Some(request) = request else { break };
                         let script = remote::command(request.shell, &request.script);
                         last_error.lock().await.clear();
+                        logging.store(!matches!(request.shell, Shell::Probe), Ordering::SeqCst);
                         pending = Some(request.reply);
                         input.write_all(script.as_bytes()).await.map_err(|e| e.to_string())?;
                     }
                     line = lines.next_line() => {
                         let Some(line) = line.map_err(|e| e.to_string())? else { return Err("SSH connection closed".into()) };
                         let parsed = if line.trim() == "IORI_SETUP_PROBE_DONE" { Some(json!({"type":"done","code":0})) } else { parse_line(&line)? };
-                        if let Some(mut value) = parsed {
+                        if let Some(value) = parsed {
                             if value["type"] == "done" {
                                 if let Some(reply) = pending.take() {
-                                    let result = if value["code"] == 0 { Ok(std::mem::take(&mut values)) } else { let stage = values.iter().find(|v| v["type"] == "error").and_then(|v| v["stage"].as_str()).unwrap_or("command").to_string(); values.clear(); Err(format!("SSH_COMMAND_FAILED:{}:{stage}\n{}", value["code"], last_error.lock().await)) };
+                                    let result = if value["code"] == 0 { Ok(std::mem::take(&mut values)) } else {
+                                        let stage = values.iter().find(|v| v["type"] == "error").and_then(|v| v["stage"].as_str()).map(str::to_string);
+                                        values.clear();
+                                        Err(Failure::command(last_error.lock().await.clone(), stage, value["code"].as_i64().unwrap_or(1) as i32))
+                                    };
                                     let _ = reply.send(result);
                                 }
-                            } else if value["type"] == "firewall" && value["program"].is_string() && !administrator_connection {
-                                let target = iroh::SecretKey::generate().public().to_string();
-                                firewall_targets.lock().await.insert(target.clone(), FirewallTarget {
-                                    destination: destination.clone(),
-                                    program: value["program"].as_str().unwrap_or_default().into(),
-                                });
-                                value["target"] = json!(target);
-                                emit(&event_app, &session, value);
                             } else if value["type"] == "stage" || value["type"] == "linger" { emit(&event_app, &session, value); }
-                            else { values.push(value); }
-                        } else if !line.trim().is_empty() { *last_error.lock().await = line; }
+                            else { if value["type"] == "machine" { authenticated = true; } values.push(value); }
+                        } else if output::log_line(&line) && logging.load(Ordering::SeqCst) {
+                            emit(&event_app, &session, json!({"type":"output","line":line}));
+                            let mut errors = last_error.lock().await;
+                            errors.push_str(&line);
+                            errors.push('\n');
+                        }
                     }
                 }
             }
@@ -297,8 +379,10 @@ async fn connect(
         let status = child.wait().await;
         let _ = stderr_task.await;
         let was_cancelled = *cancel_rx.borrow();
-        let message = if was_cancelled {
-            "Cancelled".into()
+        let failure = if declined.load(Ordering::SeqCst) {
+            Failure::new("declined", "")
+        } else if was_cancelled {
+            Failure::new("cancelled", "")
         } else {
             let detail = last_error.lock().await.clone();
             let detail = if detail.is_empty() {
@@ -306,25 +390,27 @@ async fn connect(
             } else {
                 detail
             };
-            match status {
-                Ok(status) => match status.code() {
-                    Some(code) => format!("SSH_EXIT:{code}\n{detail}"),
-                    None => format!("SSH_CLOSED\n{detail}"),
-                },
-                Err(error) => format!("SSH_CLOSED\n{error}: {detail}"),
+            let code = status.ok().and_then(|status| status.code());
+            if authenticated {
+                Failure {
+                    exit_code: code,
+                    ..Failure::new("disconnected", detail)
+                }
+            } else {
+                Failure::connection(detail, code, &address)
             }
         };
-        if !was_cancelled {
+        if !closed.swap(true, Ordering::SeqCst) {
             emit(
                 &event_app,
                 &session,
-                json!({"type":"closed", "message":message}),
+                json!({"type":"closed", "failure":failure}),
             );
         }
         let _ = finish_cancel.send(true);
         ask_task.abort();
         if let Some(reply) = pending {
-            let _ = reply.send(Err(message));
+            let _ = reply.send(Err(failure));
         }
         let _ = done_tx.send(true);
     });
@@ -362,31 +448,39 @@ async fn connect(
     if let Some(connection) = state.sessions.lock().await.get_mut(&connected_session) {
         connection.shell = Some(shell);
     }
-    let host = if machine["installed"] == true {
-        request(&commands, shell, remote::control(shell, "host.info"))
-            .await
-            .ok()
+    machine["arch"] = json!(match machine["cpu"]
+        .as_str()
+        .unwrap_or("")
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "x86_64" | "amd64" => "x64",
+        "aarch64" | "arm64" => "arm64",
+        _ => "other",
+    });
+    let host = if purpose != "uninstall" && machine["installed"] == true {
+        match request(&commands, shell, remote::control(shell, "host.info")).await {
+            Ok(values) => Some(values),
+            Err(failure) if failure.kind == "install" => None,
+            Err(failure) => return Err(failure),
+        }
     } else {
         None
     };
-    machine["host"] = host
-        .as_ref()
-        .and_then(|values| {
-            values
-                .iter()
-                .find(|v| v["type"] == "control" && v["ok"] == true)
-        })
-        .map(|v| v["result"].clone())
-        .unwrap_or(Value::Null);
-    if matches!(shell, Shell::Windows) && machine["installed"] == true && user.is_none() {
-        // The policy reader works without elevation. A read failure provides
-        // no guidance, just like the local Host's permission indicator.
-        let _ = request(
-            &commands,
-            shell,
-            format!("& {{ {} }} -Remote -Query", include_str!("../firewall.ps1")),
-        )
-        .await;
+    if let Some(host) = host.as_ref().and_then(|values| {
+        values
+            .iter()
+            .find(|v| v["type"] == "control" && v["ok"] == true)
+    }) {
+        machine["host"] = host["result"].clone();
+    }
+    for key in ["user", "home"] {
+        if machine[key].is_null() {
+            machine.as_object_mut().unwrap().remove(key);
+        }
+    }
+    if let Some(connection) = state.sessions.lock().await.get_mut(&connected_session) {
+        connection.machine = machine.clone();
     }
     Ok(machine)
 }
@@ -394,7 +488,7 @@ pub(super) async fn request(
     commands: &mpsc::UnboundedSender<Request>,
     shell: Shell,
     script: String,
-) -> Result<Vec<Value>, String> {
+) -> Result<Vec<Value>, Failure> {
     let (reply, receive) = oneshot::channel();
     commands
         .send(Request {
@@ -402,61 +496,10 @@ pub(super) async fn request(
             script,
             reply,
         })
-        .map_err(|_| "SSH connection closed")?;
-    receive.await.map_err(|_| "SSH connection closed")?
-}
-
-#[tauri::command]
-pub async fn native_ssh_allow(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, State>,
-    target: String,
-    user: String,
-    session: String,
-) -> Result<Value, String> {
-    // Only the user name crosses the UI boundary. The destination and exact
-    // installed program path came from the original installation connection.
-    if user.is_empty() || user.starts_with('-') || user.chars().any(|c| c.is_control()) {
-        return Err("Administrator user name".into());
-    }
-    let target = state
-        .firewall_targets
-        .lock()
+        .map_err(|_| Failure::new("disconnected", "SSH connection closed"))?;
+    receive
         .await
-        .get(&target)
-        .cloned()
-        .ok_or("Missing SSH destination information")?;
-    let result = async {
-        let machine = connect(&app, &state, &target.destination, &session, Some(&user)).await?;
-        if machine["os"] != "Windows" || machine["administrator"] != true {
-            return Ok(json!({"allowed":false,"administrator":false}));
-        }
-        let commands = state
-            .sessions
-            .lock()
-            .await
-            .get(&session)
-            .ok_or("SSH connection closed")?
-            .commands
-            .clone();
-        let values = request(
-            &commands,
-            Shell::Windows,
-            format!(
-                "& {{ {} }} -AdministratorConnection -ProgramPath {}",
-                include_str!("../firewall.ps1"),
-                remote::literal(&target.program)
-            ),
-        )
-        .await?;
-        values
-            .into_iter()
-            .find(|value| value["type"] == "firewall")
-            .ok_or_else(|| "Could not allow connections from other devices.".into())
-    }
-    .await;
-    native_ssh_cancel(state, session).await?;
-    result
+        .map_err(|_| Failure::new("disconnected", "SSH connection closed"))?
 }
 
 #[tauri::command]
@@ -464,59 +507,102 @@ pub async fn native_ssh_install(
     app: tauri::AppHandle,
     state: tauri::State<'_, State>,
     session: String,
-    installed: bool,
-    running: bool,
-    allow_connections: bool,
-) -> Result<Value, String> {
-    let (commands, shell) = {
+    mode: String,
+) -> Result<Value, Failure> {
+    let (commands, shell, machine) = {
         let slots = state.sessions.lock().await;
-        let connection = slots.get(&session).ok_or("SSH connection closed")?;
+        let connection = slots
+            .get(&session)
+            .ok_or_else(|| Failure::new("disconnected", "SSH connection closed"))?;
         (
             connection.commands.clone(),
             connection
                 .shell
                 .ok_or("Missing SSH destination information")?,
+            connection.machine.clone(),
         )
     };
-    if matches!(shell, Shell::Windows) {
-        return super::windows::install(&app, &session, &commands, installed, allow_connections)
-            .await;
+    let host_version = machine["host"]["version"].as_str();
+    let result = async {
+        if matches!(shell, Shell::Windows) {
+            let administrator = machine["administrator"] == true;
+            if mode == "install" && !administrator {
+                return Err(Failure::new(
+                    "probe",
+                    "Administrator privileges are required",
+                ));
+            }
+            return super::windows::install(&app, &session, &commands, &mode, administrator).await;
+        }
+        if mode == "install" || mode == "update" {
+            emit(
+                &app,
+                &session,
+                json!({"type":"stage","stage":"verification"}),
+            );
+            request(
+                &commands,
+                shell,
+                super::super::linux_install::installer(&app)
+                    .await
+                    .map_err(|detail| Failure {
+                        stage: Some("verification".into()),
+                        ..Failure::new("install", detail)
+                    })?,
+            )
+            .await?;
+        } else if machine["host"].is_null() {
+            emit(&app, &session, json!({"type":"stage","stage":"start"}));
+            request(
+                &commands,
+                shell,
+                super::super::linux_install::START_EXISTING.into(),
+            )
+            .await
+            .map_err(|mut failure| {
+                if failure.kind == "install" {
+                    failure.stage = Some("start".into());
+                }
+                failure
+            })?;
+        }
+        emit(&app, &session, json!({"type":"stage","stage":"register"}));
+        let values = request(&commands, shell, remote::control(shell, "invite.create")).await?;
+        invite(&values)
     }
-    if !installed {
-        emit(
-            &app,
-            &session,
-            json!({"type":"stage","stage":"verification"}),
-        );
-        request(
-            &commands,
-            shell,
-            super::super::linux_install::installer(&app).await?,
-        )
-        .await?;
-    } else if !running {
-        request(
-            &commands,
-            shell,
-            super::super::linux_install::START_EXISTING.into(),
-        )
-        .await?;
-    }
-    emit(&app, &session, json!({"type":"stage","stage":"register"}));
-    let values = request(&commands, shell, remote::control(shell, "invite.create")).await?;
+    .await;
+    result.map_err(|mut failure: Failure| {
+        if failure.kind == "control"
+            && failure.stage.as_deref() == Some("register")
+            && mode == "register"
+            && let Some(version) = host_version
+            && semver::Version::parse(version)
+                .is_ok_and(|version| version < app.package_info().version)
+        {
+            failure.kind = "controlOutdated";
+            failure.host_version = Some(version.into());
+        }
+        failure
+    })
+}
+
+pub(super) fn invite(values: &[Value]) -> Result<Value, Failure> {
     let response = values
         .iter()
         .find(|v| v["type"] == "control")
-        .ok_or("Host did not respond")?;
+        .ok_or_else(|| Failure::new("control", "Host did not respond"))?;
     if response["ok"] != true {
-        return Err(format!(
-            "IORI_CONTROL_ERROR: {}",
-            response["error"]["message"]
-                .as_str()
-                .unwrap_or("Host did not respond")
-        ));
+        return Err(Failure {
+            stage: Some("register".into()),
+            ..Failure::new(
+                "control",
+                response["error"]["message"]
+                    .as_str()
+                    .unwrap_or("Host did not respond"),
+            )
+        });
     }
-    Ok(response["result"].clone())
+    Ok(json!({"type":"invite", "invite":response["result"]["invite"]}))
 }
 
 #[tauri::command]
@@ -547,7 +633,9 @@ pub async fn native_ssh_uninstall_result(
             quote(&receipt_path)
         )
     };
-    let values = request(&commands, shell, script).await?;
+    let values = request(&commands, shell, script)
+        .await
+        .map_err(|failure| failure.detail)?;
     let Some(value) = values.first() else {
         return Ok(Value::Null);
     };
@@ -560,7 +648,9 @@ pub async fn native_ssh_uninstall_result(
         } else {
             format!("rm -f -- {}", quote(&receipt_path))
         };
-        request(&commands, shell, script).await?;
+        request(&commands, shell, script)
+            .await
+            .map_err(|failure| failure.detail)?;
     }
     Ok(value["status"].clone())
 }

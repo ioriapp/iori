@@ -1,0 +1,601 @@
+/* v16 の共通部品。見本の組版と寸法を既存のトークンで表す。 */
+/* 流れの続くダイアログ: 題・欄・状況の欄・下端の4段。高さは開いてから閉じるまで変えない。 */
+.host-flow-dialog[data-slot="dialog-content"] {
+  display: grid;
+  gap: var(--space-4);
+  overflow: hidden;
+}
+.host-flow-dialog[data-slot="dialog-content"] {
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+}
+.host-flow-dialog.is-setup[data-slot="dialog-content"] {
+  height: min(700px, calc(100dvh - var(--space-6)));
+}
+.host-flow-dialog.is-uninstall[data-slot="dialog-content"] {
+  height: min(580px, calc(100dvh - var(--space-6)));
+}
+.host-flow-dialog [data-slot="dialog-title"] {
+  font-size: 1rem;
+}
+.host-flow-dialog[data-slot="dialog-content"] [data-slot="dialog-header"] {
+  padding-right: 0;
+}
+.host-flow-fields:empty {
+  margin-top: calc(-1 * var(--space-4));
+}
+/* 一覧・欄がスクロールする時は下端に続きの影（sticky の重ね）。 */
+.host-flow-panel[data-overflow="true"] {
+  mask-image: linear-gradient(
+    to bottom,
+    var(--foreground) calc(100% - var(--space-8)),
+    transparent
+  );
+}
+/* 題名の下に1行分の場所を常に取る。 */
+.host-flow-dialog .host-desc {
+  min-height: 1lh;
+}
+.host-flow-panel {
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  align-content: start;
+  gap: var(--space-3);
+  font-size: 0.93rem;
+}
+.host-flow-dialog [data-slot="dialog-footer"] {
+  align-items: center;
+}
+.host-footer-note {
+  margin-right: auto;
+  font-size: 13px;
+  color: var(--muted-foreground);
+}
+@media (max-width: 767px) {
+  .host-flow-dialog.is-setup[data-slot="dialog-content"],
+  .host-flow-dialog.is-uninstall[data-slot="dialog-content"] {
+    height: 100dvh;
+    max-height: 100dvh;
+  }
+  .host-flow-dialog [data-slot="dialog-footer"] {
+    align-items: stretch;
+  }
+  .host-footer-note {
+    order: 99;
+    margin-right: 0;
+    text-align: center;
+  }
+}
+
+.host-setup-summary {
+  margin: 0;
+  font-size: 0.93rem;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.host-setup-text {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.host-setup-note {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted-foreground);
+  overflow-wrap: anywhere;
+}
+.host-setup-status {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.host-setup-status [data-slot="spinner"] {
+  flex: none;
+  color: var(--muted-foreground);
+}
+.host-setup-original {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted-foreground);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.host-command {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+}
+.host-command-frame {
+  min-width: 0;
+  overflow-x: auto;
+  padding: calc(var(--space-3) / 2) var(--space-3);
+  border-radius: 8px;
+  background: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  white-space: pre;
+  scrollbar-width: none;
+}
+.host-command-frame[data-right="true"] {
+  mask-image: linear-gradient(
+    to right,
+    var(--foreground) calc(100% - var(--space-2) * 3.5),
+    transparent
+  );
+}
+.host-command-frame[data-left="true"] {
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    var(--foreground) calc(var(--space-2) * 3.5)
+  );
+}
+.host-command-frame[data-left="true"][data-right="true"] {
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    var(--foreground) calc(var(--space-2) * 3.5),
+    var(--foreground) calc(100% - var(--space-2) * 3.5),
+    transparent
+  );
+}
+.host-mono {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+/* 等幅は合字を切る。日本語は文節で折り返す。 */
+.host-flow-dialog code,
+.host-flow-dialog pre,
+.host-mono,
+.host-log {
+  font-variant-ligatures: none;
+}
+/* Portal の中でもダイアログと知らせに文節での改行を当てる。 */
+.host-flow-dialog,
+.host-toast {
+  word-break: auto-phrase;
+}
+/* 名前は折り返しで割らない。 */
+.host-flow-name {
+  white-space: nowrap;
+}
+
+/* 注意・失敗・案内: 印の右に本文。添える行は本文の左端に揃える。赤・琥珀は印と見出しだけ、理由は前景色。 */
+.host-notice {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: var(--space-2);
+  align-items: start;
+}
+.host-notice > svg {
+  width: 16px;
+  height: 16px;
+  margin-top: calc(var(--space-3) / 4);
+}
+.host-notice.is-error > svg,
+.host-notice.is-error .heading {
+  color: var(--destructive);
+}
+.host-notice.is-warning > svg {
+  color: var(--status-waiting);
+}
+.host-notice.is-info > svg {
+  color: var(--muted-foreground);
+}
+.host-notice > .body {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-2);
+  justify-items: stretch;
+}
+.host-notice .heading {
+  font-weight: 600;
+}
+.host-notice p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.host-notice .lines {
+  display: grid;
+  gap: calc(var(--space-2) / 4);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.host-notice > .body > [data-slot="button"],
+.host-notice .host-ssh-original-trigger {
+  justify-self: start;
+  margin-left: calc(var(--space-2) * -1.125);
+}
+.host-notice .host-command {
+  margin-left: calc(-1 * var(--space-3));
+}
+.host-notice .lines.is-plain {
+  font-family: inherit;
+  font-size: 0.93rem;
+}
+
+/* 手順とログ: 同じ枠の中で切り替える。枠の高さはログの8行に合わせて固定。 */
+.host-progress {
+  display: grid;
+  gap: calc(var(--space-2) * 1.25);
+  grid-template-rows: auto minmax(0, 1fr);
+}
+.host-flow-panel > .host-progress {
+  height: 100%;
+}
+.host-progress-steps {
+  display: grid;
+  gap: calc(var(--space-2) * 1.25);
+  align-content: start;
+}
+.host-progress-log {
+  display: grid;
+  gap: calc(var(--space-2) * 1.25);
+  grid-template-rows: minmax(0, 1fr) auto;
+  min-height: 0;
+}
+.host-steps {
+  margin: 0;
+  padding: calc(var(--space-2) / 2) 0;
+  list-style: none;
+  display: grid;
+  gap: calc(var(--space-2) * 1.25);
+}
+.host-steps li {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--space-2) * 1.25);
+}
+.host-steps li > svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+.host-steps li[data-state="next"] {
+  color: var(--muted-foreground);
+}
+.host-steps li[data-state="stopped"] {
+  font-weight: 600;
+}
+.host-steps li[data-state="current"] {
+  font-weight: 600;
+}
+.host-steps li [data-slot="spinner"] {
+  color: var(--muted-foreground);
+}
+.host-step-dot {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  display: grid;
+  place-items: center;
+}
+.host-step-dot::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--border);
+}
+.host-log {
+  margin: 0;
+  height: 100%;
+  box-sizing: border-box;
+  padding: var(--space-2) var(--space-3);
+  border-radius: 8px;
+  border: 1px solid color-mix(in oklch, var(--border) 55%, transparent);
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.55;
+}
+
+.host-work-row[data-slot="button"] {
+  width: 100%;
+  height: auto;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: calc(var(--space-2) * 1.25) var(--space-3);
+  border-radius: 0;
+  white-space: normal;
+  text-align: left;
+  font-size: 0.93rem;
+  font-weight: 400;
+}
+.host-work-row .what {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.host-work-row .what > svg {
+  flex: none;
+  color: var(--muted-foreground);
+}
+.host-work-row .state {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--space-3) / 2);
+  font-size: 13px;
+  color: var(--muted-foreground);
+}
+.host-work-row + .host-work-row {
+  border-top: 1px solid color-mix(in oklch, var(--border) 55%, transparent);
+}
+.host-work-row:first-child {
+  border-radius: 10px 10px 0 0;
+}
+.host-work-row:last-child {
+  border-radius: 0 0 10px 10px;
+}
+
+/* 右下の知らせ（製品の .storage-retry と同じ面）。文と右上の×。 */
+.host-toast {
+  position: fixed;
+  z-index: 60;
+  right: var(--space-4);
+  bottom: var(--space-4);
+  display: flex;
+  max-width: min(420px, calc(100vw - var(--space-8)));
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-2) var(--space-3)
+    calc(var(--space-2) * 1.75);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--popover);
+  box-shadow: 0 6px 24px color-mix(in oklch, var(--foreground) 12%, transparent);
+  font-size: 0.93rem;
+}
+.host-toast-body {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: var(--space-2);
+}
+.host-toast-body > [data-slot="button"] {
+  justify-self: end;
+}
+.host-toast p {
+  flex: 1;
+  min-width: 0;
+  margin: calc(var(--space-2) / 4) 0 0;
+}
+.host-toast-close {
+  flex: none;
+  margin-top: calc(var(--space-2) / -2);
+}
+@media (max-width: 700px) {
+  .host-toast {
+    right: var(--space-2);
+    bottom: var(--space-2);
+    left: var(--space-2);
+    max-width: none;
+  }
+  .host-toast-sentence {
+    display: block;
+  }
+  /* 見た目は既存の小さいボタンのまま、押せる範囲だけ44px以上にする。 */
+  .host-toast [data-slot="button"] {
+    position: relative;
+  }
+  .host-toast [data-slot="button"]::before {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: max(100%, 44px);
+    height: 44px;
+    transform: translate(-50%, -50%);
+  }
+}
+
+/* 「接続中」は小さな回る印と文字。 */
+.host-connecting {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--space-3) / 2);
+}
+.host-connecting [data-slot="spinner"] {
+  width: 14px;
+  height: 14px;
+}
+.host-desc-line {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--space-2) / 2);
+}
+.host-panel-stack {
+  display: grid;
+  gap: var(--space-3);
+  align-content: start;
+}
+.host-panel-stack.is-tight {
+  gap: calc(var(--space-3) / 2);
+}
+.host-ssh-original {
+  display: grid;
+  gap: calc(var(--space-3) / 2);
+}
+.host-ssh-original-trigger {
+  justify-self: start;
+  color: var(--muted-foreground);
+}
+.host-ssh-original-trigger svg.is-open {
+  transform: rotate(180deg);
+}
+
+/* 手順／ログの枠は状況の欄の高さいっぱい。 */
+.host-flow-panel:has(> .host-progress) {
+  grid-template-rows: minmax(0, 1fr);
+  align-content: stretch;
+}
+
+/* 要約の行は1行で、溢れたら末尾を省略する（ダイアログの幅を押し広げない）。 */
+.host-flow-fields,
+.host-flow-panel,
+.host-flow-dialog [data-slot="dialog-header"] {
+  min-width: 0;
+}
+/* B は欄の段を持たない（題名の下の1行に名前を出す）。題名の下の1行から本文までは A と同じ16px。 */
+.host-flow-dialog.is-uninstall[data-slot="dialog-content"] {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+.host-flow-dialog.is-uninstall .host-flow-fields {
+  display: none;
+}
+
+/* 手順／ログはタブ（選択は下端のアクセントの2pxの線）。 */
+.host-progress-tabs[data-slot="tabs-list"] {
+  padding: 0;
+  height: 32px;
+}
+.host-progress-tabs [data-slot="tabs-trigger"] {
+  flex: none;
+  padding: 0 calc(var(--space-2) * 1.25);
+  font-size: 0.93rem;
+}
+.host-progress-tabs [data-slot="tabs-trigger"]::after {
+  background: var(--primary);
+  height: 2px;
+  bottom: -1px;
+}
+.host-progress-tabs[data-slot="tabs-list"] {
+  border-bottom: 1px solid var(--border);
+}
+/* 済んだ段の✓は灰。 */
+.host-steps .ci-passed {
+  color: var(--muted-foreground);
+}
+.host-ssh-original-trigger svg.is-open {
+  transform: rotate(180deg);
+}
+@media (max-width: 767px) {
+  .host-progress-tabs[data-slot="tabs-list"] {
+    height: 44px;
+  }
+}
+
+.host-flow-dialog[data-slot="dialog-content"] {
+  max-height: calc(100dvh - var(--space-6));
+}
+.host-flow-dialog [data-slot="dialog-description"] {
+  overflow-wrap: anywhere;
+}
+.host-flow-dialog [data-slot="dialog-footer"] {
+  flex-wrap: wrap;
+}
+.host-progress-tabs[data-slot="tabs-list"] {
+  width: 100%;
+  justify-content: flex-start;
+}
+.host-progress > [data-slot="tabs-content"][data-state="inactive"] {
+  display: none;
+}
+.host-progress > [data-slot="tabs-content"] {
+  margin: 0;
+  font-size: inherit;
+  line-height: inherit;
+}
+.host-steps .ci-failed {
+  color: var(--destructive);
+}
+.host-log {
+  font-family: var(--font-mono);
+  font-size: 0.86rem;
+  color: var(--foreground);
+  background: color-mix(in oklch, var(--foreground) 3%, var(--background));
+}
+.host-work-row .row-chevron {
+  color: var(--muted-foreground);
+}
+.host-notice-stack {
+  position: fixed;
+  z-index: 60;
+  right: var(--space-4);
+  bottom: var(--space-4);
+  display: grid;
+  gap: var(--space-2);
+  max-width: min(420px, calc(100vw - var(--space-8)));
+}
+.host-notice-stack > .host-toast {
+  position: static;
+  max-width: 100%;
+}
+@media (max-width: 767px) {
+  .host-flow-dialog.is-setup[data-slot="dialog-content"],
+  .host-flow-dialog.is-uninstall[data-slot="dialog-content"] {
+    height: 100dvh;
+    max-height: 100dvh;
+  }
+  .host-flow-dialog [data-slot="button"],
+  .host-flow-dialog [data-slot="input"],
+  .host-flow-dialog [data-slot="tabs-trigger"],
+  .host-flow-dialog [data-slot="toggle-group-item"] {
+    min-height: 44px;
+  }
+}
+@media (max-width: 700px) {
+  .host-notice-stack {
+    right: var(--space-2);
+    bottom: var(--space-2);
+    left: var(--space-2);
+    max-width: none;
+  }
+}
+
+/* 見本の worktree-create-dialog が共通 CSS から受ける枠。 */
+.host-flow-dialog[data-slot="dialog-content"] {
+  width: min(560px, calc(100vw - var(--space-6)));
+  max-width: calc(100vw - var(--space-6));
+  background: var(--popover);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-popover);
+  font-size: 0.93rem;
+  z-index: 70;
+}
+[data-slot="dialog-overlay"]:has(+ .host-flow-dialog) {
+  z-index: 70;
+}
+@media (max-width: 767px) {
+  .host-flow-dialog[data-slot="dialog-content"] {
+    width: 100%;
+    max-width: 100%;
+    border: 0;
+  }
+}
+
+/* 見本のデータ削除の選択。補足をチェック欄の文の位置へ揃える。 */
+.host-data-option {
+  display: grid;
+  gap: 6px;
+}
+.host-data-option > .host-setup-note {
+  padding-left: 26px;
+}
+.host-setup-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.93rem;
+}
+
+.host-flow-dialog.is-uninstall .section-body > .host-setup-text,
+.host-flow-dialog.is-uninstall .section-body > .host-setup-status,
+.host-flow-dialog.is-uninstall .section-body > .host-notice {
+  padding: 10px 12px;
+}
+.host-flow-dialog.is-uninstall .section-body > .host-setup-text {
+  font-size: 13px;
+  color: var(--muted-foreground);
+}

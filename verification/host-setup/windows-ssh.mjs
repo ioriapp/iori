@@ -16,11 +16,14 @@ import {
 } from "../connection/client.mjs";
 import { startLinuxClient, asUser } from "../linux-client/client.mjs";
 import { writeWindowsPrivateKey, windowsSshInclude } from "../native/ssh.mjs";
+import {
+  installLinuxVerificationPackage,
+  removeLinuxVerificationPackage,
+} from "../native/linux-packages.mjs";
 import { removeWindowsProgramRules } from "../native/windows-firewall.mjs";
 import { cleanupFolders } from "../connection/cleanup.mjs";
 import { startDistribution } from "../updates/distribution.mjs";
 import { waitForOperation } from "../ui.mjs";
-import { interactiveWindowsUser } from "./windows-sign-in.mjs";
 import { uninstallFromSettings } from "./uninstall-scenario.mjs";
 
 function cleanupWindowsSshHost(hostRoot, { target, removeLogon, result }) {
@@ -125,11 +128,7 @@ export async function windowsSshScenario() {
     windowsHome,
     hostRoot,
     ruleName,
-    authorizedFile,
-    administratorAuthorizedFile,
-    originalAdministratorKeys,
-    disposablePassword,
-    interactiveUser;
+    authorizedFile;
   let createdUser = false,
     profileCreated = false,
     preparedClient = false,
@@ -252,14 +251,38 @@ export async function windowsSshScenario() {
       linuxClientUser = undefined;
     }
   }
+  async function verifyVisibleSshLog() {
+    const outputs = await client.screen.evaluate("window.sshOutputObservation");
+    assert.equal(outputs.encodedCommand, false);
+    assert.equal(outputs.internalResponse, false);
+    assert.equal(outputs.invitation, false);
+    record("visible SSH logs exclude commands and internal responses", outputs);
+  }
   async function selectHost() {
+    await client.screen.evaluateAsync(`(async () => {
+      window.sshOutputObservation = { lines: 0, encodedCommand: false, internalResponse: false, invitation: false, echoShapes: [] };
+      const onOutput = ({ payload }) => {
+        if (payload.value?.type !== 'output') return;
+        const line = payload.value.line;
+        const result = window.sshOutputObservation;
+        result.lines++;
+        result.encodedCommand ||= line.includes('-EncodedCommand');
+        result.internalResponse ||= line.includes('IORI_SETUP') || /"(?:token|invite)"\\s*:/.test(line);
+        result.invitation ||= line.includes('iori://pair/');
+        if (/^[A-Za-z]:.*>/.test(line)) result.echoShapes.push('drive:path>command');
+      };
+      await window.__TAURI_INTERNALS__.invoke('plugin:event|listen', {
+        event: 'native://ssh-setup', target: {kind: 'Any'},
+        handler: window.__TAURI_INTERNALS__.transformCallback(onOutput),
+      });
+    })()`);
     await client.screen.click(act("setup-host"));
     await client.screen.click(act("setup-ssh"));
     await client.screen.click('[data-iori-ssh-host="iori-windows-ssh-test"]');
     await observe('[data-iori-state="ssh-prompt"]', "OpenSSH confirmation");
     if (
-      (await client.screen.text('[data-iori-state="ssh-prompt"]')).includes(
-        "Are you sure",
+      /first connection|初めて接続します/u.test(
+        await client.screen.text('[data-iori-state="ssh-prompt"]'),
       )
     ) {
       await snapshot("host-key-" + clientNumber);
@@ -268,7 +291,7 @@ export async function windowsSshScenario() {
     await observe('[data-iori-field="ssh-answer"]', "SSH passphrase");
     assert.match(
       await client.screen.text('[data-iori-state="ssh-prompt"]'),
-      /passphrase/iu,
+      /passphrase|パスフレーズ/iu,
     );
     await client.screen.input('[data-iori-field="ssh-answer"]', passphrase);
     await client.screen.click(act("ssh-answer"));
@@ -317,7 +340,6 @@ export async function windowsSshScenario() {
     if (signedOut) {
       // No password or private key is written to logs or evidence.
       const password = randomBytes(32).toString("base64url") + "aA1!";
-      disposablePassword = password;
       const passwordFile = state.windowsRoot + "\\new-ssh-user.secret";
       await writeWindowsPrivateKey(passwordFile, password);
       const provision = `New-LocalUser -Name ${ps(user)} -Password (ConvertTo-SecureString ([IO.File]::ReadAllText(${ps(passwordFile)})) -AsPlainText -Force) -AccountNeverExpires | Out-Null;Add-LocalGroupMember -SID 'S-1-5-32-545' -Member ${ps(user)}`;
@@ -411,18 +433,6 @@ export async function windowsSshScenario() {
       );
     }
     result.created.push("SSH authorized key");
-    if (signedOut) {
-      administratorAuthorizedFile = target(
-        "Join-Path $env:ProgramData 'ssh\\administrators_authorized_keys'",
-      );
-      originalAdministratorKeys = target(
-        `if(Test-Path -LiteralPath ${ps(administratorAuthorizedFile)}){[Convert]::ToBase64String([IO.File]::ReadAllBytes(${ps(administratorAuthorizedFile)}))}else{'missing'}`,
-      );
-      target(
-        `[IO.File]::AppendAllText(${ps(administratorAuthorizedFile)},[Environment]::NewLine + ${ps(publicKey)} + [Environment]::NewLine,[Text.UTF8Encoding]::new($false))`,
-      );
-      result.created.push("administrator SSH authorized key");
-    }
     await writeWindows(
       caFile,
       await readFile(path.join(evidence, "distribution/tls/ca.pem"), "utf8"),
@@ -448,206 +458,61 @@ export async function windowsSshScenario() {
           process.pid +
           ".deb",
       ]);
-      linux(
-        `sudo dpkg -i /tmp/iori-windows-ssh-client-${process.pid}.deb && rm /tmp/iori-windows-ssh-client-${process.pid}.deb`,
+      await installLinuxVerificationPackage(
+        `/tmp/iori-windows-ssh-client-${process.pid}.deb`,
       );
+      linux(`rm /tmp/iori-windows-ssh-client-${process.pid}.deb`);
       debInstalled = true;
     }
     await launchClient();
     await selectHost();
     assert.equal(
-      await client.screen.attribute(
+      await client.screen.visible(
         '[data-iori-field="setup-allow-connections"]',
-        "data-state",
       ),
-      "checked",
+      false,
+    );
+    const destinationText = await client.screen.text(
+      '[data-iori-view="host-setup"]',
     );
     assert.match(
-      await client.screen.text('[data-iori-view="host-setup"]'),
+      destinationText,
       signedOut
-        ? /This user is not an administrator|このユーザーは管理者ではない/u
-        : /permission for iori Host is added to Windows Firewall|Windows ファイアウォールに iori Host の許可/u,
+        ? /not an administrator, so installation over SSH is not available|管理者ではないため、SSHではインストールできません/u
+        : /During installation, incoming connections|Windows ファイアウォールにiori Hostの受信の許可/u,
     );
     await snapshot("destination");
-    await client.screen.click(act("setup-submit"));
     if (signedOut) {
-      await observe(
-        '[data-iori-state="setup-sign-in-required"]',
-        "signed-out installation",
-      );
-      await observe(
-        '[data-iori-state="setup-firewall-command"]',
-        "nonadministrator firewall guidance",
-      );
-      const commandText = await client.screen.text(
-        '[data-iori-field="setup-command"]',
-      );
-      assert.match(commandText, /^\$program=/u);
-      assert.ok(commandText.includes(program));
-      assert.equal(commandText.split("\n").length, 1);
-      assert.ok(!commandText.includes("EncodedCommand"));
+      assert.match(destinationText, /This PC|この PC/u);
       assert.match(
-        await client.screen.text('[data-iori-state="setup-firewall-command"]'),
-        /If Windows asks|Windows の確認/u,
+        destinationText,
+        /Invite a new device|新しい端末を招待する/u,
       );
-      assert.equal(
-        await client.screen.evaluate(`(()=>{
-        const code=document.querySelector('[data-iori-field="setup-command"]');
-        const row=code.closest('.setup-command');
-        return code.scrollWidth<=code.clientWidth && row.scrollWidth<=row.clientWidth;
-      })()`),
-        true,
+      assert.match(
+        await client.screen.text(act("setup-submit")),
+        /Connect with an invitation|招待で接続する/u,
       );
-      await client.screen.click(act("copy-setup-command"));
-      await waitForOperation(
-        "command copied",
-        () => client.screen.text('[data-iori-action="copy-setup-command"]'),
-        (value) => /Copied|コピーしました/u.test(value),
-        () => client.screen.text('[role="alert"]'),
-      );
-      assert.equal(
-        await client.screen.evaluate(
-          "window.__TAURI__.core.invoke('native_clipboard_read')",
-        ),
-        commandText,
-      );
-      record("nonadministrator command wraps and copies", {
-        length: commandText.length,
-      });
-      await snapshot("firewall-command-copied");
-      assert.equal(
-        target(
-          `Test-Path -LiteralPath ${ps(hostRoot + "\\Programs\\iori-host\\iori-host.cmd")}`,
-        ),
-        "True",
-      );
-      assert.equal(
-        target(
-          `Test-Path -LiteralPath ${ps(hostRoot + "\\iori-host\\control.json")}`,
-        ),
-        "False",
-      );
-      // Read only this disposable user's hive while the SSH session has loaded it.
-      assert.equal(
-        target(
-          `$sid=(Get-LocalUser -Name ${ps(user)}).SID.Value;[bool](Get-ItemPropertyValue -LiteralPath ('Registry::HKEY_USERS\\'+$sid+'\\Software\\Microsoft\\Windows\\CurrentVersion\\Run') -Name 'iori Host Setup Test')`,
-        ),
-        "True",
-      );
+      assert.equal(target(`Test-Path -LiteralPath ${ps(program)}`), "False");
       assert.equal(
         target(
           `@(Get-NetFirewallRule -Name ${ps(ruleName)} -ErrorAction SilentlyContinue).Count`,
         ),
         "0",
       );
-      await client.screen.reveal('[data-iori-state="setup-sign-in-required"]');
-      await snapshot("signed-out-guidance");
-      record(
-        "signed-out installation retained and nonadministrator command shown",
-      );
-      interactiveUser = await interactiveWindowsUser({
-        user,
-        password: disposablePassword,
-        hostRoot,
-        workRoot: state.windowsRoot,
-        installer: await readFile(
-          path.join(state.localRoot, "scripts/release/install-bundle.ps1"),
-          "utf8",
-        ),
-      });
-      record(
-        "sign-in substitute: user's interactive logon in verification desktop",
-        interactiveUser.logon,
-      );
-      result.created.push(
-        "secondary interactive logon and its verification task",
-      );
-      const beforeRegistration = target(
-        `ConvertTo-Json -InputObject @(Get-CimInstance Win32_Process | Where-Object ExecutablePath -eq ${ps(program)} | Select-Object -ExpandProperty ProcessId) -Compress`,
-      );
-      assert.notEqual(beforeRegistration, "[]");
-      if (reconnect) {
-        await client.screen.click(act("ssh-cancel"));
-        await client.screen.wait(act("setup-host"));
-        await selectHost();
-      }
-      // In the first case keep this exact screen; the initial probe predates startup.
-      await client.screen.click(act("setup-submit"));
-      await waitForOperation(
-        "same-screen registration after interactive logon",
-        () => client.screen.visible('[data-iori-view="host-setup"]'),
-        (value) => !value,
-        () => client.screen.text('[data-iori-state="error"]'),
-      );
-      await client.screen.wait('[data-iori-view="workspace"]');
       assert.equal(
-        target(
-          `ConvertTo-Json -InputObject @(Get-CimInstance Win32_Process | Where-Object ExecutablePath -eq ${ps(program)} | Select-Object -ExpandProperty ProcessId) -Compress`,
-        ),
-        beforeRegistration,
+        distribution.requests.some((request) => request.path.endsWith(".zip")),
+        false,
+      );
+      await client.screen.click(act("setup-submit"));
+      await observe(
+        '[data-iori-field="invitation"]',
+        "invitation entry after nonadministrator guidance",
       );
       record(
-        reconnect
-          ? "registered after choosing the same destination again"
-          : "registered from the same screen without restarting the running Host",
+        "nonadministrator stopped before installation and invitation entry opened",
       );
-      if (reconnect) {
-        await observe(
-          '[data-iori-state="setup-complete"] [data-iori-state="setup-firewall-command"]',
-          "permission guidance in the registration notice",
-        );
-        const guidance = await client.screen.text(
-          '[data-iori-state="setup-complete"]',
-        );
-        assert.match(
-          guidance,
-          /Allow with an administrator account|管理者のアカウントで許可する/u,
-        );
-        assert.match(guidance, /If Windows asks|Windows の確認/u);
-        assert.ok(
-          (
-            await client.screen.text(
-              '[data-iori-state="setup-complete"] [data-iori-field="setup-command"]',
-            )
-          ).includes(program),
-        );
-        await snapshot("registration-notice");
-        record(
-          "registration notice keeps permission guidance after reconnecting",
-        );
-        // The notice keeps the target path after the original SSH closes.
-        await client.screen.click(act("setup-firewall-admin"));
-        await client.screen.input(
-          '[data-iori-field="setup-administrator"]',
-          local.windows.user,
-        );
-        await client.screen.click(act("setup-firewall-allow"));
-        await observe(
-          '[data-iori-field="ssh-answer"]',
-          "administrator SSH passphrase",
-        );
-        assert.match(
-          await client.screen.text('[data-iori-state="ssh-prompt"]'),
-          /passphrase/iu,
-        );
-        await client.screen.input('[data-iori-field="ssh-answer"]', passphrase);
-        await client.screen.click(act("ssh-answer"));
-        await observe(
-          '[data-iori-state="setup-firewall-allowed"]',
-          "administrator permission",
-        );
-        assert.equal(
-          target(
-            `(Get-NetFirewallRule -Name ${ps(ruleName)} | Get-NetFirewallApplicationFilter).Program`,
-          ),
-          program,
-        );
-        record("administrator SSH allowed the installed user's Host", {
-          program,
-          ruleName,
-        });
-      }
     } else {
+      await client.screen.click(act("setup-submit"));
       await waitForOperation(
         "SSH setup registration",
         () => client.screen.visible('[data-iori-view="host-setup"]'),
@@ -676,6 +541,7 @@ export async function windowsSshScenario() {
         { processes, desktopSession },
       );
       await snapshot("registered");
+      await verifyVisibleSshLog();
       await closeClient();
       await launchClient();
       await selectHost();
@@ -727,6 +593,7 @@ export async function windowsSshScenario() {
       });
       record("Windows uninstall result read over SSH");
     }
+    await verifyVisibleSshLog();
     result.created.push(
       "Host program/data root " + hostRoot,
       "Run entry iori Host Setup Test",
@@ -756,17 +623,6 @@ export async function windowsSshScenario() {
         },
       ],
       ["client", closeClient],
-      [
-        "interactive user",
-        async () => {
-          if (interactiveUser) {
-            await interactiveUser.stop();
-            result.removed.push(
-              "secondary interactive logon and its verification task",
-            );
-          }
-        },
-      ],
       [
         "host",
         () => {
@@ -803,17 +659,6 @@ export async function windowsSshScenario() {
               `[IO.File]::WriteAllBytes(${ps(authorizedFile)},[Convert]::FromBase64String(${ps(originalKeys)}))`,
             );
           result.removed.push("SSH authorized key");
-          if (originalAdministratorKeys !== undefined) {
-            if (originalAdministratorKeys === "missing")
-              target(
-                `Remove-Item -LiteralPath ${ps(administratorAuthorizedFile)} -Force`,
-              );
-            else
-              target(
-                `[IO.File]::WriteAllBytes(${ps(administratorAuthorizedFile)},[Convert]::FromBase64String(${ps(originalAdministratorKeys)}))`,
-              );
-            result.removed.push("administrator SSH authorized key");
-          }
         },
       ],
       [
@@ -853,7 +698,8 @@ export async function windowsSshScenario() {
       [
         "deb",
         () => {
-          if (debInstalled) linux("sudo dpkg -r iori-linux-verification");
+          if (debInstalled)
+            return removeLinuxVerificationPackage("iori-linux-verification");
         },
       ],
       ["distribution", () => distribution?.close()],

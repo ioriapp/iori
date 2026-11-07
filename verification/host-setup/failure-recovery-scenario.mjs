@@ -15,12 +15,15 @@ export async function terminalAfterRemovalFailure(
   { cwd, record, evidenceDirectory },
 ) {
   const { screen } = client;
-  await screen.wait('[data-iori-state="host-maintenance-error"]');
+  await screen.wait(
+    '[data-iori-view="host-maintenance-confirmation"] [role="alert"]',
+  );
   await writeFile(
     join(evidenceDirectory, "removal-failed.png"),
     Buffer.from(await client.browser.screenshot(), "base64"),
   );
   assert.doesNotMatch(await screen.text("body"), /元に戻せませんでした/u);
+  await screen.click('[data-iori-action="host-maintenance-close"]');
   await screen.click('[data-iori-action="settings-close"]');
   let usable = false;
   try {
@@ -45,5 +48,6 @@ export async function removalFailureRecovery(client, options) {
   await client.screen.click('[data-iori-action="host-uninstall"]');
   await client.screen.wait('[data-iori-action="host-maintenance-confirm"]');
   await client.screen.click('[data-iori-action="host-maintenance-confirm"]');
+  if (options.answerPrompt) await options.answerPrompt();
   await terminalAfterRemovalFailure(client, options);
 }

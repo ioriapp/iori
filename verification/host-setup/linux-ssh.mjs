@@ -1,8 +1,10 @@
 // Invoked by run-ssh while it owns the machine and distribution locks.
 import { local as verificationLocal } from "../native/local.mjs";
 import { removalFailureRecovery } from "./failure-recovery-scenario.mjs";
-import { uninstallFromSettings } from "./uninstall-scenario.mjs";
-import { openSettingsSection } from "../../e2e/connection/scenario.mjs";
+import {
+  uninstallFromSettings,
+  uninstallWithoutSsh,
+} from "./uninstall-scenario.mjs";
 import assert from "node:assert/strict";
 import { mkdir, readFile, writeFile, mkdtemp, rm } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
@@ -88,6 +90,10 @@ async function waitVisible(selector) {
 async function openSsh() {
   await client.screen.click('[data-iori-action="setup-host"]');
   await client.screen.click('[data-iori-action="setup-ssh"]');
+  if (
+    await client.screen.visible('[data-iori-action="ssh-change-destination"]')
+  )
+    await client.screen.click('[data-iori-action="ssh-change-destination"]');
   await waitVisible('[data-iori-ssh-host="iori-ssh-setup"]');
   await client.screen.click('[data-iori-ssh-host="iori-ssh-setup"]');
 }
@@ -95,7 +101,7 @@ async function answerPassphrase() {
   await waitVisible('[data-iori-field="ssh-answer"]');
   assert.match(
     await client.screen.text('[data-iori-state="ssh-prompt"]'),
-    /passphrase/i,
+    /passphrase|パスフレーズ/iu,
   );
   await capture("passphrase-prompt");
   await client.screen.input('[data-iori-field="ssh-answer"]', passphrase);
@@ -173,10 +179,9 @@ try {
   client = await startWindowsClient(state);
   await openSsh();
   await waitVisible('[data-iori-state="ssh-prompt"]');
-  assert.ok(
-    (await client.screen.text('[data-iori-state="ssh-prompt"]')).includes(
-      "Are you sure",
-    ),
+  assert.match(
+    await client.screen.text('[data-iori-state="ssh-prompt"]'),
+    /first connection|初めて接続します/u,
   );
   await capture("host-key-prompt");
   await client.screen.click('[data-iori-action="ssh-answer"]');
@@ -242,6 +247,14 @@ try {
   if (process.argv.includes("--fail-after-terminals")) {
     try {
       await removalFailureRecovery(client, {
+        answerPrompt: async () => {
+          await waitVisible('[data-iori-field="ssh-answer"]');
+          await client.screen.input(
+            '[data-iori-field="ssh-answer"]',
+            passphrase,
+          );
+          await client.screen.click('[data-iori-action="ssh-answer"]');
+        },
         cwd: home,
         record,
         evidenceDirectory: root,
@@ -268,7 +281,11 @@ try {
       await client.screen.click('[data-iori-action="ssh-answer"]');
     };
     for (const deleteData of [false, true]) {
-      await uninstallFromSettings(client, {
+      if (deleteData) updateAuthorizedKey(false);
+      const uninstall = deleteData
+        ? uninstallWithoutSsh
+        : uninstallFromSettings;
+      await uninstall(client, {
         deleteData,
         answerPrompt: answerResult,
         evidenceDirectory: root,
@@ -288,11 +305,14 @@ try {
         ).trim(),
         deleteData ? "absent" : "present",
       );
-      record("uninstall-result-read-over-ssh", { deleteData });
+      record(
+        deleteData
+          ? "uninstall-without-SSH-actual-files-removed"
+          : "uninstall-result-read-over-ssh",
+        { deleteData },
+      );
       if (!deleteData) {
-        await client.screen.click('[data-iori-action="settings-close"]');
-        await openSettingsSection(client.screen, "open-connection");
-        await client.screen.click('[data-iori-action="register-new-host"]');
+        await client.screen.wait('[data-iori-action="setup-host"]');
         await openSsh();
         await answerPassphrase();
         await client.screen.click('[data-iori-action="setup-submit"]');

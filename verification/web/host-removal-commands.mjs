@@ -9,7 +9,7 @@ import {
 } from "../../packages/protocol/src/index.ts";
 // Substitute only the desktop local-control/filesystem boundary. Host responses
 // and deletion results come from the actual packaged Host and its OS worker.
-export function removalCommands() {
+export function removalCommands(onResponse) {
   return {
     async native_host_setup_status() {
       const root = process.env.XDG_DATA_HOME;
@@ -64,6 +64,10 @@ export function removalCommands() {
           throw error;
         });
       if (!value) return null;
+      onResponse?.(
+        "host.uninstall.result",
+        JSON.stringify({ ok: true, result: value.status }),
+      );
       if (remove) await rm(file);
       return value.status;
     },

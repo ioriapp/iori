@@ -14,10 +14,6 @@ import {
   SortableSidebarItem,
   useSidebarSortHandle,
 } from "./SidebarSort.tsx";
-import {
-  hostRemovalLabel,
-  type HostRemoval,
-} from "./updates/host-lifecycle.ts";
 import { hostNeedsUpdate } from "./updates/host-controller.ts";
 import { UpdateMark, SettingsUpdateMark } from "./updates/UpdateSettings.tsx";
 import { hasWindowChrome } from "./native.ts";
@@ -105,7 +101,6 @@ type Props = {
   teamsHostKey?: string;
   onTeams: (host: HostInfo) => void;
   connectedHosts: string[];
-  removals: Record<string, HostRemoval>;
   folders: SidebarFolder[];
   selected?: { hostKey: string; workspacePath: string; worktreePath: string };
   historyError: Record<string, string>;
@@ -318,7 +313,6 @@ export function Navigation({
   teamsHostKey,
   onTeams,
   connectedHosts,
-  removals,
   folders,
   selected,
   historyError,
@@ -846,7 +840,6 @@ ${item.path}`}
     const id = `host:${host.publicKey}`;
     const open = !collapsed.has(id) || Boolean(needle);
     const connected = connectedHosts.includes(host.publicKey);
-    const removalLabel = hostRemovalLabel(removals[host.publicKey]);
     // A Host that is not connected has not answered yet; that is not a failure.
     const historyFailure = connected ? historyError[host.publicKey] : undefined;
     return (
@@ -862,13 +855,9 @@ ${item.path}`}
               <SortableRowButton
                 sortable={!needle}
                 className="nav-host-title"
-                data-iori-removal={removals[host.publicKey]?.status?.phase}
                 data-iori-host-key={host.publicKey}
               >
-                <span className="nav-host-name">
-                  {host.hostName}
-                  {removalLabel ? ` · ${t(removalLabel)}` : ""}
-                </span>
+                <span className="nav-host-name">{host.hostName}</span>
                 {host.os && <span className="nav-host-os">{host.os}</span>}
                 <span
                   className="nav-connected-mark"

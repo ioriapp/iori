@@ -96,7 +96,7 @@ Claude Code・Codex・Pi・OpenCode・Cursor CLI・Antigravity CLI などの CLI
 
 ## iori Host を入れる
 
-Windows・Linux では、iori Client で「iori Hostを用意する」を選び、「この PC」にインストールします。Host のインストールから Client との紐付けまで自動で進みます。別の Linux マシンへ Host をインストールするには「別のマシン（SSH）」を選びます。`~/.ssh/config` の設定がそのまま使われます。
+Windows・Linux では、iori Client で「iori Hostを用意する」を選び、「この PC」にインストールします。Host のインストールから Client との紐付けまで自動で進みます。別の Linux・Windows マシンへ Host をインストールするには「別のマシン（SSH）」を選びます。`~/.ssh/config` の設定がそのまま使われます。Windows では、SSH で接続するユーザーがその PC の管理者である必要があります。管理者でない時は、その PC で Host をインストールし（「この PC」か下のインストールのコマンド）、ほかの端末からの接続を管理者に許可してもらってから、招待でこの Client を登録してください。
 
 コマンドから入れることもできます。プロジェクトで作業するいつものユーザーで実行してください。管理者の権限は要りません。
 

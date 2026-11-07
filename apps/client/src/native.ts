@@ -37,40 +37,33 @@ export const native = {
       receiptPath,
       remove,
     }),
+  sshClient: () => invoke<{ available: boolean }>("native_ssh_client"),
   sshCandidates: () => invoke<string[]>("native_ssh_candidates"),
-  sshConnect: (destination: string, session: string) =>
-    invoke<import("./host-setup/SshSetup.tsx").SshMachine>(
+  sshConnect: (
+    destination: string,
+    session: string,
+    purpose: import("./host-setup/ssh-events.ts").SshPurpose,
+  ) =>
+    invoke<import("./host-setup/ssh-events.ts").SshMachine>(
       "native_ssh_connect",
-      { destination, session },
+      { destination, session, purpose },
     ),
   sshInstall: (
     session: string,
-    installed: boolean,
-    running: boolean,
-    allowConnections: boolean,
+    mode: import("./host-setup/ssh-events.ts").SshInstallMode,
   ) =>
-    invoke<{ invite?: unknown; signInRequired?: boolean }>(
+    invoke<import("./host-setup/ssh-events.ts").SshInstallResult>(
       "native_ssh_install",
-      {
-        session,
-        installed,
-        running,
-        allowConnections,
-      },
-    ),
-  sshAllow: (target: string, user: string, session: string) =>
-    invoke<{ allowed: boolean; administrator: boolean; message?: string }>(
-      "native_ssh_allow",
-      { target, user, session },
+      { session, mode },
     ),
   sshCancel: (session: string) =>
     invoke<void>("native_ssh_cancel", { session }),
   sshAnswer: (prompt: string, answer: string | null) =>
     invoke<void>("native_ssh_answer", { prompt, answer }),
   onSshSetup: (
-    fn: (event: import("./host-setup/SshSetup.tsx").SshEvent) => void,
+    fn: (event: import("./host-setup/ssh-events.ts").SshEvent) => void,
   ) =>
-    listen<import("./host-setup/SshSetup.tsx").SshEvent>(
+    listen<import("./host-setup/ssh-events.ts").SshEvent>(
       "native://ssh-setup",
       ({ payload }) => fn(payload),
     ),
@@ -241,6 +234,8 @@ export const native = {
   clipboardWrite: (text: string) =>
     invoke<void>("native_clipboard_write", { text }),
   showKeyboard: () => invoke<void>("native_show_keyboard"),
+  openWindowsOptionalFeatures: () =>
+    invoke<void>("native_open_windows_optional_features"),
   openUrl: (url: string) => invoke<void>("native_open_url", { url }),
   onBack: async (fn: () => boolean): Promise<() => void> => {
     let disposed = false;

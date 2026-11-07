@@ -2,6 +2,14 @@
 
 通常の開発ではLinuxでブラウザーの画面E2Eを使う。実機と本物のCLIを使う追加の検証には、対象OSや端末などの設備が要る。
 
+## 見本と製品の画面を同じ状態で比べる
+
+画面の作業の受入では、`node verification/ui-states/server.mjs` の開発用ページで状態とテーマを選ぶ。製品の部品に状態のデータを渡して描き、nativeやHostは呼ばない。製品のbuildには入らず、操作列や状態遷移の試験の代わりにはしない。
+
+`node verification/ui-states/capture.mjs` は見本の全idをPC（1440×900）・WQHD（2560×1440）・狭い窓（390×844）の明暗で撮る。画像・高さの実測値・見本を左、製品を右に並べた `index.html` は `.local/evidence/v16-state-shots/` の実行ごとのフォルダーに出る。高さは合否を判定せず、描けない状態や見本の画像が無い場合は理由を一覧に残す。
+
+見本の状態一覧は `--catalog=〈host-setup-states.ts〉`、見本の画像は `--reference=〈フォルダー〉`、保存先は `--output=〈フォルダー〉` で変えられる（開発用ページでは `IORI_UI_STATE_CATALOG`）。既定は作業用の `.local/ui-sample/v16-host-setup/src/host-setup-states.ts` と `.local/ui-sample/dist-shots-v16-host-setup/`。一部だけ撮る時は `--only=A0,B2b` を使う。既存のPlaywrightとChromiumを使い、導入場所は `IORI_PLAYWRIGHT_MODULE` と `IORI_CHROMIUM_PATH` で指定できる。描画データは `verification/ui-states/fixtures.ts` に置き、画面の非公開の初期状態を渡す対応は開発用サーバーだけが持つ。
+
 ## 追加の実機検証
 
 `verification/local.example.json` を `~/.config/iori/verification.json` にコピーし、検証環境に合わせて設定する。通信・端末登録、Clientの更新とHostの導入、Terminal・CLI・通知などの実機検証は `verification/` の各機能のrunnerを使う。Windows、Linux、Androidの対象設備とSSH・ADBなどが必要で、ブラウザーのE2Eとは別の確認である。runnerの一部は特定の検証環境のパスや利用者を前提とする。日常用の保存先と端末を使わず、検証用の環境を分ける。
@@ -26,6 +34,10 @@
 - 実機で走らせる前に静的検査を通す。
 - 検証資材の不具合は `.local` のコピーで直さず、その場で `verification/` を直して変更に含める。
 - 失敗時の診断が巨大な値（DOM要素・React内部など）を展開しないよう、比較は真偽値・文字列など小さな値で行う。
+
+Linuxの実機用buildもNode 24から起動する。`verification/connection/prepare-linux.mjs` は起動元のNodeでpnpmとその子scriptを動かし、Hostへ同梱するNodeに合わせてnode-ptyを作り直す。tool managerが別のNodeを選ぶ環境や、別のNodeで作ったpnpm cacheを再利用する時も、通常の準備の入口を使う。
+
+Linuxの検証用debの導入・回収は `verification/native/linux-packages.mjs` の共通helperを使い、apt-getの `DPkg::Lock::Timeout=-1` で鍵が空くまで待つ。鍵ファイルの削除や別のapt処理の停止はしない。
 
 ## ブラウザーの画面E2E
 
@@ -210,7 +222,7 @@ V1（`opencode-ai`）とV2（`@opencode/cli`）を比べる時は、隔離した
 
 `verification/host-setup/build.mjs --client Windows --ssh-windows` でWindows・Linuxの検証用Clientと署名済みのWindows Hostを作る。準備から回収まで `IORI_VERIFICATION_CONFIG=verification/host-setup/tauri.conf.json`・`IORI_VERIFICATION_EVIDENCE_ROOT`・`IORI_VERIFICATION_PORT` を同じ値にし、Node 24で `node scripts/run-bounded-check.mjs node` に続けて各入口を実行する。
 
-`verification/host-setup/run-ssh.mjs --host Windows --client Windows --shell=cmd --keep-build` と `--host Windows --client Linux --shell=powershell --keep-build` は、SSHの接続先の選択・確認への回答・導入・登録・Direct接続・SSH終了後の継続・既存Hostの登録・撤去結果の読取りを画面から通す。`--signed-out` を加えた実行は、未サインインの使い捨てユーザーへ導入し、サインインの案内、接続許可のコマンドの折り返し・コピー、導入物とログオン時の起動の登録を確かめる。表示するコマンドは、対象のパスを含む読める1行であることを確かめる。検証用デスクトップに使い捨てユーザーの対話ログオンを作り、本人のInteractiveタスクでHostを起動する。同じ導入画面の登録ボタンで登録し、起動済みのHostのプロセスが変わらないことを確かめる。`--reconnect` を加えると、Hostが起動した後に導入画面を閉じ、同じ接続先を選び直して登録する。完了の知らせに許可の案内が残り、そこから「管理者のアカウントで許可する…」に検証機の管理者を入れ、OpenSSHの確認に答え、導入したユーザーのHostのパスへ規則が加わることを確かめる。規則の読み取りは接続先の確認時に非管理者の接続で行う。読み取れなければ案内を足さない。この対話ログオンはWindowsのサインイン画面でのサインインの代替であり、終了時にそのプロセスと専用タスクを回収する。最後の実行では `--keep-build` を外してbuildのフォルダーも回収する。 途中で打ち切った時は、同じ設定で `verification/host-setup/run-ssh.mjs --host Windows --client Windows --cleanup-build` を実行し、共通helperでbuild・ClientのSSH秘密鍵・配布元の使い捨ての鍵を回収する。
+`verification/host-setup/run-ssh.mjs --host Windows --client Windows --shell=cmd --keep-build` と `--host Windows --client Linux --shell=powershell --keep-build` は、SSHの接続先の選択・確認への回答・導入・登録・Direct接続・SSH終了後の継続・既存Hostの登録・撤去結果の読取りを画面から通す。管理者の接続先では、選択なしでWindowsファイアウォールの規則が加わる。`--signed-out` を加えた実行は、管理者でない使い捨てユーザーを使い、導入に進まず「この PC」での導入と招待を案内し、招待の入口へ進むことを確かめる。最後の実行では `--keep-build` を外してbuildのフォルダーも回収する。途中で打ち切った時は、同じ設定で `verification/host-setup/run-ssh.mjs --host Windows --client Windows --cleanup-build` を実行し、共通helperでbuild・ClientのSSH秘密鍵・配布元の使い捨ての鍵を回収する。
 
 `--shell=powershell` は既定のshellをPowerShell 7にし、Windows標準のPowerShell 5.1へ渡す経路も確かめる。検証用CAには失効の情報が無いため、検証ソースのcurlだけに `--ssl-revoke-best-effort` を付け、CAと名前の確認は維持する。取得の終了コードと標準エラーは各runの `download.json`、後片付けが失敗した時の残ったフォルダーとプロセスは `host-cleanup.json` に残す。
 

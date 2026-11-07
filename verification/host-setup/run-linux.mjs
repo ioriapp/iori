@@ -4,6 +4,10 @@ import { mkdir, readFile, writeFile, mkdtemp, rm } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import path from "node:path";
+import {
+  installLinuxVerificationPackage,
+  removeLinuxVerificationPackage,
+} from "../native/linux-packages.mjs";
 import { lockEntry } from "../native/locks.mjs";
 import { gate, linux, sh } from "../native/remote.mjs";
 import { command, evidence } from "../connection/build.mjs";
@@ -119,9 +123,10 @@ try {
       process.pid +
       ".deb",
   ]);
-  linux(
-    `sudo dpkg -i /tmp/iori-host-setup-${process.pid}.deb && rm /tmp/iori-host-setup-${process.pid}.deb`,
+  await installLinuxVerificationPackage(
+    `/tmp/iori-host-setup-${process.pid}.deb`,
   );
+  linux(`rm /tmp/iori-host-setup-${process.pid}.deb`);
   installed = true;
   let passphrase;
   if (scenario === "ssh") {
@@ -184,7 +189,7 @@ try {
   await client.screen.click(act("setup-host"));
   await waitSetup();
   assert.equal(
-    await client.screen.attribute(act("setup-local"), "aria-pressed"),
+    await client.screen.attribute(act("setup-local"), "aria-checked"),
     "true",
   );
   assert.equal(
@@ -200,14 +205,14 @@ try {
     await client.screen.wait('[data-iori-state="ssh-prompt"]');
     assert.match(
       await client.screen.text('[data-iori-state="ssh-prompt"]'),
-      /Are you sure/u,
+      /first connection|初めて接続します/u,
     );
     await client.screenshot("ssh-host-key");
     await client.screen.click(act("ssh-answer"));
     await client.screen.wait('[data-iori-field="ssh-answer"]');
     assert.match(
       await client.screen.text('[data-iori-state="ssh-prompt"]'),
-      /passphrase/iu,
+      /passphrase|パスフレーズ/iu,
     );
     await client.screenshot("ssh-passphrase");
     await client.screen.input('[data-iori-field="ssh-answer"]', passphrase);
@@ -350,6 +355,45 @@ try {
     );
     record("local receipt read and data retained");
   }
+  if (scenario === "ssh") {
+    stage("SSH Host uninstall and receipt");
+    await uninstallFromSettings(client, {
+      deleteData: false,
+      evidenceDirectory: output,
+      record,
+      answerPrompt: async () => {
+        await client.screen.wait('[data-iori-field="ssh-answer"]');
+        await client.screen.input('[data-iori-field="ssh-answer"]', passphrase);
+        await client.screen.click(act("ssh-answer"));
+      },
+      removed: () =>
+        waitForOperation(
+          "SSH Host removed",
+          () =>
+            linux(
+              asUser(
+                'test -e "$HOME/.local/lib/iori-host/iori-host" && printf present || printf absent',
+                target,
+              ),
+            ),
+          (value) => value === "absent",
+          () =>
+            client.screen.text(
+              '[data-iori-view="host-maintenance-confirmation"] [role="alert"]',
+            ),
+        ),
+    });
+    assert.equal(
+      linux(
+        asUser(
+          'test -f "$HOME/.local/share/iori-host/host.sqlite" && printf retained',
+          target,
+        ),
+      ),
+      "retained",
+    );
+    record("SSH receipt read and data retained");
+  }
   result.passed = true;
   delete result.operationAtFailure;
 } catch (error) {
@@ -377,7 +421,7 @@ try {
         result.removedUsers.push(account.name);
       },
     ]),
-    ["deb", () => installed && linux(`sudo dpkg -r ${sh(packageName)}`)],
+    ["deb", () => installed && removeLinuxVerificationPackage(packageName)],
     ["distribution", () => distribution?.close()],
     ["SSH private key", () => rm(secret, { recursive: true, force: true })],
     [

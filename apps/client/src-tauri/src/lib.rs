@@ -106,7 +106,7 @@ pub fn run() {
             #[cfg(any(windows, target_os = "linux"))]
             host_setup::ssh::native_ssh_install,
             #[cfg(any(windows, target_os = "linux"))]
-            host_setup::ssh::native_ssh_allow,
+            host_setup::ssh::native_ssh_client,
             #[cfg(any(windows, target_os = "linux"))]
             host_setup::ssh::native_ssh_cancel,
             #[cfg(any(windows, target_os = "linux"))]
@@ -154,6 +154,7 @@ pub fn run() {
             terminal::native_clipboard_content,
             terminal::native_clipboard_write,
             terminal::native_open_url,
+            terminal::native_open_windows_optional_features,
             native::native_back_default,
             native::native_show_keyboard
         ])

@@ -272,3 +272,20 @@ pub(crate) async fn native_open_url(url: String, app: AppHandle<Wry>) -> Result<
         .open_url(url, None::<&str>)
         .map_err(|error| error.to_string())
 }
+
+#[tauri::command]
+pub(crate) async fn native_open_windows_optional_features(
+    app: AppHandle<Wry>,
+) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        app.opener()
+            .open_url("ms-settings:optionalfeatures", None::<&str>)
+            .map_err(|error| error.to_string())
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = app;
+        Err("Windows settings are only available on Windows".to_owned())
+    }
+}

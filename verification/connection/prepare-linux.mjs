@@ -1,5 +1,14 @@
 import { local as verificationLocal } from "../native/local.mjs";
-import { readFile, mkdir, mkdtemp, rm, cp, chmod } from "node:fs/promises";
+import {
+  readFile,
+  mkdir,
+  mkdtemp,
+  rm,
+  cp,
+  chmod,
+  writeFile,
+  realpath,
+} from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { evidence, command } from "./build.mjs";
@@ -28,13 +37,25 @@ const binaries = [
   "terminal-native/iori_terminal_native.node",
   "terminal-native/iori",
 ];
+// Tool-manager pnpm shims can select another Node even when this entry runs
+// under Node 24. Keep pnpm and lifecycle scripts on this entry's actual Node.
+await mkdir(path.resolve(".local"), { recursive: true });
+const tools = await mkdtemp(path.resolve(".local/node-tools-"));
 try {
+  const corepack = await realpath(
+    path.join(path.dirname(process.execPath), "corepack"),
+  );
+  await writeFile(
+    path.join(tools, "pnpm"),
+    `#!/bin/sh\nexec ${sh(process.execPath)} ${sh(corepack)} pnpm "$@"\n`,
+    { mode: 0o700 },
+  );
   if (addonOnly) await createSourceCopy(source, copyRoot);
   await mkdir(cache, { recursive: true });
   const env = {
     ...process.env,
     CI: "1",
-    PATH: "/root/.cargo/bin:" + process.env.PATH,
+    PATH: `${tools}:${path.dirname(process.execPath)}:/root/.cargo/bin:${process.env.PATH}`,
     CARGO_HOME: path.join(cache, "cargo-home"),
     CARGO_TARGET_DIR: path.join(cache, "cargo-target"),
     RUSTUP_HOME: process.env.RUSTUP_HOME ?? "/root/.rustup",
@@ -49,6 +70,9 @@ try {
     ],
     { cwd: state.localRoot, env },
   );
+  // pnpm can reuse a native module cached under a different Node ABI. Rebuild
+  // the PTY binding for the runtime that will be copied into this Host bundle.
+  await command("pnpm", ["rebuild", "node-pty"], { cwd: state.localRoot, env });
   // The source may have been extracted before another worktree's build.
   // Refresh immediately before Cargo while this entry still holds the lock.
   await refreshSourceMtimes(state.localRoot);
@@ -106,5 +130,6 @@ try {
     console.log("Linux verification dependencies and addon ready");
   }
 } finally {
+  await rm(tools, { recursive: true, force: true });
   if (copyRoot) await rm(copyRoot, { recursive: true, force: true });
 }

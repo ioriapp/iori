@@ -4,7 +4,7 @@ export type HostRemoval = {
   status?: MaintenanceStatus;
   local: boolean;
   sshDestination?: string;
-  hidden?: boolean;
+  hostName?: string;
 };
 let records: Record<string, HostRemoval> = {};
 let saving = Promise.resolve();
@@ -29,16 +29,6 @@ export function saveHostRemoval(key: string, value?: HostRemoval) {
 export function hostReconnectPaused(key: string) {
   const value = records[key];
   return (
-    value?.hidden ||
-    value?.status?.phase === "removing" ||
-    value?.status?.phase === "succeeded"
+    value?.status?.phase === "removing" || value?.status?.phase === "succeeded"
   );
-}
-
-export function hostRemovalLabel(value: HostRemoval | undefined) {
-  return value?.status?.phase === "succeeded"
-    ? "Uninstalled"
-    : value?.status?.phase === "removing"
-      ? "Uninstall requested"
-      : undefined;
 }

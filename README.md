@@ -96,7 +96,7 @@ Create a Git worktree for each task from the sidebar and start an agent or a tea
 
 ## Install iori Host
 
-On Windows or Linux, open iori Client, choose **Set up iori Host**, and install it on **This PC**. Installation and registration with the Client happen automatically. To install the Host on another Linux machine, choose **Another machine (SSH)**. The Client uses your OpenSSH settings in `~/.ssh/config`.
+On Windows or Linux, open iori Client, choose **Set up iori Host**, and install it on **This PC**. Installation and registration with the Client happen automatically. To install the Host on another Linux or Windows machine, choose **Another machine (SSH)**. The Client uses your OpenSSH settings in `~/.ssh/config`. On Windows, the SSH user must be an administrator of that PC. If you are not an administrator there, install the Host on that PC itself (**This PC**, or the install command below), have an administrator allow connections from other devices, and register this Client with an invitation.
 
 You can also install the Host from a terminal, as the user who works on the projects. No administrator rights are needed.
 

@@ -202,7 +202,7 @@ function session(
 
   const commands = {
     ...updateCommands(updateSource),
-    ...(hostUninstall ? removalCommands() : {}),
+    ...(hostUninstall ? removalCommands(onResponse) : {}),
     native_initial_state: (args) =>
       storage.initial({
         language: string(args.language),

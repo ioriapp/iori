@@ -1,9 +1,13 @@
 import type {
+  CliSummary,
   MaintenanceKind,
   MaintenancePlan,
   MaintenanceStatus,
 } from "@iori/protocol";
-import { TriangleAlert } from "lucide-react";
+import { createContext, useContext } from "react";
+import { CliIcon } from "../CliIcon.tsx";
+import { Bot, Terminal, TriangleAlert } from "lucide-react";
+import { WorkRow } from "../components/flow/WorkRow.tsx";
 import { SettingsSection, FieldRow } from "../components/page-layout.tsx";
 import { Button } from "../components/ui/button.tsx";
 import { Spinner } from "../components/ui/spinner.tsx";
@@ -142,6 +146,10 @@ export function HostMaintenanceProgress({
   );
 }
 
+export const MaintenanceClisContext = createContext<
+  () => Record<string, Record<string, CliSummary>>
+>(() => ({}));
+
 export function HostMaintenanceWork({
   plan,
   hostKey,
@@ -153,6 +161,7 @@ export function HostMaintenanceWork({
   onOpenTerminal: (hostKey: string, terminalId: string) => void;
   t: (key: string) => string;
 }) {
+  const clis = useContext(MaintenanceClisContext)()[hostKey];
   return (
     <>
       {plan.targets.length > 0 && (
@@ -160,41 +169,46 @@ export function HostMaintenanceWork({
           data-iori-maintenance-working="true"
           title={
             <span className="worktree-removal-warning-heading">
-              <TriangleAlert aria-hidden="true" />
               {t("Work that will be interrupted")}
+              <TriangleAlert aria-hidden="true" />
             </span>
           }
         >
           <div className="section-rows">
             {plan.targets.map((target) => (
-              <Button
+              <WorkRow
                 key={target.id}
-                variant="ghost"
-                className="field-row h-auto w-full justify-between rounded-none whitespace-normal text-left text-foreground first:rounded-t-lg last:rounded-b-lg"
+                icon={
+                  clis?.[target.id] ? (
+                    <CliIcon
+                      hostKey={hostKey}
+                      cli={clis[target.id]}
+                      size={15}
+                    />
+                  ) : target.command ? (
+                    <Terminal size={15} />
+                  ) : (
+                    <Bot size={15} />
+                  )
+                }
+                className="wrap-anywhere"
+                title={
+                  target.command
+                    ? `${target.title} · ${target.command}`
+                    : target.title
+                }
+                state={target.state}
+                label={
+                  {
+                    running: "Running",
+                    approval: "Approval",
+                    question: "Question",
+                  }[target.state]
+                }
                 data-iori-maintenance-work={target.id}
+                data-iori-maintenance-work-state={target.state}
                 onClick={() => onOpenTerminal(hostKey, target.id)}
-              >
-                <span className="field-copy wrap-anywhere text-foreground">
-                  {target.title}
-                </span>
-                <span
-                  className="field-control"
-                  data-iori-maintenance-work-state={target.state}
-                >
-                  {target.command
-                    ? t("Running {command}").replace(
-                        "{command}",
-                        () => target.command!,
-                      )
-                    : t(
-                        {
-                          running: "Running",
-                          approval: "Waiting for approval",
-                          question: "Question",
-                        }[target.state],
-                      )}
-                </span>
-              </Button>
+              />
             ))}
           </div>
         </SettingsSection>

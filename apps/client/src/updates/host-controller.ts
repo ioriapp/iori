@@ -1,7 +1,5 @@
-import { native } from "../native.ts";
-import { hostRemoval } from "./host-lifecycle.ts";
-import { removalComplete } from "./removal-reader.ts";
 import { useSyncExternalStore } from "react";
+import { uninstallFlow } from "./uninstall-flow.ts";
 import {
   compareVersions,
   type HostInfo,
@@ -56,22 +54,8 @@ export function startHostMaintenance() {
     if (
       event.type === "host.maintenance.changed" &&
       event.status.kind === "uninstall"
-    ) {
-      // Other devices retain their ordinary disconnected state.
-      const own = hostRemoval(hostKey);
-      if (!own || own.status?.operationId !== event.status.operationId) return;
-      void connection
-        .setRemoval(hostKey, { ...own, status: event.status })
-        .then(() => {
-          if (
-            event.status.phase === "removing" &&
-            !own.local &&
-            !own.sshDestination
-          )
-            removalComplete(hostKey, event.status);
-        })
-        .catch(() => {});
-    }
+    )
+      return;
     if (event.type === "host.maintenance.changed") {
       change(hostKey, {
         instanceId:
@@ -129,17 +113,6 @@ export function startHostMaintenance() {
     }
   });
   const stopConnection = connection.subscribe(() => {
-    for (const [key, removal] of Object.entries(
-      connection.getSnapshot().removals,
-    )) {
-      if (
-        removal.status &&
-        operations[key]?.status !== removal.status &&
-        (!operations[key] ||
-          operations[key].status.operationId === removal.status.operationId)
-      )
-        change(key, { status: removal.status });
-    }
     for (const [hostKey, operation] of Object.entries(operations)) {
       if (
         operation.sentOn &&
@@ -175,17 +148,16 @@ export async function performHostMaintenance(
   plan: MaintenancePlan,
   deleteData = false,
 ) {
+  if (kind === "uninstall") {
+    await uninstallFlow.open(hostKey);
+    await uninstallFlow.start(hostKey, { deleteData });
+    return;
+  }
   const operationId = crypto.randomUUID();
   const status: MaintenanceStatus = {
     operationId,
     kind,
-    phase:
-      kind === "uninstall"
-        ? "uninstalling"
-        : kind === "update"
-          ? "downloading"
-          : "restarting",
-    ...(kind === "uninstall" ? { deleteData, completed: [] } : {}),
+    phase: kind === "update" ? "downloading" : "restarting",
     ...(kind === "update" ? { version: clientVersion } : {}),
   };
   const operation = {
@@ -193,17 +165,6 @@ export async function performHostMaintenance(
     sentOn: connection.connectionIdOf(hostKey),
     instanceId: connection.getSnapshot().observedHosts[hostKey]?.instanceId,
   };
-  if (kind === "uninstall") {
-    const local = await native.hostSetupStatus().catch(() => null);
-    const host = connection
-      .getSnapshot()
-      .initial?.hosts.find((item) => item.publicKey === hostKey);
-    await connection.setRemoval(hostKey, {
-      status,
-      local: local?.host?.publicKey === hostKey,
-      sshDestination: host?.sshDestination,
-    });
-  }
   change(hostKey, operation);
   try {
     const input = {
@@ -218,30 +179,13 @@ export async function performHostMaintenance(
             { ...input, version: clientVersion },
             operationId,
           )
-        : kind === "uninstall"
-          ? await connection.requestHost(
-              hostKey,
-              "host.uninstall",
-              { ...input, deleteData },
-              operationId,
-            )
-          : await connection.requestHost(
-              hostKey,
-              "host.restart",
-              input,
-              operationId,
-            );
+        : await connection.requestHost(
+            hostKey,
+            "host.restart",
+            input,
+            operationId,
+          );
     if (result?.ok) {
-      if (kind === "uninstall") {
-        const own = hostRemoval(hostKey)!;
-        await connection.setRemoval(hostKey, { ...own, status: result.result });
-        if (
-          result.result.phase === "removing" &&
-          !own.local &&
-          !own.sshDestination
-        )
-          removalComplete(hostKey, result.result);
-      }
       change(hostKey, {
         ...operations[hostKey],
         sentOn:
@@ -258,10 +202,6 @@ export async function performHostMaintenance(
         phase: "failed",
         reason: "request",
       };
-      if (kind === "uninstall") {
-        const own = hostRemoval(hostKey)!;
-        await connection.setRemoval(hostKey, { ...own, status: failed });
-      }
       change(hostKey, { ...operation, status: failed });
     }
   } catch {

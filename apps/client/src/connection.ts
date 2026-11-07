@@ -1,6 +1,4 @@
-import { startRemovalReader } from "./updates/removal-reader.ts";
 import {
-  hostRemoval,
   hostReconnectPaused,
   loadHostRemovals,
   saveHostRemoval,
@@ -78,6 +76,7 @@ export class ConnectionController {
   };
   private listeners = new Set<() => void>();
   private initialized?: Promise<void>;
+  private forgottenHosts: string[] = [];
   private reconnecting?: Promise<void>;
   private pairing = false;
   private eventStops: (() => void)[] = [];
@@ -178,11 +177,6 @@ export class ConnectionController {
                   event.host.addresses,
                 ),
               };
-              if (hostRemoval(hostKey)) {
-                void this.clearRemoval(hostKey).catch(() =>
-                  this.update({ storageError: true }),
-                );
-              }
               this.update({
                 observedHosts: { ...this.state.observedHosts, [hostKey]: host },
               });
@@ -332,13 +326,14 @@ export class ConnectionController {
         ),
       );
       const removals = await loadHostRemovals();
+      this.forgottenHosts =
+        (await native.loadView<string[]>("forgotten-hosts")) ?? [];
       const initial = await native.initial();
       initial.hosts = initial.hosts.filter(
-        (host) => !removals[host.publicKey]?.hidden,
+        (host) => !this.forgottenHosts.includes(host.publicKey),
       );
       this.update({ removals });
       this.update({ initial, error: undefined });
-      startRemovalReader(this);
       for (const host of initial.hosts) this.recordFor(host);
       const activeHostKey = initial.activeHostKey;
       const host =
@@ -378,30 +373,29 @@ export class ConnectionController {
     this.update({ removals: { ...this.state.removals, [key]: value } });
   }
   async clearRemoval(key: string) {
-    await saveHostRemoval(key);
+    await saveHostRemoval(key).catch((error) => {
+      this.update({ storageError: true });
+      throw error;
+    });
     const removals = { ...this.state.removals };
     delete removals[key];
     this.update({ removals });
   }
-  async connectRemovedHost(key: string) {
-    // Explicit connection is allowed; a failed attempt keeps the saved marker.
-    const previous = hostRemoval(key);
-    await this.clearRemoval(key);
-    try {
-      await this.reconnectHost(key);
-    } catch (error) {
-      if (previous) await this.setRemoval(key, previous);
-      throw error;
-    }
-  }
   async forgetHost(key: string) {
-    const previous = hostRemoval(key);
-    await this.setRemoval(key, {
-      ...previous,
-      local: previous?.local ?? false,
-      hidden: true,
-    });
+    if (!this.forgottenHosts.includes(key)) {
+      this.forgottenHosts = [...this.forgottenHosts, key];
+      await native
+        .saveView("forgotten-hosts", this.forgottenHosts)
+        .catch((error) => {
+          this.forgottenHosts = this.forgottenHosts.filter(
+            (item) => item !== key,
+          );
+          this.update({ storageError: true });
+          throw error;
+        });
+    }
     const record = this.connections.get(key);
+    if (record?.retry) clearTimeout(record.retry);
     this.connections.delete(key);
     if (record?.connectionId) {
       this.connectionHosts.delete(record.connectionId);
@@ -830,6 +824,11 @@ export class ConnectionController {
       this.invitationOperationId = undefined;
       this.pendingInvitationOperationId = undefined;
       this.pendingInvitationStatus = undefined;
+      this.forgottenHosts = this.forgottenHosts.filter(
+        (key) => key !== host.publicKey,
+      );
+      await native.saveView("forgotten-hosts", this.forgottenHosts);
+      await this.clearRemoval(host.publicKey);
       await this.saveHost(host, true);
       await this.subscribeEvents(record, id);
       this.pairOperation = undefined;

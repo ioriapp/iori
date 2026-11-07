@@ -5,6 +5,11 @@ import { DatabaseSync } from "node:sqlite";
 import { buildHost } from "../../scripts/release/host.mjs";
 import { startUpdateHost } from "../updates/host-distribution.mjs";
 import { waitFor } from "../ui.mjs";
+import { closeSettingsIfOpen } from "../host-setup/uninstall-scenario.mjs";
+import {
+  openSettingsSection,
+  register,
+} from "../../e2e/connection/scenario.mjs";
 
 export async function prepareRemovalHost(runRoot, home) {
   const bundle = join(home, ".local/lib/iori-host");
@@ -31,6 +36,7 @@ export async function hostUninstallScenario({
   mobile,
   desktop,
   reload,
+  invitation,
 }) {
   const { screen } = client;
   const themes = async (name) => {
@@ -41,7 +47,7 @@ export async function hostUninstallScenario({
       await shot(`${name}-${theme}`);
     }
   };
-  // The same screen at PC, WQHD and phone width in both themes, when
+  // The same screen at PC and phone width in both themes, when
   // pictures are asked for.
   const pictures = async (name) => {
     await shot(name);
@@ -51,7 +57,6 @@ export async function hostUninstallScenario({
     );
     for (const [device, width, height] of [
       ["pc", 1440, 1000],
-      ["wqhd", 2560, 1440],
       ["mobile", 390, 844],
     ]) {
       await client.browser.viewport({ width, height });
@@ -101,13 +106,14 @@ export async function hostUninstallScenario({
   }
   const expectedFile = await readFile(join(worktree, "sample.txt"), "utf8");
   const root = join(dataRoot, "iori-host");
+  const dialog = '[data-iori-view="host-maintenance-confirmation"]';
+  const notice = '[data-iori-view="host-notice"]';
   async function settings() {
-    await screen.click('[data-iori-action="settings-open"]');
-    await screen.click('[data-iori-action="open-host-version"]');
+    await openSettingsSection(screen, "open-host-version");
   }
   async function remove(deleteData) {
     await screen.click('[data-iori-action="host-uninstall"]');
-    await screen.wait('[data-iori-view="host-maintenance-confirmation"]');
+    await screen.wait(dialog);
     await waitFor(() =>
       screen.evaluate(
         `document.querySelector('[data-iori-action="host-maintenance-confirm"]')?.disabled === false`,
@@ -120,71 +126,113 @@ export async function hostUninstallScenario({
       ),
       "unchecked",
     );
+    const text = await screen.text(dialog);
+    assert.match(
+      text,
+      /All devices using this Host|すべての端末から接続できなくなります/u,
+    );
+    assert.match(
+      text,
+      /Development files and CLI conversations|開発ファイルと、CLIの会話/u,
+    );
     if (deleteData)
       await screen.click('[data-iori-field="host-uninstall-data"]');
     const warning = await screen.evaluate(`(() => {
-      const dialog = document.querySelector('[data-iori-view="host-maintenance-confirmation"]');
-      return {
-        targets: dialog.querySelectorAll('[data-iori-maintenance-work]').length,
-        shown: Boolean(dialog.querySelector('[data-iori-maintenance-working]')),
-      };
+      const dialog = document.querySelector('${dialog}');
+      return { targets: dialog.querySelectorAll('[data-iori-maintenance-work]').length,
+        shown: Boolean(dialog.querySelector('[data-iori-maintenance-working]')) };
     })()`);
     assert.equal(warning.shown, warning.targets > 0);
     record(deleteData ? "delete-data-warning" : "keep-data-warning", warning);
-    await pictures(
-      deleteData ? "delete-data-confirmation" : "keep-data-confirmation",
-    );
+    await pictures(deleteData ? "B2-data" : "B2");
+    await screen.evaluate(`(() => {
+      window.uninstallNoticeTimes = {};
+      const observer = new MutationObserver(() => {
+        const shown = Boolean(document.querySelector('${notice}'));
+        if (shown && !window.uninstallNoticeTimes.shown) window.uninstallNoticeTimes.shown = Date.now();
+        if (!shown && window.uninstallNoticeTimes.shown) {
+          window.uninstallNoticeTimes.closed = Date.now(); observer.disconnect();
+        }
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+    })()`);
     await screen.click('[data-iori-action="host-maintenance-confirm"]');
-    await screen.wait('[data-iori-action="host-maintenance-close"]');
-    assert.match(
-      await screen.text('[data-iori-action="host-maintenance-close"]'),
-      /Close|閉じる/u,
+    await screen.wait('[data-iori-view="host-progress"]');
+    assert.equal(
+      await screen.evaluate(
+        `document.querySelectorAll('[data-iori-view="host-progress"] li').length`,
+      ),
+      4,
     );
-    if (deleteData)
-      await screen.click('[data-iori-action="host-maintenance-close"]');
-    else await screen.key("Escape");
+    await shot(
+      deleteData ? "delete-data-B3-uninstall" : "keep-data-B3-uninstall",
+    );
+    await screen.click('[data-iori-action="host-maintenance-close"]');
     await waitFor(
-      () => screen.visible('[data-iori-view="host-maintenance-confirmation"]'),
+      () => screen.visible(dialog),
       (visible) => !visible,
     );
-    await waitFor(
-      () => present(fixture.bundle),
-      (exists) => !exists,
-    );
-    await screen.wait('[data-iori-state="uninstall-complete"]');
-    assert.equal(
-      await screen.visible('[data-iori-action="settings-close"]'),
-      false,
-    );
+    await closeSettingsIfOpen(screen);
+    // Completion is observed in the Client before checking the actual files.
+    await screen.wait(notice);
     assert.equal(
       await screen.visible('[data-iori-view="host-version"]'),
       false,
     );
-    assert.match(
-      await screen.text('[data-iori-state="uninstall-complete"]'),
-      deleteData
-        ? /saved data were deleted|保存データを削除しました/u
-        : /was uninstalled|アンインストールしました/u,
-    );
-    assert.equal(
-      await screen.evaluate(
-        `document.querySelector('[data-iori-action="settings-close"]') === null`,
-      ),
-      true,
-    );
     if (deleteData) {
-      const text = await screen.text('[data-iori-state="uninstall-complete"]');
+      assert.match(
+        await screen.text(notice),
+        /Some items need your attention|確認が必要なことがあります/u,
+      );
+      assert.equal(
+        await screen.visible('[data-iori-action="host-notice-close"]'),
+        false,
+      );
+      await pictures("B9-closed-warning");
+      await screen.click('[data-iori-action="host-notice-details"]');
+      await screen.wait(dialog);
+      const text = await screen.text(dialog);
+      assert.match(
+        text,
+        /Deleted iori Host and its saved data|iori Hostと保存データを削除しました/u,
+      );
       const instruction = text.search(
-        /The tokens for these sites could not be deleted|次のサイトのtokenは削除できませんでした/u,
+        /Could not delete the tokens|次のサイトのtokenを削除できませんでした/u,
       );
       const site = text.indexOf("https://forgejo.example.invalid");
-      const revoke = text.search(
-        /A token can still be used|tokenは、サイトで無効にするまで/u,
+      const revoke = text.search(/Revoke each token|各サイトでtokenを無効/u);
+      assert.ok(instruction >= 0 && site > instruction && revoke > instruction);
+      await pictures("B9-detail-warning");
+      await screen.click('[data-iori-action="host-maintenance-close"]');
+    } else {
+      assert.match(
+        await screen.text(notice),
+        /Uninstalled iori Host|iori Hostをアンインストールしました/u,
       );
-      assert.ok(instruction >= 0 && site > instruction && revoke > site);
+      assert.equal(
+        await screen.visible('[data-iori-action="host-notice-details"]'),
+        false,
+      );
+      await pictures("B5-last");
+      await waitFor(
+        () => screen.visible(notice),
+        (visible) => !visible,
+      );
+      record(
+        "normal-notice-auto-dismissed",
+        await screen.evaluate(`({
+        durationMilliseconds: window.uninstallNoticeTimes.closed - window.uninstallNoticeTimes.shown,
+      })`),
+      );
     }
-    await shot(deleteData ? "delete-data-notice" : "uninstalled-notice");
-    await shot(deleteData ? "delete-data-result" : "keep-data-result");
+    await waitFor(
+      () => present(fixture.bundle),
+      (exists) => !exists,
+    );
+    await waitFor(
+      () => screen.visible(`[data-iori-host-key="${key}"]`),
+      (visible) => !visible,
+    );
   }
   await screen.contextMenu(
     `button[data-iori-worktree-path=${JSON.stringify(worktree)}]`,
@@ -197,6 +245,18 @@ export async function hostUninstallScenario({
   );
   await pictures("worktree-removal-confirmation");
   await screen.key("Escape");
+  await settings();
+  await pictures("B0");
+  await mobile();
+  await reload();
+  await settings();
+  assert.equal(
+    await screen.visible('[data-iori-action="host-uninstall"]'),
+    false,
+  );
+  await pictures("B8");
+  await desktop();
+  await reload();
   await settings();
   for (const [action, name] of [
     ["host-restart", "restart-confirmation"],
@@ -219,17 +279,12 @@ export async function hostUninstallScenario({
         await screen.text('[data-iori-action="host-maintenance-confirm"]'),
         /Stop and uninstall|止めてアンインストールする/u,
       );
-      await screen.wait('[data-iori-maintenance-open="true"]');
+      assert.match(
+        await screen.text(dialog),
+        /All devices using this Host|すべての端末から接続できなくなります/u,
+      );
     }
-    await pictures(name);
-    record(
-      name + "-layout",
-      await screen.evaluate(`(() => {
-      const viewport = document.querySelector('[data-iori-view="host-maintenance-confirmation"] [data-slot="scroll-area-viewport"]');
-      const content = viewport?.firstElementChild;
-      return { viewport: viewport && {clientHeight: viewport.clientHeight, scrollHeight: viewport.scrollHeight, height: viewport.getBoundingClientRect().height}, content: content && {height: content.getBoundingClientRect().height, display: getComputedStyle(content).display, marginBottom: getComputedStyle(content.lastElementChild).marginBottom}, children: content && [...content.children].map(el => ({tag: el.tagName, height: el.getBoundingClientRect().height, marginTop: getComputedStyle(el).marginTop, marginBottom: getComputedStyle(el).marginBottom})) };
-    })()`),
-    );
+    await pictures(action === "host-uninstall" ? "B2b" : name);
     await screen.key("Escape");
   }
   await disconnect();
@@ -239,9 +294,10 @@ export async function hostUninstallScenario({
     ),
   );
   assert.match(
-    await screen.text('[data-iori-state="host-uninstall-connecting"]'),
+    await screen.text('[data-iori-view="settings"]'),
     /Connecting|接続中/u,
   );
+  await pictures("B1");
   await reinstall();
   await waitFor(() =>
     screen.evaluate(
@@ -262,10 +318,10 @@ export async function hostUninstallScenario({
     ),
   );
   assert.match(
-    await screen.text('[data-iori-state="host-maintenance-connecting"]'),
+    await screen.text(`${dialog} [data-slot="dialog-description"]`),
     /Connecting|接続中/u,
   );
-  await shot("confirmation-connecting");
+  await pictures("B2-disconnected");
   await screen.key("Escape");
   assert.equal(await present(fixture.bundle), true);
   await reinstall();
@@ -275,21 +331,9 @@ export async function hostUninstallScenario({
     ),
   );
   await remove(false);
-  await screen.wait(
-    `[data-iori-host-key="${key}"][data-iori-removal="succeeded"]`,
-  );
-  await screen.click('[data-iori-state="uninstall-complete"] button');
-  await settings();
-  await screen.wait('[data-iori-state="host-succeeded"]');
-  for (const action of ["host-update", "host-restart", "host-uninstall"])
-    assert.equal(await screen.visible(`[data-iori-action="${action}"]`), false);
-  assert.equal(
-    await screen.evaluate(
-      `document.querySelector('[data-iori-action="host-uninstall-connect"]').closest('.field-row') === document.querySelector('[data-iori-state="host-succeeded"]').closest('.field-row')`,
-    ),
-    true,
-  );
-  await pictures("keep-data-settings-reopened");
+  await reload();
+  await screen.wait('[data-iori-view="first-run"]');
+  record("removed-host-stays-absent-after-reload", {});
   assert.equal(await present(join(root, "host.sqlite")), true);
   assert.equal(await present(join(root, "terminal-daemon/runtime")), false);
   assert.equal(
@@ -309,28 +353,10 @@ export async function hostUninstallScenario({
     cliConversationRetained: true,
     ioriHookSettingsRemoved: true,
   });
-  await reload();
-  await screen.wait('[data-iori-action="settings-open"]');
-  await settings();
-  await screen.wait('[data-iori-action="host-uninstall-connect"]');
-  await mobile();
-  await reload();
-  await settings();
-  assert.equal(
-    await screen.visible('[data-iori-action="host-uninstall"]'),
-    false,
-  );
-  await shot("mobile-uninstalled");
-  if (process.env.IORI_UNINSTALL_CAPTURE === "1")
-    await themes("phone-uninstalled");
-  await desktop();
-  await reload();
-  await settings();
+
   await cp(fixture.pristine, fixture.bundle, { recursive: true });
   await reinstall();
-  await screen.click('[data-iori-action="host-uninstall-connect"]');
-  await screen.key("Escape");
-  await screen.wait(`[data-iori-host-key="${key}"] [data-connected="true"]`);
+  await register(screen, await invitation(), "開発用Chromium");
   await settings();
   assert.equal(
     await screen.evaluate(

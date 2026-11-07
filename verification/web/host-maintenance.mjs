@@ -319,7 +319,8 @@ export async function hostMaintenancePreview({
         action: dialog.querySelector('[data-iori-action="host-maintenance-confirm"]').textContent};
     })()`);
     assert.deepEqual(busy.ids, [terminalId]);
-    assert.equal(busy.state, text("Running sleep", "sleepを実行中"));
+    assert.ok(busy.state.includes("sleep"));
+    assert.ok(busy.state.includes(text("Running", "実行中")));
     assert.equal(busy.action, text("Stop and restart", "止めて再起動する"));
     await maintenancePictures(client, shot, "working-restart");
     await screen.key("Enter");
@@ -348,12 +349,9 @@ export async function hostMaintenancePreview({
     await screen.click('[data-iori-action="open-host-version"]');
     await screen.click('[data-iori-action="host-uninstall"]');
     await screen.wait("[data-iori-maintenance-working]");
-    assert.equal(
-      await screen.text("[data-iori-maintenance-open]"),
-      text(
-        "All open CLIs and Terminals will stop.",
-        "開いているCLIとTerminalはすべて止まります。",
-      ),
+    assert.match(
+      await screen.text('[data-iori-view="host-maintenance-confirmation"]'),
+      /All devices using this Host|すべての端末から接続できなくなります/u,
     );
     assert.equal(
       await screen.text('[data-iori-action="host-maintenance-confirm"]'),

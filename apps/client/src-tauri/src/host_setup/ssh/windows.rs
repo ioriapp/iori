@@ -1,6 +1,7 @@
+use super::output::Failure;
 use super::{
     remote::{self, Shell},
-    session::{Request, emit, request},
+    session::{Request, emit, invite, request},
 };
 use serde_json::{Value, json};
 use tokio::sync::mpsc;
@@ -9,30 +10,26 @@ pub async fn install(
     app: &tauri::AppHandle,
     session: &str,
     commands: &mpsc::UnboundedSender<Request>,
-    installed: bool,
-    allow_connections: bool,
-) -> Result<Value, String> {
-    if !installed {
+    mode: &str,
+    administrator: bool,
+) -> Result<Value, Failure> {
+    if mode == "install" || mode == "update" {
         emit(
             app,
             session,
             json!({"type":"stage", "stage":"verification"}),
         );
-        let hash =
-            super::super::linux_install::asset_hash(app, "iori-host-windows-x64.zip").await?;
+        let hash = super::super::linux_install::asset_hash(app, "iori-host-windows-x64.zip")
+            .await
+            .map_err(|detail| Failure {
+                stage: Some("verification".into()),
+                ..Failure::new("install", detail)
+            })?;
         let url = format!(
             "{}v{}/iori-host-windows-x64.zip",
             crate::updates::distribution(),
             app.package_info().version
         );
-        let firewall = if allow_connections {
-            format!(
-                "[Console]::WriteLine('IORI_SETUP {{\"type\":\"stage\",\"stage\":\"firewall\"}}'); & {{ {} }} -Remote",
-                include_str!("../firewall.ps1")
-            )
-        } else {
-            String::new()
-        };
         let script = format!(
             r#"
 $work = Join-Path $env:TEMP ('iori-host-ssh-' + [Guid]::NewGuid().ToString())
@@ -51,7 +48,6 @@ try {{
     $stage='service'
     [Console]::WriteLine('IORI_SETUP {{"type":"stage","stage":"service"}}')
     & {{ {installer} }} -Bundle "$work\host" -InstallOnly
-    {firewall}
 }} catch {{
     [Console]::WriteLine('IORI_SETUP ' + (ConvertTo-Json -Compress @{{type='error';stage=$stage}}))
     throw
@@ -63,6 +59,17 @@ try {{
             installer = include_str!("../../../../../../scripts/release/install-bundle.ps1")
         );
         request(commands, Shell::Windows, script).await?;
+    }
+    // Only administrator accounts can grant the per-installation rule over SSH.
+    // Other existing Hosts are checked by the UI's subsequent Direct connection.
+    if administrator {
+        emit(app, session, json!({"type":"stage","stage":"firewall"}));
+        request(
+            commands,
+            Shell::Windows,
+            format!("& {{ {} }} -Remote", include_str!("../firewall.ps1")),
+        )
+        .await?;
     }
     // The initial probe can predate sign-in. Recheck the local control endpoint
     // for every registration attempt before scheduling another Host.
@@ -85,7 +92,7 @@ try {{
             include_str!("../../../../../../scripts/release/install-bundle.ps1")
         )).await?;
         if values.iter().any(|v| v["type"] == "signInRequired") {
-            return Ok(json!({"signInRequired":true}));
+            return Ok(json!({"type":"signInRequired"}));
         }
     }
     emit(app, session, json!({"type":"stage","stage":"register"}));
@@ -95,17 +102,5 @@ try {{
         remote::control(Shell::Windows, "invite.create"),
     )
     .await?;
-    let response = values
-        .iter()
-        .find(|v| v["type"] == "control")
-        .ok_or("Host did not respond")?;
-    if response["ok"] != true {
-        return Err(format!(
-            "IORI_CONTROL_ERROR: {}",
-            response["error"]["message"]
-                .as_str()
-                .unwrap_or("Host did not respond")
-        ));
-    }
-    Ok(response["result"].clone())
+    invite(&values)
 }

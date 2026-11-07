@@ -70,41 +70,6 @@
   overflow-wrap: anywhere;
 }
 
-.setup-firewall-guidance {
-  display: grid;
-  gap: 8px;
-  min-width: 0;
-}
-
-.setup-firewall-guidance p {
-  margin: 0;
-}
-
-.setup-command {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  min-width: 0;
-}
-
-.setup-command code {
-  flex: 1;
-  min-width: 0;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.setup-notice > div {
-  flex: 1;
-  min-width: 0;
-}
-
-.storage-retry.setup-notice {
-  max-height: calc(100dvh - 32px);
-  align-items: flex-start;
-  overflow-y: auto;
-}
-
 .connection-field {
   display: grid;
   gap: 7px;

@@ -1,7 +1,18 @@
 import { ConnectedHostUpdates } from "./updates/ConnectedHostUpdates.tsx";
-import { HostRemovalFeedback } from "./updates/HostRemovalResult.tsx";
-import { onRemovalComplete, removalReader } from "./updates/removal-reader.ts";
-import { flushSync } from "react-dom";
+import { MaintenanceClisContext } from "./updates/HostMaintenanceDetails.tsx";
+import type { CliSummary } from "@iori/protocol";
+import { NoticeStack } from "./components/flow/Toast.tsx";
+import {
+  HostUninstallDialog,
+  showUninstallNotice,
+  type UninstallActions,
+} from "./updates/HostUninstallDialog.tsx";
+import {
+  startUninstallFlows,
+  uninstallFlow,
+  useUninstallFlows,
+} from "./updates/uninstall-flow.ts";
+import type { UninstallFlow } from "./updates/uninstall-flow-types.ts";
 import {
   HostSetupDialog,
   HostSetupChoices,
@@ -24,10 +35,6 @@ import { Settings as SettingsIcon } from "lucide-react";
 import { inviteFromText, type Invite } from "@iori/protocol";
 import { connection } from "./connection.ts";
 import { WindowChrome } from "./WindowChrome.tsx";
-import {
-  HostSetupNotice,
-  type SetupNotice,
-} from "./host-setup/HostSetupNotice.tsx";
 import { native, hasWindowChrome } from "./native.ts";
 import { translator } from "./i18n.ts";
 import { WorkspaceFrame, type LastWorkspaceTarget } from "./WorkspaceFrame.tsx";
@@ -170,14 +177,37 @@ function readPreferences(value: unknown): Preferences {
 }
 
 export default function App() {
+  const maintenanceClis = useRef<
+    () => Record<string, Record<string, CliSummary>>
+  >(() => ({}));
+  const onMaintenanceClisReader = useCallback(
+    (read: () => Record<string, Record<string, CliSummary>>) => {
+      maintenanceClis.current = read;
+    },
+    [],
+  );
+  const readMaintenanceClis = useCallback(() => maintenanceClis.current(), []);
+  return (
+    <MaintenanceClisContext.Provider value={readMaintenanceClis}>
+      <AppContent onMaintenanceClisReader={onMaintenanceClisReader} />
+    </MaintenanceClisContext.Provider>
+  );
+}
+
+function AppContent({
+  onMaintenanceClisReader,
+}: {
+  onMaintenanceClisReader: (
+    read: () => Record<string, Record<string, CliSummary>>,
+  ) => void;
+}) {
   const state = useSyncExternalStore(
     connection.subscribe,
     connection.getSnapshot,
   );
-  const removalReads = useSyncExternalStore(
-    removalReader.subscribe,
-    removalReader.getSnapshot,
-  );
+  const uninstallFlows = useUninstallFlows();
+  const [uninstallDetail, setUninstallDetail] = useState<UninstallFlow>();
+  const notifiedUninstalls = useRef(new Map<string, string>());
   const [setupOpen, setSetupOpen] = useState(false);
   const [addHostChoiceOpen, setAddHostChoiceOpen] = useState(false);
   const [setupStarted, setSetupStarted] = useState(false);
@@ -187,7 +217,6 @@ export default function App() {
     setSetupOpen(true);
   };
   const [invitationEntry, setInvitationEntry] = useState(false);
-  const [setupNotice, setSetupNotice] = useState<SetupNotice>();
   const [input, setInput] = useState("");
   const [invite, setInvite] = useState<Invite>();
   const [name, setName] = useState("");
@@ -196,27 +225,9 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [inputError, setInputError] = useState<string>();
   useEffect(startHostMaintenance, []);
+  useEffect(startUninstallFlows, []);
   const clientUpdate = useClientUpdate();
   const [settingsOpen, setSettingsOpen] = useState(false);
-  useEffect(
-    () =>
-      onRemovalComplete((hostKey, status) => {
-        const host = connection
-          .getSnapshot()
-          .initial?.hosts.find((value) => value.publicKey === hostKey);
-        if (!host) return;
-        // Commit the result and close settings before forgetHost selects a remaining Host.
-        flushSync(() => {
-          setSettingsOpen(false);
-          setSetupNotice({
-            name: host.hostName,
-            localOnly: false,
-            uninstall: status,
-          });
-        });
-      }),
-    [],
-  );
   const [settingsInitialDetail, setSettingsInitialDetail] = useState(false);
   const [settingsRepository, setSettingsRepository] = useState<string>();
   const [terminalToOpen, setTerminalToOpen] = useState<{
@@ -292,6 +303,69 @@ export default function App() {
       ? (state.initial?.language ?? navigator.language)
       : languagePreference;
   const t = useMemo(() => translator(language), [language]);
+  const notifyUninstall = (flow: UninstallFlow) => {
+    const signature = JSON.stringify([flow.operationId, flow.phase]);
+    if (notifiedUninstalls.current.get(flow.hostKey) === signature) return;
+    notifiedUninstalls.current.set(flow.hostKey, signature);
+    showUninstallNotice(flow, t, (result) => {
+      const live = uninstallFlow.getSnapshot()[result.hostKey];
+      if (live) void uninstallFlow.open(result.hostKey);
+      else setUninstallDetail(result);
+    });
+  };
+  const uninstallActions: UninstallActions = {
+    ...uninstallFlow,
+    close: (key) => {
+      const flow = uninstallFlow.getSnapshot()[key] ?? uninstallDetail;
+      if (flow && ["done", "failed", "sshLost"].includes(flow.phase.type)) {
+        if (flow.phase.type === "done") setSettingsOpen(false);
+        uninstallFlow.dismiss(key);
+      } else uninstallFlow.close(key);
+      setUninstallDetail(undefined);
+    },
+    retry: async (key) => {
+      setUninstallDetail(undefined);
+      if (uninstallFlow.getSnapshot()[key]) await uninstallFlow.retry(key);
+      else await uninstallFlow.open(key);
+    },
+  };
+  useEffect(() => {
+    for (const flow of uninstallFlows) {
+      const phase = flow.phase;
+      if (!["done", "failed", "sshLost"].includes(phase.type))
+        notifiedUninstalls.current.delete(flow.hostKey);
+      const normal =
+        phase.type === "done" &&
+        !["tokensRemaining", "filesRemaining"].includes(phase.outcome.type);
+      if (
+        normal ||
+        (flow.closed && ["done", "failed", "sshLost"].includes(phase.type))
+      ) {
+        notifyUninstall(flow);
+        if (phase.type === "done") setSettingsOpen(false);
+        if (normal) uninstallFlow.close(flow.hostKey);
+      }
+    }
+  }, [uninstallFlows, t]);
+  const detailFlow = uninstallDetail
+    ? (uninstallFlows.find(
+        (flow) => flow.hostKey === uninstallDetail.hostKey,
+      ) ?? uninstallDetail)
+    : undefined;
+  const standaloneUninstalls = uninstallFlows.filter(
+    (flow) =>
+      !flow.closed &&
+      !(
+        settingsOpen &&
+        settingsSection === "version" &&
+        state.host?.publicKey === flow.hostKey
+      ),
+  );
+  if (
+    detailFlow &&
+    !standaloneUninstalls.some((flow) => flow.hostKey === detailFlow.hostKey)
+  )
+    standaloneUninstalls.push(detailFlow);
   const resolvedTheme =
     preferences.theme === "system"
       ? systemDark
@@ -634,14 +708,21 @@ export default function App() {
   return (
     <div className={`app-root${hasWindowChrome ? " has-window-chrome" : ""}`}>
       <WindowChrome t={t} />
-      <HostRemovalFeedback
-        t={t}
-        inline={
-          settingsOpen &&
-          settingsSection === "version" &&
-          state.host?.publicKey === removalReads.prompt?.hostKey
-        }
-      />
+      <NoticeStack t={t} />
+      {standaloneUninstalls.map((flow) => (
+        <HostUninstallDialog
+          key={flow.hostKey}
+          flow={flow}
+          actions={uninstallActions}
+          connected={state.connectedHosts.includes(flow.hostKey)}
+          t={t}
+          onClose={() => setUninstallDetail(undefined)}
+          onOpenTerminal={(hostKey, terminalId) => {
+            setSettingsOpen(false);
+            setTerminalToOpen({ hostKey, terminalId, nonce: Date.now() });
+          }}
+        />
+      ))}
       {!state.initial ? (
         <main className="onboarding-screen" data-iori-view="initializing">
           <section className="onboarding-panel">
@@ -866,6 +947,7 @@ export default function App() {
         </main>
       ) : (
         <WorkspaceFrame
+          onMaintenanceClisReader={onMaintenanceClisReader}
           onOpenIntegrations={(hostKey) => {
             void connection.selectHost(hostKey);
             onSettings("integrations");
@@ -1239,30 +1321,22 @@ export default function App() {
           deviceName={state.initial.deviceName}
           t={t}
           onClose={() => setSetupOpen(false)}
-          onComplete={(
-            name,
-            localOnly,
-            lingerUser,
-            firewallCommand,
-            firewallTarget,
-          ) => {
+          onCompleted={() => {
             setSetupOpen(false);
             setSetupStarted(false);
-            setSetupNotice({
-              name,
-              localOnly,
-              lingerUser,
-              firewallCommand,
-              firewallTarget,
-            });
           }}
-        />
-      )}
-      {setupNotice && (
-        <HostSetupNotice
-          notice={setupNotice}
-          t={t}
-          onClose={() => setSetupNotice(undefined)}
+          onInvitation={() => {
+            setSetupOpen(false);
+            setSetupStarted(false);
+            setSettingsOpen(false);
+            setAdding(true);
+            setInvitationEntry(true);
+          }}
+          onOpenWindowsSettings={
+            navigator.userAgent.includes("Windows")
+              ? () => void native.openWindowsOptionalFeatures()
+              : undefined
+          }
         />
       )}
       <ConnectedHostUpdates
@@ -1273,6 +1347,8 @@ export default function App() {
         }}
       />
       <SettingsDialog
+        uninstallActions={uninstallActions}
+        onUninstallClose={() => setUninstallDetail(undefined)}
         repositoryPath={settingsRepository}
         onRepositoryChange={setSettingsRepository}
         onOpenTerminal={(hostKey, terminalId) => {

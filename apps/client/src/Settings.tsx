@@ -15,7 +15,9 @@ import { RepositoryGitSettings } from "./GitSettings.tsx";
 import { IntegrationsSettings } from "./IntegrationsSettings.tsx";
 import { basename } from "./workspace-panel.tsx";
 import { TERMINAL_FONT_SIZES } from "./terminal/terminal-font-size.ts";
-import { hostRemovalLabel } from "./updates/host-lifecycle.ts";
+import { useUninstallFlow } from "./updates/uninstall-flow.ts";
+import type { UninstallActions } from "./updates/HostUninstallDialog.tsx";
+import { Connecting } from "./components/flow/Notice.tsx";
 import { LocalHostConnections } from "./host-setup/HostSetupDialog.tsx";
 import { HostVersionSettings } from "./updates/HostVersionSettings.tsx";
 import { UpdateMark } from "./updates/UpdateSettings.tsx";
@@ -859,6 +861,8 @@ const hostSections: {
 ];
 
 export function SettingsDialog({
+  uninstallActions,
+  onUninstallClose,
   onOpenTerminal,
   repositoryPath,
   onRepositoryChange,
@@ -883,6 +887,8 @@ export function SettingsDialog({
   onNotificationPermission,
   notificationError,
 }: {
+  uninstallActions: UninstallActions;
+  onUninstallClose: () => void;
   repositoryPath?: string;
   onRepositoryChange: (path: string) => void;
   state: ReturnType<typeof connection.getSnapshot>;
@@ -982,6 +988,7 @@ export function SettingsDialog({
   const host = state.host
     ? (state.observedHosts[state.host.publicKey] ?? state.host)
     : undefined;
+  const uninstall = useUninstallFlow(host?.publicKey ?? "");
   const [repositories, setRepositories] = useState<{
     hostKey: string;
     items: FolderHistoryItem[];
@@ -1255,9 +1262,6 @@ export function SettingsDialog({
                           data-iori-host-key={item.publicKey}
                         >
                           {item.hostName}
-                          {hostRemovalLabel(state.removals[item.publicKey])
-                            ? ` · ${t(hostRemovalLabel(state.removals[item.publicKey])!)}`
-                            : ""}
                           <UpdateMark
                             t={t}
                             available={hostNeedsUpdate(
@@ -1355,7 +1359,23 @@ export function SettingsDialog({
             className="settings-content v9-settings-content"
           >
             <PageBody>
-              <PageHeader title={title} className="settings-page-header" />
+              <PageHeader
+                title={current === "version" ? t("Version") : title}
+                className="settings-page-header"
+                description={
+                  current === "version" && host ? (
+                    <span className="host-desc-line">
+                      <span className="host-flow-name">{host.hostName}</span>
+                      {!state.connectedHosts.includes(host.publicKey) && (
+                        <>
+                          {" "}
+                          · <Connecting t={t} />
+                        </>
+                      )}
+                    </span>
+                  ) : undefined
+                }
+              />
               {current === "general" && state.initial?.canCloseToExit && (
                 <Section>
                   <FieldRow className="v9-settings-row v9-settings-switch-row">
@@ -1392,6 +1412,11 @@ export function SettingsDialog({
                   host={host}
                   onOpenTerminal={onOpenTerminal}
                   t={t}
+                  uninstall={{
+                    flow: open ? uninstall : undefined,
+                    actions: uninstallActions,
+                    onClose: onUninstallClose,
+                  }}
                   onClientUpdate={() => onSectionChange("general")}
                   onNestedBack={setChildBack}
                   disconnectedSeconds={disconnectedSeconds}
@@ -1638,10 +1663,6 @@ export function SettingsDialog({
                         <span className="v9-connection-status">
                           <Check size={14} aria-hidden="true" />
                           {t("Connected")}
-                        </span>
-                      ) : hostRemovalLabel(state.removals[host.publicKey]) ? (
-                        <span>
-                          {t(hostRemovalLabel(state.removals[host.publicKey])!)}
                         </span>
                       ) : !state.revoked && disconnectedSeconds >= 5 ? (
                         <span className="v9-connection-status">

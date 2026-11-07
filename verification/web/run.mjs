@@ -747,7 +747,7 @@ input.on('line',async line=>{if(!line.startsWith('DELEGATE'))return; const optio
       eventFault?.(payload, emit);
     },
     onResponse: (method, json) => {
-      if (method === "host.uninstall") {
+      if (method === "host.uninstall" || method === "host.uninstall.result") {
         const response = JSON.parse(json);
         if (response.ok) uninstallStatuses.push(response.result);
         return;
@@ -1006,6 +1006,7 @@ input.on('line',async line=>{if(!line.startsWith('DELEGATE'))return; const optio
               worktree,
               cliHome,
               uninstallStatuses,
+              invitation: () => invitation(dataRoot),
               disconnect: () => host.close(),
               reload: () => page.reload(),
               reinstall: async () => {

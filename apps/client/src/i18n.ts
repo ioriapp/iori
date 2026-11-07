@@ -1,5 +1,200 @@
 import { teamJapanese } from "./teams/translations.ts";
 const japanese: Record<string, string> = {
+  "The SSH connection to {host} was lost, so the uninstall result could not be checked.":
+    "{host}とのSSHの接続が切れたため、アンインストールの結果を確認できませんでした。",
+  "Restart your PC, then delete this folder.":
+    "PCを再起動してから、このフォルダーを削除してください。",
+  "The uninstall result was saved, but its receipt file could not be deleted.":
+    "アンインストールの結果を保存しましたが、結果のファイルを削除できませんでした。",
+  "Could not remove iori entries from CLI settings.":
+    "CLIの設定からioriの項目を外せませんでした。",
+  "Could not remove the automatic startup registration.":
+    "自動起動の登録を解除できませんでした。",
+  "Could not stop iori Host.": "iori Hostを停止できませんでした。",
+  "Could not prepare the uninstall.":
+    "アンインストールの準備ができませんでした。",
+  "Stopped Terminals and agents": "TerminalとAgentを停止しました",
+  "Deleting Forgejo and Gitea tokens": "Forgejo・Giteaのtokenを削除中",
+  "Deleted Forgejo and Gitea tokens": "Forgejo・Giteaのtokenを削除しました",
+  "Deleted the iori Host program": "iori Hostのプログラムを削除しました",
+  "Deleted iori Host saved data": "iori Hostの保存データを削除しました",
+  "Checked the uninstall result": "アンインストールの結果を確認しました",
+
+  "Could not sign in to {host}. Retry.":
+    "{host}にログインできませんでした。再試行してください。",
+  "Could not connect to {host} over SSH. Check that an SSH server is running on {host}, then retry.":
+    "{host}にSSHで接続できませんでした。{host}でSSHサーバーが動いているか確認してから、再試行してください。",
+  "{host} did not respond. Check the network, then retry.":
+    "{host}から応答がありませんでした。ネットワークを確認してから、再試行してください。",
+  "This is the first connection to {host}. Check that the displayed key fingerprint matches the one for {host}.":
+    "{host}に初めて接続します。表示された鍵のフィンガープリントが{host}のものと一致するか確認してください。",
+  "iori Host will stop when you log out of {host}. To keep it running after logout, run this command with administrator privileges as the user running iori Host.":
+    "このままでは、{host}からログアウトするとiori Hostが止まります。ログアウト後も動かすには、iori Hostを動かしているユーザーで、管理者権限で次のコマンドを実行してください。",
+  "SSH output": "SSHの表示",
+  Progress: "進捗",
+  Log: "ログ",
+  "Download on {host}": "{host}でダウンロード",
+  "Extract files": "ファイルを展開",
+  "Start iori Host": "iori Hostを起動",
+  "Register this device": "この端末を登録",
+  "Add firewall permission": "ファイアウォールの許可を追加",
+  "Destination: {platform} · {user} · {home}":
+    "接続先: {platform} · {user} · {home}",
+  "Verified SHA-256 ({hash})": "SHA-256を確認しました（{hash}）",
+  "Enter host, user@host, or ssh://user@host:port.":
+    "host、user@host、ssh://user@host:portのどれかの形で入力してください。",
+  "This name appears in the iori Host device list.":
+    "iori Hostの端末の一覧に表示される名前です。",
+  "Example: user@192.168.1.24": "例: user@192.168.1.24",
+  "Choose from the list": "一覧から選ぶ",
+  "Use this SSH destination": "この接続先を使う",
+  "Hosts in {path}": "{path}のHost",
+  "No destinations match “{query}”.":
+    "「{query}」に一致する接続先はありません。",
+  "Could not sign in to {user}@{host}. Check the password and enter it again.":
+    "{user}@{host}にログインできませんでした。パスワードを確認して、もう一度入力してください。",
+  "Choose a destination": "接続先を選んでください",
+  "Enter a destination": "接続先を入力してください",
+  "Register this device with iori Host.": "この端末をiori Hostに登録します。",
+  "Install iori Host and register this device.":
+    "iori Hostをインストールして、この端末を登録します。",
+  "Windows will ask for administrator approval once during installation.":
+    "インストールの途中で、Windowsの管理者の確認が1回表示されます。",
+  "Only this PC can use it.": "この PCからだけ使えます。",
+  "Enter a name for this device": "この端末の名前を入力してください",
+  "There are no Hosts in {path}. Select “Enter manually…” to enter a destination.":
+    "{path}にHostがありません。「手動で指定する…」から接続先を入力してください。",
+  "OpenSSH Client was not found. Add “OpenSSH Client” in Windows Settings → Optional features, then retry.":
+    "OpenSSH クライアントが見つかりません。Windowsの設定の「オプション機能」から「OpenSSH クライアント」を追加してから、再試行してください。",
+  "Open Windows Settings": "Windowsの設定を開く",
+  "OpenSSH client was not found. Install the OpenSSH client (openssh-client), then retry.":
+    "OpenSSHのクライアントが見つかりません。OpenSSHのクライアント（openssh-client）をインストールしてから、再試行してください。",
+  "Could not connect to {host} ({address}) over SSH. Check that an SSH server is running on {host}, then retry.":
+    "{host}（{address}）にSSHで接続できませんでした。{host}でSSHサーバーが動いているか確認してから、再試行してください。",
+  "Could not find the address of {host}. Check the destination name, then retry.":
+    "{host}のアドレスが見つかりませんでした。接続先の名前を確認してから、再試行してください。",
+  "{host} ({address}) did not respond. Check the network, then retry.":
+    "{host}（{address}）から応答がありませんでした。ネットワークを確認してから、再試行してください。",
+  "Do not connect": "接続しない",
+  "This is the first connection to {host} ({address}). Check that the displayed key fingerprint matches the one for {host}.":
+    "{host}（{address}）に初めて接続します。表示された鍵のフィンガープリントが{host}のものと一致するか確認してください。",
+  "The host key for {host} has changed since the last connection, so the connection was refused. Check why it changed, then remove the old host key with this command and retry.":
+    "{host}のhost鍵が前回の接続から変わっているため、接続しませんでした。変わった理由を確認してから、次のコマンドで古いhost鍵を削除して、再試行してください。",
+  "Touch your security key.": "セキュリティキーにタッチしてください。",
+  "{user}@{host} password": "{user}@{host}のパスワード",
+  "Could not sign in to {user}@{host}. Retry.":
+    "{user}@{host}にログインできませんでした。再試行してください。",
+  "Installation cancelled.": "インストールをキャンセルしました。",
+  "During installation, incoming connections for iori Host will be allowed in Windows Firewall.":
+    "インストールの途中で、Windows ファイアウォールにiori Hostの受信の許可を追加します。",
+  "{user} on {host} is not an administrator, so installation over SSH is not available. Open iori on {host} and install iori Host using “This PC” in “Set up iori Host”. Windows will ask for an administrator password once during installation. Then, in iori on {host}, select Devices → Invite a new device, and read the invitation using “Connect with an invitation” on this device.":
+    "{host}の{user}は管理者ではないため、SSHではインストールできません。{host}でioriを開き、「iori Hostを用意する」の「この PC」でiori Hostをインストールしてください。インストールの途中で、Windowsの管理者のパスワードが1回求められます。その後、{host}のioriの「端末」→「新しい端末を招待する」で表示した招待を、この端末の「招待で接続する」で読み取ってください。",
+  "iori Host does not support {platform}. Linux x64 and Windows x64 are supported.":
+    "iori Hostは{platform}に対応していません。対応しているのはLinux x64とWindows x64です。",
+  "Choose another destination": "ほかの接続先を選んでください",
+  "The SSH connection to {host} was lost during installation. Retry.":
+    "インストールの途中で{host}とのSSHの接続が切れました。再試行してください。",
+  "Installed iori Host on {host} and registered this device.":
+    "{host}にiori Hostをインストールし、この端末を登録しました。",
+  "iori Host will stop when {user} logs out of {host}. To keep it running after logout, run this command with administrator privileges.":
+    "このままでは、{user}が{host}からログアウトするとiori Hostが止まります。ログアウト後も動かすには、管理者権限で次のコマンドを実行してください。",
+  "Installed iori Host on {host}. Sign in to {host} as {user}, then select “Register with this iori Host”. To register later, sign in to {host}, then select {host} in “Set up iori Host”.":
+    "{host}にiori Hostをインストールしました。{host}に{user}でサインインしてから、「このiori Hostに登録する」を押してください。後で登録するときは、{host}にサインインした後に「iori Hostを用意する」で{host}を選んでください。",
+  "iori Host has not started on {host} yet. Sign in to {host} as {user}, then select “Register with this iori Host” again.":
+    "{host}でiori Hostがまだ起動していません。{host}に{user}でサインインしてから、もう一度「このiori Hostに登録する」を押してください。",
+  "Could not extract iori Host on {host}. Retry.":
+    "{host}でiori Hostを展開できませんでした。再試行してください。",
+  "Neither curl nor wget is installed on {host}. Install one of them, then retry.":
+    "{host}にcurlもwgetもありません。どちらかをインストールしてから、再試行してください。",
+  "Installed iori Host on {host}, but this device cannot connect. Check that incoming connections are allowed by the firewall between this device and {host}, then retry. To retry later, check the firewall, then select {host} in “Set up iori Host”.":
+    "{host}にiori Hostをインストールしましたが、この端末から接続できません。{host}との間のファイアウォールで受信が許可されているか確認してから、再試行してください。後で再試行するときは、ファイアウォールを確認した後に「iori Hostを用意する」で{host}を選んでください。",
+  "Addresses tried (UDP): {addresses}": "試したアドレス（UDP）: {addresses}",
+  "iori Host on {host} is version {version}, so this device cannot be registered. It will be updated to {clientVersion} before registration.":
+    "{host}のiori Hostは{version}のため、この端末を登録できません。{clientVersion}に更新してから登録します。",
+  "Update iori Host and register": "iori Hostを更新して登録する",
+  "Updating and registration will continue after closing":
+    "閉じても更新と登録は続きます",
+  "Could not update iori Host on {host}, so this device could not be registered.":
+    "{host}のiori Hostを更新できなかったため、この端末を登録できませんでした。",
+  "Could not extract iori Host on {host}. Check the state of iori Host on {host}, then retry.":
+    "{host}でiori Hostを展開できませんでした。{host}でiori Hostの状態を確認してから、再試行してください。",
+  "iori Host {version} is already installed on {host}. This device will be registered with it.":
+    "{host}には既にiori Host {version}がインストールされています。この端末をこのiori Hostに登録します。",
+  "After registration, select “Update iori Host” in Settings to update to the latest version.":
+    "登録後、設定の「iori Hostを更新」から最新バージョンに更新してください。",
+  "Registered this device with iori Host on {host}.":
+    "{host}のiori Hostにこの端末を登録しました。",
+  "{host} ({platform}) · This device: {device}":
+    "{host}（{platform}） · この端末: {device}",
+  "{host} · This device: {device}": "{host} · この端末: {device}",
+  "Remove iori settings": "ioriの設定を外す",
+  "Stop work": "作業を停止",
+  "Delete iori Host": "iori Hostを削除",
+  "Check the result": "結果を確認",
+  "Removed iori entries from CLI settings":
+    "CLIの設定からioriの項目を外しました",
+  "Removed automatic startup registration": "自動起動の登録を解除しました",
+  "Stopped Terminals and agents ({count})":
+    "TerminalとAgentを停止しました（{count}件）",
+  "Stopped iori Host": "iori Hostを停止しました",
+  "Checking the removal result": "削除の結果を確認中",
+  "Restart iori Host on {host}.": "{host}のiori Hostを起動し直します。",
+  "Uninstall iori Host from a PC using iori.":
+    "PCのioriからアンインストールしてください。",
+  "Remove the iori Host program and automatic startup registration from {host}.":
+    "{host}からiori Hostのプログラムと自動起動の登録を削除します。",
+  "Uninstall iori Host on {host}?":
+    "{host}のiori Hostをアンインストールしますか？",
+  "All devices using this Host will no longer be able to connect.":
+    "このHostを使っているすべての端末から接続できなくなります。",
+  "The iori Host program and automatic startup registration will be removed, along with entries added by iori to CLI settings. Development files and CLI conversations, settings, and sign-ins will remain.":
+    "iori Hostのプログラムと自動起動の登録を削除し、CLIの設定からioriが追加した項目を外します。開発ファイルと、CLIの会話・設定・認証は残ります。",
+  "Device registrations, work records, and Forgejo and Gitea tokens will be deleted. They will remain if this is not selected.":
+    "端末の登録・作業記録・Forgejo・Giteaのtokenを削除します。選ばないときは残ります。",
+  "No work will be interrupted.": "中断される作業はありません。",
+  "Could not load work that will be interrupted. Retry.":
+    "中断される作業を読み込めませんでした。再試行してください。",
+  "When uninstalling without SSH, you will not see whether iori Host has been completely removed.":
+    "SSHを使わずにアンインストールするときは、iori Hostの削除が最後まで済んだかは表示されません。",
+  "Uninstall without SSH": "SSHを使わずにアンインストールする",
+  "Uninstalling will continue after closing":
+    "閉じてもアンインストールは続きます",
+  "The SSH connection to {host} was lost during uninstall, so the result could not be checked. Retry.":
+    "アンインストールの途中で{host}とのSSHの接続が切れたため、結果を確認できませんでした。再試行してください。",
+  "Started uninstalling iori Host on {host}.":
+    "{host}のiori Hostのアンインストールを開始しました。",
+  "Uninstalled iori Host on {host}.":
+    "{host}のiori Hostをアンインストールしました。",
+  "Deleted iori Host and its saved data on {host}.":
+    "{host}のiori Hostと保存データを削除しました。",
+  "Uninstalled iori Host on {host}. Some items need your attention.":
+    "{host}のiori Hostをアンインストールしました。確認が必要なことがあります。",
+  "Could not uninstall iori Host on {host}.":
+    "{host}のiori Hostをアンインストールできませんでした。",
+  "Could not delete the tokens for these sites. Revoke each token on its site, then delete it from the OS credential store.":
+    "次のサイトのtokenを削除できませんでした。各サイトでtokenを無効にしてから、OSの資格情報の保管所から削除してください。",
+  "Could not delete some iori Host files.":
+    "iori Hostのファイルの一部を削除できませんでした。",
+  "Remaining folders:": "残ったフォルダー:",
+  "Restart {host}, then delete this folder on {host}.":
+    "{host}を再起動してから、{host}でこのフォルダーを削除してください。",
+  "Could not uninstall iori Host. The iori entries could not be removed from CLI settings. You do not have permission to change the settings file. iori Host was restored to its state before uninstall and can still be used.":
+    "iori Hostをアンインストールできませんでした。CLIの設定からioriの項目を外せませんでした。設定ファイルを書き換える権限がありません。iori Hostはアンインストール前の状態に戻り、そのまま使えます。",
+  "Could not uninstall iori Host. Terminals and agents could not be stopped. iori Host is running, but will not start automatically after {host} restarts.":
+    "iori Hostをアンインストールできませんでした。TerminalとAgentを停止できませんでした。iori Hostは動いていますが、{host}を再起動した後は自動で起動しません。",
+  "Could not stop Terminals and agents: {error}":
+    "TerminalとAgentを停止できませんでした: {error}",
+  "Could not stop Terminals and agents.":
+    "TerminalとAgentを停止できませんでした。",
+  "Could not uninstall iori Host.":
+    "iori Hostをアンインストールできませんでした。",
+  "The iori entries could not be removed from CLI settings. You do not have permission to change the settings file.":
+    "CLIの設定からioriの項目を外せませんでした。設定ファイルを書き換える権限がありません。",
+  "iori Host was restored to its state before uninstall and can still be used.":
+    "iori Hostはアンインストール前の状態に戻り、そのまま使えます。",
+  "iori Host is running, but will not start automatically after {host} restarts.":
+    "iori Hostは動いていますが、{host}を再起動した後は自動で起動しません。",
+  "iori Host uninstallation": "iori Hostのアンインストール",
   Status: "状態",
   "Relay URL": "RelayのURL",
   "Relay access token (only if required)":
@@ -193,72 +388,27 @@ const japanese: Record<string, string> = {
   Details: "詳細",
   "Jump to latest": "最新へ",
   ", ": "、",
-  "No result is available yet. Wait a moment, then select “Check uninstall result”.":
-    "結果がまだありません。しばらくしてから「アンインストールの結果を確認する」を押してください。",
-  "The uninstall result was saved, but its receipt file could not be deleted.":
-    "アンインストールの結果を保存しましたが、結果のファイルを削除できませんでした。",
   ...teamJapanese,
-  "Waiting for iori Host to stop and remove its files": "iori Hostを停止中",
-  "Could not connect to this Host. Reinstall iori Host, then retry.":
-    "Hostに接続できませんでした。iori Hostを再インストールしてから再試行してください。",
   "Could not remove this Host from the list. Retry.":
     "Hostを一覧から外せませんでした。再試行してください。",
-  "The tokens for these sites could not be deleted. Delete them manually from the OS credential store.":
-    "次のサイトのtokenは削除できませんでした。OSの資格情報の保管所から手動で削除してください。",
-  "A token can still be used until you revoke it on the site.":
-    "tokenは、サイトで無効にするまで使えます。",
-  "Could not restore:": "次の項目を元に戻せませんでした:",
   "Terminals and agents": "TerminalとAgent",
   "Could not prepare the uninstall request":
     "アンインストールの準備に失敗しました",
   "Could not save uninstall progress":
     "アンインストールの進行状況を保存できませんでした",
   "CLI hooks": "CLI hooks",
-  "Automatic startup": "自動起動",
   "iori Host is being uninstalled. Wait for it to finish.":
     "iori Hostをアンインストール中です。完了までお待ちください。",
-
-  "Uninstall iori Host on “{name}”":
-    "「{name}」のiori Hostをアンインストールする",
-  "Use iori on a PC to uninstall iori Host.":
-    "iori Hostのアンインストールは、PCのioriから操作してください。",
-  Uninstalled: "アンインストール済み",
   "Remove from list": "一覧から外す",
-  "Could not delete all iori Host files.":
-    "iori Hostのファイルをすべて削除できませんでした。",
   "Could not stop these processes:": "停止できなかったプロセス:",
-  "Restart the PC, then delete those folders, or reinstall using “Set up iori Host”.":
-    "PCを再起動した後にそのフォルダーを削除するか、「iori Hostを用意する」で再インストールしてください。",
-  "Reinstall using “Set up iori Host”.":
-    "「iori Hostを用意する」で再インストールしてください。",
-  "Delete the remaining folders, or reinstall using “Set up iori Host”.":
-    "残ったフォルダーを削除するか、「iori Hostを用意する」で再インストールしてください。",
-  "You can remove this Host from the list in Settings → Connection.":
-    "設定の「接続」から、このHostを一覧から外せます。",
   "Remove “{name}” from the list?": "「{name}」を一覧から外しますか？",
   "This removes only this Client’s list entry and connection information. Device registrations, data and programs on the Host stay unchanged. To use this Host again, connect with an invitation.":
     "外すのは、このClientの一覧と接続の情報だけです。Host側の端末の登録・データ・プログラムは変わりません。また使う時は、招待から再接続してください。",
   "Uninstall requested": "アンインストールを開始しました",
   Connecting: "接続中",
   Checking: "確認中",
-  "Password for {user}@{host}": "{user}@{host} のパスワード",
   "Passphrase for {key}": "{key} のパスフレーズ",
-  "{name}'s iori Host was uninstalled.":
-    "「{name}」のiori Hostをアンインストールしました。",
-  "{name}'s iori Host and its saved data were deleted.":
-    "「{name}」のiori Hostと保存データを削除しました。",
-  "Uninstall of {name}'s iori Host started.":
-    "「{name}」のiori Hostのアンインストールを開始しました。",
-  "Could not read the uninstall result. Retry.":
-    "アンインストールの結果を読み取れませんでした。再試行してください。",
-  "Check uninstall result": "アンインストールの結果を確認する",
   "Uninstall iori Host": "iori Hostをアンインストール",
-  "{name}'s iori Host will be uninstalled.":
-    "{name}のiori Hostをアンインストールします。",
-  "Development files, CLI conversations, settings, and sign-ins, and iori Host saved data will remain.":
-    "開発ファイル、CLI本体の会話・設定・認証、iori Hostの保存データは残ります。",
-  "iori Host saved data (device registrations, the Host identity, iori work records and Terminal history, and Forgejo and Gitea tokens, including those in the OS credential store) will also be deleted. Development files and CLI conversations, settings, and sign-ins will remain.":
-    "端末の登録・作業記録・tokenなどiori Hostの保存データも削除します。開発ファイルとCLIの会話・設定・認証は残ります。",
   "Also delete iori Host saved data": "iori Hostの保存データも削除する",
   Uninstall: "アンインストールする",
   "Could not uninstall iori Host":
@@ -272,15 +422,6 @@ const japanese: Record<string, string> = {
   "Removing automatic startup": "自動起動の登録を解除中",
   "Removing iori Host program files": "iori Hostのプログラムを削除中",
   "Removing iori Host saved data": "iori Hostの保存データを削除中",
-  "The Host could not complete the request: {message}":
-    "Hostへの要求に失敗しました: {message}",
-  "SSH exited with code {code}: {message}":
-    "SSHが終了コード{code}で終了しました: {message}",
-  "The destination command failed ({stage}, exit code {code}): {message}":
-    "接続先の処理に失敗しました（{stage}、終了コード{code}）: {message}",
-  "SSH closed: {message}": "SSH接続が終了しました: {message}",
-  "Could not complete SSH setup: {message}":
-    "SSHでのインストールを完了できませんでした: {message}",
   Command: "コマンド",
   "Host did not respond": "Hostから応答がありませんでした",
   "Host closed the connection without a response":
@@ -311,70 +452,28 @@ const japanese: Record<string, string> = {
 
   Change: "変更",
   Connect: "接続する",
-  "Update iori Host on the destination with the installation command, then retry registration.":
-    "接続先でインストールコマンドを実行してiori Hostを更新してから、登録を再試行してください。",
   "Another machine (SSH)": "別のマシン（SSH）",
-  "Set up iori Host on another machine": "別のマシンにiori Hostを用意する",
   "SSH destination": "接続先",
   "Filter SSH destinations": "接続先を絞り込む",
   "Enter manually…": "手動で指定する…",
-  "Use this destination": "この接続先を選ぶ",
   "SSH response": "SSHの確認への回答",
-  "Checking the SSH destination": "接続先を確認中",
-  "Downloading iori Host on the destination":
-    "接続先でiori Hostをダウンロード中",
-  "Extracting iori Host on the destination": "接続先でiori Hostを展開中",
-  "Setting up iori Host to run after logout": "ログアウト後も動くように設定中",
-  "Starting iori Host on the destination": "接続先でiori Hostを起動中",
-  "{platform} is not supported yet.": "{platform}にはまだ対応していません",
   Cancelling: "キャンセル中",
   Allow: "許可する",
   Cancelled: "キャンセルしました",
-  "To let other devices connect, permission for iori Host is added to Windows Firewall.":
-    "ほかの端末から接続できるよう、Windows ファイアウォールに iori Host の許可を加えます。",
-  "This user is not an administrator, so the permission cannot be added now. After installation, you can allow it with an administrator account.":
-    "このユーザーは管理者ではないため、今は許可を加えられません。インストールの後に、管理者のアカウントで許可できます。",
-  "Other devices cannot connect yet. Allow connections in one of these ways.":
-    "ほかの端末からはまだつなげません。次のどれかで許可してください。",
-  "Allow with an administrator account…": "管理者のアカウントで許可する…",
-  "Administrator user name": "管理者のユーザー名",
-  "Connections from other devices are allowed.":
-    "ほかの端末からの接続を許可しました。",
-  "This account is not running as an administrator. The permission was not added.":
-    "このアカウントは管理者の権限で動いていないため、許可を加えませんでした。",
-  "Could not allow connections from other devices.":
-    "ほかの端末からの接続を許可できませんでした。",
-  "On that PC, run this in PowerShell as an administrator:":
-    "その PC の管理者の PowerShell で、次を実行する:",
-  'If Windows asks on that PC, choose "Allow" (an administrator password is needed).':
-    "その PC で Windows の確認が出たら「許可」を押す（管理者のパスワードが要ります）。",
-  "Sign in to that PC as {user}. iori Host starts when you sign in. Then select “Register with this iori Host”.":
-    "その PC に {user} でサインインしてください。サインインすると iori Host が起動します。その後「このiori Hostに登録する」を押してください。",
-  "iori Host will stop after logout. An administrator can enable it with:":
-    "ログアウトするとiori Hostが止まります。管理者が次のコマンドで有効にできます:",
-  "SSH connected, but the iori connection could not reach the Host. Check the Host’s listening addresses and network route in Connection settings.":
-    "SSHでは接続できましたが、ioriの接続先に届きません。設定の「接続」でHostの待受先・ネットワークの経路を確認してください。",
   "OpenSSH Client was not found. Install OpenSSH Client and try again.":
     "OpenSSH クライアントが見つかりません。OpenSSH クライアントをインストールしてから、再試行してください。",
   "OpenSSH Client was not found. Add OpenSSH Client in Windows Settings → Optional features.":
     "OpenSSH クライアントが見つかりません。Windowsの設定の「オプション機能」から「OpenSSH クライアント」を追加してください。",
   "Enter [user@]host or ssh://[user@]host[:port].":
     "[user@]hostまたはssh://[user@]host[:port]の形で入力してください。",
-
-  "The invitation could not be used. Select Retry.":
-    "招待を使えませんでした。「再試行」を押してください。",
   "Set up iori Host": "iori Hostを用意する",
-  "Set up iori Host on this PC": "このPCでiori Hostを用意する",
   "Connect with an invitation": "招待で接続する",
   "Add iori Host": "iori Hostを追加する",
   Destination: "インストール先",
   "Register with this iori Host": "このiori Hostに登録する",
   Install: "インストールする",
-  "Cancel setup": "キャンセル",
   "Register this device with the existing iori Host without reinstalling it.":
     "再インストールせずに、この端末をこのiori Hostに登録します。",
-  "To update iori Host, select “Update iori Host” in Settings after registration.":
-    "新しいバージョンにするには、登録した後に設定の「iori Hostを更新」を押してください。",
   "Allow connections from other devices": "ほかの端末からの接続を許可する",
   "Windows will ask for administrator approval to allow other devices to connect.":
     "ほかの端末から接続できるよう、途中でWindowsの管理者の確認が出ます。",
@@ -384,11 +483,6 @@ const japanese: Record<string, string> = {
     "ほかの端末からの接続は許可済みです",
   "Could not allow connections. This PC can connect. To connect from other devices, select “Allow connections from other devices” in Connection settings.":
     "接続を許可できませんでした。このPCからは使えます。ほかの端末からつなぐには、設定の「接続」で「ほかの端末からの接続を許可する」を押してください。",
-  "Downloading iori Host": "iori Hostをダウンロード中",
-  "Verifying iori Host": "iori Hostを確認中",
-  "Extracting iori Host": "iori Hostを展開中",
-  "Allowing connections from other devices": "ほかの端末からの接続を許可中",
-  "Registering this device": "この端末を登録中",
   "Could not download iori Host. Check the connection and retry.":
     "iori Hostを取得できませんでした。接続を確認して再試行してください。",
   "Could not verify iori Host. Retry downloading.":
@@ -399,7 +493,6 @@ const japanese: Record<string, string> = {
     "このPCのHostから招待を取得できませんでした。Hostの起動を確認して再試行してください。",
   "Could not complete registration. Retry registration.":
     "登録を完了できませんでした。登録を再試行してください。",
-  "Registered “{name}”.": "「{name}」を登録しました。",
   "Choose how to add iori Host.": "iori Hostの追加方法を選びます。",
   "Checking iori Host on this PC": "このPCのiori Hostを確認中",
 
@@ -418,10 +511,6 @@ const japanese: Record<string, string> = {
     "このiori Hostはサービスとして動いていないため、Hostのマシンでアンインストールしてください。",
   "Sort ascending": "昇順に並べ替える",
   "Sort descending": "降順に並べ替える",
-  "Restart iori Host from this Client.":
-    "このClientからiori Hostを起動し直します。",
-  "Remove the iori Host program and automatic startup.":
-    "iori Hostのプログラムと自動起動の登録を削除します。",
   "Restart iori Host": "iori Hostを再起動",
   "Open Client updates": "Clientの更新欄を開く",
   "Preparing confirmation": "準備中",
@@ -674,7 +763,6 @@ const japanese: Record<string, string> = {
   "Could not copy. Select the text and copy it.":
     "コピーできませんでした。文字を選んでコピーしてください。",
   Copied: "コピーしました",
-  "Copy command": "コマンドをコピー",
   Close: "閉じる",
   "Revoke registration": "登録を取り消す",
   "Could not revoke this registration. Retry.":

@@ -343,6 +343,7 @@ export class MaintenanceManager {
         );
         base.receiptPath = request.receipt;
         stage = "hooks";
+        await this.#save(file, { ...base, stage });
         await this.uninstall!.removeHooks((restore) =>
           rollback.push({ stage: "hooks", restore }),
         );
@@ -365,6 +366,8 @@ export class MaintenanceManager {
         await this.uninstall!.stopTerminals();
         base.completed!.push(stage);
         if (input.deleteData) {
+          stage = "forge-tokens";
+          await this.#save(file, { ...base, stage });
           // A token left behind is shown in the result; the uninstall goes on.
           const tokens = await this.uninstall!.removeForgeTokens();
           if (tokens.removed) base.completed!.push("forge-tokens");

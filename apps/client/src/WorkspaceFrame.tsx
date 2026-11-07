@@ -1,7 +1,6 @@
 import { creationOrder, issueWorktreeName, sidebarOrder } from "@iori/protocol";
 import { WorktreeRemoval } from "./WorktreeRemoval.tsx";
 import { WorktreeCreator, type WorktreePrefill } from "./WorktreeCreator.tsx";
-import { hostRemovalLabel } from "./updates/host-lifecycle.ts";
 import { useMobileBoards } from "./teams/mobile-boards.ts";
 import { Board } from "./teams/Board.tsx";
 import { childCliStatus, useTeamChildren } from "./teams/children.ts";
@@ -92,6 +91,7 @@ import {
   type NotificationPreferences,
 } from "./notifications.ts";
 import { useCliList } from "./cli-list.ts";
+import { replaceStartTab } from "./workspace-launch-tabs.ts";
 
 export {
   useWorkspacePanel,
@@ -188,6 +188,9 @@ function openViews(views: Record<string, unknown>, tabs: WorkspaceTab[]) {
 }
 
 type Props = {
+  onMaintenanceClisReader: (
+    read: () => Record<string, Record<string, CliSummary>>,
+  ) => void;
   terminalToOpen?: { hostKey: string; terminalId: string; nonce: number };
   notificationPreferences?: NotificationPreferences;
   state: ConnectionState;
@@ -276,14 +279,8 @@ function StatusBar({
   Props,
   "state" | "t" | "showConnection" | "disconnectedSeconds" | "staleNote"
 >) {
-  const removalLabel = hostRemovalLabel(
-    state.removals[state.host?.publicKey ?? ""],
-  );
   const reconnecting =
-    !removalLabel &&
-    !state.connected &&
-    !state.revoked &&
-    disconnectedSeconds >= 5;
+    !state.connected && !state.revoked && disconnectedSeconds >= 5;
   return (
     <div className="status-bar">
       {showConnection && state.host && state.connected && (
@@ -296,7 +293,6 @@ function StatusBar({
           {t("Connected")}
         </span>
       )}
-      {showConnection && removalLabel && <span>{t(removalLabel)}</span>}
       {showConnection && state.host && reconnecting && (
         <span data-iori-state="disconnected">
           <StatusDot state="stopped" aria-label={t("Reconnecting…")} />
@@ -351,6 +347,7 @@ function WorkspaceFrameInner({
   inputPreferences,
   onInputPreferences,
   defaultShellChange,
+  onMaintenanceClisReader,
 }: Props) {
   const { isMobile, openMobile, setOpenMobile } = useSidebar();
   const [teamsHost, setTeamsHost] = useState<HostInfo>();
@@ -415,6 +412,29 @@ function WorkspaceFrameInner({
     });
   }, [terminalLists, inputPreferences, onInputPreferences]);
   const childrenByHost = useTeamChildren(state.connectedHosts, terminalLists);
+  const maintenanceSources = useRef({ terminalLists, childrenByHost });
+  maintenanceSources.current = { terminalLists, childrenByHost };
+  useEffect(() => {
+    onMaintenanceClisReader(() => {
+      const { terminalLists, childrenByHost } = maintenanceSources.current;
+      const clis: Record<string, Record<string, CliSummary>> = {};
+      for (const [host, list] of Object.entries(terminalLists)) {
+        clis[host] = Object.fromEntries(
+          list.terminals.flatMap((terminal) =>
+            terminal.cli ? [[terminal.id, terminal.cli]] : [],
+          ),
+        );
+      }
+      for (const [host, children] of Object.entries(childrenByHost)) {
+        clis[host] ??= {};
+        for (const child of children)
+          if (child.terminalId && child.cli)
+            clis[host][child.terminalId] = child.cli;
+      }
+      return clis;
+    });
+    return () => onMaintenanceClisReader(() => ({}));
+  }, [onMaintenanceClisReader]);
   const [childErrors, setChildErrors] = useState<Record<string, string>>({});
   const [boardToOpen, setBoardToOpen] = useState<{
     hostKey: string;
@@ -1409,31 +1429,40 @@ function WorkspaceFrameInner({
           tabsRef.current.some((tab) => tab.id === launch.startTabId)
         ) {
           const id = terminalTabId(summary.id);
-          tabsRef.current = tabsRef.current.map((tab) =>
-            tab.id === launch.startTabId
-              ? {
-                  id,
-                  kind: "terminal",
-                  title: summary.title || summary.shell,
-                  terminalId: summary.id,
-                  target: selectedTarget,
-                }
-              : tab,
+          const alreadyOpen = tabsRef.current.some((tab) => tab.id === id);
+          tabsRef.current = replaceStartTab(
+            tabsRef.current,
+            launch.startTabId,
+            {
+              id,
+              kind: "terminal",
+              title: summary.title || summary.shell,
+              terminalId: summary.id,
+              target: selectedTarget,
+            },
           );
-          for (const panel of dockApi.current?.panels ?? []) {
+          for (const panel of [...(dockApi.current?.panels ?? [])]) {
             if (panel.params?.tabId === launch.startTabId) {
-              panel.api.updateParameters({ tabId: id });
-              panel.api.setTitle(summary.title || summary.shell);
+              if (alreadyOpen) panel.api.close();
+              else {
+                panel.api.updateParameters({ tabId: id });
+                panel.api.setTitle(summary.title || summary.shell);
+              }
             }
           }
           // A newly opened worktree can still be mounting its dock. Keep
           // the restored panel in the same position when it becomes ready.
-          for (const panel of Object.values(lastLayout.current?.panels ?? {})) {
-            if (panel.params?.tabId === launch.startTabId) {
-              panel.params = { ...panel.params, tabId: id };
-              panel.title = summary.title || summary.shell;
+          // A Start panel left behind is closed with its group when the dock
+          // is ready, since no tab refers to it.
+          if (!alreadyOpen)
+            for (const panel of Object.values(
+              lastLayout.current?.panels ?? {},
+            )) {
+              if (panel.params?.tabId === launch.startTabId) {
+                panel.params = { ...panel.params, tabId: id };
+                panel.title = summary.title || summary.shell;
+              }
             }
-          }
           setTabs(tabsRef.current);
         }
         if (
@@ -3264,7 +3293,6 @@ function WorkspaceFrameInner({
           openTeams(host);
         }}
         connectedHosts={state.connectedHosts}
-        removals={state.removals}
         folders={navigationFolders}
         selected={
           target && !teamsHost

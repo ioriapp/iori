@@ -90,6 +90,7 @@ export function devicePlan(file, args = []) {
     case "verification/connection/prepare-linux.mjs":
     case "verification/host-setup/build-linux.mjs":
     case "verification/host-setup/run-linux.mjs":
+    case "verification/native/linux-packages.mjs":
     case "verification/linux-client/prepare.mjs":
     case "verification/updates/build-linux.mjs":
     case "verification/updates/run-linux.mjs":
