@@ -299,7 +299,7 @@ function session(
         const response = await readFrame(entry.stream, entry.connection);
         if (response === null)
           throw new Error("the response stream ended before a frame arrived");
-        onResponse?.(method, response);
+        await onResponse?.(method, response);
         return transformResponse?.(method, response) ?? response;
       } finally {
         await stop(entry);

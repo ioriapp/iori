@@ -358,6 +358,17 @@ export async function prepareCliHome(
     home,
     versions,
     environment,
+    async trustFolders(folders) {
+      const file = join(home, ".claude/.claude.json");
+      const current = JSON.parse(await readFile(file, "utf8"));
+      current.projects = {
+        ...current.projects,
+        ...Object.fromEntries(
+          folders.map((path) => [path, { hasTrustDialogAccepted: true }]),
+        ),
+      };
+      await writeFile(file, JSON.stringify(current));
+    },
     async checkUnusedHooks() {
       await assert.rejects(
         readFile(join(home, ".iori/hooks/iori-cli-hook.mjs")),

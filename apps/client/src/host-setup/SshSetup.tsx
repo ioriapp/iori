@@ -882,7 +882,7 @@ export function SshSetup({
         <Notice tone="info">
           <P names={names}>
             {m(
-              "{user} on {host} is not an administrator, so installation over SSH is not available. Open iori on {host} and install iori Host using “This PC” in “Set up iori Host”. Windows will ask for an administrator password once during installation. Then, in iori on {host}, select Devices → Invite a new device, and read the invitation using “Connect with an invitation” on this device.",
+              "{user} on {host} is not an administrator, so installation over SSH is not available. Open iori Client on {host} and install iori Host using “This PC” in “Set up iori Host”. Windows will ask for an administrator password once during installation. Then, in iori Client on {host}, select Devices → Invite a new device, and read the invitation using “Connect with an invitation” on this device.",
             )}
           </P>
         </Notice>

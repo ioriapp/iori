@@ -53,9 +53,12 @@ Webで複数Hostを確認する時は `startWebHost(distribution, { dataRoot, po
 
 | `--only` の名前      | 内容                                                                                      |
 | -------------------- | ----------------------------------------------------------------------------------------- |
+| `host-update-mark`   | 選択中のHostと一覧の更新の印、外したHostの印の消去                                        |
 | `web-workspace`      | 登録、Git/非Gitの初期タブ、再読込・worktreeの往復、Host設定、登録解除と再登録後のTerminal |
 | `worktree-removal`   | worktreeの削除と取り込み済みの片付け                                                      |
 | `files-transfer`     | Filesのアップロードとダウンロード                                                         |
+| `git-image-diff`     | Gitの画像の変更前後・拡大・前後の切替、スマホの表示と戻る                                 |
+| `reading-text-copy`  | 本文のドラッグ・スクロール後のコピー、Gitの本文、スマホの長押しと行選択                   |
 | `reading-worktrees`  | worktree間のFiles/Git、Markdown・画像の表示                                               |
 | `web-terminal`       | 日本語、ペイン操作、読み位置と通信復帰、出来事の継続、PC・スマホの寸法、shellの初期化     |
 | `web-cli`            | CLI設定・初回起動、最大化、状態と通知、hooksの失敗と再試行、CLI一覧、長い承認待ち         |

@@ -7,6 +7,7 @@ import {
   ContextMenuSeparator,
   ContextMenuShortcut,
 } from "../components/ui/context-menu";
+import { flushSync } from "react-dom";
 import { Copy, ListTree } from "lucide-react";
 import { native } from "../native.ts";
 
@@ -31,6 +32,7 @@ export function PathMenu({
   leadingActions = [],
   separateActions = true,
   locale = "en",
+  selectable = false,
 }: {
   children: ReactNode;
   path: string;
@@ -40,9 +42,12 @@ export function PathMenu({
   leadingActions?: MenuAction[];
   separateActions?: boolean;
   locale?: string;
+  /** Text surfaces leave touch long-press and selection to the OS. */
+  selectable?: boolean;
 }) {
   const [error, setError] = useState(false);
   const [open, setOpen] = useState(false);
+  const [touch, setTouch] = useState(false);
   const ja = locale.startsWith("ja");
   const run = async (task: () => void | Promise<void>) => {
     try {
@@ -79,7 +84,28 @@ export function PathMenu({
         if (!value) setError(false);
       }}
     >
-      <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
+      <ContextMenuTrigger
+        asChild
+        selectable={selectable}
+        disabled={selectable && touch}
+        style={selectable ? { WebkitTouchCallout: "default" } : undefined}
+        onPointerDownCapture={(event) => {
+          if (!selectable) return;
+          const nativeSelection =
+            event.pointerType !== "mouse" &&
+            Boolean(
+              (event.target as Element).closest(
+                ".reading-line-text, .reading-markdown",
+              ),
+            );
+          // The trigger must know before this pointerdown bubbles whether Radix
+          // or the OS owns its long press, including the first touch on a gutter.
+          if (nativeSelection !== touch)
+            flushSync(() => setTouch(nativeSelection));
+        }}
+      >
+        {children}
+      </ContextMenuTrigger>
       <ContextMenuContent className="reading-context-menu" collisionPadding={8}>
         {leadingActions.map((item) => renderAction(item, true))}
         {leadingActions.length > 0 && <ContextMenuSeparator />}

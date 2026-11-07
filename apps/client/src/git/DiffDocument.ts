@@ -37,7 +37,7 @@ export class DiffDocument implements TextSource {
   #failed?: number;
   #paused = false;
   #expanded = new Set<number>();
-  revision?: string;
+  revision: string | undefined;
   totalRows = 0;
   collapsed: Array<[number, number]> = [];
   info?: GitDiffInfo;

@@ -72,7 +72,7 @@ const collator = new Intl.Collator(undefined, {
   sensitivity: "base",
 });
 
-const MIME_BY_EXTENSION: Record<string, string> = {
+export const MIME_BY_EXTENSION: Record<string, string> = {
   ".avif": "image/avif",
   ".bmp": "image/bmp",
   ".gif": "image/gif",

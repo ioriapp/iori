@@ -870,3 +870,14 @@
 .reading-markdown [data-streamdown="code-block"] pre {
   margin: 0;
 }
+.reading-image-unavailable {
+  margin: 4px 0;
+  color: var(--muted-foreground);
+  font-size: 0.86rem;
+}
+.reading-image-viewport {
+  touch-action: pan-x pan-y;
+}
+.reading-image-canvas {
+  flex: none;
+}

@@ -39,6 +39,7 @@ export function LongLine({
   start,
   locateEnd,
   focus,
+  retainedWindows = [],
   onError,
 }: {
   read: LongLineRead;
@@ -47,6 +48,7 @@ export function LongLine({
   /** Where the line's text ends (exclusive). */
   locateEnd: (signal: AbortSignal) => Promise<number>;
   focus?: { byteOffset: number; byteLength: number };
+  retainedWindows?: number[];
   onError: (error: unknown) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -57,6 +59,9 @@ export function LongLine({
     bytes: Uint8Array;
     text: string;
   }>();
+  const windows = useRef(
+    new Map<number, { offset: number; text: string; left: number }>(),
+  );
   const [bytesPerPx, setBytesPerPx] = useState(1 / 8);
   const total = end === undefined ? 0 : Math.max(1, end - start);
   const width = Math.min(MAX_WIDTH_PX, Math.max(1, total / bytesPerPx));
@@ -178,6 +183,16 @@ export function LongLine({
     setAnchor(left);
   }, [view, anchor, shownWidth]);
 
+  if (view)
+    windows.current.set(view.offset, {
+      offset: view.offset,
+      text: view.text,
+      left,
+    });
+  for (const offset of windows.current.keys()) {
+    if (offset !== view?.offset && !retainedWindows.includes(offset))
+      windows.current.delete(offset);
+  }
   return (
     <div
       ref={ref}
@@ -212,21 +227,33 @@ export function LongLine({
         // The end of the line can scroll to the left edge.
         style={{ width: width + (ref.current?.clientWidth ?? 0) }}
       >
-        {view && (
-          <span style={{ left }}>
-            {markStart >= 0 ? (
-              <>
-                {view.text.slice(0, markStart)}
-                <mark data-iori-part="search-current">
-                  {view.text.slice(markStart, markEnd)}
-                </mark>
-                {view.text.slice(markEnd)}
-              </>
-            ) : (
-              view.text
-            )}
-          </span>
-        )}
+        {[...windows.current.values()]
+          .sort((a, b) => a.offset - b.offset)
+          .map((window) => (
+            <span
+              key={window.offset}
+              className="reading-line-text"
+              data-text-offset={window.offset}
+              style={{
+                left: window.left,
+                opacity: window.offset === view?.offset ? undefined : 0,
+                pointerEvents:
+                  window.offset === view?.offset ? undefined : "none",
+              }}
+            >
+              {window.offset === view?.offset && markStart >= 0 ? (
+                <>
+                  {window.text.slice(0, markStart)}
+                  <mark data-iori-part="search-current">
+                    {window.text.slice(markStart, markEnd)}
+                  </mark>
+                  {window.text.slice(markEnd)}
+                </>
+              ) : (
+                window.text
+              )}
+            </span>
+          ))}
       </div>
     </div>
   );

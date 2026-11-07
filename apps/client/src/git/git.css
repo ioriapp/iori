@@ -237,3 +237,98 @@
   min-height: 0;
   flex-direction: column;
 }
+
+/* The approved image diff uses the same image frame and facts as Files. */
+.git-image-diff {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+.image-diff-scroll {
+  display: block;
+  overflow: auto;
+}
+.image-diff-scroll[data-overflow="true"] {
+  mask-image: linear-gradient(
+    to bottom,
+    var(--foreground) calc(100% - var(--space-8)),
+    transparent
+  );
+}
+.image-diff-columns {
+  display: flex;
+  align-items: stretch;
+  min-height: 100%;
+  min-width: 0;
+}
+.image-diff-side {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.image-diff-side + .image-diff-side {
+  border-left: 1px solid var(--border);
+}
+.image-diff-label {
+  flex: none;
+  padding: 8px 12px;
+  font-weight: 500;
+}
+.image-diff-side .reading-image-facts {
+  flex-wrap: wrap;
+}
+.image-diff-side .reading-image-frame .reading-error {
+  padding-inline: 0;
+}
+.image-diff-side .reading-image-frame[data-fit="true"] {
+  flex: none;
+  align-items: flex-start;
+  justify-content: flex-start;
+  padding-block: 0;
+  overflow: visible;
+}
+.image-diff-side .reading-image-frame[data-fit="true"] img {
+  flex: none;
+  box-sizing: content-box;
+  max-height: none;
+  border: 1px solid var(--border);
+}
+.image-diff-side .reading-image-frame [data-slot="spinner"] {
+  color: var(--muted-foreground);
+}
+.image-diff-side .image-diff-open {
+  display: block;
+  height: auto;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.git-pane .reading-split[data-narrow="true"] .image-diff-columns {
+  flex-direction: column;
+}
+.git-pane .reading-split[data-narrow="true"] .image-diff-side {
+  flex: none;
+  width: 100%;
+}
+.git-pane
+  .reading-split[data-narrow="true"]
+  .image-diff-side
+  + .image-diff-side {
+  border-left: 0;
+  border-top: 1px solid var(--border);
+}
+.git-pane .reading-split[data-narrow="true"] .image-diff-label {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--background);
+}
+.git-image-expanded {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}

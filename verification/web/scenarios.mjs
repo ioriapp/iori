@@ -2,11 +2,14 @@
 // with its own invitation, folder and (when needed) real Terminal.
 export const basicWebScenarios = {
   "host-invitation-switch": { clis: [], modelClis: [] },
+  "host-update-mark": { clis: [], modelClis: [] },
   "sidebar-width": { clis: [], modelClis: [] },
   "web-workspace": { clis: [], modelClis: [] },
   "worktree-removal": {},
   "files-transfer": {},
   "reading-worktrees": {},
+  "git-image-diff": { clis: [], modelClis: [] },
+  "reading-text-copy": { clis: [], modelClis: [] },
   "web-terminal": { clis: ["pi"], modelClis: [] },
   "web-cli": {
     clis: ["codex", "pi", "claude"],

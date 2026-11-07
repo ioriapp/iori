@@ -167,12 +167,17 @@ function GitWorkspace({
   // the detail for the list.
   const back = useRef(onBackHandler);
   back.current = onBackHandler;
+  const imageBack = useRef<(() => boolean) | undefined>(undefined);
+  const setImageBack = useCallback((handler: (() => boolean) | undefined) => {
+    imageBack.current = handler;
+  }, []);
   const inCommitFile = view.mode === "history" && Boolean(view.commitFile);
   const showsDetail = narrow && view.detailOpen;
   useEffect(() => {
     back.current?.(
       showsDetail
         ? () => {
+            if (imageBack.current?.()) return true;
             setView((value) =>
               value.mode === "history" && value.commitFile
                 ? { ...value, commitFile: undefined }
@@ -581,6 +586,8 @@ function GitWorkspace({
         <DiffViewer
           key={`${change.area}:${change.path}:${conflictStage ?? ""}`}
           transport={transport}
+          onBackHandler={setImageBack}
+          active={visible && (!narrow || view.detailOpen)}
           root={root}
           source={
             change.area === "conflict"
@@ -663,7 +670,7 @@ function GitWorkspace({
             change.area === "untracked"
               ? [
                   ja
-                    ? "Git がまだ追跡していないファイルです。全体が追加として表示されます。"
+                    ? "Gitがまだ追跡していないファイルです。全体が追加として表示されます。"
                     : "Git does not track this file yet; all of it shows as added.",
                 ]
               : []
@@ -684,6 +691,8 @@ function GitWorkspace({
       <DiffViewer
         key={`${view.commit}:${view.parent ?? ""}:${view.commitFile.path}`}
         transport={transport}
+        onBackHandler={setImageBack}
+        active={visible && (!narrow || view.detailOpen)}
         root={root}
         source={{
           kind: "commit",

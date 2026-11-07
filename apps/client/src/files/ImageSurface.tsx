@@ -1,7 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Maximize, Minus, Plus } from "lucide-react";
 import type { FileInfo } from "@iori/protocol";
-import { Button } from "../components/ui/button";
 import {
   ReadConnectionLost,
   decodeBytes,
@@ -9,11 +7,10 @@ import {
   readErrorCopy,
   type ReadingTransport,
 } from "../reading/transport.ts";
-import { formatBytes } from "../reading/format.ts";
+import { ImageViewport } from "../reading/ImageViewport.tsx";
 import { ReadingError } from "../reading/ReadingError.tsx";
 
 const CHUNK_BYTES = 1_048_576;
-const ZOOM_STEP = 1.25;
 
 /** Reads an image into a Blob in the WebView; nothing is written to the device. */
 function useImageUrl(
@@ -105,126 +102,23 @@ export function ImageSurface({
   locale: string;
 }) {
   const ja = locale.startsWith("ja");
-  const { url, error, setError, retry } = useImageUrl(
-    transport,
-    root,
-    info,
-    locale,
-  );
-  const [natural, setNatural] = useState<{ width: number; height: number }>();
-  const [fit, setFit] = useState(true);
-  const [scale, setScale] = useState(1);
-  const frame = useRef<HTMLDivElement>(null);
-  const fittedScale = () => {
-    const box = frame.current;
-    if (!box || !natural) return 1;
-    return Math.min(
-      1,
-      box.clientWidth / natural.width,
-      box.clientHeight / natural.height,
-    );
-  };
-  const zoom = (factor: number) => {
-    const base = fit ? fittedScale() : scale;
-    setFit(false);
-    setScale(base * factor);
-  };
-  const shownScale = fit ? fittedScale() : scale;
+  const { url, error, retry } = useImageUrl(transport, root, info, locale);
   return (
     <div className="reading-image-surface">
-      <div
-        className="reading-overlay reading-image-tools"
-        data-iori-part="image-tools"
-      >
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          data-iori-action="image-zoom-out"
-          aria-label={ja ? "縮小" : "Zoom out"}
-          onClick={() => zoom(1 / ZOOM_STEP)}
-        >
-          <Minus />
-        </Button>
-        <span className="reading-overlay-status" data-iori-part="image-scale">
-          {Math.round(shownScale * 100)}%
-        </span>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          data-iori-action="image-zoom-in"
-          aria-label={ja ? "拡大" : "Zoom in"}
-          onClick={() => zoom(ZOOM_STEP)}
-        >
-          <Plus />
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          data-iori-action="image-actual-size"
-          onClick={() => {
-            setFit(false);
-            setScale(1);
-          }}
-        >
-          {ja ? "等倍" : "100%"}
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          data-iori-action="image-fit"
-          aria-label={ja ? "全体を表示" : "Fit image"}
-          aria-pressed={fit}
-          onClick={() => setFit(true)}
-        >
-          <Maximize />
-        </Button>
-      </div>
       {error && (
         <ReadingError retryLabel={ja ? "再試行" : "Retry"} onRetry={retry}>
           {error}
         </ReadingError>
       )}
-      <div ref={frame} className="reading-image-frame" data-fit={fit}>
-        {url && (
-          <img
-            src={url}
-            alt={info.path}
-            data-iori-part="file-image"
-            style={
-              !fit && natural
-                ? {
-                    width: natural.width * scale,
-                    height: natural.height * scale,
-                  }
-                : undefined
-            }
-            onLoad={(event) =>
-              setNatural({
-                width: event.currentTarget.naturalWidth,
-                height: event.currentTarget.naturalHeight,
-              })
-            }
-            onError={() =>
-              setError(
-                ja
-                  ? "この画像の形式は表示できません。"
-                  : "This image format cannot be displayed.",
-              )
-            }
-          />
-        )}
-      </div>
-      <div className="reading-image-facts">
-        {natural && (
-          <span>
-            {natural.width} × {natural.height}
-          </span>
-        )}
-        {info.mimeType && <span>{info.mimeType}</span>}
-        {info.sizeBytes !== undefined && (
-          <span>{formatBytes(info.sizeBytes)}</span>
-        )}
-      </div>
+      <ImageViewport
+        image={{
+          url,
+          path: info.path,
+          mimeType: info.mimeType,
+          sizeBytes: info.sizeBytes,
+        }}
+        locale={locale}
+      />
     </div>
   );
 }

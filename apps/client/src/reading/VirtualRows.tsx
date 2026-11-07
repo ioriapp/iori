@@ -7,7 +7,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
-import { useVirtualizer } from "@tanstack/react-virtual";
+import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
 
 // Taller content is mapped onto this many pixels so every WebView can scroll it.
 const MAX_SCROLL_PX = 8_000_000;
@@ -22,6 +22,8 @@ export type ScrollRequest = {
 
 type Props = {
   count: number;
+  /** Keep native selection endpoints mounted outside the visible window. */
+  retained?: number[];
   rowHeight: number;
   renderRow: (index: number) => ReactNode;
   onRange?: (first: number, last: number) => void;
@@ -64,6 +66,7 @@ function useViewportHeight(ref: React.RefObject<HTMLDivElement | null>) {
  */
 function FixedRows({
   count,
+  retained = [],
   rowHeight,
   renderRow,
   onRange,
@@ -175,7 +178,9 @@ function FixedRows({
 
   const scrollTop = ref.current?.scrollTop ?? 0;
   const rows: ReactNode[] = [];
-  for (let index = first; index <= last; index += 1)
+  const indices = new Set(retained);
+  for (let index = first; index <= last; index += 1) indices.add(index);
+  for (const index of [...indices].sort((a, b) => a - b))
     rows.push(
       <div
         key={index}
@@ -223,6 +228,7 @@ function FixedRows({
 /** Wrapped rows of different heights, measured as they are shown. */
 function MeasuredRows({
   count,
+  retained = [],
   rowHeight,
   renderRow,
   onRange,
@@ -241,11 +247,15 @@ function MeasuredRows({
     getScrollElement: () => ref.current,
     estimateSize: () => rowHeight,
     overscan: OVERSCAN,
+    rangeExtractor: (range) =>
+      [...new Set([...defaultRangeExtractor(range), ...retained])].sort(
+        (a, b) => a - b,
+      ),
     initialOffset: initialIndex * rowHeight,
   });
   const items = virtual.getVirtualItems();
-  const first = items[0]?.index ?? 0;
-  const last = items.at(-1)?.index ?? 0;
+  const first = Math.max(0, (virtual.range?.startIndex ?? 0) - OVERSCAN);
+  const last = Math.min(count - 1, (virtual.range?.endIndex ?? 0) + OVERSCAN);
   useEffect(() => {
     if (count > 0) onRange?.(first, last);
   }, [first, last, count, onRange]);

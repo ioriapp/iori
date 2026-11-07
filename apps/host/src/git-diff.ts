@@ -1,12 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { lstat, mkdir, mkdtemp, open, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { extname, join } from "node:path";
 import type {
   GitDiffInfo,
   GitDiffRow,
   GitDiffRowKind,
   GitDiffSource,
+  GitImageSide,
   ReadMethod,
   ReadParamsByMethod,
   ReadResultByMethod,
@@ -18,7 +19,13 @@ import {
   throwIfAborted,
   toFailure,
 } from "./reading-failure.ts";
-import { finishGit, gitFailure, startGit, stopGit } from "./git-process.ts";
+import {
+  collectGit,
+  finishGit,
+  gitFailure,
+  startGit,
+  stopGit,
+} from "./git-process.ts";
 import {
   checkpointFor,
   indexLines,
@@ -34,7 +41,11 @@ import {
   type LineMatch,
   type RawLineChunk,
 } from "./text-lines.ts";
-import { isWithin } from "./files-reading.ts";
+import {
+  handleFileRead,
+  isWithin,
+  MIME_BY_EXTENSION,
+} from "./files-reading.ts";
 import type { Repository } from "./git-reading.ts";
 
 type Signal = AbortSignal | undefined;
@@ -88,6 +99,7 @@ type DiffDocument = {
   newSide?: NewSide;
   /** A blob written out to read its lines; deleted with the document. */
   newFile?: string;
+  imageFiles?: Map<string, Promise<string>>;
   info: GitDiffInfo;
   collapsed: Array<[number, number]>;
 };
@@ -597,6 +609,12 @@ async function generate(
 }
 
 function release(document: DiffDocument | undefined): void {
+  if (document) {
+    for (const file of document.imageFiles?.values() ?? [])
+      void file
+        .then((path) => rm(path, { force: true }))
+        .catch(() => undefined);
+  }
   for (const file of [document?.file, document?.newFile])
     if (file) void rm(file, { force: true }).catch(() => undefined);
 }
@@ -653,6 +671,13 @@ export async function handleDiffRead<M extends ReadMethod>(
   signal?: Signal,
 ): Promise<ReadResultByMethod[M]> {
   const { source } = params as { source: GitDiffSource };
+  if (method === "git.imageInfo" || method === "git.imageRead")
+    return handleImageRead(
+      repository,
+      method,
+      params as ReadParamsByMethod["git.imageRead"],
+      signal,
+    ) as Promise<ReadResultByMethod[M]>;
   if (method === "git.diffOpen") {
     const document = await documentFor(
       repository,
@@ -675,6 +700,168 @@ export async function handleDiffRead<M extends ReadMethod>(
     if (errorCode(error) !== "ENOENT") throw toFailure(error);
     document = await documentFor(repository, source, false, signal);
     return readDocument(document, method, params, signal);
+  }
+}
+
+/** Resolve each side from the comparison, keeping paths relative to the repository. */
+function imageSource(
+  source: GitDiffSource,
+  side: GitImageSide,
+):
+  | { kind: "missing"; path: string }
+  | { kind: "file"; path: string }
+  | { kind: "blob"; path: string; spec: string } {
+  if (source.kind === "stage")
+    throw new ReadingFailure("invalid_request", "Stage images are unsupported");
+  const path =
+    side === "old" && (source.kind === "commit" || source.area === "staged")
+      ? (source.oldPath ?? source.path)
+      : source.path;
+  if (source.kind === "commit")
+    return {
+      kind: "blob",
+      path,
+      spec: `${side === "old" ? (source.parent ?? `${source.hash}^`) : source.hash}:${path}`,
+    };
+  if (source.area === "untracked")
+    return side === "old" ? { kind: "missing", path } : { kind: "file", path };
+  if (source.area === "unstaged")
+    return side === "old"
+      ? { kind: "blob", path, spec: `:0:${path}` }
+      : { kind: "file", path };
+  return {
+    kind: "blob",
+    path,
+    spec: side === "old" ? `HEAD:${path}` : `:0:${path}`,
+  };
+}
+
+async function handleImageRead(
+  repository: Repository,
+  method: "git.imageInfo" | "git.imageRead",
+  value: ReadParamsByMethod["git.imageRead"],
+  signal?: Signal,
+): Promise<
+  ReadResultByMethod["git.imageInfo"] | ReadResultByMethod["git.imageRead"]
+> {
+  const source = imageSource(value.source, value.side);
+  const mimeType = MIME_BY_EXTENSION[extname(source.path).toLowerCase()];
+  const missing = () => {
+    if (method === "git.imageRead")
+      throw new ReadingFailure("path_not_found", "Image side does not exist");
+    return {
+      present: false,
+      path: source.path,
+      ...(mimeType ? { mimeType } : {}),
+      revision: "",
+    };
+  };
+  if (source.kind === "missing") return missing();
+  if (source.kind === "file") {
+    try {
+      const result = await handleFileRead(
+        "files.read",
+        {
+          root: repository.root,
+          path: source.path,
+          offset: method === "git.imageRead" ? value.offset : 0,
+          length: method === "git.imageRead" ? value.length : 1,
+        },
+        signal,
+      );
+      return method === "git.imageRead"
+        ? result
+        : {
+            present: true,
+            path: source.path,
+            ...(mimeType ? { mimeType } : {}),
+            sizeBytes: result.sizeBytes,
+            revision: result.revision,
+          };
+    } catch (error) {
+      if (error instanceof ReadingFailure && error.code === "path_not_found")
+        return missing();
+      throw error;
+    }
+  }
+  const resolved = await collectGit(
+    repository.root,
+    ["rev-parse", "--verify", "--quiet", source.spec],
+    signal,
+    [0, 1],
+  );
+  if (resolved.code === 1) return missing();
+  const revision = resolved.stdout.toString("utf8").trim();
+  const sizeResult = await collectGit(
+    repository.root,
+    ["cat-file", "-s", revision],
+    signal,
+  );
+  const sizeBytes = Number(sizeResult.stdout.toString("utf8").trim());
+  if (method === "git.imageInfo")
+    return {
+      present: true,
+      path: source.path,
+      ...(mimeType ? { mimeType } : {}),
+      sizeBytes,
+      revision,
+    };
+  const document = await documentFor(repository, value.source, false, signal);
+  document.imageFiles ??= new Map();
+  let file = document.imageFiles.get(revision);
+  if (!file) {
+    file = (async () => {
+      const path = join(await directory(), `${randomUUID()}.image`);
+      await writeImageBlob(repository, revision, path, signal);
+      return path;
+    })();
+    document.imageFiles.set(revision, file);
+    void file.catch(() => {
+      if (document.imageFiles?.get(revision) === file)
+        document.imageFiles?.delete(revision);
+    });
+  }
+  const path = await file;
+  const handle = await open(path, "r");
+  try {
+    const bytes = await readAt(
+      handle,
+      value.offset,
+      Math.min(value.length, Math.max(0, sizeBytes - value.offset)),
+    );
+    return {
+      offset: value.offset,
+      nextOffset: value.offset + bytes.length,
+      bytesBase64: bytes.toString("base64"),
+      eof: value.offset + bytes.length >= sizeBytes,
+      sizeBytes,
+      revision,
+    };
+  } finally {
+    await handle.close();
+  }
+}
+
+async function writeImageBlob(
+  repository: Repository,
+  revision: string,
+  file: string,
+  signal?: Signal,
+): Promise<void> {
+  const output = await open(file, "w", 0o600);
+  const git = startGit(repository.root, ["cat-file", "blob", revision], signal);
+  try {
+    for await (const value of git.child.stdout) {
+      throwIfAborted(signal);
+      await output.write(value as Buffer);
+    }
+    await finishGit(git, signal);
+  } catch (error) {
+    await stopGit(git);
+    await rm(file, { force: true }).catch(() => undefined);
+    throw gitFailure(error);
+  } finally {
+    await output.close().catch(() => undefined);
   }
 }
 

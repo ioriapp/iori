@@ -320,7 +320,7 @@ export async function hostMaintenancePreview({
     })()`);
     assert.deepEqual(busy.ids, [terminalId]);
     assert.ok(busy.state.includes("sleep"));
-    assert.ok(busy.state.includes(text("Running", "実行中")));
+    assert.ok(busy.state.includes("Running"));
     assert.equal(busy.action, text("Stop and restart", "止めて再起動する"));
     await maintenancePictures(client, shot, "working-restart");
     await screen.key("Enter");

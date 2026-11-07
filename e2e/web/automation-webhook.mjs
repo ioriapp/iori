@@ -284,7 +284,7 @@ export async function automationWebhookScenario({
     assert.equal(await getToken(automationId), token);
     await waitFor(async () =>
       (await screen.text(view)).includes(
-        `ポート${localUrl.port}を開けないため、Webhookを受け付けていません。`,
+        `ポート${localUrl.port}を使えないため、Webhookを受信できません。`,
       ),
     );
     await capture("port-error", scrollWebhook);
@@ -296,7 +296,7 @@ export async function automationWebhookScenario({
   await waitFor(
     async () =>
       !(await screen.text(view)).includes(
-        `ポート${localUrl.port}を開けないため`,
+        `ポート${localUrl.port}を使えないため`,
       ),
   );
   assert.equal((await post(localUrl.href, token)).status, 202);

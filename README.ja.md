@@ -112,6 +112,8 @@ irm https://github.com/ioriapp/iori/releases/latest/download/install.ps1 | iex
 
 コマンドで入れると、Host が招待を QR コードと文字列で表示します。Client の「招待で接続する」で文字列を貼り付けるか QR コードを読み取り、登録します。後から別の端末を足す時は、Host のマシンで `iori-host invite` を実行します。
 
+Windows の WSL の中で Host を動かす時は、[WSL で iori Host を動かす](guides/wsl.ja.md)を参照してください。
+
 ## 接続する
 
 Client は LAN か VPN で Host へ直接接続します。Windows の Host は、Windows のファイアウォールで外からの接続を止められます。スマートフォンや別の PC から接続するには、Host の設定の「接続」で「ほかの端末からの接続を許可する」を押してください（Windows の管理者の確認が出ます）。1つの Client から、複数の Host に同時に接続できます。

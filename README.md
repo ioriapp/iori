@@ -112,6 +112,8 @@ irm https://github.com/ioriapp/iori/releases/latest/download/install.ps1 | iex
 
 When installed from a terminal, the Host shows an invitation as a QR code and text. In the Client, choose **Connect with an invitation**, paste the text or scan the QR code, and register. To add another device later, run `iori-host invite` on the Host.
 
+To run the Host inside WSL on Windows, see [Running iori Host in WSL](guides/wsl.md).
+
 ## Connect
 
 Clients connect to the Host directly over your LAN or a VPN. Windows Firewall blocks incoming connections to a Windows Host. To connect from your phone or another PC, select **Allow connections from other devices** in the Host's **Connection** settings (Windows asks for administrator approval). One Client can use several Hosts at the same time.

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Streamdown, defaultRehypePlugins, type Components } from "streamdown";
+import { ClipboardCopy } from "lucide-react";
 import GithubSlugger from "github-slugger";
 import type { OpenFile } from "../workspace-panel.tsx";
 import type { FileInfo } from "@iori/protocol";
@@ -174,6 +175,7 @@ export function MarkdownSurface({
   const [findOpen, setFindOpen] = useState(Boolean(position.query));
   const [findFocus, setFindFocus] = useState(0);
   const [status, setStatus] = useState<string>();
+  const [selectedText, setSelectedText] = useState("");
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const latest = useRef(position);
@@ -457,9 +459,23 @@ export function MarkdownSurface({
         </ReadingError>
       )}
       <PathMenu
+        selectable
         path={info.absolutePath}
         lines={{ start: position.line, end: position.line }}
-        actions={extraActions}
+        actions={[
+          ...(selectedText
+            ? [
+                {
+                  label: ja ? "コピー" : "Copy",
+                  icon: <ClipboardCopy />,
+                  shortcut: "Ctrl+C",
+                  action: "copy-text",
+                  run: () => native.clipboardWrite(selectedText),
+                },
+              ]
+            : []),
+          ...(extraActions ?? []),
+        ]}
         locale={locale}
       >
         <div
@@ -467,6 +483,17 @@ export function MarkdownSurface({
           className="reading-markdown-scroll"
           data-iori-scroll="file-markdown"
           tabIndex={0}
+          onContextMenuCapture={() => {
+            const selection = window.getSelection();
+            setSelectedText(
+              selection?.anchorNode &&
+                selection.focusNode &&
+                content.current?.contains(selection.anchorNode) &&
+                content.current.contains(selection.focusNode)
+                ? selection.toString()
+                : "",
+            );
+          }}
           onScroll={onScroll}
           onKeyDown={(event) => {
             if (

@@ -1045,9 +1045,6 @@ export function SettingsDialog({
   const repository =
     repositoryItems.find((item) => item.workspacePath === repositoryPath) ??
     repositoryItems[0];
-  const anyHostUpdate = Object.values(state.observedHosts).some(
-    hostNeedsUpdate,
-  );
   const current =
     section === "keyboard" && !state.initial?.mobile
       ? "general"
@@ -1245,7 +1242,7 @@ export function SettingsDialog({
                     data-iori-host-key={host.publicKey}
                   >
                     <SelectValue>{host.hostName}</SelectValue>
-                    <UpdateMark t={t} available={anyHostUpdate} />
+                    <UpdateMark t={t} available={hostNeedsUpdate(host)} />
                   </SelectTrigger>
                   <SelectContent>
                     {[...(state.initial?.hosts ?? [])]

@@ -8,6 +8,7 @@ import { setRealModels } from "../../e2e/fake-model/marker.mjs";
 import { longApprovalCommand } from "../../e2e/fake-model/cli-status.mjs";
 import { basicWebScenarios } from "./scenarios.mjs";
 import { hostInvitationSwitch } from "./host-invitation-switch.mjs";
+import { hostUpdateMark } from "./host-update-mark.mjs";
 import { prepareCliErrorFixture } from "./cli-error-fixture.mjs";
 import { cliCommand, teamCommand } from "./team-command.mjs";
 import { prepareForgeFixture } from "./forge-fixture.mjs";
@@ -542,6 +543,7 @@ try {
       only === "cli-definition" ||
       only === "cli-definition-plugin",
     // Claude Code starts in these folders as in folders the user trusted.
+    ...(only === "worktree-create" ? { trustedFolders: [repository] } : {}),
     ...(["forge-commands", "forge-issue-start"].includes(only)
       ? {
           trustedFolders: [
@@ -746,7 +748,15 @@ input.on('line',async line=>{if(!line.startsWith('DELEGATE'))return; const optio
       payload.json = childDisplayEvent(payload.json);
       eventFault?.(payload, emit);
     },
-    onResponse: (method, json) => {
+    onResponse: async (method, json) => {
+      // Trust the created path before the Client can launch Claude Code there.
+      // Its exact path also covers worktrees whose names the Host generated.
+      if (only === "worktree-create" && method === "worktrees.create") {
+        const response = JSON.parse(json);
+        if (response.ok && response.result.state === "created")
+          await cliHome.trustFolders([response.result.path]);
+        return;
+      }
       if (method === "host.uninstall" || method === "host.uninstall.result") {
         const response = JSON.parse(json);
         if (response.ok) uninstallStatuses.push(response.result);
@@ -921,6 +931,12 @@ input.on('line',async line=>{if(!line.startsWith('DELEGATE'))return; const optio
           ),
       }),
       browser: {
+        drag: (from, to) =>
+          Cdp.prototype.drag.call(
+            { call: (method, params) => cdp.send(method, params) },
+            from,
+            to,
+          ),
         viewport: (size) => targetPage.setViewportSize(size),
         evaluate,
         evaluateAsync: evaluate,
@@ -952,13 +968,15 @@ input.on('line',async line=>{if(!line.startsWith('DELEGATE'))return; const optio
     );
   };
   await (
-    only === "host-invitation-switch"
-      ? hostInvitationSwitch
-      : only === "readme-shots"
-        ? readmeShotsScenario
-        : ["terminal-daemon", "host-update", "host-uninstall"].includes(only)
-          ? terminalDaemonScenario
-          : webScenario
+    only === "host-update-mark"
+      ? hostUpdateMark
+      : only === "host-invitation-switch"
+        ? hostInvitationSwitch
+        : only === "readme-shots"
+          ? readmeShotsScenario
+          : ["terminal-daemon", "host-update", "host-uninstall"].includes(only)
+            ? terminalDaemonScenario
+            : webScenario
   )({
     readmeTheme,
     readmeRecording: (() => {
@@ -1099,7 +1117,13 @@ input.on('line',async line=>{if(!line.startsWith('DELEGATE'))return; const optio
     createPlainFolder: () => mkdtemp(join(runRoot, "folder-")),
     additionalHost: async () => {
       const dataRoot = join(runRoot, "additional-host-data");
-      if (only === "client-host-update") {
+      if (only === "host-update-mark") {
+        hostDistribution = await prepareHostDistribution(runRoot);
+        additionalHost = await startObservedWebHost(hostDistribution.bundle, {
+          dataRoot,
+          port: await hostPort(),
+        });
+      } else if (only === "client-host-update") {
         const bundle = join(runRoot, "second-host-bundle");
         await cp(hostDistribution.bundle, bundle, { recursive: true });
         additionalHost = await startUpdateHost(

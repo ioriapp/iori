@@ -13,12 +13,13 @@ function ContextMenu({
 
 function ContextMenuTrigger({
   className,
+  selectable = false,
   ...props
-}: React.ComponentProps<typeof ContextMenuPrimitive.Trigger>) {
+}: React.ComponentProps<typeof ContextMenuPrimitive.Trigger> & { selectable?: boolean }) {
   return (
     <ContextMenuPrimitive.Trigger
       data-slot="context-menu-trigger"
-      className={cn("select-none", className)}
+      className={cn(selectable ? "select-text" : "select-none", className)}
       {...props}
     />
   )

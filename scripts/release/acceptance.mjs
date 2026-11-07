@@ -63,7 +63,10 @@ const fullScenarioOrder = [
   "forge-issues",
   "web-workspace",
   "host-invitation-switch",
+  "host-update-mark",
   "reading-worktrees",
+  "git-image-diff",
+  "reading-text-copy",
 ];
 
 // Names accepted by verification/web/run.mjs --only and e2e/web/scenario.mjs.

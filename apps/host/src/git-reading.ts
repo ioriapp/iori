@@ -686,6 +686,8 @@ export async function handleGitRead<M extends ReadMethod>(
     case "git.diffOpen":
     case "git.diffRows":
     case "git.diffRead":
+    case "git.imageInfo":
+    case "git.imageRead":
     case "git.diffSearch":
       return handleDiffRead(repository, method, params, signal);
     default:

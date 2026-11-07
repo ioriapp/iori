@@ -404,8 +404,11 @@ export class ConnectionController {
     const initial = this.state.initial!;
     const hosts = initial.hosts.filter((host) => host.publicKey !== key);
     const active = this.state.host?.publicKey === key;
+    const observedHosts = { ...this.state.observedHosts };
+    delete observedHosts[key];
     this.update({
       initial: { ...initial, hosts },
+      observedHosts,
       connectedHosts: this.state.connectedHosts.filter((item) => item !== key),
       ...(active
         ? {

@@ -66,6 +66,10 @@ class FileLines implements TextSource {
     this.#onRevision = onRevision;
   }
 
+  get revision(): string | undefined {
+    return this.#revision;
+  }
+
   /** The file changed: keep showing the pages, read them again, and use the new length. */
   update(info: FileInfo) {
     if (info.revision === this.#revision) return;
@@ -75,6 +79,7 @@ class FileLines implements TextSource {
     this.count = info.lineCount ?? this.count;
     this.#failed = undefined;
     this.error = undefined;
+    this.#changed();
     this.#kick();
   }
 

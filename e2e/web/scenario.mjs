@@ -30,7 +30,9 @@ import {
   clipboardScenarios,
   clipboardTransferScenario,
 } from "./clipboard-image.mjs";
+import { gitImageDiff } from "./git-image-diff.mjs";
 import { readingWorktrees } from "./reading-worktrees.mjs";
+import { readingTextCopy } from "./reading-text-copy.mjs";
 import { filesReading } from "./files-reading.mjs";
 import { terminalPreferences } from "./terminal-preferences.mjs";
 import { teamNotificationsScenario } from "./team-notifications.mjs";
@@ -119,6 +121,16 @@ export async function webScenario({
   await register(screen, invitation, "開発用Chromium");
   await screen.key("Escape");
   await record("招待で登録");
+  if (only === "git-image-diff")
+    return gitImageDiff({
+      client,
+      screen,
+      repository,
+      desktop,
+      mobile,
+      shot,
+      record,
+    });
   if (only === "client-host-update")
     return clientHostUpdate({
       client,
@@ -444,6 +456,19 @@ export async function webScenario({
       desktop,
       shot,
       record,
+    });
+    return;
+  }
+  if (only === "reading-text-copy") {
+    await readingTextCopy({
+      client,
+      screen,
+      repository,
+      worktree,
+      mobile,
+      desktop,
+      record,
+      shot,
     });
     return;
   }

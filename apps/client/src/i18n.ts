@@ -87,8 +87,8 @@ const japanese: Record<string, string> = {
   "Installation cancelled.": "インストールをキャンセルしました。",
   "During installation, incoming connections for iori Host will be allowed in Windows Firewall.":
     "インストールの途中で、Windows ファイアウォールにiori Hostの受信の許可を追加します。",
-  "{user} on {host} is not an administrator, so installation over SSH is not available. Open iori on {host} and install iori Host using “This PC” in “Set up iori Host”. Windows will ask for an administrator password once during installation. Then, in iori on {host}, select Devices → Invite a new device, and read the invitation using “Connect with an invitation” on this device.":
-    "{host}の{user}は管理者ではないため、SSHではインストールできません。{host}でioriを開き、「iori Hostを用意する」の「この PC」でiori Hostをインストールしてください。インストールの途中で、Windowsの管理者のパスワードが1回求められます。その後、{host}のioriの「端末」→「新しい端末を招待する」で表示した招待を、この端末の「招待で接続する」で読み取ってください。",
+  "{user} on {host} is not an administrator, so installation over SSH is not available. Open iori Client on {host} and install iori Host using “This PC” in “Set up iori Host”. Windows will ask for an administrator password once during installation. Then, in iori Client on {host}, select Devices → Invite a new device, and read the invitation using “Connect with an invitation” on this device.":
+    "{host}の{user}は管理者ではないため、SSHではインストールできません。{host}でiori Clientを開き、「iori Hostを用意する」の「この PC」でiori Hostをインストールしてください。インストールの途中で、Windowsの管理者のパスワードが1回求められます。その後、{host}のiori Clientの「端末」→「新しい端末を招待する」で表示した招待を、この端末の「招待で接続する」で読み取ってください。",
   "iori Host does not support {platform}. Linux x64 and Windows x64 are supported.":
     "iori Hostは{platform}に対応していません。対応しているのはLinux x64とWindows x64です。",
   "Choose another destination": "ほかの接続先を選んでください",

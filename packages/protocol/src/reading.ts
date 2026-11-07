@@ -35,6 +35,8 @@ export type ReadMethod =
   | "git.diffOpen"
   | "git.diffRows"
   | "git.diffRead"
+  | "git.imageInfo"
+  | "git.imageRead"
   | "git.diffSearch";
 
 export type FileEntryKind = "directory" | "file" | "symlink" | "other";
@@ -187,6 +189,8 @@ export type GitDiffSource =
       oldPath?: string;
     };
 
+export type GitImageSide = "old" | "new";
+
 export type GitDiffRowKind = "context" | "added" | "deleted" | "note";
 
 export interface GitDiffRow {
@@ -284,6 +288,14 @@ export interface ReadParamsByMethod {
     offset: number;
     length: number;
   };
+  "git.imageInfo": { root: string; source: GitDiffSource; side: GitImageSide };
+  "git.imageRead": {
+    root: string;
+    source: GitDiffSource;
+    side: GitImageSide;
+    offset: number;
+    length: number;
+  };
   "git.diffSearch": SearchParams & {
     root: string;
     source: GitDiffSource;
@@ -373,6 +385,21 @@ export interface ReadResultByMethod {
     nextOffset: number;
     bytesBase64: string;
     eof: boolean;
+    revision: string;
+  };
+  "git.imageInfo": {
+    present: boolean;
+    path: string;
+    mimeType?: string;
+    sizeBytes?: number;
+    revision: string;
+  };
+  "git.imageRead": {
+    offset: number;
+    nextOffset: number;
+    bytesBase64: string;
+    eof: boolean;
+    sizeBytes: number;
     revision: string;
   };
   "git.diffSearch": {
@@ -695,6 +722,22 @@ function parseParams(
         offset: safeInteger(params.offset, "offset"),
         length: readLength(params.length),
       };
+    case "git.imageInfo":
+    case "git.imageRead": {
+      const source = diffSource(params.source);
+      if (source.kind === "stage") return fail("source kind is unsupported");
+      return {
+        root,
+        source,
+        side: choice(params.side, ["old", "new"] as const, "side"),
+        ...(method === "git.imageRead"
+          ? {
+              offset: safeInteger(params.offset, "offset"),
+              length: readLength(params.length),
+            }
+          : {}),
+      };
+    }
     case "git.diffSearch": {
       const from = record(params.from, "from");
       return {
@@ -727,6 +770,8 @@ const readMethods: readonly ReadMethod[] = [
   "git.diffOpen",
   "git.diffRows",
   "git.diffRead",
+  "git.imageInfo",
+  "git.imageRead",
   "git.diffSearch",
 ];
 
@@ -855,6 +900,19 @@ export const readResultSchemas: {
     nextOffset: "number",
     bytesBase64: "string",
     eof: "boolean",
+    revision: "string",
+  }),
+  "git.imageInfo": shaped("git.imageInfo", {
+    present: "boolean",
+    path: "string",
+    revision: "string",
+  }),
+  "git.imageRead": shaped("git.imageRead", {
+    offset: "number",
+    nextOffset: "number",
+    bytesBase64: "string",
+    eof: "boolean",
+    sizeBytes: "number",
     revision: "string",
   }),
   "git.diffSearch": shaped("git.diffSearch", {

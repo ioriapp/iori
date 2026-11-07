@@ -48,6 +48,7 @@ export type TextMatch = {
 };
 
 export interface TextSource {
+  readonly revision: string | undefined;
   count: number;
   row(index: number): TextRow | undefined;
   ensure(first: number, last: number): void;
@@ -67,6 +68,15 @@ export interface TextSource {
   /** Two line-number columns (old and new) instead of one. */
   twoColumns?: boolean;
 }
+
+type TextPoint = {
+  row: number;
+  /** Byte offset from the start of the logical row. */
+  column: number;
+  rowStart: number;
+  window: number;
+};
+type CharacterSelection = { anchor: TextPoint; focus: TextPoint };
 
 export type TextPosition = {
   top: number;
@@ -192,9 +202,45 @@ export function TextRows({
   const [status, setStatus] = useState<string>();
   const [scroll, setScroll] = useState<ScrollRequest>();
   const [failure, setFailure] = useState<string>();
+  const [startingRow, setStartingRow] = useState<number>();
+  const captureSelection = useRef<() => void>(() => {});
+  const [characters, setCharacters] = useState<CharacterSelection>();
+  const characterRef = useRef<CharacterSelection | undefined>(undefined);
+  const heldRows = useRef(new Map<number, TextRow>());
+  const heldDocument = useRef({
+    source,
+    revision: source.revision,
+    count: source.count,
+  });
+  const sameDocument =
+    heldDocument.current.source === source &&
+    heldDocument.current.revision === source.revision &&
+    heldDocument.current.count === source.count;
+  const setCharacterSelection = (value: CharacterSelection | undefined) => {
+    characterRef.current = value;
+    setCharacters(value);
+  };
   const searching = useRef<AbortController | undefined>(undefined);
   const copying = useRef<AbortController | undefined>(undefined);
   const viewport = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    setCharacterSelection(undefined);
+    setStartingRow(undefined);
+    heldRows.current.clear();
+    heldDocument.current = {
+      source,
+      revision: source.revision,
+      count: source.count,
+    };
+    const selection = window.getSelection();
+    if (
+      (selection?.anchorNode &&
+        viewport.current?.contains(selection.anchorNode)) ||
+      (selection?.focusNode && viewport.current?.contains(selection.focusNode))
+    )
+      selection?.removeAllRanges();
+    copying.current?.abort();
+  }, [source, source.revision, source.count]);
   // After a search, the match is also brought into view horizontally once drawn.
   const reveal = useRef(false);
   useLayoutEffect(() => {
@@ -299,6 +345,142 @@ export function TextRows({
     }
   };
 
+  // Selection is the interaction surface, not the document used for copying.
+  // Keep byte coordinates and only the two endpoint rows while the DOM is recycled.
+  useEffect(() => {
+    const point = (
+      node: Node | null,
+      offset: number,
+    ): TextPoint | undefined => {
+      const element = node instanceof Element ? node : node?.parentElement;
+      const text = element?.closest<HTMLElement>(".reading-line-text");
+      const line = text?.closest<HTMLElement>("[data-iori-row]");
+      if (!node || !text || !line || !viewport.current?.contains(text)) return;
+      const row = Number(line.dataset.ioriRow);
+      const data = heldRows.current.get(row) ?? source.row(row);
+      if (!data) return;
+      const prefix = document.createRange();
+      prefix.selectNodeContents(text);
+      prefix.setEnd(node, offset);
+      const window = Number(text.dataset.textOffset ?? data.byteOffset);
+      const column =
+        window -
+        data.byteOffset +
+        new TextEncoder().encode(prefix.toString()).length;
+      heldRows.current.set(row, data);
+      return { row, column, rowStart: data.byteOffset, window };
+    };
+    const changed = () => {
+      const nativeSelection = window.getSelection();
+      if (!nativeSelection || nativeSelection.isCollapsed) {
+        if (characterRef.current) {
+          setCharacterSelection(undefined);
+          heldRows.current.clear();
+        }
+        return;
+      }
+      const anchor = point(
+        nativeSelection.anchorNode,
+        nativeSelection.anchorOffset,
+      );
+      const focus = point(
+        nativeSelection.focusNode,
+        nativeSelection.focusOffset,
+      );
+      if (!anchor || !focus) {
+        setCharacterSelection(undefined);
+        heldRows.current.clear();
+        return;
+      }
+      setCharacterSelection({ anchor, focus });
+      heldRows.current = new Map(
+        [...heldRows.current].filter(
+          ([index]) => index === anchor.row || index === focus.row,
+        ),
+      );
+      if (latest.current.selection)
+        onPosition({ ...latest.current, selection: undefined });
+    };
+    captureSelection.current = changed;
+    document.addEventListener("selectionchange", changed);
+    return () => document.removeEventListener("selectionchange", changed);
+  }, [source, onPosition]);
+
+  const copyCharacters = async () => {
+    const range = characterRef.current;
+    if (!range) return;
+    const { anchor, focus } = range;
+    const forward =
+      anchor.row < focus.row ||
+      (anchor.row === focus.row && anchor.column <= focus.column);
+    const first = forward ? anchor : focus;
+    const last = forward ? focus : anchor;
+    copying.current?.abort();
+    const controller = new AbortController();
+    copying.current = controller;
+    const signal = controller.signal;
+    const edge = async (point: TextPoint, from: number, to?: number) => {
+      const row = source.row(point.row) ?? heldRows.current.get(point.row);
+      if (row?.complete && row.text.length <= INLINE_ROW_CHARS) {
+        const text = await source.copy(point.row, point.row, signal);
+        return new TextDecoder().decode(
+          new TextEncoder().encode(text).subarray(from, to),
+        );
+      }
+      // A huge row is read in windows too: never fetch its unselected prefix.
+      const end =
+        to === undefined
+          ? await source.rowEnd(point.row, signal)
+          : point.rowStart + to;
+      const decoder = new TextDecoder();
+      const parts: string[] = [];
+      let offset = point.rowStart + from;
+      while (offset < end) {
+        const bytes = await source.read(
+          offset,
+          Math.min(32 * 1024, end - offset),
+          signal,
+        );
+        if (!bytes.length) break;
+        parts.push(decoder.decode(bytes, { stream: true }));
+        offset += bytes.length;
+      }
+      parts.push(decoder.decode());
+      const text = parts.join("");
+      // rowEnd excludes LF; a CRLF row may still end with its carriage return.
+      return to === undefined ? text.replace(/\r?\n$|\r$/u, "") : text;
+    };
+    let text: string;
+    const firstRow = heldRows.current.get(first.row) ?? source.row(first.row);
+    const lastRow = heldRows.current.get(last.row) ?? source.row(last.row);
+    if (
+      firstRow?.complete &&
+      lastRow?.complete &&
+      firstRow.text.length <= INLINE_ROW_CHARS &&
+      lastRow.text.length <= INLINE_ROW_CHARS
+    ) {
+      const bytes = new TextEncoder().encode(
+        await source.copy(first.row, last.row, signal),
+      );
+      const end =
+        first.row === last.row
+          ? last.column
+          : bytes.lastIndexOf(10) + 1 + last.column;
+      text = new TextDecoder().decode(bytes.subarray(first.column, end));
+    } else if (first.row === last.row)
+      text = await edge(first, first.column, last.column);
+    else {
+      const head = await edge(first, first.column);
+      const middle =
+        first.row + 1 < last.row
+          ? await source.copy(first.row + 1, last.row - 1, signal)
+          : undefined;
+      const tail = await edge(last, 0, last.column);
+      text = [head, ...(middle === undefined ? [] : [middle]), tail].join("\n");
+    }
+    await native.clipboardWrite(text);
+  };
+
   const selection = position.selection;
   const selected = selection
     ? {
@@ -319,6 +501,10 @@ export function TextRows({
     await native.clipboardWrite(text);
   };
   const select = (index: number, extend: boolean) => {
+    setCharacterSelection(undefined);
+    setStartingRow(undefined);
+    heldRows.current.clear();
+    window.getSelection()?.removeAllRanges();
     const start = extend ? (latest.current.selection?.start ?? index) : index;
     update({ selection: { start, end: index } });
   };
@@ -379,6 +565,17 @@ export function TextRows({
 
   const current = position.match;
   const actions: MenuAction[] = [
+    ...(characters
+      ? [
+          {
+            label: ja ? "コピー" : "Copy",
+            icon: <ClipboardCopy />,
+            shortcut: "Ctrl+C",
+            action: "copy-text",
+            run: copyCharacters,
+          },
+        ]
+      : []),
     ...(selected
       ? [
           {
@@ -428,7 +625,9 @@ export function TextRows({
   })();
 
   const renderRow = (index: number) => {
-    const row = source.row(index);
+    const row =
+      (sameDocument ? heldRows.current.get(index) : undefined) ??
+      source.row(index);
     if (!row)
       return source.error ? null : (
         <div className="reading-line" data-loading="true" />
@@ -502,10 +701,18 @@ export function TextRows({
           </span>
         ) : (
           <LongLine
+            key={`${source.revision}:${source.count}`}
             read={source.read}
             start={row.byteOffset}
             locateEnd={(signal) => source.rowEnd(index, signal)}
             focus={rowMatch}
+            retainedWindows={
+              characters
+                ? [characters.anchor, characters.focus]
+                    .filter((point) => point.row === index)
+                    .map((point) => point.window)
+                : []
+            }
             onError={report}
           />
         )}
@@ -554,6 +761,9 @@ export function TextRows({
             const index = goTo.row(line);
             setGoToOpen(false);
             focusRows();
+            setCharacterSelection(undefined);
+            heldRows.current.clear();
+            window.getSelection()?.removeAllRanges();
             update({ top: index, selection: { start: index, end: index } });
             setScroll({ index, align: "center", key: Date.now() });
           }}
@@ -573,10 +783,50 @@ export function TextRows({
             (ja ? "読み取れませんでした。" : "Could not read this.")}
         </ReadingError>
       )}
-      <PathMenu path={path} lines={menuLines} actions={actions} locale={locale}>
+      <PathMenu
+        selectable
+        path={path}
+        lines={menuLines}
+        actions={actions}
+        locale={locale}
+      >
         <div
           className="reading-text"
           data-wrap={effectiveWrap}
+          onContextMenuCapture={() => captureSelection.current()}
+          onPointerDownCapture={(event) => {
+            const target = event.target as Element;
+            if (
+              event.pointerType !== "mouse" ||
+              event.button !== 0 ||
+              !target.closest(".reading-line-text") ||
+              target.closest(".reading-gutter")
+            )
+              return;
+            setCharacterSelection(undefined);
+            heldRows.current.clear();
+            const row = (event.target as Element).closest<HTMLElement>(
+              "[data-iori-row]",
+            );
+            if (row) {
+              const index = Number(row.dataset.ioriRow);
+              const data = source.row(index);
+              if (data) heldRows.current.set(index, data);
+              setStartingRow(index);
+            }
+            if (latest.current.selection) update({ selection: undefined });
+          }}
+          onPointerUpCapture={() => {
+            captureSelection.current();
+            setStartingRow(undefined);
+            if (!characterRef.current) heldRows.current.clear();
+          }}
+          onCopy={(event) => {
+            captureSelection.current();
+            if (!characterRef.current) return;
+            event.preventDefault();
+            void copyCharacters().catch(report);
+          }}
           style={
             {
               "--gutter-digits": String(Math.max(3, String(gutterMax).length)),
@@ -588,6 +838,12 @@ export function TextRows({
           <VirtualRows
             key={effectiveWrap ? "wrap" : "fixed"}
             count={source.count}
+            retained={[
+              ...(characters
+                ? [characters.anchor.row, characters.focus.row]
+                : []),
+              ...(startingRow === undefined ? [] : [startingRow]),
+            ].filter((index) => index >= 0 && index < source.count)}
             rowHeight={rowHeight}
             wrap={effectiveWrap}
             dataId={dataId}
