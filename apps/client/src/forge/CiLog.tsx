@@ -381,13 +381,13 @@ export function CiLog({
       {failure}
       {loaded.notRun ? (
         <p className="reading-empty" data-iori-state="ci-log-not-run">
-          {ja ? "このjobは実行されませんでした。" : "This job did not run."}
+          {ja ? "このジョブは実行されませんでした。" : "This job did not run."}
         </p>
       ) : loaded.availableWhenDone ? (
         <div className="ci-browser-only" data-iori-state="ci-log-when-done">
           <p>
             {ja
-              ? "GitHubは、jobが終わるまでログを返しません。"
+              ? "ジョブが完了するまで、ログは表示されません。"
               : "GitHub returns a job's log only after the job is done."}
           </p>
           {job.url && (
@@ -422,7 +422,7 @@ export function CiLog({
             rowHeight={LINE_HEIGHT}
             wrap={wrap}
             dataId="ci-log"
-            label={ja ? "jobのログ" : "Job log"}
+            label={ja ? "ジョブのログ" : "Job log"}
             // Turning wrapping on or off keeps the first row in view.
             initialIndex={shownRow.current}
             scrollRequest={scroll?.wrap === wrap ? scroll.request : undefined}

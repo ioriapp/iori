@@ -31,7 +31,10 @@ const sizes = [
   { name: "pc", width: 1440, height: 900 },
   { name: "wqhd", width: 2560, height: 1440 },
   { name: "phone", width: 390, height: 844 },
-];
+].filter(
+  (size) =>
+    !option("sizes", "") || option("sizes", "").split(",").includes(size.name),
+);
 const { chromium } = await import(
   pathToFileURL(
     resolve(
@@ -118,7 +121,7 @@ try {
               );
             row.text = await page
               .locator(
-                ".host-flow-dialog, .host-toast, [data-iori-view='host-version']",
+                ".host-flow-dialog, .host-toast, [data-iori-view='host-version'], [data-iori-view='initializing']",
               )
               .allTextContents();
             await page.screenshot({

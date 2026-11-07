@@ -17,6 +17,7 @@ import type {
   CliSummary,
   CliStatus,
 } from "@iori/protocol";
+import { samePath } from "./host-path.ts";
 import type { WorktreeChoice } from "./reading/WorktreePicker.tsx";
 
 export type WorkspaceViewKind =
@@ -236,7 +237,12 @@ export function panelProps(
       : tab.kind === "ci"
         ? tab.ciWorktreePath
         : tab.filesWorktreePath;
-  const path = selectedPath ?? tab.target.cwd;
+  const selectedWorktree = selectedPath
+    ? services?.worktrees.find((worktree) =>
+        samePath(worktree.path, selectedPath),
+      )
+    : undefined;
+  const path = selectedWorktree?.path ?? tab.target.cwd;
   const reading =
     tab.kind === "files" || tab.kind === "git" || tab.kind === "ci";
   const stateKey = reading ? `${key}:reading:${path}` : key;
@@ -254,7 +260,7 @@ export function panelProps(
     host: tab.target.host,
     folderPath: tab.target.folderPath,
     workspacePath: tab.target.folder.workspacePath,
-    worktreePath: selectedPath ?? tab.target.worktree.path,
+    worktreePath: reading ? path : tab.target.worktree.path,
     cwd: reading ? path : tab.target.cwd,
     terminalId: tab.terminalId,
     visible,

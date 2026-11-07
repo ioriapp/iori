@@ -47,11 +47,26 @@ export async function mobileKeyBand({ client, mobile, record, shot }) {
     screen.evaluate(
       `Array.from(document.querySelectorAll(${JSON.stringify(pane + " .terminal-mobile-toggles > button")})).slice(0,4).map(button => button.textContent.trim())`,
     );
-  assert.deepEqual(await names(), ["直接", "スマホ幅", "貼り付け", "画像"]);
+  assert.deepEqual(await names(), [
+    "直接",
+    "スマートフォンの幅",
+    "貼り付け",
+    "画像",
+  ]);
   await screen.click(`${pane} ${action("terminal-input-live")}`);
-  assert.deepEqual(await names(), ["まとめて", "スマホ幅", "貼り付け", "画像"]);
+  assert.deepEqual(await names(), [
+    "まとめて",
+    "スマートフォンの幅",
+    "貼り付け",
+    "画像",
+  ]);
   await screen.click(`${pane} ${action("terminal-input-batch")}`);
-  assert.deepEqual(await names(), ["直接", "スマホ幅", "貼り付け", "画像"]);
+  assert.deepEqual(await names(), [
+    "直接",
+    "スマートフォンの幅",
+    "貼り付け",
+    "画像",
+  ]);
   await shot("mobile-button-names-on");
   for (const show of [false, true]) {
     await openSidebar(screen);
@@ -84,7 +99,9 @@ export async function mobileKeyBand({ client, mobile, record, shot }) {
     await closeSidebar(screen);
     assert.deepEqual(
       await names(),
-      show ? ["直接", "スマホ幅", "貼り付け", "画像"] : ["", "", "", ""],
+      show
+        ? ["直接", "スマートフォンの幅", "貼り付け", "画像"]
+        : ["", "", "", ""],
     );
     if (!show) await shot("mobile-button-names-off");
   }

@@ -208,6 +208,7 @@ export function useCliNotifications(
           status.state,
           status.since,
           status.attention,
+          ...(status.waitingSince === undefined ? [] : [status.waitingSince]),
         ]);
         const previous = handled.current.get(key);
         if (previous === event) continue;
@@ -216,10 +217,18 @@ export function useCliNotifications(
         // A new approval/question inside one continuous wait must not alert
         // again. Keep the first OS notification; the UI still gets each event.
         // Record working/idle states too, so the next wait can alert again.
+        const previousWaitingSince: unknown = previous?.startsWith(
+          '["waiting",',
+        )
+          ? JSON.parse(previous)[3]
+          : undefined;
         if (
           seed ||
           !["waiting", "done"].includes(status.state) ||
-          (status.state === "waiting" && previous?.startsWith('["waiting",'))
+          (status.state === "waiting" &&
+            previous?.startsWith('["waiting",') &&
+            (status.waitingSince === undefined ||
+              previousWaitingSince === status.waitingSince))
         )
           continue;
         if (

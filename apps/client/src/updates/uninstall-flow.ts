@@ -182,6 +182,7 @@ async function saveStatus(
     local: flow.route === "local",
     sshDestination: flow.route === "ssh" ? run.destination : undefined,
     hostName: flow.hostName,
+    os: flow.os,
     status,
   });
   if (apply && runtime(key) === run) applyStatus(key, status);
@@ -417,6 +418,7 @@ export const uninstallFlow = {
       [key]: {
         hostKey: key,
         hostName: host.hostName,
+        os: host.os,
         route: host.sshDestination ? "ssh" : "remote",
         deleteData: false,
         phase: { type: "confirming" },
@@ -524,6 +526,7 @@ function restore(key: string, removal: HostRemoval) {
     [key]: {
       hostKey: key,
       hostName: removal.hostName ?? host?.hostName ?? key,
+      os: removal.os ?? host?.os,
       route: removal.local
         ? "local"
         : removal.sshDestination

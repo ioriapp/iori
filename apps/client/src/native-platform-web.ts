@@ -44,12 +44,16 @@ function connect() {
       resolve(ws);
     });
     ws.addEventListener("error", () => {
-      reject(new Error("開発用bridgeへ接続できません。起動し直してください。"));
+      reject(
+        new Error(
+          "開発用bridgeに接続できませんでした。bridgeを再起動してください。",
+        ),
+      );
     });
     ws.addEventListener("close", () => {
       opening = undefined;
       const error = new Error(
-        "開発用bridgeとの接続が閉じました。読み直してください。",
+        "開発用bridgeから切断されました。ページを再読み込みしてください。",
       );
       reject(error);
       for (const call of pending.values()) call.reject(error);

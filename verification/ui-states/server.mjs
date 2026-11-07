@@ -36,6 +36,9 @@ function stateDataPlugin(catalog) {
   const stateFiles = new Set(
     [
       "host-setup/HostSetupDialog.tsx",
+      "ClientInitialization.tsx",
+      "IntegrationsSettings.tsx",
+      "GitSettings.tsx",
       "host-setup/SshSetup.tsx",
       "components/flow/Progress.tsx",
       "components/flow/Notice.tsx",
@@ -98,7 +101,12 @@ function stateDataPlugin(catalog) {
           }
         }
         if (
-          ["HostSetupDialog", "SshSetup"].includes(module) &&
+          [
+            "HostSetupDialog",
+            "SshSetup",
+            "IntegrationsSettings",
+            "GitSettings",
+          ].includes(module) &&
           ts.isCallExpression(node) &&
           node.expression.getText(file) === "useEffect"
         )

@@ -26,9 +26,11 @@ const script = `(async()=>{
     snapshot();return true;
   })()`;
 
-export async function observeLauncher(page) {
+export async function observeLauncher(page, appUrl) {
   await page.addInitScript({
-    content: `window.addEventListener('DOMContentLoaded',()=>{void ${script};},{once:true});`,
+    content: `if (window.location.origin === ${JSON.stringify(new URL(appUrl).origin)}) {
+      window.addEventListener('DOMContentLoaded',()=>{void ${script};},{once:true});
+    }`,
   });
 }
 

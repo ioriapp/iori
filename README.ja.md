@@ -2,7 +2,7 @@
 
 **自分のマシンで動く CLI の AI エージェントを、PC からもスマートフォンからも、CLI 自身の画面のまま使い続けられるアプリ。**
 
-Claude Code や Codex などの CLI エージェントは、作業するマシンの中で動きます。iori は、手元の端末からそのマシンへ接続して、エージェントとの作業を続けるためのアプリです。iori 独自の画面に置き換えることはせず、CLI 自身の画面をそのまま使います。エージェントが質問や承認で止まったときは、スマートフォンからでも確認して答えられます。
+Claude Code や Codex などの CLI エージェントは、作業するマシンの中で動きます。iori は、手元のデバイスからそのマシンへ接続して、エージェントとの作業を続けるためのアプリです。iori 独自の画面に置き換えることはせず、CLI 自身の画面をそのまま使います。エージェントが質問や承認で止まったときは、スマートフォンからでも確認して答えられます。
 
 [English](README.md) | [日本語](README.ja.md)
 
@@ -12,7 +12,7 @@ Claude Code や Codex などの CLI エージェントは、作業するマシ�
   <img alt="iori で動く Claude Code と、横に開いたプロジェクトのファイル" src="docs/images/hero-dark.png">
 </picture>
 
-iori は2つのプログラムでできています。プロジェクトのあるマシンで動く **iori Host** と、手元の端末から Host につなぐ **iori Client** です。Host と Client は同じ端末に入れることも、別々の端末に入れることもできます。Client を閉じても Host の上のエージェントは動き続けるので、席を外したり別の端末に移ったりしても、作業の続きから再開できます。
+iori は2つのプログラムでできています。プロジェクトのあるマシンで動く **iori Host** と、手元のデバイスから Host に接続する **iori Client** です。Host と Client は同じデバイスにインストールすることも、別々のデバイスにインストールすることもできます。Client を閉じても Host の上のエージェントは動き続けるので、席を外したり別のデバイスに移ったりしても、作業の続きから再開できます。
 
 - **Client:** Windows・Linux・Android
 - **Host:** Windows・Linux
@@ -91,14 +91,14 @@ Claude Code・Codex・Pi・OpenCode・Cursor CLI・Antigravity CLI などの CLI
 ## iori Client を入れる
 
 - **Windows:** [インストーラー](https://github.com/ioriapp/iori/releases/latest/download/iori-setup-windows-x64.exe)を実行します。まだコード署名をしていないので、Microsoft Defender SmartScreen の警告が出ることがあります。「詳細情報」→「実行」で進めてください。インストールは自分のユーザーに対してだけ行われます。
-- **Linux**（Ubuntu 22.04・Debian 12 以降）: [deb](https://github.com/ioriapp/iori/releases/latest/download/iori-linux-x64.deb) を `sudo apt install ./iori-linux-x64.deb` で入れるか、[AppImage](https://github.com/ioriapp/iori/releases/latest/download/iori-linux-x64.AppImage) に実行の権限を付けて開きます。どちらも GNOME Keyring や KWallet などの OS のキーリングが要ります。
+- **Linux**（Ubuntu 22.04・Debian 12 以降）: [deb](https://github.com/ioriapp/iori/releases/latest/download/iori-linux-x64.deb) を `sudo apt install ./iori-linux-x64.deb` でインストールするか、[AppImage](https://github.com/ioriapp/iori/releases/latest/download/iori-linux-x64.AppImage) に実行の権限を付けて開きます。どちらも GNOME Keyring や KWallet などの OS のキーリングが要ります。
 - **Android:** [APK](https://github.com/ioriapp/iori/releases/latest/download/iori-android-arm64.apk) を開きます。許可を求められたら、APK を開いたブラウザーやファイルアプリに「この提供元を許可」を有効にしてください。[Obtainium](https://github.com/ImranR98/Obtainium) で Release を追うこともできます。
 
 ## iori Host を入れる
 
-Windows・Linux では、iori Client で「iori Hostを用意する」を選び、「この PC」にインストールします。Host のインストールから Client との紐付けまで自動で進みます。別の Linux・Windows マシンへ Host をインストールするには「別のマシン（SSH）」を選びます。`~/.ssh/config` の設定がそのまま使われます。Windows では、SSH で接続するユーザーがその PC の管理者である必要があります。管理者でない時は、その PC で Host をインストールし（「この PC」か下のインストールのコマンド）、ほかの端末からの接続を管理者に許可してもらってから、招待でこの Client を登録してください。
+Windows・Linux では、iori Client で「iori Hostをセットアップする」を選び、「この PC」にインストールします。Host のインストールから Client との紐付けまで自動で進みます。別の Linux・Windows マシンへ Host をインストールするには「別のマシン（SSH）」を選びます。`~/.ssh/config` の設定がそのまま使われます。Windows では、SSH で接続するユーザーがその PC の管理者である必要があります。管理者でない時は、その PC で Host をインストールし（「この PC」か下のインストールのコマンド）、ほかのデバイスからの接続を管理者に許可してもらってから、招待でこの Client を登録してください。
 
-コマンドから入れることもできます。プロジェクトで作業するいつものユーザーで実行してください。管理者の権限は要りません。
+コマンドからインストールすることもできます。プロジェクトで作業するいつものユーザーで実行してください。管理者の権限は要りません。
 
 ```sh
 # Linux
@@ -110,13 +110,13 @@ curl -fsSL https://github.com/ioriapp/iori/releases/latest/download/install.sh |
 irm https://github.com/ioriapp/iori/releases/latest/download/install.ps1 | iex
 ```
 
-コマンドで入れると、Host が招待を QR コードと文字列で表示します。Client の「招待で接続する」で文字列を貼り付けるか QR コードを読み取り、登録します。後から別の端末を足す時は、Host のマシンで `iori-host invite` を実行します。
+コマンドでインストールすると、Host が招待を QR コードと文字列で表示します。Client の「招待で接続する」で文字列を貼り付けるか QR コードを読み取り、登録します。後から別のデバイスを追加する時は、Host のマシンで `iori-host invite` を実行します。
 
 Windows の WSL の中で Host を動かす時は、[WSL で iori Host を動かす](guides/wsl.ja.md)を参照してください。
 
 ## 接続する
 
-Client は LAN か VPN で Host へ直接接続します。Windows の Host は、Windows のファイアウォールで外からの接続を止められます。スマートフォンや別の PC から接続するには、Host の設定の「接続」で「ほかの端末からの接続を許可する」を押してください（Windows の管理者の確認が出ます）。1つの Client から、複数の Host に同時に接続できます。
+Client は LAN か VPN で Host へ直接接続します。Windows の Host は、Windows のファイアウォールで外からの接続を止められます。スマートフォンや別の PC から接続するには、Host の設定の「接続」で「ほかのデバイスからの接続を許可する」を押してください（Windows の管理者の確認が出ます）。1つの Client から、複数の Host に同時に接続できます。
 
 直接接続ができない時は、自分で立てた [iroh-relay](https://github.com/n0-computer/iroh) の URL を Host の設定の「接続」に入れると、Client はまず直接接続を試行し、届かない時だけ Relay を通します。
 
@@ -124,7 +124,7 @@ Client は LAN か VPN で Host へ直接接続します。Windows の Host は�
 
 新しいバージョンがあると、Client の設定の入口に印が付きます。Client は設定の「この PC」→「一般」から更新します。Host は Client の設定で Host の「バージョン」から更新し、Client と同じバージョンになります。
 
-更新は安定版だけが対象です。開発中のバージョン（pre-release）も受け取るには、同じ画面の「開発バージョンを受け取る」を ON にします。
+更新は安定バージョンだけが対象です。開発中のバージョン（pre-release）も受け取るには、同じ画面の「開発バージョンを受け取る」を ON にします。
 
 ## ほかの CLI を追加する
 

@@ -695,8 +695,15 @@
 .git-remote .layout-section {
   gap: var(--space-3);
 }
+.git-settings .section-heading {
+  padding-inline: 0;
+}
 .git-settings .section-heading h2 {
   margin: 0;
+}
+.git-settings .section-save-result {
+  min-height: 1lh;
+  height: auto;
 }
 .v9-settings-row {
   margin-bottom: var(--space-4);
@@ -824,8 +831,10 @@
     display: flex;
     align-items: center;
     gap: var(--space-2);
-    height: calc(var(--spacing) * 12);
-    padding: 0 6px;
+    height: calc(
+      var(--dialog-mobile-control-size) + 2 * var(--dialog-mobile-edge) + 1px
+    );
+    padding: var(--dialog-mobile-edge);
     border-bottom: 1px solid var(--border);
     background: var(--background);
     flex: none;
@@ -847,8 +856,8 @@
   .settings-modal .settings-close {
     position: static;
     flex: none;
-    width: calc(var(--spacing) * 12);
-    height: calc(var(--spacing) * 12);
+    width: var(--dialog-mobile-control-size);
+    height: var(--dialog-mobile-control-size);
     background: transparent;
   }
   .settings-modal .settings-content {
@@ -981,4 +990,14 @@
 .dark .device-badge[data-iori-state="this-device"] {
   background: var(--popover);
   color: var(--popover-foreground);
+}
+
+.site-token-field > .field-control {
+  flex-direction: column;
+  align-items: stretch;
+}
+[data-iori-state="site-token-note"],
+[data-iori-state="site-token-file"] {
+  word-break: auto-phrase;
+  text-wrap: pretty;
 }

@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { Plus } from "lucide-react";
 import {
   forgeSiteOrigin,
@@ -137,6 +144,7 @@ function TokenField({
   value,
   onChange,
   storage,
+  os,
   http,
   label = "token",
 }: {
@@ -144,6 +152,7 @@ function TokenField({
   value: string;
   onChange: (value: string) => void;
   storage: ForgeSites["storage"];
+  os?: string;
   http: boolean;
   label?: string;
 }) {
@@ -151,7 +160,8 @@ function TokenField({
   return (
     <FieldRow
       stacked
-      label={<label htmlFor={id}>token</label>}
+      className="site-token-field"
+      label={<label htmlFor={id}>{t("Token")}</label>}
       description={withCode(
         t(
           "Enter a token with the read:repository and read:issue permissions. Add read:user to show the account name and to run automations from issues, and write:repository to let agents create pull requests.",
@@ -176,7 +186,11 @@ function TokenField({
         <p className="settings-note" data-iori-state="site-token-note">
           {storage === "file" &&
             t(
-              "This Host has no OS credential store, so the token is saved in a file in the Host's data folder that only this user can read.",
+              os === "Windows"
+                ? "This Host can't use Credential Manager, so the token is saved in a file in the Host's data folder that only this user can read."
+                : os
+                  ? "This Host has no keyring, so the token is saved in a file in the Host's data folder that only this user can read."
+                  : "This Host can't use Credential Manager or a keyring, so the token is saved in a file in the Host's data folder that only this user can read.",
             )}
           {storage === "file" && http && <br />}
           {http &&
@@ -238,6 +252,14 @@ function ForgeSiteSettings({
   registerEditor: RegisterSettingsEditor;
   onNestedBack: (close?: () => void) => void;
 }) {
+  const state = useSyncExternalStore(
+    connection.subscribe,
+    connection.getSnapshot,
+  );
+  const os = (
+    state.observedHosts[hostKey] ??
+    state.initial?.hosts.find((host) => host.publicKey === hostKey)
+  )?.os;
   const [list, setList] = useState<ForgeSites>();
   const [failed, setFailed] = useState(false);
   const reading = useRef(0);
@@ -472,7 +494,11 @@ function ForgeSiteSettings({
             {site.token?.storage === "file" && list.storage === "os" && (
               <p className="settings-note" data-iori-state="site-token-file">
                 {t(
-                  "The OS credential store did not accept the token, so it is kept in a file in the Host's data folder that only this user can read.",
+                  os === "Windows"
+                    ? "Credential Manager did not accept the token, so it is kept in a file in the Host's data folder that only this user can read."
+                    : os
+                      ? "The keyring did not accept the token, so it is kept in a file in the Host's data folder that only this user can read."
+                      : "Credential Manager or the keyring did not accept the token, so it is kept in a file in the Host's data folder that only this user can read.",
                 )}
               </p>
             )}
@@ -491,6 +517,7 @@ function ForgeSiteSettings({
                     setFormError(undefined);
                   }}
                   storage={storage}
+                  os={os}
                   http={site.origin.startsWith("http:")}
                 />
                 <FormActions
@@ -527,6 +554,7 @@ function ForgeSiteSettings({
                 setFormError(undefined);
               }}
               storage={storage}
+              os={os}
               http={url.trim().toLowerCase().startsWith("http:")}
             />
             <FormActions

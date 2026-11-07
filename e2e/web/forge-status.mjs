@@ -173,7 +173,7 @@ export async function forgeStatusScenario({
   await openSidebar(screen);
   const expected = await readForgeExpectation(fixture);
   const checkLabels = {
-    passed: "CI通過",
+    passed: "CI成功",
     failed: "CI失敗",
     running: "CI実行中",
   };

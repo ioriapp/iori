@@ -1,7 +1,14 @@
 import { fakeMarker } from "../fake-model/marker.mjs";
 import { waitForOperation } from "../../verification/web/operation.mjs";
 import { openWorkspaceView } from "../../verification/workspace/interaction.mjs";
-import { openFolder } from "../workspace/scenario.mjs";
+import { openFolder, selectWorktree } from "../workspace/scenario.mjs";
+import {
+  create,
+  open,
+  typeTerminal,
+  observed,
+  closedRow,
+} from "../terminal/scenario.mjs";
 import assert from "node:assert/strict";
 import { readFile, access } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
@@ -12,6 +19,7 @@ export async function repoDelegationScenario({
   fakeModelRequests,
   client,
   worktree,
+  additionalChildWorktrees = [],
   secondRepository,
   teamRecords,
   parentId,
@@ -179,6 +187,48 @@ export async function repoDelegationScenario({
       ),
     (value) => value === label,
   );
+  const siblingWorktree = execFileSync(
+    "git",
+    ["-C", worktree, "worktree", "list", "--porcelain"],
+    { encoding: "utf8" },
+  )
+    .split("\n")
+    .find(
+      (line) =>
+        line.startsWith("worktree ") &&
+        line.slice("worktree ".length) !== worktree,
+    )
+    ?.slice("worktree ".length);
+  assert.ok(siblingWorktree, "同じrepositoryの兄弟worktreeがある");
+  const assertReadingChoices = async (kind) => {
+    await screen.click(`[data-iori-field="${kind}-worktree"]`);
+    await screen.wait(
+      `[data-iori-worktree-choice=${JSON.stringify(worktree)}]`,
+    );
+    await screen.wait(
+      `[data-iori-worktree-choice=${JSON.stringify(child.cwd)}]`,
+    );
+    const choices = await screen.evaluate(
+      "Array.from(document.querySelectorAll('[data-iori-worktree-choice]'),row=>row.getAttribute('data-iori-worktree-choice')).sort()",
+    );
+    assert.deepEqual(
+      choices,
+      [child.cwd, worktree, ...additionalChildWorktrees].sort(),
+      `${kind}の候補は表示中の親とその子だけ`,
+    );
+    assert.equal(
+      await screen.visible(
+        `[data-iori-worktree-choice=${JSON.stringify(siblingWorktree)}]`,
+      ),
+      false,
+      `${kind}の候補に兄弟worktreeを含めない`,
+    );
+    await screen.key("Escape");
+  };
+  await openWorkspaceView(screen, "files");
+  await assertReadingChoices("files");
+  await openWorkspaceView(screen, "git");
+  await assertReadingChoices("git");
   await openWorkspaceView(screen, "files");
   await screen.click('[data-iori-field="files-worktree"]');
   const choice = `[data-iori-worktree-choice=${JSON.stringify(child.cwd)}]`;
@@ -213,9 +263,39 @@ export async function repoDelegationScenario({
   await screen.wait(
     `button[data-iori-worktree-path=${JSON.stringify(child.cwd)}]`,
   );
+  await selectWorktree(screen, child.cwd);
+  const terminalId = await create(client);
+  await typeTerminal(client, "printf 'REMOVE_%s\\n' BUSY; sleep 600");
+  await typeTerminal(client, "\r");
+  await observed(client, "REMOVE_BUSY");
   // Finish the real notice response while the child's report still identifies
   // it. Teardown must not stop the parent before its model record is written.
   await parentInput.settle();
+  const blocked = await command(
+    [
+      "finish",
+      child.id,
+      "--decision",
+      "accept",
+      "--reason",
+      "Verified",
+      "--worktree",
+      "remove",
+      "--discard",
+    ],
+    /A Terminal opened in this worktree is still running\. Use --worktree keep\./u,
+  );
+  assert.equal(blocked.ok, false);
+  await access(child.cwd);
+  assert.equal(
+    (await teamRecords()).children.find((entry) => entry.id === child.id).state,
+    "reported",
+  );
+  await open(client, terminalId);
+  await typeTerminal(client, "\x03");
+  await typeTerminal(client, "printf 'REMOVE_%s\\n' IDLE");
+  await typeTerminal(client, "\r");
+  await observed(client, "REMOVE_IDLE");
   // The parent CLI row opens its layout and conversation together.
   await command(
     [
@@ -231,6 +311,7 @@ export async function repoDelegationScenario({
     ],
     /(?:Finished|Accepted|finished)/u,
   );
+  await closedRow(client, terminalId);
   await waitFor(
     () =>
       access(child.cwd).then(

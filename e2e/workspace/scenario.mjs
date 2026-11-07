@@ -44,12 +44,15 @@ async function visibleGroups(screen) {
   );
 }
 
-export async function openFolder(screen, path, mobile, hostName) {
+export async function openFolder(screen, path, mobile, hostName, hostKey) {
   await openSidebar(screen);
   await screen.click(
     action("sidebar-add-folder") +
       (hostName ? attr("data-iori-host-name", hostName) : ""),
   );
+  if (hostKey) {
+    await selectFolderHost(screen, hostKey);
+  }
   const field = '[data-iori-field="folder-path"]';
   await waitFor(
     () => screen.value(field),
@@ -74,6 +77,33 @@ export async function openFolder(screen, path, mobile, hostName) {
       `document.querySelector('[data-iori-current-worktree-path]')?.getAttribute('data-iori-current-worktree-path')===${JSON.stringify(path)}`,
     ),
   );
+}
+
+async function selectFolderHost(screen, hostKey) {
+  const picker =
+    '[data-iori-view="folder-picker"] [data-slot="select-trigger"]';
+  await screen.click(picker);
+  const keys = await screen.evaluate(
+    `[...document.querySelectorAll('[role="option"][data-iori-host-key]')].map(option => option.getAttribute('data-iori-host-key'))`,
+  );
+  const index = keys.indexOf(hostKey);
+  assert.equal(index >= 0, true);
+  const focused = () =>
+    screen.evaluate(
+      "document.activeElement?.getAttribute('data-iori-host-key')",
+    );
+  await screen.key("Home");
+  await waitFor(focused, (key) => key === keys[0]);
+  for (let step = 1; step <= index; step++) {
+    await screen.key("ArrowDown");
+    await waitFor(focused, (key) => key === keys[step]);
+  }
+  await screen.key("Enter");
+  await waitFor(
+    () => screen.attribute(picker, "data-iori-host-key"),
+    (value) => value === hostKey,
+  );
+  await screen.click('[data-iori-field="folder-path"]');
 }
 
 async function layout(screen) {
@@ -413,4 +443,48 @@ export async function workspaceScenario({
       "スマホの左端スワイプ・ドロワー選択とAndroid戻る操作（最初の画面まで）",
     );
   }
+}
+
+// Continue the folder-add operation with a saved Host whose service is stopped.
+export async function folderConnectionScenario({
+  client,
+  offlineKey,
+  record,
+  pictures,
+}) {
+  const { screen } = client;
+  await openSidebar(screen);
+  await screen.click(action("sidebar-add-folder"));
+  const dialog = '[data-iori-view="folder-picker"]';
+  await screen.wait(dialog);
+  await waitFor(() => screen.value('[data-iori-field="folder-path"]'), Boolean);
+  await pictures("B1");
+  await selectFolderHost(screen, offlineKey);
+  await screen.wait(`${dialog} [role="status"]`);
+  assert.equal(
+    (await screen.text(`${dialog} [role="status"]`)).includes("接続中"),
+    true,
+  );
+  await pictures("B2");
+  await screen.wait(`${dialog} [role="alert"]`);
+  const failure =
+    "Hostに接続できませんでした。Hostが起動していることを確認して、もう一度お試しください。";
+  assert.equal(
+    (await screen.text(`${dialog} [role="alert"]`)).includes(failure),
+    true,
+  );
+  const retry = `${dialog} [role="alert"] button`;
+  assert.equal(await screen.text(retry), "再試行");
+  await pictures("B3");
+  await screen.click(retry);
+  await screen.wait(`${dialog} [role="status"]`);
+  await screen.wait(`${dialog} [role="alert"]`);
+  assert.equal(
+    (await screen.text(`${dialog} [role="alert"]`)).includes(failure),
+    true,
+  );
+  await screen.key("Escape");
+  await record(
+    "フォルダー追加で未接続Hostを選ぶと接続中からHostの起動を促す失敗と再試行を示す",
+  );
 }

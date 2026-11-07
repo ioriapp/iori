@@ -105,6 +105,7 @@ export interface StoredWorktreeSetup extends WorktreeSetup {
 }
 export interface StoredTerminal extends TerminalSummary {
   state: TerminalState;
+  imageSequence: number;
   snapshot: {
     snapshotAnsi: string;
     scrollbackAnsi: string;
@@ -132,6 +133,7 @@ interface TerminalRow {
   last_desktop_rows: number;
   restart_pending: number;
   snapshot_json: string | null;
+  image_sequence: number;
   created_at: number;
 }
 
@@ -186,13 +188,14 @@ function toStoredTerminalSummary(row: TerminalSummaryRow): StoredTerminal {
       rows: row.last_desktop_rows,
     },
     restartPending: row.restart_pending !== 0,
+    imageSequence: row.image_sequence,
     snapshot: null,
     createdAt: row.created_at,
   };
 }
 
 const TERMINAL_SUMMARY_COLUMNS =
-  "id, shell, cwd, title, state, exit_code, cols, rows, last_desktop_cols, last_desktop_rows, restart_pending, created_at";
+  "id, shell, cwd, title, state, exit_code, cols, rows, last_desktop_cols, last_desktop_rows, restart_pending, image_sequence, created_at";
 
 export class HostStore {
   readonly #database: DatabaseSync;
@@ -272,6 +275,7 @@ export class HostStore {
         last_desktop_rows INTEGER NOT NULL,
         restart_pending INTEGER NOT NULL DEFAULT 0,
         snapshot_json TEXT,
+        image_sequence INTEGER NOT NULL DEFAULT 0,
         created_at INTEGER NOT NULL
       );
       CREATE TABLE IF NOT EXISTS terminal_worktrees (
@@ -333,6 +337,13 @@ export class HostStore {
     if (!teamColumns.some((column) => column.name === "hidden"))
       this.#database.exec(
         "ALTER TABLE teams ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0",
+      );
+    const terminalColumns = this.#database
+      .prepare("PRAGMA table_info(terminals)")
+      .all() as { name: string }[];
+    if (!terminalColumns.some((column) => column.name === "image_sequence"))
+      this.#database.exec(
+        "ALTER TABLE terminals ADD COLUMN image_sequence INTEGER NOT NULL DEFAULT 0",
       );
   }
 
@@ -1019,12 +1030,18 @@ export class HostStore {
     return row ? toStoredTerminal(row) : undefined;
   }
 
+  setTerminalImageSequence(id: string, imageSequence: number): void {
+    this.#database
+      .prepare("UPDATE terminals SET image_sequence = ? WHERE id = ?")
+      .run(imageSequence, id);
+  }
+
   putTerminal(terminal: StoredTerminal): void {
     this.#database
       .prepare(
         `INSERT INTO terminals
-          (id, shell, cwd, title, state, exit_code, cols, rows, last_desktop_cols, last_desktop_rows, restart_pending, snapshot_json, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          (id, shell, cwd, title, state, exit_code, cols, rows, last_desktop_cols, last_desktop_rows, restart_pending, snapshot_json, image_sequence, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
           shell = excluded.shell,
           cwd = excluded.cwd,
@@ -1051,6 +1068,7 @@ export class HostStore {
         terminal.lastDesktopSize.rows,
         terminal.restartPending ? 1 : 0,
         terminal.snapshot === null ? null : JSON.stringify(terminal.snapshot),
+        terminal.imageSequence,
         terminal.createdAt,
       );
     if (terminal.worktreePath)

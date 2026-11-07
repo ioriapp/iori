@@ -146,7 +146,13 @@ export const clis = Object.fromEntries(
 );
 
 export type Fixture = {
-  kind: "setup" | "uninstall" | "version" | "notice";
+  kind:
+    | "setup"
+    | "uninstall"
+    | "version"
+    | "notice"
+    | "initialization"
+    | "integrations";
   initial: Record<string, Record<string, unknown>>;
   machine?: SshMachine;
   events: SshEvent[];
@@ -157,6 +163,45 @@ export type Fixture = {
 };
 
 export function fixture(id: string): Fixture {
+  if (id.startsWith("registration-"))
+    return {
+      kind: "initialization",
+      events: [],
+      initial: {
+        ClientInitialization: {
+          confirm: ["registration-confirm", "registration-error"].includes(id),
+          resetError: id === "registration-error",
+        },
+      },
+      notes: [],
+    };
+  if (id.startsWith("token-")) {
+    const file = id.endsWith("-file");
+    const origin = "https://forge.example.invalid";
+    return {
+      kind: "integrations",
+      events: [],
+      initial: {
+        IntegrationsSettings: {
+          list: {
+            storage: file ? "os" : "file",
+            sites: [
+              {
+                origin,
+                sources: [],
+                ...(file
+                  ? { token: { account: "user", storage: "file" } }
+                  : {}),
+              },
+            ],
+          },
+          form: file ? undefined : { origin },
+        },
+        GitSettings: { accounts: { available: false, accounts: [] } },
+      },
+      notes: [],
+    };
+  }
   const failures: Record<string, SshFailure> = {
     "B4-refused-noaddress": { ...refused, address: undefined },
     "B4-timeout-noaddress": {
@@ -447,7 +492,7 @@ function setupFixture(id: string, result: Fixture) {
         busy: false,
         invite: { addresses: ["192.168.1.24:49171", "[fd00::24]:49171"] },
         registrationError:
-          "build-linuxにiori Hostをインストールしましたが、この端末から接続できません。build-linuxとの間のファイアウォールで受信が許可されているか確認してから、再試行してください。後で再試行するときは、ファイアウォールを確認した後に「iori Hostを用意する」でbuild-linuxを選んでください。",
+          "build-linuxにiori Hostをインストールしましたが、このデバイスから接続できません。build-linuxとの間のファイアウォールで受信が許可されているか確認してから、もう一度お試しください。後で再接続する場合は、ファイアウォールを確認してから「iori Hostをセットアップする」でbuild-linuxを選んでください。",
       });
       break;
     case "A11d":
@@ -507,7 +552,7 @@ function setupFixture(id: string, result: Fixture) {
     case "A11d-closed-failed":
       result.kind = "notice";
       result.notice = {
-        text: "office-winのiori Hostを更新できなかったため、この端末を登録できませんでした。",
+        text: "office-winのiori Hostを更新できなかったため、このデバイスを登録できませんでした。",
         detail: true,
       };
       break;
@@ -517,8 +562,8 @@ function setupFixture(id: string, result: Fixture) {
       result.notice = {
         text:
           id === "A13"
-            ? "office-winにiori Hostをインストールし、この端末を登録しました。"
-            : "office-winのiori Hostにこの端末を登録しました。",
+            ? "office-winにiori Hostをインストールし、このデバイスを登録しました。"
+            : "office-winのiori Hostにこのデバイスを登録しました。",
       };
       break;
     default:

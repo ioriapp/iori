@@ -28,10 +28,10 @@ export function IssuesFailure({
       subject={
         subject === "list"
           ? ja
-            ? "Issueを読めませんでした。"
+            ? "Issueを読み込めませんでした。"
             : "Could not read the Issues."
           : ja
-            ? "このIssueを読めませんでした。"
+            ? "このIssueを読み込めませんでした。"
             : "Could not read this Issue."
       }
       failure={forgeFailureOf(error)}

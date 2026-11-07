@@ -564,7 +564,7 @@ function IssuesView({
         <ForgeNotice data-iori-state="issues-empty">
           <p>
             {ja
-              ? `${view.state === "open" ? "Open" : "Closed"} のIssueはありません。`
+              ? `${view.state === "open" ? "Open" : "Closed"}のIssueはありません。`
               : `There are no ${view.state} Issues.`}
           </p>
           {view.labels.length > 0 && (
@@ -603,7 +603,7 @@ function IssuesView({
                       className="issues-row-comments"
                       title={
                         ja
-                          ? `コメント ${issue.comments}`
+                          ? `${issue.comments}件のコメント`
                           : `${issue.comments} comments`
                       }
                     >
@@ -655,11 +655,7 @@ function IssuesView({
       )}
       {selected === undefined ? (
         <ForgeNotice>
-          <p>
-            {ja
-              ? "Issueを選ぶと本文とコメントが表示されます"
-              : "Select an Issue to read it"}
-          </p>
+          <p>{ja ? "Issueを選択してください" : "Select an Issue to read it"}</p>
         </ForgeNotice>
       ) : (
         <div className="issues-detail-body">
@@ -690,22 +686,22 @@ function IssuesView({
                     {author && (
                       <>
                         <span className="issues-detail-author">{author}</span>
-                        {ja ? " が " : " "}
+                        {ja ? "が" : " "}
                       </>
                     )}
                     <span className="issues-detail-fact">
                       {author
                         ? ja
-                          ? `${formatDate(summary.createdAt, locale)} に作成`
+                          ? `${formatDate(summary.createdAt, locale)}に作成`
                           : `opened on ${formatDate(summary.createdAt, locale)}`
                         : ja
-                          ? `${formatDate(summary.createdAt, locale)} に作成`
+                          ? `${formatDate(summary.createdAt, locale)}に作成`
                           : `Opened on ${formatDate(summary.createdAt, locale)}`}
                     </span>
                     {" · "}
                     <span className="issues-detail-fact">
                       {ja
-                        ? `コメント ${summary.comments}`
+                        ? `${summary.comments}件のコメント`
                         : `${summary.comments} comments`}
                     </span>
                   </span>
@@ -727,7 +723,7 @@ function IssuesView({
                       })
                     }
                   >
-                    {ja ? "このIssueで始める" : "Start with this Issue"}
+                    {ja ? "このIssueで開始" : "Start with this Issue"}
                   </Button>
                 )}
                 <Button
@@ -758,7 +754,7 @@ function IssuesView({
                 )}
                 {issue && issue.assignees.length > 0 && (
                   <div>
-                    <dt>{ja ? "担当" : "Assignees"}</dt>
+                    <dt>{ja ? "担当者" : "Assignees"}</dt>
                     <dd>{issue.assignees.join(", ")}</dd>
                   </div>
                 )}

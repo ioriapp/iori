@@ -88,8 +88,7 @@ import { useI18n } from "./context.tsx";
 import { Usage } from "./Usage.tsx";
 import "./cli-definitions.css";
 
-/** The user's documentation of definition files (README「CLIを足す」). */
-const howTo = `${source.trim().replace(/\/releases\/?$/u, "")}#${encodeURIComponent("cliを足す")}`;
+const repositoryUrl = source.trim().replace(/\/releases\/?$/u, "");
 const featureLabels: Record<CliFeature, string> = {
   state: "Response status",
   attention: "Attention",
@@ -411,7 +410,10 @@ function Foot({
 }
 
 function SupportTable({ cli }: { cli: CliSummary }) {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
+  const howTo = language.toLowerCase().startsWith("ja")
+    ? `${repositoryUrl}/blob/main/README.ja.md#${encodeURIComponent("ほかの-cli-を追加する")}`
+    : `${repositoryUrl}#add-other-clis`;
   const support = cli.support;
   if (!support) return null;
   return (

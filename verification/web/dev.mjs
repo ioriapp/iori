@@ -79,6 +79,8 @@ export async function startWeb({
     vite.config.define.__IORI_WEB_BRIDGE_URL__ = JSON.stringify(bridge.url);
     return {
       url,
+      sendTerminalInput: (...args) => bridge.sendTerminalInput(...args),
+      requestHost: (...args) => bridge.requestHost(...args),
       setOffline: (value) => bridge.setOffline(value),
       async close() {
         await bridge.close();

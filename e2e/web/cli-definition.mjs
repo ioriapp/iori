@@ -228,7 +228,7 @@ export async function cliDefinitionScenario({
     await screen.text(
       `${cliRow(simpleId)} [data-iori-state="cli-user-definition"]`,
     ),
-    "ユーザーの定義",
+    "ユーザー定義",
   );
   await record(
     "名前とコマンドで本物のClaude Codeを足し、モデルの引数を `claude --help` から自動入力して一覧に出る",
@@ -987,8 +987,8 @@ export async function cliDefinitionScenario({
       `[...document.querySelectorAll('${failed} .cli-def-reason')].map(e=>e.textContent)`,
     ),
     [
-      "定義の読み込みに失敗しました",
-      "launch.modelは文字列の配列にしてください",
+      "定義を読み込めませんでした",
+      "launch.modelは文字列の配列にしてください。",
     ],
   );
   await pictures.capture("failed", () => screen.reveal(failed));
@@ -1131,7 +1131,7 @@ command = "terminal-notifier -title Kimi -message 'Task done'"
   await screen.click(action("cli-definition-confirm"));
   const mark = `${cliRow("claude")} [data-iori-state="cli-user-definition"]`;
   await screen.reveal(mark);
-  assert.equal(await screen.text(mark), "ユーザーの定義");
+  assert.equal(await screen.text(mark), "ユーザー定義");
   await openRow(screen, "claude");
   await assertBundledIcon(screen, cliRow("claude"), { light: "claude.svg" });
   await changeIcon(screen, "claude", "icon.svg", definitionIconSvg);
@@ -1149,14 +1149,14 @@ command = "terminal-notifier -title Kimi -message 'Task done'"
     () => absent(screen, mark),
     Boolean,
     undefined,
-    "同梱の定義に戻すと「ユーザーの定義」が消える",
+    "同梱の定義に戻すと「ユーザー定義」が消える",
   );
   assert.equal(
     await screen.attribute(cliRow("claude"), "data-iori-cli-source"),
     "official",
   );
   await record(
-    "同梱の定義を編集で上書きすると行に「ユーザーの定義」が出て、「同梱の定義に戻す」で消える",
+    "同梱の定義を編集で上書きすると行に「ユーザー定義」が出て、「同梱の定義に戻す」で消える",
   );
 
   const escapedFolder = join(hostData, "cli-definitions", "outside-icon");

@@ -387,7 +387,7 @@ function CiWorkspace({
         <div className="ci-run">
           {ci.runs.length > 0 && (
             <div className="ci-run-head ci-run-plain">
-              {ja ? "そのほかの結果" : "Other results"}
+              {ja ? "その他の結果" : "Other results"}
             </div>
           )}
           {ci.results.map((result) =>
@@ -417,10 +417,10 @@ function CiWorkspace({
             : "Back to list"
           : view.listOpen
             ? ja
-              ? "一覧を閉じる"
+              ? "一覧を非表示"
               : "Hide list"
             : ja
-              ? "一覧を開く"
+              ? "一覧を表示"
               : "Show list"
       }
       aria-pressed={narrow ? undefined : view.listOpen}
@@ -486,10 +486,10 @@ function CiWorkspace({
             variant="ghost"
             size="icon-sm"
             aria-label={
-              ja ? "このjobをブラウザーで開く" : "Open this job in browser"
+              ja ? "このジョブをブラウザーで開く" : "Open this job in browser"
             }
             title={
-              ja ? "このjobをブラウザーで開く" : "Open this job in browser"
+              ja ? "このジョブをブラウザーで開く" : "Open this job in browser"
             }
             data-iori-action="ci-job-open-browser"
             onClick={() => openUrl(selected.job.url)}
@@ -501,12 +501,14 @@ function CiWorkspace({
       {selected.kind === "job" && ci.logs ? (
         forgeCiState(selected.job.status) === "skipped" ? (
           <p className="reading-empty">
-            {ja ? "このjobは実行されませんでした。" : "This job did not run."}
+            {ja
+              ? "このジョブは実行されませんでした。"
+              : "This job did not run."}
           </p>
         ) : NOT_STARTED.has(selected.job.status) ? (
           <p className="reading-empty">
             {ja
-              ? "このjobはまだ始まっていません。"
+              ? "このジョブはまだ開始されていません。"
               : "This job has not started yet."}
           </p>
         ) : (
@@ -551,7 +553,7 @@ function CiWorkspace({
       <ForgeNotice data-iori-state="ci-no-target">
         <p>
           {ja
-            ? "このブランチのpush先が見つかりません。pushすると、そのcommitのCIを表示します。"
+            ? "このブランチにはpush先がありません。CIを表示するには、ブランチをpushしてください。"
             : "This branch has no push destination. Push it to see its commit's CI."}
         </p>
       </ForgeNotice>

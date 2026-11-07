@@ -19,6 +19,25 @@ export const cliStatusScripts = {
     { tool: "exec_command", input: { cmd: 'node -e "console.log(42)"' } },
     { text: "42" },
   ],
+  "codex-two-approvals": [
+    {
+      tool: "exec_command",
+      input: {
+        cmd: "echo approval-a",
+        sandbox_permissions: "require_escalated",
+        justification: "Approve the first command.",
+      },
+    },
+    {
+      tool: "exec_command",
+      input: {
+        cmd: "echo approval-b",
+        sandbox_permissions: "require_escalated",
+        justification: "Approve the second command.",
+      },
+    },
+    { text: "done" },
+  ],
   "claude-approval-esc": [bash, { text: "OK" }],
   "claude-approval-no": [bash, { text: "OK" }],
   "claude-interrupt": [

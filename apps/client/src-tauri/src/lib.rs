@@ -133,6 +133,7 @@ pub fn run() {
             file_saves::native_file_save_finish,
             file_saves::native_file_save_cancel,
             native::native_initial_state,
+            native::native_reset_registration,
             native::native_save_host,
             native::native_load_view,
             native::native_save_view,

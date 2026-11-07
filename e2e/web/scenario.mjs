@@ -26,6 +26,7 @@ import { terminalClipboard } from "./terminal-clipboard.mjs";
 import { readingResponsiveness } from "./reading-responsiveness.mjs";
 import { clientUpdate, clientHostUpdate } from "./client-update.mjs";
 import {
+  clipboardImageRestartScenario,
   clipboardImageScenario,
   clipboardScenarios,
   clipboardTransferScenario,
@@ -114,8 +115,10 @@ export async function webScenario({
   fakeModelRequests,
   changeReadingFile,
   additionalHost,
+  stopAdditionalUpdateHost,
   createPlainFolder,
   reload,
+  missedWaiting,
 }) {
   const screen = client.screen;
   await register(screen, invitation, "開発用Chromium");
@@ -136,6 +139,8 @@ export async function webScenario({
       client,
       distribution: updates,
       additionalHost,
+      stopAdditionalUpdateHost,
+      repository,
       reload,
       record,
       shot,
@@ -558,6 +563,7 @@ export async function webScenario({
       fakeModelRequests,
       client,
       restartHostLosingTerminals,
+      reload,
       lifecycleOnly: only === "child-lifecycle",
       failureOnly: only === "child-cli-failure",
       restartPreservingHost,
@@ -740,6 +746,15 @@ export async function webScenario({
     });
     return;
   }
+  if (only === "terminal-image-restart") {
+    await clipboardImageRestartScenario({
+      client,
+      clipboardFiles,
+      restartHostLosingTerminals,
+      record,
+    });
+    return;
+  }
   if (only === "clipboard") {
     await clipboardScenarios({
       client,
@@ -846,6 +861,7 @@ export async function webScenario({
       desktop,
       firstUse: true,
       notifications: true,
+      missedWaiting,
     });
     await claudeStatusScenario({ client, record, preventHookInstall });
     await cliLauncherScenario({

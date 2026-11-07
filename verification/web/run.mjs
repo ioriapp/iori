@@ -96,6 +96,7 @@ setRealModels(process.argv.includes("--real-models"));
 const { fakeModelScenarios } = await import("./fake-model-scenarios.mjs");
 const { webScenario } = await import("../../e2e/web/scenario.mjs");
 
+const updateHosts = [];
 const root = resolve(import.meta.dirname, "../..");
 const started = performance.now();
 const evidenceRoot = resolve(
@@ -847,7 +848,8 @@ input.on('line',async line=>{if(!line.startsWith('DELEGATE'))return; const optio
   });
   const clientFor = async (targetPage) => {
     await targetPage.addInitScript({
-      content: `window.cliQuietObservation = import('/src/connection.ts').then(({ connection }) => {
+      content: `if (window.location.origin === ${JSON.stringify(new URL(web.url).origin)}) {
+        window.cliQuietObservation = import('/src/connection.ts').then(({ connection }) => {
         const fingerprints = new Map();
         const progress = window.cliQuietProgress = { count: 0 };
         connection.subscribeHostEvents((host, event) => {
@@ -866,7 +868,8 @@ input.on('line',async line=>{if(!line.startsWith('DELEGATE'))return; const optio
             progress.count++;
           }
         });
-      });`,
+      });
+      }`,
     });
     // Android WebView overlays scrollbars instead of reserving their width.
     await targetPage.addInitScript({
@@ -876,14 +879,19 @@ input.on('line',async line=>{if(!line.startsWith('DELEGATE'))return; const optio
         document.head.appendChild(style);
       });`,
     });
-    await observeLauncher(targetPage);
-    targetPage.on("pageerror", (error) =>
+    await observeLauncher(targetPage, web.url);
+    targetPage.on("pageerror", (error) => {
       diagnostics.push(
         error.message.includes("invalid location")
           ? "Dockview: invalid location"
           : "Chromiumで未処理のJavaScript例外",
-      ),
-    );
+      );
+      (result.pageErrors ??= []).push({
+        at: new Date().toISOString(),
+        message: error.message,
+        stack: error.stack?.split("\n").slice(0, 5),
+      });
+    });
     targetPage.on("console", (message) => {
       if (message.type() === "error")
         diagnostics.push("Chromium console error");
@@ -1115,8 +1123,13 @@ input.on('line',async line=>{if(!line.startsWith('DELEGATE'))return; const optio
     forgeTokenFixture,
     hostData: join(runRoot, "host-data", "iori-host"),
     createPlainFolder: () => mkdtemp(join(runRoot, "folder-")),
-    additionalHost: async () => {
-      const dataRoot = join(runRoot, "additional-host-data");
+    additionalHost: async ({ interruptions = false } = {}) => {
+      const dataRoot = join(
+        runRoot,
+        only === "client-host-update"
+          ? `additional-host-data-${updateHosts.length}`
+          : "additional-host-data",
+      );
       if (only === "host-update-mark") {
         hostDistribution = await prepareHostDistribution(runRoot);
         additionalHost = await startObservedWebHost(hostDistribution.bundle, {
@@ -1124,13 +1137,29 @@ input.on('line',async line=>{if(!line.startsWith('DELEGATE'))return; const optio
           port: await hostPort(),
         });
       } else if (only === "client-host-update") {
-        const bundle = join(runRoot, "second-host-bundle");
+        const bundle = join(
+          runRoot,
+          `additional-host-bundle-${updateHosts.length}`,
+        );
         await cp(hostDistribution.bundle, bundle, { recursive: true });
+        if (interruptions) {
+          // A real older terminal daemon requires stopping its running work.
+          const protocol = join(bundle, "src/terminal/daemon/protocol.js");
+          const source = await readFile(protocol, "utf8");
+          await writeFile(
+            protocol,
+            source.replace(
+              /DAEMON_PROTOCOL = (\d+)/u,
+              (_, value) => `DAEMON_PROTOCOL = ${Number(value) - 1}`,
+            ),
+          );
+        }
         additionalHost = await startUpdateHost(
           { ...hostDistribution, bundle },
           dataRoot,
           { port: await hostPort() },
         );
+        updateHosts.push(additionalHost);
       } else
         additionalHost = await startObservedWebHost(undefined, {
           dataRoot,
@@ -1138,7 +1167,56 @@ input.on('line',async line=>{if(!line.startsWith('DELEGATE'))return; const optio
         });
       return invitation(dataRoot);
     },
+    stopAdditionalUpdateHost: async (start = false) => {
+      execFileSync("systemctl", [
+        "--user",
+        start ? "start" : "stop",
+        updateHosts[0].unit,
+      ]);
+    },
     reload: () => page.reload(),
+    // The two-approval script exists only in the fake model; a real model
+    // is not asked to follow it, and the notification check needs no model.
+    missedWaiting: result.realModels
+      ? undefined
+      : async (terminalId) => {
+          const hostInfo = await page.evaluate(async () => {
+            const { connection } = await import("/src/connection.ts");
+            return connection.getSnapshot().host;
+          });
+          await page.goto("about:blank");
+          await web.sendTerminalInput(
+            hostInfo.publicKey,
+            hostInfo.addresses,
+            terminalId,
+            "\r",
+          );
+          await waitFor(
+            async () => {
+              const response = await web.requestHost(
+                hostInfo.publicKey,
+                hostInfo.addresses,
+                "terminal.list",
+                {},
+              );
+              return (
+                response.ok &&
+                response.result.terminals.find(
+                  (terminal) => terminal.id === terminalId,
+                )?.cliStatus
+              );
+            },
+            (status) =>
+              status?.state === "waiting" &&
+              status.attention?.summary?.includes("approval-b"),
+          );
+          await page.addInitScript({
+            content:
+              "window.__reopenedNotices=[];window.addEventListener('iori:notification-request',e=>window.__reopenedNotices.push(e.detail));",
+          });
+          await page.goto(web.url);
+          await observeAfterReload();
+        },
     changeReadingFile: (contents) =>
       writeFile(join(worktree, "sample.txt"), contents),
     updates,
@@ -1783,7 +1861,14 @@ input.on('line',async line=>{if(!line.startsWith('DELEGATE'))return; const optio
     ["Forge fixture", () => forgeFixture?.close()],
     ["Disposable Forgejo", () => forgeTokenFixture?.close()],
     ["CLI error fixture", () => cliErrorFixture?.close()],
-    ["Additional Host", () => additionalHost?.close({ stopTerminals: true })],
+    [
+      "Additional Host",
+      async () => {
+        if (updateHosts.length) {
+          for (const item of updateHosts) await item.close();
+        } else await additionalHost?.close({ stopTerminals: true });
+      },
+    ],
     ["Host", () => host?.close({ stopTerminals: true })],
     ["Host distribution", () => hostDistribution?.close()],
     ["Fake model API", () => fakeModel?.close()],

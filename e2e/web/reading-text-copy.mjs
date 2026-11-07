@@ -69,6 +69,30 @@ export async function readingTextCopy({
     }
     assert.equal(await readClipboard(), expected);
   };
+  await clickAt(await at(line(1), 3));
+  await screen.key("Control+f");
+  const findInput = '[data-iori-field="find-query"]';
+  await screen.input(findInput, "search text");
+  await screen.key("Control+a");
+  assert.equal(
+    await screen.evaluate(
+      `(()=>{const e=document.querySelector('${findInput}');return e.value.slice(e.selectionStart,e.selectionEnd)})()`,
+    ),
+    "search text",
+  );
+  assert.equal(
+    await screen.evaluate(
+      `document.querySelectorAll('[data-iori-view="files"] [data-selected="true"]').length`,
+    ),
+    0,
+  );
+  await screen.key("Backspace");
+  await screen.key("Escape");
+  await clickAt(await at(line(1), 3));
+  assert.equal(await screen.visible(line(360)), false);
+  await screen.key("Control+a");
+  await copy(lines.join("\n"));
+  await record("検索欄の全選択を保ち、本文の全選択で画面外を含む全文をコピー");
   const partial =
     lines[1].slice(5) + "\n" + lines[2] + "\n" + lines[3].slice(0, 15);
   await client.browser.drag(await at(line(2), 5), await at(line(4), 15));
@@ -247,7 +271,12 @@ export async function readingTextCopy({
   await screen.wait(added);
   await client.browser.drag(await at(added, 5), await at(added, 15));
   await copy(lines[1].slice(5, 15));
-  await record("Gitの追加行の一部をコピーし、行番号と追加の印を含めない");
+  await clickAt(await at(added, 3));
+  await screen.key("Control+a");
+  await copy(lines.join("\n"));
+  await record(
+    "Gitの追加行の一部と差分全体をコピーし、行番号と追加の印を含めない",
+  );
 
   await writeFile(
     join(worktree, "text-copy.md"),

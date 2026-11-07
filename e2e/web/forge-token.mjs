@@ -123,7 +123,7 @@ export async function forgeTokenScenario({
   await screen.wait(issuesMissing);
   assert.equal(
     await reasonText(screen, issuesMissing),
-    `${forge.origin}のtokenが登録されていません。`,
+    `${forge.origin}のトークンが登録されていません。`,
   );
   await views("issues-token-missing");
   await screen.click(`${issuesMissing} ${action("forge-open-integrations")}`);
@@ -134,6 +134,10 @@ export async function forgeTokenScenario({
 
   await screen.click(`${siteRow} ${action("site-register-token")}`);
   await screen.wait(`${siteRow} [data-iori-state="site-token-note"]`);
+  assert.equal(
+    await screen.text(`${siteRow} [data-iori-view="site-form"] label`),
+    "トークン",
+  );
   await screen.input(tokenField, forge.unknownToken);
   await screen.key("Enter");
   await screen.wait(formError);
@@ -211,7 +215,7 @@ export async function forgeTokenScenario({
   await screen.wait(ciInvalid);
   assert.equal(
     await reasonText(screen, ciInvalid),
-    `${forge.origin}がtokenを受け付けません。`,
+    `${forge.origin}のトークンが無効です。`,
   );
   await views("ci-token-invalid");
   await screen.click(`${ciInvalid} ${action("forge-open-integrations")}`);
@@ -224,7 +228,7 @@ export async function forgeTokenScenario({
   await screen.wait(state("site-insufficient-scope"));
   assert.equal(
     await screen.text(state("site-insufficient-scope")),
-    "tokenにread:repositoryの権限がありません",
+    "トークンにread:repositoryの権限がありません",
   );
   await capture("insufficient-scope");
   await record(
@@ -236,7 +240,7 @@ export async function forgeTokenScenario({
   await screen.wait(issuesScope);
   assert.equal(
     await reasonText(screen, issuesScope),
-    "tokenにread:repositoryの権限がありません。",
+    "トークンにread:repositoryの権限がありません。",
   );
   await views("issues-insufficient-scope");
   await screen.click(`${issuesScope} ${action("forge-open-integrations")}`);
@@ -320,7 +324,7 @@ export async function forgeTokenScenario({
   await screen.wait('[data-iori-view="site-remove-confirmation"]');
   assert.equal(
     await screen.text('[data-iori-view="site-remove-confirmation"] p'),
-    `このHostから${forge.origin}のtokenを削除します。非公開のリポジトリとIssueは読めなくなります。tokenそのものは、サイトで無効にするまで使えます。`,
+    `このHostから${forge.origin}のトークンを削除します。非公開のリポジトリとIssueは表示できなくなります。トークン自体は、サイトで無効にするまで使用できます。`,
   );
   await capture("remove-confirmation");
   await screen.click(action("site-remove-confirm"));
@@ -385,7 +389,7 @@ export async function forgeTokenScenario({
       () => screen.text('[data-iori-view="site-form"] [role="alert"]'),
       (text) =>
         text ===
-        "サイトがForgejo・Giteaとして応答しませんでした。URLを確認してください。",
+        "ForgejoまたはGiteaのサイトとして認識できませんでした。URLを確認してください。",
       undefined,
       "Forgejo・Giteaとして応答しないサイトの理由",
     );

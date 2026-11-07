@@ -379,7 +379,9 @@ export async function childLifecycleScenario({
   const waiting = await waitFor(
     rows,
     (values) =>
-      values.some((entry) => entry.label === "Waiting · 上限の空き待ち") &&
+      values.some(
+        (entry) => entry.label === "Waiting · 同時実行の上限で待機中",
+      ) &&
       values.some(
         (entry) => entry.label === "Waiting · 使える候補がありません",
       ) &&

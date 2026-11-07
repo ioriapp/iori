@@ -587,7 +587,7 @@ export function FileTree({
                     <span className="files-tree-note">
                       {entry.symlinkTarget === "broken"
                         ? ja
-                          ? "リンク先なし"
+                          ? "リンク切れ"
                           : "broken link"
                         : ja
                           ? "フォルダーの外"

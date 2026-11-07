@@ -41,7 +41,10 @@ export function run(file, args, options = {}) {
       Buffer.isBuffer(captured) ? captured.toString("utf8") : String(captured)
     )
       .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "")
-      .replace(/iori:\/\/pair\?code=[A-Za-z0-9_-]+/g, "[invitation redacted]")
+      .replace(
+        /iori:\/\/pair(?:\?code=|\/)[A-Za-z0-9_-]+/g,
+        "[invitation redacted]",
+      )
       .replace(/[A-Za-z0-9+/_-]{40,}={0,2}/g, "[redacted]")
       .trim();
     throw new Error(`${file} failed (${status})${stderr ? `: ${stderr}` : ""}`);

@@ -13,11 +13,11 @@ iori Client は WSL を自動では用意しません。Windows 11（22H2 以降
    instanceIdleTimeout=-1
 
    [wsl2]
-   # スマートフォンやほかの PC から Host につながるようにする
+   # スマートフォンやほかの PC から Host に接続できるようにする
    networkingMode=mirrored
 
    [experimental]
-   # 同じ PC の Client から Host につながるようにする
+   # 同じ PC の Client から Host に接続できるようにする
    hostAddressLoopback=true
    ```
 
@@ -27,7 +27,7 @@ iori Client は WSL を自動では用意しません。Windows 11（22H2 以降
    curl -fsSL https://github.com/ioriapp/iori/releases/latest/download/install.sh | sh
    ```
 
-4. ほかの端末からつなぐ時は、管理者の PowerShell で Host のポートを許可します。
+4. ほかのデバイスから接続する時は、管理者の PowerShell で Host のポートを許可します。
 
    ```powershell
    New-NetFirewallHyperVRule -Name 'iori-host-wsl' -DisplayName 'iori Host (WSL)' -Direction Inbound -VMCreatorId '{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}' -Protocol UDP -LocalPorts 49171

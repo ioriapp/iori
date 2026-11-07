@@ -9,7 +9,6 @@ import { selectWorktree } from "../workspace/scenario.mjs";
 export async function filesReading({
   client,
   screen,
-  repository,
   worktree,
   mobile,
   desktop,
@@ -279,7 +278,7 @@ export async function filesReading({
   ]) {
     if (device === "mobile") {
       await mobile(size);
-      await selectWorktree(screen, repository, true);
+      await selectWorktree(screen, worktree, true);
       await openSidebar(screen);
       await openWorkspaceView(screen, "files");
     } else {

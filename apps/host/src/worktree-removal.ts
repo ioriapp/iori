@@ -30,6 +30,20 @@ interface Preview {
   items: WorktreeRemovalItem[];
 }
 const same = (a: string, b: string) => relative(a, b) === "";
+export function hasOtherRunningTerminal(
+  store: HostStore,
+  path: string,
+  excludedTerminalId: string | undefined,
+): boolean {
+  return store
+    .listTerminals()
+    .some(
+      (terminal) =>
+        terminal.id !== excludedTerminalId &&
+        terminal.state === "running" &&
+        same(store.terminalWorktree(terminal.id) ?? terminal.cwd, path),
+    );
+}
 const workOrder: Record<WorktreeRemovalWorking["state"], number> = {
   running: 0,
   approval: 1,
@@ -199,17 +213,7 @@ export class WorktreeRemover {
                 (other.state === "waiting" ||
                   this.terminals().isCliRunning(other.terminalId ?? "")),
             ) &&
-            !this.store
-              .listTerminals()
-              .some(
-                (terminal) =>
-                  terminal.id !== child.terminalId &&
-                  terminal.state === "running" &&
-                  same(
-                    this.store.terminalWorktree(terminal.id) ?? terminal.cwd,
-                    child.cwd!,
-                  ),
-              ) &&
+            !hasOtherRunningTerminal(this.store, child.cwd, child.terminalId) &&
             !this.store
               .teamConversations()
               .some((c) => !conversations.has(c.id) && c.cwd === child.cwd);

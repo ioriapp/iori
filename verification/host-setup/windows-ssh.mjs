@@ -486,7 +486,7 @@ export async function windowsSshScenario() {
       assert.match(destinationText, /This PC|この PC/u);
       assert.match(
         destinationText,
-        /Invite a new device|新しい端末を招待する/u,
+        /Invite a new device|新しいデバイスを招待する/u,
       );
       assert.match(
         await client.screen.text(act("setup-submit")),

@@ -135,6 +135,8 @@ export interface CliSession {
 export interface CliStatus {
   state: "active" | "waiting" | "done" | "stopped" | "idle";
   since: number;
+  /** Beginning of the current continuous wait, independent of its contents. */
+  waitingSince?: number;
   /** Latest assistant text from a CLI hook, kept only in this live state. */
   response?: string;
   outcome?: "failure";
@@ -203,6 +205,11 @@ export function parseCliStatus(value: unknown): CliStatus | undefined {
   return {
     state,
     since: input.since,
+    ...(state === "waiting" &&
+    typeof input.waitingSince === "number" &&
+    Number.isFinite(input.waitingSince)
+      ? { waitingSince: input.waitingSince }
+      : {}),
     ...(Array.isArray(input.backgroundTasks)
       ? {
           backgroundTasks: input.backgroundTasks.flatMap((task: unknown) => {

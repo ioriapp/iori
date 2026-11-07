@@ -141,7 +141,7 @@ export function CommitDetail({
           <div className="git-commit-parents">
             {commit.parents.length === 0 && (
               <span>
-                {ja ? "最初の commit（親なし）" : "Root commit (no parent)"}
+                {ja ? "最初のcommit（親なし）" : "Root commit (no parent)"}
               </span>
             )}
             {commit.parents.length === 1 && (
@@ -152,11 +152,11 @@ export function CommitDetail({
             )}
             {merge && (
               <>
-                <span>{ja ? "差分を見る親" : "Compare with parent"}</span>
+                <span>{ja ? "親と比較" : "Compare with parent"}</span>
                 <Select value={parent ?? ""} onValueChange={onParent}>
                   <SelectTrigger
                     size="sm"
-                    aria-label={ja ? "比べる親" : "Parent to compare"}
+                    aria-label={ja ? "比較する親" : "Parent to compare"}
                     data-iori-action="git-parent-select"
                   >
                     <SelectValue
@@ -166,7 +166,7 @@ export function CommitDetail({
                   <SelectContent>
                     {commit.parents.map((value, index) => (
                       <SelectItem key={value} value={value}>
-                        {ja ? `親 ${index + 1}` : `Parent ${index + 1}`} ·{" "}
+                        {ja ? `親${index + 1}` : `Parent ${index + 1}`} ·{" "}
                         {value.slice(0, 10)}
                       </SelectItem>
                     ))}
@@ -180,14 +180,14 @@ export function CommitDetail({
       {commit && merge && !compared && (
         <p className="reading-empty">
           {ja
-            ? "差分を見る親を選んでください。"
+            ? "比較する親を選んでください。"
             : "Choose a parent to see the changes."}
         </p>
       )}
       {ready && (
         <div className="git-commit-files">
           <div className="git-section-heading" data-static="true">
-            <span>{ja ? "変更したファイル" : "Changed files"}</span>
+            <span>{ja ? "変更されたファイル" : "Changed files"}</span>
             {files.total !== undefined && (
               <span className="git-count">{files.total}</span>
             )}
@@ -205,7 +205,7 @@ export function CommitDetail({
             rowHeight={row.height}
             dataId="git-commit-files"
             className="git-list-rows"
-            label={ja ? "commit 内のファイル" : "Files in the commit"}
+            label={ja ? "commit内のファイル" : "Files in the commit"}
             onRange={(first, last) => files.ensure(first, last)}
             renderRow={(index) => {
               const file = files.get(index);

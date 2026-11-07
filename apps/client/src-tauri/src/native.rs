@@ -7,7 +7,7 @@ use std::{
     path::Path,
     sync::{
         Arc, Mutex as StdMutex,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
 };
 
@@ -27,6 +27,8 @@ use zeroize::Zeroizing;
 
 pub(crate) const MAX_FRAME_BYTES: usize = 4 * 1024 * 1024;
 const DATABASE_FILE: &str = "registrations.sqlite3";
+#[cfg(target_os = "windows")]
+const WINDOWS_KEY_READ_ERROR: &str = "Cannot read iori's key on this device.";
 static NEXT_NATIVE_ID: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -393,6 +395,7 @@ pub(crate) struct NativeContext {
     #[cfg(target_os = "android")]
     android_plugin: Result<PluginHandle<Wry>, String>,
     initialized: tauri::async_runtime::Mutex<Option<Arc<NativeState>>>,
+    registration_reset_allowed: AtomicBool,
     #[cfg(target_os = "linux")]
     storage_key: tauri::async_runtime::Mutex<Option<Zeroizing<[u8; 32]>>>,
 }
@@ -420,6 +423,7 @@ impl NativeContext {
             #[cfg(target_os = "android")]
             android_plugin,
             initialized: tauri::async_runtime::Mutex::new(None),
+            registration_reset_allowed: AtomicBool::new(false),
             #[cfg(target_os = "linux")]
             storage_key: tauri::async_runtime::Mutex::new(None),
         }
@@ -443,7 +447,21 @@ impl NativeContext {
             std::fs::set_permissions(&app_data_dir, std::fs::Permissions::from_mode(0o700))
                 .map_err(|error| error.to_string())?;
         }
-        let identity = self.platform_identity(&app_data_dir).await?;
+        let identity = self
+            .platform_identity(&app_data_dir)
+            .await
+            .inspect_err(|error| {
+                #[cfg(target_os = "linux")]
+                if error == linux_storage::KEYRING_READ_ERROR {
+                    self.registration_reset_allowed
+                        .store(true, Ordering::SeqCst);
+                }
+                #[cfg(target_os = "windows")]
+                if error == WINDOWS_KEY_READ_ERROR {
+                    self.registration_reset_allowed
+                        .store(true, Ordering::SeqCst);
+                }
+            })?;
         let database = open_database(&app_data_dir)?;
         let state = Arc::new(NativeState::new(identity, database));
         if let Ok(Some(ciphertext)) = state.stored_view("host-relays")
@@ -452,8 +470,39 @@ impl NativeContext {
         {
             state.endpoint.lock().await.hosts = hosts;
         }
+        self.registration_reset_allowed
+            .store(false, Ordering::SeqCst);
         *initialized = Some(state.clone());
         Ok(state)
+    }
+
+    async fn reset_registration(&self) -> Result<(), String> {
+        let initialized = self.initialized.lock().await;
+        if initialized.is_some() || !self.registration_reset_allowed.load(Ordering::SeqCst) {
+            return Err("Could not reset this device's registration.".into());
+        }
+        let data = self
+            .app
+            .path()
+            .app_data_dir()
+            .map_err(|error| error.to_string())?;
+        #[cfg(target_os = "linux")]
+        linux_storage::reset(&self.app.config().identifier).await?;
+        for name in [
+            DATABASE_FILE.to_owned(),
+            format!("{DATABASE_FILE}-journal"),
+            format!("{DATABASE_FILE}-wal"),
+            format!("{DATABASE_FILE}-shm"),
+        ] {
+            remove_saved_file(&data.join(name))?;
+        }
+        #[cfg(target_os = "windows")]
+        remove_saved_file(&data.join("client-key.dpapi"))?;
+        #[cfg(target_os = "linux")]
+        {
+            *self.storage_key.lock().await = None;
+        }
+        Ok(())
     }
 
     async fn platform_identity(&self, _app_data_dir: &Path) -> Result<PlatformIdentity, String> {
@@ -690,6 +739,21 @@ pub fn init() -> TauriPlugin<Wry> {
             Ok(())
         })
         .build()
+}
+
+fn remove_saved_file(path: &Path) -> Result<(), String> {
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+#[tauri::command]
+pub(crate) async fn native_reset_registration(
+    context: State<'_, Arc<NativeContext>>,
+) -> Result<(), String> {
+    context.reset_registration().await
 }
 
 #[tauri::command]
@@ -1335,11 +1399,13 @@ fn load_or_create_windows_identity(path: &Path) -> Result<SecretKey, String> {
             let mut ciphertext = Vec::new();
             file.read_to_end(&mut ciphertext)
                 .map_err(|error| error.to_string())?;
-            let plaintext = Zeroizing::new(dpapi_unprotect(&ciphertext)?);
+            let plaintext = Zeroizing::new(
+                dpapi_unprotect(&ciphertext).map_err(|_| WINDOWS_KEY_READ_ERROR.to_owned())?,
+            );
             let bytes: [u8; 32] = plaintext
                 .as_slice()
                 .try_into()
-                .map_err(|_| "DPAPI identity must contain exactly 32 bytes".to_owned())?;
+                .map_err(|_| WINDOWS_KEY_READ_ERROR.to_owned())?;
             Ok(SecretKey::from_bytes(&bytes))
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {

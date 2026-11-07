@@ -115,7 +115,10 @@ export async function automationWebhookScenario({
   await screen.key("Enter");
   await capture("off", scrollWebhook);
   await screen.click(field("webhook"));
-  assert.match(await screen.text(view), /保存するとURLとtokenを作成します。/u);
+  assert.match(
+    await screen.text(view),
+    /保存してください。URLとトークンが作成されます。/u,
+  );
   assert.match(await screen.text(field("webhook-scope")), /LAN・VPN/u);
   await capture("before-save", scrollWebhook);
   await save();
@@ -245,7 +248,7 @@ export async function automationWebhookScenario({
   await screen.wait('[role="dialog"]');
   await capture("regenerate");
   await screen.evaluate(
-    `Array.from(document.querySelectorAll('[role="dialog"] button')).find(e=>e.textContent.trim()==='作り直す').click()`,
+    `Array.from(document.querySelectorAll('[role="dialog"] button')).find(e=>e.textContent.trim()==='再生成').click()`,
   );
   await waitFor(async () => (await getToken(automationId)) !== token);
   const oldToken = token;

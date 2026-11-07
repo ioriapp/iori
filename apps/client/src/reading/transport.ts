@@ -225,14 +225,14 @@ export function readErrorCopy(
       "This path is not a folder.",
       "このパスはフォルダーではありません。",
     ],
-    not_a_file: ["Choose a file to read.", "読むファイルを選んでください。"],
+    not_a_file: ["Choose a file to read.", "ファイルを選択してください。"],
     not_git_repository: [
       "This folder is not in a Git repository.",
-      "このフォルダーは Git リポジトリに属していません。",
+      "このフォルダーはGitリポジトリに含まれていません。",
     ],
     git_failed: [
       "Git could not read this repository.",
-      "Git で読み取れませんでした。",
+      "Gitでこのリポジトリを読み込めませんでした。",
     ],
     permission_denied: [
       "Permission to read this was denied.",
@@ -241,6 +241,6 @@ export function readErrorCopy(
   };
   return (
     copy[error.code]?.[ja ? 1 : 0] ??
-    (ja ? "読み取れませんでした。" : "Could not read this.")
+    (ja ? "読み込めませんでした。" : "Could not read this.")
   );
 }

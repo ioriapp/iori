@@ -8,7 +8,12 @@ import {
   waitForOperation,
 } from "../../verification/web/operation.mjs";
 import { observed, clearObserved } from "../terminal/scenario.mjs";
-import { finishCli, waitForCodexInput, waitForPiInput } from "./scenario.mjs";
+import {
+  finishCli,
+  waitForCliState,
+  waitForCodexInput,
+  waitForPiInput,
+} from "./scenario.mjs";
 const action = (name) => `[data-iori-action="${name}"]`;
 async function focus(client, id) {
   await client.screen.evaluate(
@@ -32,6 +37,7 @@ export async function cliStatusScenario({
   windows = false,
   firstUse = false,
   notifications = false,
+  missedWaiting,
 }) {
   const screen = client.screen;
   if (notifications)
@@ -246,6 +252,54 @@ export async function cliStatusScenario({
   await screen.wait(`[data-iori-tab-id="terminal:${id}"]`);
   await screen.click(`[data-iori-tab-id="terminal:${id}"]`);
   await focus(client, id);
+  if (missedWaiting) {
+    await waitForCodexInput(client, id);
+    await submitToCli(
+      client,
+      "Run the two commands, asking approval for each." +
+        fakeMarker("codex-two-approvals"),
+      undefined,
+      "two-approvals",
+      { focus: false },
+    );
+    await screen.wait(`${row} [data-status="waiting"]`);
+    const hostKey = await screen.evaluate(
+      "(async()=> (await import('/src/connection.ts')).connection.getSnapshot().host.publicKey)()",
+    );
+    const key = JSON.stringify([hostKey, id]);
+    await waitFor(
+      () =>
+        screen.evaluate(
+          `(async()=> (await (await import('/src/native.ts')).native.loadView('notification-seen'))?.[${JSON.stringify(key)}])()`,
+        ),
+      (value) => value?.startsWith('["waiting",'),
+    );
+    await screen.click(`[data-iori-tab-id="${sibling}"]`);
+    await missedWaiting(id);
+    await screen.wait('[data-iori-view="workspace"]');
+    const notices = await waitFor(
+      () => screen.evaluate("window.__reopenedNotices"),
+      (values) =>
+        values?.some(
+          (entry) =>
+            entry.target.terminalId === id && entry.body.includes("approval-b"),
+        ),
+    );
+    assert.equal(
+      notices.filter(
+        (entry) =>
+          entry.target.terminalId === id && entry.body.includes("approval-b"),
+      ).length,
+      1,
+    );
+    await record(
+      "Clientを閉じた間に承認Aを回答し承認Bで止まると、起動後にBを通知する",
+    );
+    await screen.click(row);
+    await focus(client, id);
+    await screen.key("Enter");
+    await waitForCliState(client, id, ["done", "idle"]);
+  }
   await finishCli(client, id);
   await waitFor(
     () =>

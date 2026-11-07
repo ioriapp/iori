@@ -599,3 +599,8 @@
   font-size: 13px;
   color: var(--muted-foreground);
 }
+
+.host-uninstall-result .host-notice.is-warning p {
+  word-break: auto-phrase;
+  text-wrap: pretty;
+}

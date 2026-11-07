@@ -40,7 +40,7 @@ export async function inviteCli(os, root, dataDir) {
     }),
   );
   const invitation = await waitFor(() => {
-    const value = stdout.match(/iori:\/\/pair\?code=[A-Za-z0-9_-]+/)?.[0];
+    const value = stdout.match(/iori:\/\/pair\/[A-Z2-7]+/)?.[0];
     if (closed && !value)
       throw new Error("iori invite could not issue an invitation");
     return value;

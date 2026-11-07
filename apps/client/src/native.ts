@@ -17,6 +17,7 @@ export type InitialState = {
 };
 let mobile = false;
 export const native = {
+  resetRegistration: () => invoke<void>("native_reset_registration"),
   fileSaveBegin: (name: string) =>
     invoke<string | null>("native_file_save_begin", { name }),
   fileSaveWrite: (id: string, data: string) =>

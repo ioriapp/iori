@@ -310,10 +310,10 @@ function GitWorkspace({
             : "Back to list"
           : view.listOpen
             ? ja
-              ? "一覧を閉じる"
+              ? "一覧を非表示"
               : "Hide list"
             : ja
-              ? "一覧を開く"
+              ? "一覧を表示"
               : "Show list"
       }
       aria-pressed={narrow ? undefined : view.listOpen}
@@ -333,7 +333,7 @@ function GitWorkspace({
       {isRepository === false && (
         <p className="reading-empty">
           {ja
-            ? "このフォルダーには Git リポジトリがありません。"
+            ? "このフォルダーにはGitリポジトリがありません。"
             : "There is no Git repository in this folder."}
         </p>
       )}
@@ -347,7 +347,7 @@ function GitWorkspace({
         rowHeight={row.height}
         dataId="git-changes"
         className="git-list-rows"
-        label={ja ? "変更の一覧" : "Changes"}
+        label={ja ? "変更" : "Changes"}
         onRange={(first, last) => {
           const a = rowAt(first);
           const b = rowAt(last);
@@ -489,7 +489,7 @@ function GitWorkspace({
         rowHeight={row.height * 2 - 4}
         dataId="git-history"
         className="git-list-rows"
-        label={ja ? "commit の履歴" : "Commit history"}
+        label={ja ? "commitの履歴" : "Commit history"}
         onRange={(first, last) => history.ensure(first, last)}
         renderRow={(index) => {
           const commit = history.get(index);
@@ -682,7 +682,7 @@ function GitWorkspace({
           <div className="reading-header">{listToggle}</div>
           <p className="reading-empty">
             {ja
-              ? "変更を選ぶと差分が表示されます"
+              ? "一覧から変更を選んでください"
               : "Select a change to see its diff"}
           </p>
         </>
@@ -715,7 +715,7 @@ function GitWorkspace({
               variant="ghost"
               size="icon-sm"
               data-iori-action={narrow ? "reading-back" : "git-commit-back"}
-              aria-label={ja ? "commit へ戻る" : "Back to the commit"}
+              aria-label={ja ? "commitに戻る" : "Back to the commit"}
               onClick={() => update({ commitFile: undefined })}
             >
               <ArrowLeft />
@@ -761,7 +761,7 @@ function GitWorkspace({
         <div className="reading-header">{listToggle}</div>
         <p className="reading-empty">
           {ja
-            ? "commit を選ぶと詳細が表示されます"
+            ? "一覧からcommitを選んでください"
             : "Select a commit to see its details"}
         </p>
       </>

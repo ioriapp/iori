@@ -552,7 +552,7 @@ export function HostUninstallDialog({
     case "done": {
       const outcome = phase.outcome;
       panel = (
-        <div className="host-panel-stack">
+        <div className="host-panel-stack host-uninstall-result">
           <Text names={names}>
             {onHost(
               t,
@@ -569,7 +569,11 @@ export function HostUninstallDialog({
             <Warning>
               <P>
                 {t(
-                  "Could not delete the tokens for these sites. Revoke each token on its site, then delete it from the OS credential store.",
+                  flow.os === "Windows"
+                    ? "Could not delete the tokens for these sites. Revoke each token on its site, then delete it from Credential Manager."
+                    : flow.os
+                      ? "Could not delete the tokens for these sites. Revoke each token on its site, then delete it from the keyring."
+                      : "Could not delete the tokens for these sites. Revoke each token on its site, then delete it from Credential Manager or the keyring.",
                 )}
               </P>
               <div className="lines is-plain">

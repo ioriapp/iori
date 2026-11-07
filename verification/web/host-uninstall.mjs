@@ -129,7 +129,7 @@ export async function hostUninstallScenario({
     const text = await screen.text(dialog);
     assert.match(
       text,
-      /All devices using this Host|すべての端末から接続できなくなります/u,
+      /All devices using this Host|すべてのデバイスから接続できなくなります/u,
     );
     assert.match(
       text,
@@ -182,7 +182,7 @@ export async function hostUninstallScenario({
     if (deleteData) {
       assert.match(
         await screen.text(notice),
-        /Some items need your attention|確認が必要なことがあります/u,
+        /Some items need your attention|確認が必要な項目があります/u,
       );
       assert.equal(
         await screen.visible('[data-iori-action="host-notice-close"]'),
@@ -194,13 +194,13 @@ export async function hostUninstallScenario({
       const text = await screen.text(dialog);
       assert.match(
         text,
-        /Deleted iori Host and its saved data|iori Hostと保存データを削除しました/u,
+        /Deleted iori Host and its saved data|iori Hostをアンインストールし、保存データを削除しました/u,
       );
       const instruction = text.search(
-        /Could not delete the tokens|次のサイトのtokenを削除できませんでした/u,
+        /Could not delete the tokens|次のサイトのトークンを削除できませんでした/u,
       );
       const site = text.indexOf("https://forgejo.example.invalid");
-      const revoke = text.search(/Revoke each token|各サイトでtokenを無効/u);
+      const revoke = text.search(/Revoke each token|各サイトでトークンを無効/u);
       assert.ok(instruction >= 0 && site > instruction && revoke > instruction);
       await pictures("B9-detail-warning");
       await screen.click('[data-iori-action="host-maintenance-close"]');
@@ -277,11 +277,11 @@ export async function hostUninstallScenario({
       );
       assert.match(
         await screen.text('[data-iori-action="host-maintenance-confirm"]'),
-        /Stop and uninstall|止めてアンインストールする/u,
+        /Stop and uninstall|停止してアンインストールする/u,
       );
       assert.match(
         await screen.text(dialog),
-        /All devices using this Host|すべての端末から接続できなくなります/u,
+        /All devices using this Host|すべてのデバイスから接続できなくなります/u,
       );
     }
     await pictures(action === "host-uninstall" ? "B2b" : name);

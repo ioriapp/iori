@@ -132,7 +132,7 @@ export function PathMenu({
             data-iori-action="copy-line-path"
           >
             <ListTree />
-            {ja ? "行付きのパスをコピー" : "Copy path with line"}
+            {ja ? "行番号付きのパスをコピー" : "Copy path with line"}
           </ContextMenuItem>
         )}
         {actions.length > 0 && separateActions && <ContextMenuSeparator />}
@@ -140,7 +140,7 @@ export function PathMenu({
         {error && (
           <p className="reading-menu-error" role="alert">
             {ja
-              ? "操作できませんでした。もう一度選んでください。"
+              ? "操作できませんでした。もう一度お試しください。"
               : "That did not work. Select it again."}
           </p>
         )}

@@ -517,7 +517,10 @@ export class Cdp {
           result.exceptionDetails.text ??
           "",
       )
-        .replace(/iori:\/\/pair\?code=[A-Za-z0-9_-]+/g, "[invitation redacted]")
+        .replace(
+          /iori:\/\/pair(?:\?code=|\/)[A-Za-z0-9_-]+/g,
+          "[invitation redacted]",
+        )
         .replace(/[A-Za-z0-9+/_-]{40,}={0,2}/g, "[redacted]")
         .slice(0, 1024);
       throw new Error("WebView evaluation failed: " + detail);
@@ -692,7 +695,10 @@ export class WebDriver {
       const safeErrorType =
         typeof errorType === "string" ? errorType.slice(0, 80) : "unknown";
       const detail = String(payload?.value?.message ?? "")
-        .replace(/iori:\/\/pair\?code=[A-Za-z0-9_-]+/g, "[invitation redacted]")
+        .replace(
+          /iori:\/\/pair(?:\?code=|\/)[A-Za-z0-9_-]+/g,
+          "[invitation redacted]",
+        )
         .replace(/[A-Za-z0-9+/_-]{40,}={0,2}/g, "[redacted]")
         .slice(0, 1024);
       throw new Error(

@@ -1544,6 +1544,24 @@ export class TeamManager {
           throw new Error(
             "Another child uses this worktree. Use --worktree keep.",
           );
+        const otherTerminals = this.store
+          .listTerminals()
+          .filter(
+            (terminal) =>
+              terminal.id !== child.terminalId &&
+              relative(
+                this.store.terminalWorktree(terminal.id) ?? terminal.cwd,
+                child.cwd!,
+              ) === "",
+          );
+        for (const terminal of otherTerminals)
+          if (
+            this.terminals.isCliRunning(terminal.id) ||
+            (await this.terminals.shellActivity(terminal.id)).busy
+          )
+            throw new Error(
+              "A Terminal opened in this worktree is still running. Use --worktree keep.",
+            );
         // Dirty refusal is determined by Git before stopping the child. Explicit
         // discard is recorded in the child's instruction history as well.
         const status = await collectGit(child.cwd, [
@@ -1570,6 +1588,18 @@ export class TeamManager {
               child.terminalId,
               `[iori] ${message}`,
             );
+        }
+        for (const terminal of otherTerminals) {
+          await this.terminals.stopTeamTerminal(terminal.id);
+          const result = await this.terminals.closeTerminal(
+            {
+              clientPublicKey: `team:${child.conversation}`,
+              operationId: randomUUID(),
+            },
+            terminal.id,
+            true,
+          );
+          if (!result.ok) throw new Error("Could not stop a Terminal.");
         }
         if (child.terminalId)
           await this.terminals.stopTeamTerminal(child.terminalId);

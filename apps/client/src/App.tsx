@@ -1,3 +1,4 @@
+import { ClientInitialization } from "./ClientInitialization.tsx";
 import { ConnectedHostUpdates } from "./updates/ConnectedHostUpdates.tsx";
 import { MaintenanceClisContext } from "./updates/HostMaintenanceDetails.tsx";
 import type { CliSummary } from "@iori/protocol";
@@ -522,7 +523,7 @@ function AppContent({
   const staleNote =
     !state.connected && !state.revoked && disconnectedSeconds >= 60
       ? language.toLowerCase().startsWith("ja")
-        ? `表示は${disconnectedMinutes}分前の内容です`
+        ? `${disconnectedMinutes}分前の内容を表示しています`
         : `Showing content from ${disconnectedMinutes} ${disconnectedMinutes === 1 ? "minute" : "minutes"} ago`
       : undefined;
 
@@ -724,20 +725,20 @@ function AppContent({
         />
       ))}
       {!state.initial ? (
-        <main className="onboarding-screen" data-iori-view="initializing">
-          <section className="onboarding-panel">
-            <span className="app-wordmark">iori</span>
-            <ErrorMessage message={state.error ? t(state.error) : undefined} />
-            {state.error && (
-              <Button
-                onClick={() => void connection.initialize()}
-                data-iori-action="retry-initial"
-              >
-                {t("Retry")}
-              </Button>
-            )}
-          </section>
-        </main>
+        <ClientInitialization
+          error={state.error}
+          t={t}
+          onRetry={connection.initialize}
+          onReset={async () => {
+            preferencesDirty.current = false;
+            pendingPreferences.current = undefined;
+            savedPreferences.current = defaultPreferences;
+            preferencesRef.current = defaultPreferences;
+            setPreferences(defaultPreferences);
+            await connection.initialize();
+            await loadPreferences();
+          }}
+        />
       ) : firstRun ? (
         <main className="onboarding-screen">
           <section

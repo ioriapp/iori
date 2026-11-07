@@ -1975,9 +1975,9 @@ export function TerminalPane({
                 )}
           </span>
           {!child && (
-            <>
+            <div className="terminal-setup-actions">
               <Button
-                variant="ghost"
+                variant="outline"
                 size="sm"
                 disabled={!connected || resuming}
                 pending={resumingOn === "retry"}
@@ -1987,7 +1987,7 @@ export function TerminalPane({
                 {t("Run again")}
               </Button>
               <Button
-                variant="ghost"
+                variant="outline"
                 size="sm"
                 disabled={!connected || resuming}
                 pending={resumingOn === "skip"}
@@ -1996,7 +1996,7 @@ export function TerminalPane({
               >
                 {t("Start anyway")}
               </Button>
-            </>
+            </div>
           )}
         </div>
       )}

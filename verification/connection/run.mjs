@@ -179,7 +179,7 @@ async function safeShot(client, name) {
 async function captureFailure() {
   const redact = (value) => {
     let safe = value.replace(
-      /iori:\/\/pair\?code=[^\s"'<>]+/gu,
+      /iori:\/\/pair(?:\?code=|\/)[^\s"'<>]+/gu,
       "[invitation removed]",
     );
     for (const relay of relays)

@@ -98,6 +98,26 @@ exec ${sh(driver)} --port 4445 --native-port 4446 --native-driver ${sh(executabl
   );
   const tunnelClosed = new Promise((resolve) => tunnel.once("close", resolve));
   let browser;
+  let restarted = false;
+  const screenshot = async (name) => {
+    // WebKit's WebDriver screenshot can stall while the Xvfb window remains
+    // responsive. Capture this Client's dedicated display without the driver.
+    const target = remote + "/screenshot.png";
+    const capture = `import gi
+gi.require_version("Gdk", "3.0")
+from gi.repository import Gdk
+window = Gdk.get_default_root_window()
+Gdk.pixbuf_get_from_window(window, 0, 0, window.get_width(), window.get_height()).savev(${JSON.stringify(target)}, "png", [], [])`;
+    linux(
+      runAsUser(
+        `source ${sh(remote + "/display.sh")}\npython3 -c ${sh(capture)}`,
+      ),
+    );
+    await writeFile(
+      evidence + "/" + name + ".png",
+      Buffer.from(linux(runAsUser(`base64 -w 0 ${sh(target)}`)), "base64"),
+    );
+  };
   const connect = async () => {
     await waitFor(async () => {
       try {
@@ -141,7 +161,11 @@ exec ${sh(driver)} --port 4445 --native-port 4446 --native-driver ${sh(executabl
     }
     tunnel.kill("SIGTERM");
     await tunnelClosed;
-    linux(session(`systemctl --user stop ${sh(unit)}`));
+    linux(
+      session(
+        `systemctl --user stop ${restarted ? sh(unit + "-restart") + " " : ""}${sh(unit)}`,
+      ),
+    );
     if (isolated) linux(runAsUser(`rm -rf ${sh(runtime)}`));
     await writeFile(
       evidence + "/app.log",
@@ -155,6 +179,57 @@ exec ${sh(driver)} --port 4445 --native-port 4446 --native-driver ${sh(executabl
   try {
     const screen = await connect();
     return {
+      async restartWithoutRegistrationKey() {
+        assert.equal(
+          isolated,
+          true,
+          "key removal requires this run's isolated keyring",
+        );
+        const processes = await this.processes();
+        assert.match(
+          processes,
+          /^\d+$/u,
+          "one isolated Client process before restart",
+        );
+        linux(runAsUser(`kill -TERM ${processes}`));
+        await waitFor(
+          () => this.processes(),
+          (processes) => processes === "",
+        );
+        const environmentScript = (script) => `
+source ${sh(remote + "/display.sh")}
+export HOME=${sh(home)} XDG_DATA_HOME=${sh(data)} XDG_CONFIG_HOME=${sh(config)} XDG_CACHE_HOME=${sh(cache)} XDG_RUNTIME_DIR=${sh(runtime)}
+export TAURI_WEBVIEW_AUTOMATION=true WEBKIT_INSPECTOR_SERVER=127.0.0.1:4447
+export APPIMAGE_EXTRACT_AND_RUN=1 LIBGL_ALWAYS_SOFTWARE=1 WEBKIT_DISABLE_DMABUF_RENDERER=1
+${script}`;
+        const runInSession = (script) => runAsUser(environmentScript(script));
+        const found = linux(
+          runInSession(
+            `gdbus call --session --dest org.freedesktop.secrets --object-path /org/freedesktop/secrets --method org.freedesktop.Secret.Service.SearchItems ${sh("{'application': 'io.github.ioriapp.iori.linuxverification', 'purpose': 'client-keys'}")}`,
+          ),
+        );
+        const items = [
+          ...new Set(
+            found.match(
+              /\/org\/freedesktop\/secrets\/collection\/[A-Za-z0-9_/]+/gu,
+            ) ?? [],
+          ),
+        ];
+        assert.equal(items.length, 1, "registered Client has one keyring item");
+        for (const item of items)
+          linux(
+            runInSession(
+              `gdbus call --session --dest org.freedesktop.secrets --object-path ${sh(item)} --method org.freedesktop.Secret.Item.Delete`,
+            ),
+          );
+        restarted = true;
+        linux(
+          session(
+            `systemd-run --user --unit=${sh(unit + "-restart")} --collect -p MemoryMax=4G -p MemorySwapMax=0 bash -c ${sh(environmentScript(`${sh(executable)} > ${sh(remote + "/app.log")} 2>&1`))}`,
+          ),
+        );
+        await this.reconnect();
+      },
       get browser() {
         return browser;
       },
@@ -186,12 +261,7 @@ ${sh(executable)}`),
         }
         this.screen = await connect();
       },
-      async screenshot(name) {
-        await writeFile(
-          evidence + "/" + name + ".png",
-          Buffer.from(await browser.screenshot(), "base64"),
-        );
-      },
+      screenshot,
       async processes() {
         return linux(
           runAsUser(`for proc in /proc/[0-9]*; do
@@ -205,6 +275,11 @@ done`),
       stop,
     };
   } catch (error) {
+    try {
+      await screenshot("failure");
+    } catch (captureError) {
+      result.screenshotError = captureError.message;
+    }
     await stop();
     throw error;
   }

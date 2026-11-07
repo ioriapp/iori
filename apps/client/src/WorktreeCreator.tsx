@@ -302,6 +302,7 @@ export function WorktreeCreator({
           </DialogHeader>
           <Button
             className="worktree-create-close"
+            data-slot="dialog-close"
             variant="ghost"
             size="icon-sm"
             aria-label={t("Close")}

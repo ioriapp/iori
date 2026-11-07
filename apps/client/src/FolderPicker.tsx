@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState } from "react";
-import { Folder } from "lucide-react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { Folder, TriangleAlert } from "lucide-react";
 import type { FolderEntry, HostInfo } from "@iori/protocol";
 import { isWindowsHostPath } from "./host-path.ts";
 import { connection } from "./connection.ts";
+import { Spinner } from "./components/ui/spinner.tsx";
+import "./updates/connected-hosts.css";
 import { Kbd } from "./components/ui/kbd.tsx";
 import { Button } from "./components/ui/button.tsx";
 import {
@@ -44,6 +46,17 @@ export function FolderPicker({
   onClose: () => void;
   onOpen: (hostKey: string, path: string) => Promise<string | undefined>;
 }) {
+  const state = useSyncExternalStore(
+    connection.subscribe,
+    connection.getSnapshot,
+  );
+  const connectionFailure =
+    "Could not connect to the Host. Check that the Host is running, then try again.";
+  const browseFailure = () =>
+    hostKey && !connection.getSnapshot().connectedHosts.includes(hostKey)
+      ? connectionFailure
+      : "Could not browse Host folders. Retry.";
+  const [connecting, setConnecting] = useState(false);
   const [input, setInput] = useState("");
   const [windows, setWindows] = useState(false);
   const [ready, setReady] = useState(false);
@@ -90,6 +103,11 @@ export function FolderPicker({
   useEffect(() => {
     let active = true;
     setReady(false);
+    setConnecting(
+      Boolean(
+        hostKey && !connection.getSnapshot().connectedHosts.includes(hostKey),
+      ),
+    );
     setCanRetry(false);
     setError("");
     if (hostKey) {
@@ -98,7 +116,7 @@ export function FolderPicker({
         .then((result) => {
           if (!active) return;
           if (!result?.ok) {
-            setError("Could not browse Host folders. Retry.");
+            setError(browseFailure());
             setCanRetry(true);
             return;
           }
@@ -115,9 +133,12 @@ export function FolderPicker({
         })
         .catch(() => {
           if (active) {
-            setError("Could not browse Host folders. Retry.");
+            setError(browseFailure());
             setCanRetry(true);
           }
+        })
+        .finally(() => {
+          if (active) setConnecting(false);
         });
     }
     return () => {
@@ -136,6 +157,7 @@ export function FolderPicker({
       return;
     }
     setBusy(true);
+    setConnecting(!connection.getSnapshot().connectedHosts.includes(hostKey));
     void connection
       .requestHost(hostKey, "folders.browse", { path: directory })
       .then((result) => {
@@ -145,7 +167,9 @@ export function FolderPicker({
           setLoadedPath(directory);
         } else {
           const failure =
-            result?.error.code ?? "Could not browse Host folders. Retry.";
+            (!connection.getSnapshot().connectedHosts.includes(hostKey)
+              ? connectionFailure
+              : result?.error.code) ?? "Could not browse Host folders. Retry.";
           setError(failure);
           setCanRetry(
             ![
@@ -158,12 +182,15 @@ export function FolderPicker({
       })
       .catch(() => {
         if (active) {
-          setError("Could not browse Host folders. Retry.");
+          setError(browseFailure());
           setCanRetry(true);
         }
       })
       .finally(() => {
-        if (active) setBusy(false);
+        if (active) {
+          setBusy(false);
+          setConnecting(false);
+        }
       });
     return () => {
       active = false;
@@ -203,7 +230,7 @@ export function FolderPicker({
       onOpenChange={(value) => !value && onClose()}
     >
       <DialogContent
-        className="folder-dialog"
+        className="folder-dialog host-folder-dialog"
         data-iori-view="folder-picker"
         onEscapeKeyDown={(event) => {
           if (composing.current || event.isComposing) event.preventDefault();
@@ -221,13 +248,40 @@ export function FolderPicker({
           <div className="folder-dialog-row">
             <span>{t("Host")}</span>
             <Select value={hostKey} onValueChange={onHostChange}>
-              <SelectTrigger aria-label={t("Host")}>
+              <SelectTrigger
+                data-iori-host-key={hostKey}
+                aria-label={t("Host")}
+                title={
+                  hosts.find((host) => host.publicKey === hostKey)?.hostName
+                }
+              >
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className="host-selection-menu">
                 {hosts.map((host) => (
-                  <SelectItem key={host.publicKey} value={host.publicKey}>
-                    {host.hostName}
+                  <SelectItem
+                    key={host.publicKey}
+                    data-iori-host-key={host.publicKey}
+                    value={host.publicKey}
+                    title={host.hostName}
+                  >
+                    <span className="host-option">
+                      <span
+                        className="nav-connected-mark"
+                        data-connected={state.connectedHosts.includes(
+                          host.publicKey,
+                        )}
+                        role="img"
+                        aria-label={t(
+                          state.connectedHosts.includes(host.publicKey)
+                            ? "Connected"
+                            : "Disconnected",
+                        )}
+                      />
+                      <span className="host-option-name" title={host.hostName}>
+                        {host.hostName}
+                      </span>
+                    </span>
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -276,23 +330,51 @@ export function FolderPicker({
               composing.current = false;
             }}
           />
-          <CommandList className="folder-dialog-list" aria-busy={busy}>
-            {error ? (
-              <div className="folder-dialog-note" role="alert">
-                <p>{t(error)}</p>
-                {canRetry && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() =>
-                      ready
-                        ? setRetry((value) => value + 1)
-                        : setHomeRetry((value) => value + 1)
-                    }
-                  >
-                    {t("Retry")}
-                  </Button>
-                )}
+          <CommandList
+            className="folder-dialog-list"
+            aria-busy={busy || connecting}
+          >
+            {connecting ? (
+              <div className="folder-connection-state" role="status">
+                <Spinner aria-hidden="true" />
+                <span>{t("Connecting")}</span>
+              </div>
+            ) : error ? (
+              <div
+                className={
+                  error === connectionFailure
+                    ? "folder-connection-state"
+                    : "folder-dialog-note"
+                }
+              >
+                <div
+                  className={
+                    error === connectionFailure
+                      ? "host-notice is-error"
+                      : undefined
+                  }
+                  role="alert"
+                >
+                  {error === connectionFailure && (
+                    <TriangleAlert aria-hidden="true" />
+                  )}
+                  <div className="body">
+                    <p>{t(error)}</p>
+                    {canRetry && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          ready
+                            ? setRetry((value) => value + 1)
+                            : setHomeRetry((value) => value + 1)
+                        }
+                      >
+                        {t("Retry")}
+                      </Button>
+                    )}
+                  </div>
+                </div>
               </div>
             ) : !directory ? (
               <p className="folder-dialog-note">{t("Enter a folder path.")}</p>
@@ -312,6 +394,7 @@ export function FolderPicker({
               ))
             )}
             {!busy &&
+              !connecting &&
               !error &&
               ready &&
               directory &&

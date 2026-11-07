@@ -28,7 +28,7 @@ export function rich(
       "Linux x64",
       "Windows x64",
       "Linux arm64",
-      "この端末",
+      "このデバイス",
     ]),
   ]
     .filter(Boolean)

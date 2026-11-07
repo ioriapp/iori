@@ -1,3 +1,5 @@
+import { IntegrationsSettings } from "../../apps/client/src/IntegrationsSettings.tsx";
+import { ClientInitialization } from "../../apps/client/src/ClientInitialization.tsx";
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -63,7 +65,9 @@ import "../../apps/client/src/terminal/terminal.css";
 import "../../apps/client/src/settings.css";
 import "../../apps/client/src/worktree-creator.css";
 
-const t = translator("ja");
+const t = translator(
+  new URLSearchParams(location.search).get("language") ?? "ja",
+);
 const noop = () => {};
 const asyncNoop = async () => {};
 const actions: UninstallActions = {
@@ -109,7 +113,12 @@ function Version() {
 function SettingsBackdrop() {
   const setup = stateId.startsWith("A");
   const name = setup ? "office-win" : "build-linux";
-  const title = setup ? t("Connection") : t("Version");
+  const integrations = current.kind === "integrations";
+  const title = integrations
+    ? t("Integrations")
+    : setup
+      ? t("Connection")
+      : t("Version");
   return (
     <Dialog open>
       <DialogContent
@@ -214,6 +223,14 @@ function SettingsBackdrop() {
                 <SettingsSection title={t("Destination")}>
                   <FieldRow label={name} description="Connected" />
                 </SettingsSection>
+              ) : integrations ? (
+                <IntegrationsSettings
+                  hostKey={host.publicKey}
+                  t={t}
+                  language="ja"
+                  registerEditor={() => noop}
+                  onNestedBack={noop}
+                />
               ) : (
                 <Version />
               )}
@@ -241,6 +258,21 @@ function Onboarding() {
   );
 }
 function Frame() {
+  if (current.kind === "initialization")
+    return (
+      <div className="app-root">
+        <ClientInitialization
+          error={
+            stateId === "registration-windows"
+              ? "Cannot read iori's key on this device."
+              : "Cannot read iori's key from the system keyring."
+          }
+          t={t}
+          onRetry={asyncNoop}
+          onReset={asyncNoop}
+        />
+      </div>
+    );
   const name = stateId === "A0-name" ? "" : deviceName;
   const afterSettings =
     current.kind === "notice" &&

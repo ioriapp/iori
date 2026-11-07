@@ -383,7 +383,7 @@ export async function automationsScenario({
   );
   assert.equal(
     missedRows.filter(
-      (r) => r.reasonText === "飛ばした理由: Hostが停止またはスリープ中",
+      (r) => r.reasonText === "スキップ: Hostが停止またはスリープ中",
     ).length,
     2,
     "古い2行に飛ばした理由が表示される",

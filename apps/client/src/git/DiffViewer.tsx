@@ -183,7 +183,7 @@ export function DiffViewer({
             size="icon-sm"
             data-iori-action="open-find"
             aria-label={ja ? "差分を検索" : "Find in diff"}
-            title={ja ? "差分を検索 (Ctrl+F)" : "Find in diff (Ctrl+F)"}
+            title={ja ? "差分を検索（Ctrl+F）" : "Find in diff (Ctrl+F)"}
             onClick={() => setFindRequest((value) => value + 1)}
           >
             <Search />

@@ -31,7 +31,7 @@ export function FileTransferDialogs() {
       <DialogContent data-iori-dialog="files-replace">
         <DialogHeader>
           <DialogTitle>
-            {ja ? "ファイルを置き換える" : "Replace files"}
+            {ja ? "ファイルを置き換えますか？" : "Replace files"}
           </DialogTitle>
           <DialogDescription>
             {ja
@@ -173,7 +173,7 @@ export function useFileUploads(
         folder: directory.current,
         kind: "put",
         message: ja
-          ? "フォルダーはアップロードできません。ファイルだけをアップロードできます。"
+          ? "フォルダーはアップロードできません。ファイルだけをアップロードしてください。"
           : "Folders cannot be uploaded. Upload files only.",
       }),
   };

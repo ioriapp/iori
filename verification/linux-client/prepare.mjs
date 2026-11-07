@@ -12,7 +12,7 @@ gate({ devices: [verificationLocal.linux.host], requireFreePorts: false });
 // the existing verification user and live in each runner's dedicated directory.
 await command("ssh", [
   verificationLocal.linux.host,
-  "sudo apt-get update && sudo apt-get install -y xvfb xauth webkit2gtk-driver gnome-keyring dbus-x11 pkexec",
+  "sudo apt-get update && sudo apt-get install -y xvfb xauth webkit2gtk-driver gnome-keyring dbus-x11 pkexec python3-gi gir1.2-gtk-3.0",
 ]);
 const tools = path.resolve(".local/linux-client-tools");
 await command("cargo", [

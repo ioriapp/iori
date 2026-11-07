@@ -1,11 +1,26 @@
 import { current, stateId } from "./runtime.ts";
 import { host, version } from "./fixtures.ts";
 
+const previewHost = stateId.startsWith("token-")
+  ? {
+      ...host,
+      os: stateId.includes("-windows-")
+        ? "Windows"
+        : stateId.includes("-linux-")
+          ? "Linux"
+          : undefined,
+    }
+  : host;
 const snapshot = {
+  observedHosts: {},
   connectedHosts: ["B1", "B2-disconnected"].includes(stateId)
     ? []
     : [host.publicKey],
-  initial: { mobile: stateId === "B8", hosts: [host], canSetupHost: true },
+  initial: {
+    mobile: stateId === "B8",
+    hosts: [previewHost],
+    canSetupHost: true,
+  },
   host,
   devices: [],
   hosts: {},

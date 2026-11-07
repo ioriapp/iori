@@ -333,7 +333,7 @@ export async function teamsScenario({
     await screen.text(
       '[data-iori-history-version="3"] .team-history-select > span',
     ),
-    "Workerの同時実行の上限を変更",
+    "Workerの同時実行の上限を変更しました",
   );
   await screen.key("Escape");
   await record("テンプレート作成後の単項目保存は、その項目だけを履歴に記録");
@@ -426,7 +426,10 @@ export async function teamsScenario({
   const summary = await screen.text(
     '[data-iori-history-version="4"] .team-history-select > span',
   );
-  assert.equal(summary, "Workerの候補を追加・Workerの候補を変更");
+  assert.equal(
+    summary,
+    "Workerの候補を追加しました・Workerの候補を変更しました",
+  );
   await themes("team-history");
   await screen.click(
     '[data-iori-history-version="4"] ' + action("team-memo-add"),
@@ -508,7 +511,7 @@ export async function teamsScenario({
   assert.equal(await screen.value(teamName), "");
   assert.equal(
     await screen.text(inTeam(".team-save-title .page-description")),
-    "保存できませんでした: Team名を入力してください。",
+    "保存できませんでした。Team名を入力してください。",
   );
   await screen.input(teamName, originalName);
   await screen.click(action("team-save"));
@@ -1033,7 +1036,7 @@ export async function teamsScenario({
   await returnToWorktree(screen);
   const researchRow = `${launcher} [data-iori-team-id="${researchId}"]`;
   await screen.wait(researchRow);
-  assert.match(await screen.text(researchRow), /親のCLIを選んでください/);
+  assert.match(await screen.text(researchRow), /親のCLIを選択してください/);
   await captureLauncher("start-unconfigured-team", researchRow);
   await screen.click(researchRow);
   await waitForSelectedTeam(researchId);

@@ -99,12 +99,19 @@ function DialogContent({
           const dialog = event.target as HTMLElement
           const buttons = dialog.querySelectorAll<HTMLButtonElement>('[data-slot="dialog-footer"] button:not(:disabled)')
           const input = dialog.querySelector('input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), textarea, [contenteditable="true"]')
+          const first = Array.from(dialog.querySelectorAll<HTMLElement>('button, input, textarea, select, [tabindex]')).find(
+            (element) => element.tabIndex >= 0 && !element.matches(':disabled') && element.getClientRects().length > 0 && getComputedStyle(element).visibility !== 'hidden'
+          )
           if (!input && buttons.length > 1) {
             event.preventDefault()
             buttons[0].focus({ preventScroll: true })
+          } else if (!input || first?.matches('[data-slot="dialog-close"]')) {
+            event.preventDefault()
+            dialog.focus({ preventScroll: true })
           }
         }}
         data-slot="dialog-content"
+        tabIndex={-1}
         className={cn(
           "fixed top-1/2 left-1/2 z-50 grid max-h-[calc(100dvh-2rem)] w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto rounded-xl bg-popover p-4 text-xs/relaxed text-popover-foreground ring-1 ring-foreground/10 outline-none sm:max-w-sm has-data-[slot=dialog-body]:flex has-data-[slot=dialog-body]:flex-col",
           className

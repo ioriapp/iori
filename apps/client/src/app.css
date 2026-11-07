@@ -359,3 +359,15 @@
     gap: 8px;
   }
 }
+
+.registration-reset-dialog [data-slot="dialog-description"],
+.registration-reset-dialog .connection-error {
+  word-break: auto-phrase;
+  text-wrap: pretty;
+}
+
+@media (max-width: 767px) {
+  .initialization-actions > button {
+    min-height: 44px;
+  }
+}

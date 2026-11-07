@@ -2200,32 +2200,40 @@ function WorkspaceFrameInner({
     : undefined;
   const targetWorktrees = useMemo(() => {
     const own = targetFolder ? worktreesOf(targetFolder) : [];
-    const choices = new Map(
-      own.map((worktree) => [
-        hostPathKey(worktree.path),
+    if (!selectedTarget) return [];
+    const parent =
+      own.find((worktree) => samePath(worktree.path, selectedTarget.cwd)) ??
+      selectedTarget.worktree;
+    const choices = new Map([
+      [
+        hostPathKey(selectedTarget.cwd),
         {
-          path: worktree.path,
-          primary: worktree.primary,
-          label: worktree.branch ?? basename(worktree.path),
+          path: selectedTarget.cwd,
+          primary: parent.primary,
+          label: parent.branch ?? basename(selectedTarget.cwd),
         },
-      ]),
-    );
-    const children = selectedTarget
-      ? (childDisplay[selectedTarget.host.publicKey]?.displayed ?? [])
-      : [];
+      ],
+    ]);
+    const children =
+      childDisplay[selectedTarget.host.publicKey]?.displayed ?? [];
     for (const child of children) {
+      const childPath = child.cwd;
       if (
-        !child.cwd ||
+        !childPath ||
         child.worktreeRemoved ||
-        !child.repositoryName ||
-        !selectedTarget ||
-        !samePath(selectedTarget.cwd, child.parentCwd)
+        !samePath(selectedTarget.cwd, child.parentCwd) ||
+        samePath(selectedTarget.cwd, childPath)
       )
         continue;
-      choices.set(hostPathKey(child.cwd), {
-        path: child.cwd,
+      const ownWorktree = own.find((worktree) =>
+        samePath(worktree.path, childPath),
+      );
+      choices.set(hostPathKey(childPath), {
+        path: childPath,
         primary: false,
-        label: `${child.repositoryName} › ${child.branch ?? basename(child.cwd)}`,
+        label: child.repositoryName
+          ? `${child.repositoryName} › ${child.branch ?? basename(childPath)}`
+          : (ownWorktree?.branch ?? child.branch ?? basename(childPath)),
       });
     }
     return [...choices.values()];

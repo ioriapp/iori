@@ -92,6 +92,8 @@ export function devicePlan(file, args = []) {
     case "verification/host-setup/run-linux.mjs":
     case "verification/native/linux-packages.mjs":
     case "verification/linux-client/prepare.mjs":
+    case "verification/linux-client/build.mjs":
+    case "verification/linux-client/registration-reset.mjs":
     case "verification/updates/build-linux.mjs":
     case "verification/updates/run-linux.mjs":
       devices = [verificationLocal.linux.host];

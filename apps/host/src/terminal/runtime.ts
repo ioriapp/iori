@@ -795,6 +795,7 @@ export class TerminalRuntime {
         rows: this.#lastDesktopSize.rows,
         lastDesktopSize: { ...this.#lastDesktopSize },
         restartPending: false,
+        imageSequence: 0,
         snapshot: null,
         createdAt: Date.now(),
       };
@@ -1096,10 +1097,10 @@ export class TerminalRuntime {
         if (!params.last) return success({ path: "" });
         // Transfer IDs keep interleaved chunks separate. Allocate the short
         // visible name only on completion, inside this Terminal's serial queue.
-        const path = join(
-          directory,
-          `${++runtime.imageSequence}.${params.extension}`,
-        );
+        const imageSequence = runtime.imageSequence + 1;
+        this.#store.setTerminalImageSequence(runtime.record.id, imageSequence);
+        runtime.imageSequence = imageSequence;
+        const path = join(directory, `${imageSequence}.${params.extension}`);
         await commitAtomicFile(partial, path);
         return success({ path });
       } catch {
@@ -1415,7 +1416,7 @@ export class TerminalRuntime {
     runtime = {
       record,
       setup: this.#store.terminalSetup(record.id),
-      imageSequence: 0,
+      imageSequence: record.imageSequence,
       pendingLines: [],
       cliReady: false,
       inputModeReady: false,
@@ -1590,6 +1591,14 @@ export class TerminalRuntime {
     runtime.cliStatus = {
       ...next,
       since: sameState ? continued!.since : Date.now(),
+      ...(next.state === "waiting"
+        ? {
+            waitingSince:
+              previous?.state === "waiting"
+                ? (previous.waitingSince ?? previous.since)
+                : Date.now(),
+          }
+        : {}),
     };
     if (next.state !== "waiting") this.#clearWaitingPresentation(runtime);
     else if (previous?.state !== "waiting")

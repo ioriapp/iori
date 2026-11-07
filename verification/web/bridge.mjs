@@ -494,6 +494,75 @@ export async function startBridge({
   }
   return {
     url: `ws://127.0.0.1:${server.address().port}/bridge/${token}`,
+    async sendTerminalInput(hostKey, addresses, terminalId, data) {
+      const peer = await endpoint.connect(
+        Buffer.from(hostKey, "hex"),
+        await resolveAddresses(addresses),
+      );
+      const stream = await peer.openBi();
+      try {
+        await writeFrame(
+          stream,
+          JSON.stringify({
+            kind: "terminal",
+            operationId: randomUUID(),
+            action: "open",
+            terminalId,
+            viewId: randomUUID(),
+            deviceClass: "desktop",
+            cols: 80,
+            rows: 24,
+            snapshotMaxLines: 100,
+            snapshotMaxBytes: 1048576,
+            viewAttributes: {
+              foreground: [255, 255, 255],
+              background: [0, 0, 0],
+              cursor: [255, 255, 255],
+              ansi: Array.from({ length: 256 }, () => [0, 0, 0]),
+              colorSchemeMode: "dark",
+              cursorStyle: "block",
+              cursorBlink: false,
+            },
+          }),
+        );
+        const snapshot = JSON.parse(await readFrame(stream, peer));
+        if (snapshot.kind !== "terminal.snapshot")
+          throw new Error(
+            `terminal snapshot unavailable: ${snapshot.message ?? snapshot.kind}`,
+          );
+        await writeFrame(
+          stream,
+          JSON.stringify({ kind: "terminal.input", data }),
+        );
+        await stream.finish();
+      } finally {
+        await stream.stop(0);
+        peer.close(0, Buffer.from("verification complete"));
+      }
+    },
+    async requestHost(hostKey, addresses, method, params) {
+      const peer = await endpoint.connect(
+        Buffer.from(hostKey, "hex"),
+        await resolveAddresses(addresses),
+      );
+      const stream = await peer.openBi();
+      try {
+        await writeFrame(
+          stream,
+          JSON.stringify({
+            kind: "request",
+            operationId: randomUUID(),
+            method,
+            params,
+          }),
+        );
+        await stream.finish();
+        return JSON.parse(await readFrame(stream, peer));
+      } finally {
+        await stream.stop(0);
+        peer.close(0, Buffer.from("verification complete"));
+      }
+    },
     async setOffline(value) {
       offline = value;
       if (value) {

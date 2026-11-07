@@ -593,7 +593,7 @@ function FilesWorkspace({
           size="icon-sm"
           data-iori-action="open-find"
           aria-label={ja ? "検索" : "Find"}
-          title={ja ? "検索 (Ctrl+F)" : "Find (Ctrl+F)"}
+          title={ja ? "検索（Ctrl+F）" : "Find (Ctrl+F)"}
           onClick={() => request("find")}
         >
           <Search />
@@ -695,7 +695,7 @@ function FilesWorkspace({
               ? "このリンクは開いたフォルダーの外を指しています。"
               : "This link points outside the open folder."
             : ja
-              ? "このリンクの参照先がありません。"
+              ? "リンク先が見つかりません。"
               : "This link's target no longer exists."}
         </p>
       );
@@ -716,7 +716,7 @@ function FilesWorkspace({
           <p>
             {current.kind === "binary"
               ? ja
-                ? "文字として表示できないファイルです"
+                ? "テキストとして表示できないファイルです"
                 : "This file cannot be shown as text"
               : ja
                 ? "この形式は表示できません"
@@ -777,7 +777,7 @@ function FilesWorkspace({
         >
           {watchError ??
             (ja
-              ? "読み位置を保存できませんでした。"
+              ? "スクロール位置を保存できませんでした。"
               : "Could not save the reading position.")}
         </ReadingError>
       )}
@@ -809,10 +809,10 @@ function FilesWorkspace({
                     : "Back to list"
                   : view.listOpen
                     ? ja
-                      ? "一覧を閉じる"
+                      ? "一覧を非表示"
                       : "Hide list"
                     : ja
-                      ? "一覧を開く"
+                      ? "一覧を表示"
                       : "Show list"
               }
               aria-pressed={narrow ? undefined : view.listOpen}
@@ -891,7 +891,7 @@ function FilesWorkspace({
                     <button
                       type="button"
                       className="reading-tab-close"
-                      aria-label={ja ? `${path} を閉じる` : `Close ${path}`}
+                      aria-label={ja ? `${path}を閉じる` : `Close ${path}`}
                       onClick={(event) => {
                         event.stopPropagation();
                         close(path);

@@ -693,6 +693,19 @@
   flex: 1;
   min-width: 0;
 }
+.terminal-resume-row[data-iori-state="setup-failed"] {
+  flex-wrap: wrap;
+}
+.terminal-resume-row[data-iori-state="setup-failed"] > span {
+  flex-basis: max-content;
+}
+.terminal-setup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-left: auto;
+}
 .terminal-text-sheet[data-slot="sheet-content"] {
   height: 85dvh;
 }

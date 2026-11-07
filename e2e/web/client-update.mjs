@@ -104,6 +104,8 @@ export async function clientHostUpdate({
   client,
   distribution,
   additionalHost,
+  stopAdditionalUpdateHost,
+  repository,
   reload,
   record,
   shot,
@@ -111,6 +113,29 @@ export async function clientHostUpdate({
   const { register } = await import("../connection/scenario.mjs");
   const screen = client.screen;
   await register(screen, await additionalHost(), "更新確認用Chromium");
+  await screen.key("Escape");
+  const { openFolder, folderConnectionScenario } =
+    await import("../workspace/scenario.mjs");
+  const { create, observe, typeTerminal, observed } =
+    await import("../terminal/scenario.mjs");
+  await register(
+    screen,
+    await additionalHost({ interruptions: true }),
+    "中断確認用Chromium",
+  );
+  const workingHostKey = await screen.attribute(
+    action("settings-host-select"),
+    "data-iori-host-key",
+  );
+  await screen.key("Escape");
+  await openFolder(screen, repository, false, undefined, workingHostKey);
+  await observe(client, "(await import('/src/native-platform-web.ts')).listen");
+  await create(client);
+  await typeTerminal(
+    client,
+    `node -e "console.log('update-work-ready');setInterval(()=>{},1000)"\r`,
+  );
+  await observed(client, "update-work-ready");
   await screen.key("Escape");
   distribution.publish();
   await openSidebar(screen);
@@ -120,7 +145,7 @@ export async function clientHostUpdate({
   await screen.wait(checkbox);
   await waitFor(
     () => screen.text(`.field-row:has(${checkbox})`),
-    (text) => text?.includes("2"),
+    (text) => text?.includes("3"),
   );
   assert.equal(await screen.attribute(checkbox, "data-state"), "checked");
   await updatePictures(client, shot, "connected-hosts-update-setting");
@@ -131,6 +156,7 @@ export async function clientHostUpdate({
     (value) => value === 1,
     operationFailure(screen, '[data-iori-view="client-update"] [role="alert"]'),
   );
+  await stopAdditionalUpdateHost();
   await reload();
   const dialog = '[data-iori-view="connected-host-updates"]';
   await screen.wait(dialog);
@@ -143,32 +169,131 @@ export async function clientHostUpdate({
       screen.evaluate(
         `document.querySelectorAll('[data-iori-update-host]').length`,
       ),
-    (count) => count === 2,
+    (count) => count === 3,
+  );
+  await screen.wait('[data-iori-state="host-disconnected"]');
+  const offlineKey = await screen.attribute(
+    '[data-iori-state="host-disconnected"]',
+    "data-iori-update-host",
+    "[data-iori-update-host]",
   );
   assert.equal(
-    await screen.visible('[data-iori-state="host-succeeded"]'),
+    (await screen.text('[data-iori-state="host-disconnected"]')).includes(
+      "Hostに接続できませんでした。",
+    ),
+    true,
+  );
+  const workingRow = `[data-iori-update-host=${JSON.stringify(workingHostKey)}]`;
+  await screen.wait(`${workingRow} ${action("connected-hosts-confirm")}`);
+  assert.equal(
+    await screen.visible(`${workingRow} [data-iori-state="host-succeeded"]`),
     false,
   );
-  await updatePictures(client, shot, "connected-hosts-confirmation");
-  await screen.click(action("connected-hosts-confirm"));
+  // One Host updates automatically even while another is stopped and a third
+  // awaits explicit permission to interrupt its real Terminal command.
   await waitForOperation(
-    "client-update: 接続先2台のHostの更新が成功",
+    "client-update: 中断の無いHostが操作なしで更新される",
     () =>
       screen.evaluate(
         `document.querySelectorAll('${dialog} [data-iori-state="host-succeeded"]').length`,
       ),
-    (count) => count === 2,
-    operationFailure(screen, `${dialog} [role="alert"]`),
+    (count) => count === 1,
+    operationFailure(
+      screen,
+      `${dialog} [data-iori-state="host-maintenance-error"]`,
+    ),
   );
-  assert.equal(await screen.visible(action("connected-hosts-confirm")), false);
-  await shot("connected-hosts-updated");
+  assert.equal(
+    await screen.evaluate(
+      `document.querySelectorAll('${dialog} [data-iori-maintenance-working]').length`,
+    ),
+    1,
+  );
+  await updatePictures(client, shot, "d");
   await record(
-    "接続中の古いHost2台を選んだClient更新・再読込後、1つの確認から両Hostの署名付き更新・再接続が成功",
+    "停止中のHostが接続失敗を示しても、中断の無いHostは押さずに更新され、中断されるHostだけ確認を待つ",
+  );
+  const offlineRow = `[data-iori-update-host=${JSON.stringify(offlineKey)}]`;
+  await screen.evaluate(`(async () => {
+    const { connection } = await import('/src/connection.ts');
+    const request = connection.requestHost;
+    const observation = window.__reconnectedUpdate = { requests: 0, checking: false };
+    connection.requestHost = function(hostKey, method, ...args) {
+      if (hostKey === ${JSON.stringify(offlineKey)} && method === 'host.update') observation.requests++;
+      return request.call(this, hostKey, method, ...args);
+    };
+    observation.stop = () => { connection.requestHost = request; observer.disconnect(); };
+    const observer = new MutationObserver(() => {
+      if (document.querySelector(${JSON.stringify(offlineRow)} + ' [data-iori-state="host-checking"]')) observation.checking = true;
+    });
+    observer.observe(document.querySelector(${JSON.stringify(offlineRow)}), { childList: true, subtree: true, attributes: true });
+  })()`);
+  await stopAdditionalUpdateHost(true);
+  await waitFor(() => screen.evaluate("window.__reconnectedUpdate.checking"));
+  await waitForOperation(
+    "client-update: 再接続したHostが更新される",
+    () => screen.visible(`${offlineRow} [data-iori-state="host-succeeded"]`),
+    Boolean,
+    operationFailure(
+      screen,
+      `${offlineRow} [data-iori-state="host-maintenance-error"]`,
+    ),
+  );
+  assert.equal(
+    await screen.text(`${offlineRow} [data-iori-state="host-succeeded"]`),
+    "iori Hostを更新しました",
+  );
+  assert.deepEqual(
+    await screen.evaluate(`(() => {
+      const { requests, checking, stop } = window.__reconnectedUpdate;
+      stop();
+      return { requests, checking };
+    })()`),
+    { requests: 1, checking: true },
+  );
+  await record("開いた画面で再接続したHostを確認後に一度だけ更新");
+  await screen.click(`${workingRow} ${action("connected-hosts-confirm")}`);
+  assert.equal(
+    await screen.visible(`${workingRow} [data-iori-state="host-succeeded"]`),
+    false,
+  );
+  await screen.key("Escape");
+  await waitFor(async () => !(await screen.visible(dialog)));
+  await openSettingsSection(screen, "open-host-version");
+  assert.equal(
+    await screen.attribute(
+      action("settings-host-select"),
+      "data-iori-host-key",
+    ),
+    workingHostKey,
+  );
+  await waitForOperation(
+    "client-update: 閉じた後も確認したHostの更新が続く",
+    () =>
+      screen.visible(
+        '[data-iori-view="host-version"] [data-iori-state="host-succeeded"]',
+      ),
+    Boolean,
+    operationFailure(
+      screen,
+      '[data-iori-view="host-version"] [data-iori-state="host-maintenance-error"]',
+    ),
+  );
+  await updatePictures(client, shot, "host-update-after-close");
+  await record(
+    "停止して更新する操作の後だけ中断対象Hostを更新し、ダイアログを閉じた後も署名付き更新・再接続が成功",
   );
   await reload();
   await screen.wait(action("settings-open"));
   assert.equal(await screen.visible(dialog), false);
   await record("更新後にもう一度開いてもHost更新の確認を繰り返さない");
+  await stopAdditionalUpdateHost();
+  await folderConnectionScenario({
+    client,
+    offlineKey,
+    record,
+    pictures: (name) => updatePictures(client, shot, name),
+  });
 }
 
 async function updatePictures(client, shot, name) {
@@ -177,8 +302,8 @@ async function updatePictures(client, shot, name) {
     "document.documentElement.classList.contains('dark')",
   );
   for (const [device, width, height] of [
-    ["pc", 1440, 1000],
-    ["mobile", 390, 844],
+    ["1440", 1440, 1000],
+    ["390", 390, 844],
   ]) {
     await client.browser.viewport({ width, height });
     for (const theme of ["dark", "light"]) {

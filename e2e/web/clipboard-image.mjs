@@ -130,6 +130,54 @@ export async function clipboardImageScenario({
   await record("Terminalを閉じると貼り付けた画像を削除する");
 }
 
+export async function clipboardImageRestartScenario({
+  client,
+  clipboardFiles,
+  restartHostLosingTerminals,
+  record,
+}) {
+  const screen = client.screen;
+  const id = await create(client);
+  const put = (color) =>
+    screen.evaluate(`(async()=>{
+    const canvas=document.createElement('canvas');canvas.width=320;canvas.height=200;
+    const context=canvas.getContext('2d');context.fillStyle=${JSON.stringify(color)};context.fillRect(0,0,320,200);
+    const png=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));
+    await navigator.clipboard.write([new ClipboardItem({'image/png':png})]);
+    return true;
+  })()`);
+  const paste = async (color) => {
+    await put(color);
+    await focusTerminal(client, id);
+    await controlKey(client, "v");
+    return waitForOperation(
+      "Hostの再起動の後に前の画像の番号を使わない",
+      () => clipboardFiles(id),
+      (files) => files.length === 1,
+      cliFailure(screen, id),
+    );
+  };
+
+  const before = await paste("red");
+  assert.equal(before[0].name, "1.png");
+  await restartHostLosingTerminals({ terminalId: id });
+  await screen.wait(
+    `[data-iori-terminal-id="${id}"][data-iori-stream-state="ready"]`,
+  );
+  await screen.wait(
+    `[data-iori-terminal-id="${id}"][data-iori-state="running"]`,
+  );
+
+  const after = await paste("blue");
+  assert.equal(
+    after[0].name,
+    "2.png",
+    "Hostの再起動の後に前の画像の番号を使わない",
+  );
+  assert.notEqual(after[0].path, before[0].path);
+  await record("Hostの再起動の後に前の画像の番号を使わない");
+}
+
 export async function clipboardTransferScenario({
   client,
   terminalId,

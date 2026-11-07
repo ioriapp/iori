@@ -29,7 +29,40 @@
   border-top: 1px solid var(--border);
 }
 @media (max-width: 767px) {
-  [data-slot="dialog-footer"] button {
-    min-height: 44px;
+  [data-slot="dialog-content"] {
+    --dialog-mobile-control-size: 44px;
+    --dialog-mobile-edge: var(--space-2);
+  }
+  [data-slot="dialog-footer"] button,
+  [data-slot="dialog-content"] [data-slot="dialog-close"] {
+    min-height: var(--dialog-mobile-control-size);
+  }
+  [data-slot="dialog-content"] [data-slot="dialog-close"] {
+    min-width: var(--dialog-mobile-control-size);
+  }
+  [data-slot="dialog-content"][role="dialog"]:has(
+      > [data-slot="dialog-header"]:not(.sr-only)
+    ) {
+    padding-top: var(--dialog-mobile-edge);
+  }
+  [data-slot="dialog-content"][role="dialog"]
+    > [data-slot="dialog-header"]:not(.sr-only) {
+    padding-right: 0;
+  }
+  [data-slot="dialog-content"][role="dialog"]
+    > [data-slot="dialog-header"]:not(.sr-only)
+    > [data-slot="dialog-title"] {
+    display: flex;
+    align-items: center;
+    min-height: var(--dialog-mobile-control-size);
+  }
+  [data-slot="dialog-content"]:has(> [data-slot="dialog-close"])
+    > [data-slot="dialog-header"]
+    > [data-slot="dialog-title"] {
+    padding-right: var(--dialog-mobile-control-size);
+  }
+  [data-slot="dialog-content"] > [data-slot="dialog-close"] {
+    top: var(--dialog-mobile-edge);
+    right: var(--dialog-mobile-edge);
   }
 }

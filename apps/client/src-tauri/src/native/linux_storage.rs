@@ -10,7 +10,7 @@ use zeroize::Zeroizing;
 const KEYRING_ERROR: &str = "Cannot store iori's key in the system keyring (Secret Service). Turn on a keyring such as GNOME Keyring or KWallet, then open iori again.";
 
 const KEYRING_CANCELLED: &str = "Unlocking the keyring was cancelled. You can try again.";
-const KEYRING_READ_ERROR: &str = "Cannot read iori's key from the system keyring.";
+pub(super) const KEYRING_READ_ERROR: &str = "Cannot read iori's key from the system keyring.";
 
 fn keyring_error(error: secret_service::Error) -> String {
     match error {
@@ -73,6 +73,24 @@ pub async fn identity(
     let identity: [u8; 32] = bytes[..32].try_into().map_err(|_| KEYRING_READ_ERROR)?;
     let view: [u8; 32] = bytes[32..].try_into().map_err(|_| KEYRING_READ_ERROR)?;
     Ok((SecretKey::from_bytes(&identity), Zeroizing::new(view)))
+}
+
+pub async fn reset(identifier: &str) -> Result<(), String> {
+    let service = SecretService::connect(EncryptionType::Dh)
+        .await
+        .map_err(keyring_error)?;
+    let found = service
+        .search_items(HashMap::from([
+            ("application", identifier),
+            ("purpose", "client-keys"),
+        ]))
+        .await
+        .map_err(keyring_error)?;
+    for item in found.unlocked.into_iter().chain(found.locked) {
+        item.unlock().await.map_err(keyring_error)?;
+        item.delete().await.map_err(keyring_error)?;
+    }
+    Ok(())
 }
 
 pub fn protect(key: &[u8; 32], plaintext: &str) -> Result<Vec<u8>, String> {

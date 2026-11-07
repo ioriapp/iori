@@ -55,8 +55,10 @@ export function FindBar({
       <Button
         variant="ghost"
         size="icon-sm"
-        aria-label={ja ? "前の一致" : "Previous match"}
-        title={ja ? "前の一致 (Shift+Enter)" : "Previous match (Shift+Enter)"}
+        aria-label={ja ? "前の一致項目" : "Previous match"}
+        title={
+          ja ? "前の一致項目（Shift+Enter）" : "Previous match (Shift+Enter)"
+        }
         data-iori-action="find-previous"
         onClick={onPrevious}
       >
@@ -65,8 +67,8 @@ export function FindBar({
       <Button
         variant="ghost"
         size="icon-sm"
-        aria-label={ja ? "次の一致" : "Next match"}
-        title={ja ? "次の一致 (Enter)" : "Next match (Enter)"}
+        aria-label={ja ? "次の一致項目" : "Next match"}
+        title={ja ? "次の一致項目（Enter）" : "Next match (Enter)"}
         data-iori-action="find-next"
         onClick={onNext}
       >
@@ -115,7 +117,7 @@ export function GoToLineBar({
         inputMode="numeric"
         data-iori-field="go-to-line"
         aria-label={ja ? "行へ移動" : "Go to line"}
-        placeholder={ja ? `行番号 (1–${max})` : `Line (1–${max})`}
+        placeholder={ja ? `行番号（1–${max}）` : `Line (1–${max})`}
         onKeyDown={(event) => {
           if (event.key === "Escape") {
             event.preventDefault();

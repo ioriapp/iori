@@ -41,28 +41,34 @@ export async function readingWorktrees({
     ],
     { cwd: repository },
   );
-  await screen.click(
-    `button[data-iori-worktree-path=${JSON.stringify(repository)}]`,
-  );
+  await selectWorktree(screen, worktree, false);
   const current = () =>
     screen.attribute(
       "[data-iori-current-worktree-path]",
       "data-iori-current-worktree-path",
     );
-  await waitFor(current, (path) => path === repository);
+  await waitFor(current, (path) => path === worktree);
   for (const kind of ["files", "git"]) {
     await openWorkspaceView(screen, kind);
     if (kind === "files") {
       await screen.click('[data-iori-file="sample.txt"]');
       await waitFor(async () =>
         (await screen.text('[data-iori-view="files"] .reading-body')).includes(
-          "変更前の行",
+          "ブラウザーからファイルを読む",
         ),
       );
     }
     await screen.click(`[data-iori-field="${kind}-worktree"]`);
     await screen.wait(
-      `[data-iori-worktree-choice=${JSON.stringify(longWorktree)}]`,
+      `[data-iori-worktree-choice=${JSON.stringify(worktree)}]`,
+    );
+    const choices = await screen.evaluate(
+      "Array.from(document.querySelectorAll('[data-iori-worktree-choice]'),row=>row.getAttribute('data-iori-worktree-choice')).sort()",
+    );
+    assert.deepEqual(
+      choices,
+      [worktree].sort(),
+      `${kind}の候補は表示中の親だけで、兄弟worktreeを含まない`,
     );
     const fits = await screen.evaluate(`(()=>{
       const menu=document.querySelector('[data-slot="dropdown-menu-content"]');
@@ -99,18 +105,14 @@ export async function readingWorktrees({
       await screen.click(`[data-iori-field="${kind}-worktree"]`);
     }
     await screen.key("Escape");
-    await screen.click(`[data-iori-field="${kind}-worktree"]`);
-    await screen.click(
-      `[data-iori-worktree-choice=${JSON.stringify(worktree)}]`,
-    );
     assert.equal(
       await current(),
-      repository,
+      worktree,
       `${kind} must keep the selected workspace`,
     );
     assert.equal(
       await screen.attribute(
-        `button[data-iori-worktree-path=${JSON.stringify(repository)}]`,
+        `button[data-iori-worktree-path=${JSON.stringify(worktree)}]`,
         "aria-current",
       ),
       "page",
@@ -118,49 +120,21 @@ export async function readingWorktrees({
     await screen.wait(
       `[data-iori-field="${kind}-worktree"][title=${JSON.stringify(worktree)}]`,
     );
-    await screen.click(
-      kind === "files"
-        ? '[data-iori-file="sample.txt"]'
-        : '[data-iori-action="git-change-select"][data-path="sample.txt"]',
-    );
-    await waitFor(async () =>
-      (
-        await screen.text(
-          kind === "files"
-            ? '[data-iori-view="files"] .reading-body'
-            : '[data-iori-view="git"] [data-iori-scroll="git-diff"]',
-        )
-      ).includes("ブラウザーからファイルを読む"),
-    );
-    if (kind === "files") {
-      await screen.click('[data-iori-field="files-worktree"]');
+    if (kind === "git") {
       await screen.click(
-        `[data-iori-worktree-choice=${JSON.stringify(repository)}]`,
+        '[data-iori-action="git-change-select"][data-path="sample.txt"]',
       );
       await waitFor(async () =>
-        (await screen.text('[data-iori-view="files"] .reading-body')).includes(
-          "変更前の行",
-        ),
-      );
-      assert.equal(
-        (await screen.text('[data-iori-view="files"] .reading-body')).includes(
-          "ブラウザーからファイルを読む",
-        ),
-        false,
-      );
-      await screen.click('[data-iori-field="files-worktree"]');
-      await screen.click(
-        `[data-iori-worktree-choice=${JSON.stringify(worktree)}]`,
-      );
-      await waitFor(async () =>
-        (await screen.text('[data-iori-view="files"] .reading-body')).includes(
-          "ブラウザーからファイルを読む",
-        ),
+        (
+          await screen.text(
+            '[data-iori-view="git"] [data-iori-scroll="git-diff"]',
+          )
+        ).includes("ブラウザーからファイルを読む"),
       );
     }
   }
   await mobile({ width: 390, height: 844 });
-  await selectWorktree(screen, repository, true);
+  await selectWorktree(screen, worktree, true);
   for (const kind of ["files", "git"]) {
     await openSidebar(screen);
     await openWorkspaceView(screen, kind);
@@ -172,7 +146,15 @@ export async function readingWorktrees({
     }
     await screen.tap(`[data-iori-field="${kind}-worktree"]`);
     await screen.wait(
-      `[data-iori-worktree-choice=${JSON.stringify(longWorktree)}]`,
+      `[data-iori-worktree-choice=${JSON.stringify(worktree)}]`,
+    );
+    const choices = await screen.evaluate(
+      "Array.from(document.querySelectorAll('[data-iori-worktree-choice]'),row=>row.getAttribute('data-iori-worktree-choice')).sort()",
+    );
+    assert.deepEqual(
+      choices,
+      [worktree].sort(),
+      `スマホの${kind}の候補は表示中の親だけで、兄弟worktreeを含まない`,
     );
     assert.equal(
       await screen.evaluate(
@@ -192,7 +174,7 @@ export async function readingWorktrees({
     await screen.key("Escape");
   }
   await desktop();
-  await waitFor(current, (path) => path === repository);
+  await waitFor(current, (path) => path === worktree);
   // The sidebar restores before the workspace panels. Wait for the last
   // visible tab to return before using the sidebar to select another tab.
   await screen.wait(
@@ -219,12 +201,11 @@ export async function readingWorktrees({
     );
   }
   await record(
-    "Files・Gitのworktree切替で親の選択を保ち、子の本文・差分と再起動後の対象を確認",
+    "Files・Gitの候補から兄弟worktreeを外し、表示中の親の本文・差分と再起動後の対象を確認",
   );
   await wideMarkdown({
     client,
     screen,
-    repository,
     worktree,
     desktop,
     mobile,
@@ -235,7 +216,6 @@ export async function readingWorktrees({
   );
   await imageZoom({
     screen,
-    repository,
     worktree,
     desktop,
     mobile,
@@ -288,7 +268,6 @@ const wideTable =
 async function wideMarkdown({
   client,
   screen,
-  repository,
   worktree,
   desktop,
   mobile,
@@ -408,7 +387,7 @@ async function wideMarkdown({
   await client.browser.viewport({ width: 1440, height: 1000 });
   if (capture) {
     await mobile({ width: 390, height: 844 });
-    await selectWorktree(screen, repository, true);
+    await selectWorktree(screen, worktree, true);
     await openSidebar(screen);
     await openWorkspaceView(screen, "files");
     if (!(await screen.visible(`${scroller} table`)))
@@ -430,15 +409,7 @@ async function wideMarkdown({
 }
 
 // An enlarged image keeps its own ratio and scrolls inside the frame (#177).
-async function imageZoom({
-  screen,
-  repository,
-  worktree,
-  desktop,
-  mobile,
-  shot,
-  record,
-}) {
+async function imageZoom({ screen, worktree, desktop, mobile, shot, record }) {
   const view = '[data-iori-view="files"]:not([hidden])';
   const frame = `${view} .reading-image-frame`;
   const image = `${view} [data-iori-part="file-image"]`;
@@ -546,7 +517,7 @@ async function imageZoom({
   const pc = await enlarge("PC 1440");
   await themes("pc-files-image-zoomed");
   await mobile({ width: 390, height: 844 });
-  await selectWorktree(screen, repository, true);
+  await selectWorktree(screen, worktree, true);
   await openSidebar(screen);
   await openImage();
   const phone = await enlarge("スマホ 390");

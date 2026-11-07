@@ -58,9 +58,12 @@ async function logLine(screen, path, text) {
   })()`);
 }
 
+// The CI tab follows the sidebar's CI mark; a worktree that is not a child of
+// the open one is not among the tab's own choices (files-view.md).
 async function chooseWorktree(screen, path, press = screen.click) {
-  await press(`[data-iori-field="ci-worktree"]`);
-  await press(`[data-iori-worktree-choice=${JSON.stringify(path)}]`);
+  await openSidebar(screen);
+  await screen.reveal(ciMark(path));
+  await press(ciMark(path));
   await waitFor(
     () => screen.visible(pane(path)),
     Boolean,
@@ -83,6 +86,14 @@ export async function forgeCiScenario({
   await screen.click(ciMark(fixture.repository));
   await screen.wait(loaded(fixture.repository));
   await screen.click('[data-iori-field="ci-worktree"]');
+  const choices = await screen.evaluate(
+    "Array.from(document.querySelectorAll('[data-iori-worktree-choice]'),row=>row.getAttribute('data-iori-worktree-choice')).sort()",
+  );
+  assert.deepEqual(
+    choices,
+    [fixture.repository].sort(),
+    "CIの候補も表示中の親だけで、兄弟worktreeを含まない",
+  );
   await themes(screen, shot, "pc-ci-worktree-menu");
   await screen.key("Escape");
   for (const run of current.runs) {
@@ -172,32 +183,6 @@ export async function forgeCiScenario({
     { run: run.id, job: job.id },
   );
 
-  await chooseWorktree(screen, fixture.ciNone);
-  await screen.wait(`${pane(fixture.ciNone)} [data-iori-state="ci-none"]`);
-  // Without CI, only the sentence: no commit or browser link to look at.
-  assert.equal(
-    await screen.visible(
-      `${pane(fixture.ciNone)} ${action("ci-open-browser")}`,
-    ),
-    false,
-  );
-  await themes(screen, shot, "pc-ci-none");
-  await client.browser.viewport({ width: 2560, height: 1440 });
-  await themes(screen, shot, "wqhd-ci-none");
-  await client.browser.viewport({ width: 1440, height: 1000 });
-  await chooseWorktree(screen, fixture.ciUnreadable);
-  // The verification Host's gh is not signed in: the reason leads to Integrations.
-  const signedOut = `${pane(fixture.ciUnreadable)} [data-iori-state="ci-failed"][data-iori-forge-failure="token-missing"]`;
-  await screen.wait(signedOut);
-  await screen.wait(`${signedOut} ${action("forge-open-integrations")}`);
-  await themes(screen, shot, "pc-ci-unreadable");
-  await client.browser.viewport({ width: 2560, height: 1440 });
-  await themes(screen, shot, "wqhd-ci-unreadable");
-  await client.browser.viewport({ width: 1440, height: 1000 });
-  await record(
-    "CIの無いcommitと、ghにログインしていないHostで読めないGitHubのCIを、それぞれの文で示す",
-  );
-
   await openSidebar(screen);
   await screen.reveal(ciMark(fixture.repository));
   await screen.click(ciMark(fixture.repository));
@@ -252,14 +237,6 @@ export async function forgeCiScenario({
     await screen.visible(`${mobilePane} [data-iori-part="ci-detail"]`),
     false,
   );
-  await chooseWorktree(screen, fixture.ciNone, screen.tap);
-  await screen.wait(`${pane(fixture.ciNone)} [data-iori-state="ci-none"]`);
-  await themes(screen, shot, "phone-ci-none");
-  await chooseWorktree(screen, fixture.ciUnreadable, screen.tap);
-  await screen.wait(
-    `${pane(fixture.ciUnreadable)} [data-iori-state="ci-failed"]`,
-  );
-  await themes(screen, shot, "phone-ci-unreadable");
   await record(
     "スマホではドロワーの印から失敗したjobを選んだ一覧を全画面で開き、詳細と行き来し、長い行を折り返せ、戻る操作で一覧へ戻る",
   );

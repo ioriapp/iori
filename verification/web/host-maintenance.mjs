@@ -262,7 +262,7 @@ export async function hostMaintenancePreview({
       idle.stop,
       text(
         "All open CLIs and Terminals will stop. CLI conversations can be resumed later.",
-        "開いているCLIとTerminalはすべて止まります。CLIの会話は後で再開できます。",
+        "開いているCLIとTerminalはすべて停止します。CLIの会話は後で再開できます。",
       ),
     );
     assert.equal(idle.action, text("Restart", "再起動する"));
@@ -321,7 +321,7 @@ export async function hostMaintenancePreview({
     assert.deepEqual(busy.ids, [terminalId]);
     assert.ok(busy.state.includes("sleep"));
     assert.ok(busy.state.includes("Running"));
-    assert.equal(busy.action, text("Stop and restart", "止めて再起動する"));
+    assert.equal(busy.action, text("Stop and restart", "停止して再起動する"));
     await maintenancePictures(client, shot, "working-restart");
     await screen.key("Enter");
     await waitFor(
@@ -351,11 +351,11 @@ export async function hostMaintenancePreview({
     await screen.wait("[data-iori-maintenance-working]");
     assert.match(
       await screen.text('[data-iori-view="host-maintenance-confirmation"]'),
-      /All devices using this Host|すべての端末から接続できなくなります/u,
+      /All devices using this Host|すべてのデバイスから接続できなくなります/u,
     );
     assert.equal(
       await screen.text('[data-iori-action="host-maintenance-confirm"]'),
-      text("Stop and uninstall", "止めてアンインストールする"),
+      text("Stop and uninstall", "停止してアンインストールする"),
     );
     await maintenancePictures(client, shot, "working-uninstall");
     await screen.click('[data-iori-field="host-uninstall-data"]');

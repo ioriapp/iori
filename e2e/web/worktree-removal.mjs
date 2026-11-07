@@ -220,7 +220,7 @@ export async function worktreeRemoval({
   await screen.key("Escape");
   const regressions = [];
   if (
-    !/どのブランチにも無いcommitが消えます/u.test(detachedWarning) ||
+    !/どのブランチにもないcommitは削除されます/u.test(detachedWarning) ||
     !/detached/u.test(detachedWarning) ||
     !/2件のcommit/u.test(detachedWarning)
   )
@@ -416,7 +416,10 @@ export async function worktreeRemoval({
   await screen.wait(description);
   assert.equal(await screen.text(description), "unmergedを削除します。");
   await screen.wait(changedSection);
-  assert.match(await screen.text(changedSection), /未commitの変更が消えます/u);
+  assert.match(
+    await screen.text(changedSection),
+    /未commitの変更は削除されます/u,
+  );
   assert.match(await screen.text(changedSection), /2ファイル/u);
   assert.equal(
     await screen.evaluate(
@@ -735,7 +738,7 @@ export async function worktreeRemoval({
   );
   assert.match(await screen.text(workingSection), /実行中の作業を停止します/u);
   assert.match(await screen.text(workingSection), /Running/u);
-  assert.match(await screen.text(branchSection), /に無いcommitがあるブランチ/u);
+  assert.match(await screen.text(branchSection), /にないcommitがあるブランチ/u);
   assert.match(await screen.text(branchSection), /1件のcommit/u);
   assert.equal(await screen.visible(branchLoss), false);
   await screen.scroll(`${dialog} [data-slot="scroll-area-viewport"]`, {
@@ -746,7 +749,7 @@ export async function worktreeRemoval({
   await screen.reveal(branchSection);
   await screen.click(branchSelect("single-parent"));
   await screen.reveal(branchLoss);
-  assert.match(await screen.text(branchLoss), /1件のcommitが消えます。/u);
+  assert.match(await screen.text(branchLoss), /1件のcommitが削除されます。/u);
   await screen.reveal(branchSection);
   await pictures("branch-checked", { reveal: branchSection });
   await screen.click(branchSelect("single-parent"));
@@ -1152,7 +1155,7 @@ export async function worktreeRemoval({
   await screen.contextMenu(row(broken));
   await screen.click(action("worktree-delete"));
   await screen.wait(`${dialog} [role="alert"]`);
-  assert.match(await screen.text(dialog), /worktreeを取得できませんでした/u);
+  assert.match(await screen.text(dialog), /worktreeを読み込めませんでした/u);
   await pictures("load-failure");
   await screen.key("Escape");
   await waitFor(

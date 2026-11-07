@@ -296,7 +296,7 @@ export function TextRows({
     if (isAbort(error) || error instanceof ReadConnectionLost) return;
     setFailure(
       readErrorCopy(error, locale) ??
-        (ja ? "読み取れませんでした。" : "Could not read this."),
+        (ja ? "読み込めませんでした。" : "Could not read this."),
     );
   };
 
@@ -500,18 +500,23 @@ export function TextRows({
     );
     await native.clipboardWrite(text);
   };
-  const select = (index: number, extend: boolean) => {
+  const select = (index: number, extend: boolean, first?: number) => {
     setCharacterSelection(undefined);
     setStartingRow(undefined);
     heldRows.current.clear();
     window.getSelection()?.removeAllRanges();
-    const start = extend ? (latest.current.selection?.start ?? index) : index;
+    const start =
+      first ?? (extend ? (latest.current.selection?.start ?? index) : index);
     update({ selection: { start, end: index } });
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     const command = event.ctrlKey || event.metaKey;
-    if (command && event.key.toLowerCase() === "f") {
+    // Only the rows' scroller receives this; the find and go-to fields sit beside it.
+    if (command && event.key.toLowerCase() === "a") {
+      event.preventDefault();
+      if (source.count) select(source.count - 1, false, 0);
+    } else if (command && event.key.toLowerCase() === "f") {
       event.preventDefault();
       setGoToOpen(false);
       setFindOpen(true);
@@ -654,7 +659,7 @@ export function TextRows({
           >
             <ChevronsUpDown />
             {ja
-              ? `変更のない ${row.omitted} 行`
+              ? `変更のない${row.omitted}行`
               : `${row.omitted} unchanged lines`}
           </Button>
         </div>
@@ -780,7 +785,7 @@ export function TextRows({
         >
           {failure ??
             readErrorCopy(source.error, locale) ??
-            (ja ? "読み取れませんでした。" : "Could not read this.")}
+            (ja ? "読み込めませんでした。" : "Could not read this.")}
         </ReadingError>
       )}
       <PathMenu

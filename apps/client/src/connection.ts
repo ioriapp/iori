@@ -352,6 +352,7 @@ export class ConnectionController {
             "Cannot store iori's key in the system keyring (Secret Service). Turn on a keyring such as GNOME Keyring or KWallet, then open iori again.",
             "Unlocking the keyring was cancelled. You can try again.",
             "Cannot read iori's key from the system keyring.",
+            "Cannot read iori's key on this device.",
           ].includes(error)
             ? error
             : "Could not load this device’s key and registrations. Retry.",
@@ -478,7 +479,7 @@ export class ConnectionController {
     });
     await this.saveHost(host, true);
     if (!record.connected && !hostReconnectPaused(publicKey))
-      void this.reconnectHost(publicKey);
+      void this.reconnectHost(publicKey).catch(() => undefined);
   };
   requestHost = async <M extends RequestMethod>(
     hostKey: string,

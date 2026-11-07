@@ -1,0 +1,130 @@
+.connected-update-dialog[data-slot="dialog-content"] {
+  height: min(700px, calc(100dvh - 24px));
+  overflow: hidden;
+  font-size: 0.93rem;
+}
+.connected-update-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  align-content: start;
+  gap: 0;
+  margin-inline: -16px;
+  padding-inline: 16px;
+}
+.connected-update-body > .layout-section {
+  min-width: 0;
+  margin: 0;
+  padding-block: var(--space-4);
+}
+.connected-update-body > .layout-section:first-child {
+  padding-top: 0;
+}
+.connected-update-body > .layout-section:last-child {
+  padding-bottom: 0;
+}
+/* 設定の節と同じ区切り線、ページ見出しと同じ18px/600の級数。 */
+.connected-update-body > .layout-section + .layout-section {
+  border-top: 1px solid var(--border);
+}
+.connected-update-body > .layout-section > .section-heading h2 {
+  font-size: var(--text-lg);
+  font-weight: var(--font-weight-semibold);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.host-update-content {
+  display: grid;
+  gap: 12px;
+  overflow-wrap: anywhere;
+}
+.host-update-content > .layout-section {
+  margin-top: 4px;
+}
+.host-update-confirm {
+  display: flex;
+  justify-content: flex-end;
+}
+.connected-update-dialog [data-slot="dialog-title"],
+.host-folder-dialog [data-slot="dialog-title"] {
+  font-size: 1rem;
+}
+.host-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  width: 100%;
+}
+.host-option > .host-option-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+.host-option > .nav-connected-mark {
+  margin-left: 0;
+}
+.host-folder-dialog [data-slot="select-value"] {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+.host-selection-menu[data-slot="select-content"] {
+  width: var(--radix-select-trigger-width);
+  min-width: 0;
+  max-width: calc(100vw - var(--space-6));
+}
+.host-selection-menu [data-radix-select-viewport] {
+  width: 100%;
+  min-width: 0;
+}
+.host-selection-menu [data-slot="select-item"] {
+  min-width: 0;
+  padding-right: var(--space-8);
+}
+.host-selection-menu [data-slot="select-item"] > span:last-child {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+.folder-connection-state {
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px 12px;
+}
+.folder-connection-state .host-notice {
+  width: 100%;
+}
+.folder-connection-state .host-notice > .body > [data-slot="button"] {
+  margin-left: 0;
+  justify-self: start;
+}
+.host-folder-dialog .folder-dialog-row [data-slot="select-trigger"] {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+}
+.host-folder-dialog [data-slot="command"] {
+  min-width: 0;
+}
+.host-folder-dialog [data-slot="command-list"] {
+  max-height: 320px;
+}
+.host-selection-menu[data-slot="select-content"] {
+  z-index: 90;
+}
+@media (max-width: 767px) {
+  .connected-update-dialog [data-slot="button"],
+  .host-folder-dialog [data-slot="button"],
+  .host-folder-dialog [data-slot="select-trigger"] {
+    min-height: 44px;
+  }
+}

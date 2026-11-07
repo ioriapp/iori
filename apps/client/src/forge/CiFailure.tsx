@@ -29,14 +29,14 @@ export function CiFailure({
   const text =
     subject === "ci"
       ? ja
-        ? "CIを読めませんでした。"
+        ? "CIを読み込めませんでした。"
         : "Could not read the CI."
       : subject === "log"
         ? ja
-          ? "ログを読めませんでした。"
+          ? "ログを読み込めませんでした。"
           : "Could not read the log."
         : ja
-          ? "前のログを読めませんでした。"
+          ? "前のログを読み込めませんでした。"
           : "Could not read the earlier log.";
   return (
     <ForgeFailure

@@ -14,14 +14,26 @@
 
 `verification/local.example.json` を `~/.config/iori/verification.json` にコピーし、検証環境に合わせて設定する。通信・端末登録、Clientの更新とHostの導入、Terminal・CLI・通知などの実機検証は `verification/` の各機能のrunnerを使う。Windows、Linux、Androidの対象設備とSSH・ADBなどが必要で、ブラウザーのE2Eとは別の確認である。runnerの一部は特定の検証環境のパスや利用者を前提とする。日常用の保存先と端末を使わず、検証用の環境を分ける。
 
+## Clientの鍵の紛失からの回復（Linux）
+
+専用の `IORI_VERIFICATION_EVIDENCE_ROOT` を設定し、Node 24で `node scripts/run-bounded-check.mjs node verification/linux-client/build.mjs`、続いて同じ入口から `verification/linux-client/registration-reset.mjs` を実行する。Linux検証機の鍵とgate、専用の保存先・DBus・キーリングを使い、招待からHostへ登録し、Clientを終了して専用キーリングのioriの項目を削除し、起動の失敗画面から確認つきの「登録をリセット」で最初の登録画面へ戻る。Host一覧が空になったことを確かめる。終了時はClient・Host・招待と専用のフォルダーを回収する。`--keep-build` を付けた時はbuildだけを保持する。Windows・Androidはこの操作列では扱わない。
+
+Linux Clientの共通helperは、専用のXvfb画面をGDKで撮影する。画面操作や起動に失敗した時も、WebDriverの撮影に依存せず画像を残す。必要なPythonのGDK bindingは `verification/linux-client/prepare.mjs` で準備する。
+
+画面の4状態（Linux・Windowsの鍵の読み込み失敗、確認、リセットの失敗）は `node verification/ui-states/capture.mjs --catalog=verification/ui-states/registration-states.ts --sizes=pc,phone` でPCとスマホ幅のライト・ダークを撮影する。nativeやHostへは接続せず、処理の確認には上の操作列を使う。
+
 ## 検証の道具の書き方
 
 - 画面は共通の操作helper（`verification/ui.mjs` の待機・スクロール・可視判定・入力）と安定した識別子（`data-iori-*`）で操作し、表示文言や画面の偶然の状態に頼らない。
 - メニューを開くボタンは `screen.click` を使う。スマホの指操作の確認は `screen.tap` を使い、フォルダー選択の「開く」では `{ dismissKeyboard: true }` でIMEの退場と座標の安定を共通helper側で待ってから押す。Radixのメニューが受け取るpointerdownをhelperが送る。クリック後の描画と予約されたスクロール・focusが終わってから次の操作へ進む。クリック・右クリック・指操作では、閉じる途中のメニューやダイアログが消え、対象の中央が他の要素に覆われなくなってから操作する。
 - サイドバーを開く時は `e2e/connection/scenario.mjs` の `openSidebar` を使い、開いていればそのまま操作する。再読込後も入口の表示を待ってから開閉を判定する。閉じる時は同じ共通helperの `closeSidebar` を使う。シナリオ内の直接のトグル操作はlintで止める。Mobileの開始画面には作業画面の `mobile-location` がないため、作業画面のボタンだけに対象を限定しない。
 - 並べ替えなどのpointerドラッグは `verification/ui.mjs` の `screen.drag`、長押しは `screen.longPress` を使う。並べ替えのtouch sensorを使う長押しも、終了直後にはクリックが抑制される。どちらも抑制が解けるまでhelperが待つので、操作列へ独自の待ちを足さない。
+- 本文の文字をドラッグで選ぶ操作列では、既に選んだ文字の中からドラッグを始めるとブラウザーの文字のドラッグ＆ドロップになり、新しい選択が始まらない。選び直す前に、選択の外を本物のクリックで1回押して選択を外す。ドラッグ中にホイールでスクロールする時は、押したままの印（`buttons: 1`）を渡す。
+- headless のChromiumでは、CDPのtouchの長押しで文字の選択が起きない（ただの選べる文でも起きない）。スマホのOSの文字選択（つまみと「コピー」）は道具で確かめず、Androidの実機でOwnerが目で見る。E2Eは、iori のメニューが開かないことなど、画面の要素で確かめられることだけを確かめる。
+- 画像の大きさや縮尺など、読み込みの後の描画でそろう値は、読み込みを待った直後に1回測らず、`waitFor` の条件として待つ。開発版のHostでは通っても、応答の速い配布物のHostでそろう前の1回の描画に当たる（0.1.102 の `git-image-diff`、#298）。
 - Files・Git・Boardを開く時は `verification/workspace/interaction.mjs` の `openWorkspaceView` を使う。PCは開いているタブまたは「＋」の一覧、Mobileはドロワーの入口を使う。新しいタブを置くペインが決まっている操作は第3引数にそのgroup IDを渡す。 `sidebar-open-*` を直接押す操作はlintで止める。
 - MobileのFiles・Gitで開いた本文から一覧へ戻る時は、作業画面の `mobile-location` が見えていればスマホの戻る操作（`screen.key("Alt+ArrowLeft")`）、見えていなければ `reading-back` を押す（`e2e/web/files-reading.mjs` の `open`）。Mobileでworktreeを選び直すと、そのworktreeで開いていたファイルの本文へ移り、上端のworktreeの切替は隠れる。
+- RadixのSelectの項目は、headlessのChromiumでは `screen.click` でも本物のマウスの押下と解放（`clickWithin`）でも選べない（#302、前の版でも同じ）。欄に焦点を置き、Home・↓で項目へ移るたびに焦点の移った項目を `waitFor` で確かめてからEnterで選ぶ（`e2e/workspace/scenario.mjs` の `selectFolderHost`）。選んだ後に続けて入力する時は、入力の欄を押してから入力する（閉じた後の焦点の戻りと入力が重なる）。
 - 新しい操作列を書く前に、同じ操作の共通helperがないか確かめて使う。既知の失敗への対策は、その操作のhelperに入れ、誤った書き方は静的検査で止める。
 - Piの検証用ファイルは `verification/cli/home.mjs` の `piAgentDirectory` が返す専用HOME内へ置く。呼び出し元の `PI_CODING_AGENT_DIR` は引き継がず、シナリオからの直接参照はlintで止める。
 - 長い依頼本文だけを渡すWeb E2Eは `e2e/web/cli-input.mjs` の `pasteToCli` で通常の貼り付けを使い、CLIの画面に本文または貼り付けの印が出てからEnterを送る。文字入力の経路を確かめる操作は1文字ずつの共通helperを使う。

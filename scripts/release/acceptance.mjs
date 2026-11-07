@@ -67,6 +67,7 @@ const fullScenarioOrder = [
   "reading-worktrees",
   "git-image-diff",
   "reading-text-copy",
+  "terminal-image-restart",
 ];
 
 // Names accepted by verification/web/run.mjs --only and e2e/web/scenario.mjs.

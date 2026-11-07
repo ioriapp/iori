@@ -60,6 +60,7 @@
   }
 }
 .team-tree-heading {
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -67,6 +68,11 @@
 }
 .team-tree-heading > .team-tree-row {
   font-weight: 500;
+  padding-right: calc(24px + var(--space-2) * 2);
+}
+.team-tree-heading > [data-iori-action="team-new"] {
+  position: absolute;
+  right: var(--space-2);
 }
 .team-tree-team {
   margin-top: var(--space-2);

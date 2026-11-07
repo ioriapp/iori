@@ -47,6 +47,7 @@ export type UninstallPhase =
 export type UninstallFlow = {
   hostKey: string;
   hostName: string;
+  os?: string;
   route: UninstallRoute;
   deleteData: boolean;
   phase: UninstallPhase;
