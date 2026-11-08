@@ -1001,3 +1001,50 @@
   word-break: auto-phrase;
   text-wrap: pretty;
 }
+
+.terminal-font-settings
+  .field-stacked
+  .field-control
+  > .terminal-font-combobox {
+  width: 100%;
+  height: auto;
+  padding: 0;
+  overflow: visible;
+  border-radius: 0;
+  background: transparent;
+}
+.terminal-font-settings .field-stacked .field-control {
+  flex-direction: column;
+  gap: 8px;
+}
+.terminal-font-settings .section-save-result {
+  font-size: 13px;
+  word-break: auto-phrase;
+}
+.terminal-font-options[data-slot="popover-content"] {
+  z-index: 90;
+  width: var(--radix-popover-trigger-width);
+  /* Six and a half rows: the cut-off row shows that the list continues, also
+     where the OS hides scrollbars until hovered. */
+  max-height: min(14.5rem, var(--radix-popover-content-available-height));
+  gap: 0;
+  padding: 4px;
+}
+.terminal-font-options [data-slot="command-list"] {
+  min-height: 0;
+  max-height: inherit;
+  /* Installed fonts can be many; show that the list continues. */
+  scrollbar-width: thin;
+}
+.terminal-font-options [data-slot="command-list"]::-webkit-scrollbar {
+  display: block;
+}
+
+@media (max-width: 767px) {
+  .terminal-font-settings .section-save button {
+    min-height: 44px;
+  }
+  .terminal-font-settings input {
+    font-size: 16px;
+  }
+}

@@ -29,6 +29,7 @@ export async function terminalPreferences({
   mobile,
   desktop,
   clipboardFiles,
+  reload,
 }) {
   await terminalSend({ client, record, worktree, clipboardFiles });
   await terminalFit({ client, record });
@@ -141,6 +142,58 @@ export async function terminalPreferences({
   await typeTerminal(client, "\x03");
   await record(
     "命令の入力直後に同じTerminalをPC→スマホ→PCへ幅変更しても入力が欠けず、画面・Client・実PTYの寸法が追従",
+  );
+  const fontInput = '[data-iori-field="terminal-font-family"]';
+  const openFontSettings = async () => {
+    await screen.click(action("settings-open"));
+    await screen.click(action("settings-display"));
+  };
+  const fontValue = "Missing Font \"quoted\"\\name, 'JetBrains Mono Variable'";
+  const defaultFamily = await screen.evaluate(
+    `(async()=>{const {DEFAULT_TERMINAL_FONT_FAMILY}=await import('/src/terminal/terminal-font-family.ts');return DEFAULT_TERMINAL_FONT_FAMILY;})()`,
+  );
+  const expectedFamily =
+    '"Missing Font \\"quoted\\"\\\\name", "JetBrains Mono Variable", ' +
+    defaultFamily;
+  await openFontSettings();
+  await screen.input(fontInput, "unsaved");
+  await screen.click(action("settings-close"));
+  await screen.wait('[data-iori-view="settings-discard-confirmation"]');
+  await screen.click(action("settings-discard"));
+  assert.equal(
+    await screen.evaluate(`${terminal}.options.fontFamily`),
+    defaultFamily,
+  );
+  await openFontSettings();
+  await screen.input(fontInput, `  ${fontValue}  `);
+  await screen.key("Tab");
+  assert.equal(
+    await screen.evaluate(`${terminal}.options.fontFamily`),
+    defaultFamily,
+  );
+  await screen.click(action("save-terminal-font"));
+  await screen.wait('[data-iori-state="terminal-font-saved"]');
+  await screen.click(action("settings-close"));
+  await waitFor(
+    () => screen.evaluate(`${terminal}.options.fontFamily`),
+    (value) => value === expectedFamily,
+  );
+  await openFontSettings();
+  await screen.input(fontInput, "");
+  await screen.key("Enter");
+  await screen.wait('[data-iori-state="terminal-font-saved"]');
+  await screen.click(action("settings-close"));
+  await waitFor(
+    () => screen.evaluate(`${terminal}.options.fontFamily`),
+    (value) => value === defaultFamily,
+  );
+  await openFontSettings();
+  await screen.input(fontInput, fontValue);
+  await screen.click(action("save-terminal-font"));
+  await screen.wait('[data-iori-state="terminal-font-saved"]');
+  await screen.click(action("settings-close"));
+  await record(
+    "Terminalフォントの保存・即時反映・空欄で既定へ戻る操作・未保存の破棄確認",
   );
   const before = await screen.evaluate(
     `({font:${terminal}.options.fontSize,cols:${terminal}.cols})`,
@@ -384,6 +437,19 @@ export async function terminalPreferences({
     "Claude Code（haiku）のまとめて入力・縮小表示で長押しした行をテキスト選択",
   );
   await desktop();
+  // Persistence is visible in Settings itself; no renderer observer is needed
+  // after reloading the Client.
+  await reload();
+  await screen.wait('[data-iori-view="workspace"]');
+  await openFontSettings();
+  assert.equal(await screen.value(fontInput), fontValue);
+  await screen.input(fontInput, "");
+  await screen.key("Enter");
+  await screen.wait('[data-iori-state="terminal-font-saved"]');
+  await screen.click(action("settings-close"));
+  await record(
+    "Clientを読み込み直しても保存したTerminalのフォント名が設定欄に残る",
+  );
 }
 
 async function terminalTextSelection({ client, record, shot }) {

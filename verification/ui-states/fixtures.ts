@@ -152,7 +152,8 @@ export type Fixture = {
     | "version"
     | "notice"
     | "initialization"
-    | "integrations";
+    | "integrations"
+    | "terminal-font";
   initial: Record<string, Record<string, unknown>>;
   machine?: SshMachine;
   events: SshEvent[];
@@ -162,7 +163,62 @@ export type Fixture = {
   unavailable?: string;
 };
 
+export const terminalFontNames = [
+  "BIZ UDGothic",
+  "Cascadia Code",
+  "Cascadia Mono",
+  "Consolas",
+  "DejaVu Sans Mono",
+  "Fira Mono",
+  "FiraCode Nerd Font",
+  "JetBrains Mono",
+  "MS Gothic",
+  "Noto Sans Mono",
+  "Segoe UI",
+  "Ubuntu Mono",
+];
+
 export function fixture(id: string): Fixture {
+  if (id.startsWith("terminal-font-")) {
+    const state = id.slice("terminal-font-".length);
+    const value =
+      state === "long"
+        ? "FiraCode Nerd Font Mono, JetBrains Mono, Cascadia Code PL, BIZ UDGothic"
+        : state === "filter"
+          ? "fira"
+          : state === "comma"
+            ? "FiraCode Nerd Font, jet"
+            : state === "nomatch"
+              ? "My Custom Font"
+              : ["input", "saved", "error", "discard"].includes(state)
+                ? "FiraCode Nerd Font"
+                : "";
+    return {
+      kind: "terminal-font",
+      events: [],
+      notes: [],
+      initial: {
+        Settings: {
+          value,
+          families: terminalFontNames,
+          suggestionsOpen: [
+            "suggestions",
+            "filter",
+            "comma",
+            "nomatch",
+          ].includes(state),
+          message:
+            state === "saved"
+              ? "保存しました"
+              : state === "error"
+                ? "保存できませんでした。もう一度お試しください。"
+                : undefined,
+          error: state === "error",
+          pendingLeave: state === "discard" ? () => () => {} : undefined,
+        },
+      },
+    };
+  }
   if (id.startsWith("registration-"))
     return {
       kind: "initialization",

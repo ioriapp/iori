@@ -112,6 +112,7 @@ type SavedLayout = {
   tabs: WorkspaceTab[];
   activeTabId?: string;
   lastTerminalId?: string;
+  mobileClosedTabs?: { id: string; preservePane: boolean }[];
   /** Each View's own state (Files' open files, Git's selection, list widths). */
   views?: Record<string, unknown>;
 };
@@ -168,6 +169,14 @@ function readSavedLayout(value: unknown): SavedLayout | undefined {
       typeof value.lastTerminalId === "string"
         ? value.lastTerminalId
         : undefined,
+    mobileClosedTabs: Array.isArray(value.mobileClosedTabs)
+      ? value.mobileClosedTabs.filter(
+          (entry): entry is { id: string; preservePane: boolean } =>
+            isObject(entry) &&
+            typeof entry.id === "string" &&
+            typeof entry.preservePane === "boolean",
+        )
+      : undefined,
     views: isObject(value.views) ? value.views : undefined,
   };
 }
@@ -221,12 +230,13 @@ type Props = {
   sidebarWidth: number;
   onSidebarWidthChange: (width: number) => void;
   sidebarCollapsed?: string[];
-  onSidebarCollapsedChange: (keys: string[]) => void;
+  onSidebarCollapsedChange: (keys: string[], automatic?: boolean) => void;
   lastWorkspaceTarget?: LastWorkspaceTarget;
   onLastWorkspaceTargetChange: (target: LastWorkspaceTarget) => void;
   /** The key band of this device's Client settings. */
   accessoryLayout: TerminalAccessoryLayout;
   terminalFontSize: number;
+  terminalFontFamily: string;
   onTerminalFontSize: (size: number, save: boolean) => void;
   terminalRightClick: "menu" | "copyPaste";
   terminalLinkOpen: TerminalLinkOpen;
@@ -341,6 +351,7 @@ function WorkspaceFrameInner({
   onLastWorkspaceTargetChange,
   accessoryLayout,
   terminalFontSize,
+  terminalFontFamily,
   onTerminalFontSize,
   terminalRightClick,
   terminalLinkOpen,
@@ -631,6 +642,7 @@ function WorkspaceFrameInner({
   const layoutScope = useRef("");
   const layoutSaved = useRef(false);
   const lastLayout = useRef<SerializedDockview | undefined>(undefined);
+  const mobileClosedTabs = useRef<{ id: string; preservePane: boolean }[]>([]);
   const saveQueue = useRef<Promise<void>>(Promise.resolve());
   const pendingLayoutSaves = useRef<Record<string, SavedLayout>>({});
   // Worktrees whose most recent save failed; only they show the save failure.
@@ -1110,6 +1122,7 @@ function WorkspaceFrameInner({
           setTabs(pending.tabs);
           setActiveTabId(pending.activeTabId ?? pending.tabs[0]?.id ?? "");
           lastLayout.current = pending.layout;
+          mobileClosedTabs.current = pending.mobileClosedTabs ?? [];
           viewStates.current = pending.views ?? {};
           setLoadedLayoutScope(targetScope);
           lastTerminalByScope.current[targetScope] =
@@ -1164,6 +1177,7 @@ function WorkspaceFrameInner({
         setTabs(restoredTabs);
         setActiveTabId(saved?.activeTabId || restoredTabs[0]?.id || "");
         lastLayout.current = saved?.layout;
+        mobileClosedTabs.current = saved?.mobileClosedTabs ?? [];
         viewStates.current = saved?.views ?? {};
         setLoadedLayoutScope(targetScope);
         lastTerminalByScope.current[targetScope] =
@@ -1241,6 +1255,7 @@ function WorkspaceFrameInner({
     if (!currentScope || !layoutSaved.current) return;
     saveLayout(currentScope, {
       layout: lastLayout.current,
+      mobileClosedTabs: mobileClosedTabs.current,
       tabs: tabsRef.current,
       activeTabId: activeTabRef.current,
       lastTerminalId: lastTerminalByScope.current[currentScope],
@@ -1272,6 +1287,7 @@ function WorkspaceFrameInner({
     activeTabRef.current = start.id;
     setActiveTabId(start.id);
     lastLayout.current = undefined;
+    mobileClosedTabs.current = [];
     viewStates.current = {};
     lastTerminalByScope.current[targetScope] = "";
     setLoadedLayoutScope(targetScope);
@@ -1758,6 +1774,11 @@ function WorkspaceFrameInner({
 
   const closeTab = (id: string, panelId?: string, preservePane = false) => {
     const api = dockApi.current;
+    if (!api && lastLayout.current)
+      mobileClosedTabs.current = [
+        ...mobileClosedTabs.current,
+        { id, preservePane },
+      ];
     const closing =
       api?.panels.filter((panel) =>
         panelId ? panel.id === panelId : panel.params?.tabId === id,
@@ -1814,7 +1835,12 @@ function WorkspaceFrameInner({
     setTabs(tabsRef.current);
     setTabVisitHistory((current) => current.filter((tabId) => tabId !== id));
     if (activeTabRef.current === id) setActiveTabId("");
-    if (!api && tabsRef.current.length === 0 && selectedTarget)
+    if (
+      !api &&
+      tabsRef.current.length === 0 &&
+      selectedTarget &&
+      !(preservePane && lastLayout.current)
+    )
       addTab({
         id: `start:${crypto.randomUUID()}`,
         kind: "start",
@@ -2100,6 +2126,31 @@ function WorkspaceFrameInner({
         }
       }
     }
+    // Preserve groups whose last tab exited while Dockview was unmounted.
+    for (const group of api.groups) {
+      const lastClosed = [...mobileClosedTabs.current]
+        .reverse()
+        .find((closed) =>
+          group.panels.some((panel) => panel.params?.tabId === closed.id),
+        );
+      if (
+        lastClosed?.preservePane &&
+        group.panels.every(
+          (panel) =>
+            !panel.params?.emptyPane &&
+            !tabsRef.current.some((tab) => tab.id === panel.params?.tabId),
+        )
+      )
+        api.addPanel({
+          id: `empty:${group.id}`,
+          component: "empty",
+          tabComponent: "empty",
+          params: { emptyPane: true },
+          position: { referenceGroup: group.id, direction: "within" },
+          inactive: true,
+        });
+    }
+    mobileClosedTabs.current = [];
     // Tabs closed while the Mobile view was shown leave no panel behind.
     for (const panel of [...api.panels])
       if (
@@ -2841,6 +2892,7 @@ function WorkspaceFrameInner({
           })
         }
         fontSize={terminalFontSize}
+        fontFamily={terminalFontFamily}
         onFontSize={onTerminalFontSize}
         rightClick={terminalRightClick}
         linkOpen={terminalLinkOpen}

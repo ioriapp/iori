@@ -89,6 +89,7 @@ export interface TeamChild {
   messageFiles?: string[];
   pendingMessageFiles?: string[];
   parentNoticePending?: boolean;
+  parentCandidateNoticeSent?: boolean;
   // Startup idle is not a response; every delivered request waits for activity.
   parentResponse?: "pending" | "active" | "unreported";
   role?: Role;

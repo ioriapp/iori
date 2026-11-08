@@ -5,7 +5,7 @@ import type { WorktreeSetup } from "../store.ts";
 import { randomUUID } from "node:crypto";
 import { appendFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { basename, join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import {
   belowUsageMinimum,
   type CliStatus,
@@ -86,6 +86,8 @@ export class TeamManager {
   #allocation = Promise.resolve();
   #startup = Promise.resolve();
   readonly #starting = new Set<string>();
+  // Allocation runs before delegate can report its result to the caller.
+  readonly #delegating = new Set<string>();
   readonly #workStarted = new Map<string, number>();
   readonly #cliFailures = new Set<string>();
   readonly #cliStates = new Map<string, CliStatus["state"]>();
@@ -159,7 +161,35 @@ export class TeamManager {
     const manager = new TeamManager(store, terminals, root, publish);
     for (const c of manager.#conversations.values()) {
       if (!store.terminal(c.terminalId)) continue;
-      const instructions = await readFile(c.instructionFile, "utf8");
+      let instructions: string | ((directory: string) => string);
+      try {
+        instructions = await readFile(c.instructionFile, "utf8");
+      } catch {
+        // Rebuild a missing file from the team version this conversation
+        // started with, the same way a launch writes it.
+        const team = store
+          .readTeam(c.teamId)
+          ?.history.find((entry) => entry.team.version === c.teamVersion)?.team;
+        if (!team) {
+          terminals.markTeamTerminalUnrestored(c.terminalId);
+          continue;
+        }
+        instructions = (directory) =>
+          parentTeamText(team, {
+            directory,
+            windows: process.platform === "win32",
+          });
+        try {
+          await mkdir(dirname(c.instructionFile), {
+            recursive: true,
+            mode: 0o700,
+          });
+          await writeFile(c.instructionFile, "", { mode: 0o600, flag: "wx" });
+        } catch {
+          terminals.markTeamTerminalUnrestored(c.terminalId);
+          continue;
+        }
+      }
       terminals.configureTeamTerminal(
         c.terminalId,
         await manager.#options(
@@ -1427,9 +1457,18 @@ export class TeamManager {
         repository,
         handoff?.id,
       );
-      this.conditionsChanged();
-      // Assignment never waits for this command's #run queue or child startup.
-      await this.#allocation;
+      this.#delegating.add(child.id);
+      try {
+        this.conditionsChanged();
+        // Assignment never waits for this command's #run queue or child startup.
+        await this.#allocation;
+        if (child.waiting === "candidates") {
+          child.parentCandidateNoticeSent = true;
+          this.#saveChild(child);
+        }
+      } finally {
+        this.#delegating.delete(child.id);
+      }
       const state = this.#replyState(child);
       return ok(
         `Child ${child.id}; task ${task.id}; ${state}${child.waiting ? ` (${child.waiting})` : ""}.`,
@@ -1721,6 +1760,7 @@ export class TeamManager {
       state: "waiting",
       createdAt: Date.now(),
       workMs: 0,
+      parentCandidateNoticeSent: false,
     };
     this.#children.set(id, child);
     task.currentChild = id;
@@ -1849,21 +1889,27 @@ export class TeamManager {
             );
         if (!child.waitingReasons.length && child.waiting === "candidates")
           child.waitingReasons = [{ reason: "no_candidates" }];
-        if (child.waiting === "candidates" && !child.notified) {
+        if (child.waiting === "candidates") {
+          const alreadySentToParent =
+            child.parentCandidateNoticeSent ?? child.notified === true;
           child.notified = true;
-          child.parentNoticePending = true;
-          // A terminal notice uses the same one-line delivery as child events.
-          // OS notification integration is separate from the CLI's own hooks.
-          await this.terminals
-            .sendLine(
-              conversation.terminalId,
-              `[iori] No available candidate for this delegation. Edit the team, then run iori tasks.`,
-              () => {
-                delete child.parentNoticePending;
-                this.#saveChild(child);
-              },
-            )
-            .catch(() => {});
+          if (!this.#delegating.has(child.id) && !alreadySentToParent) {
+            child.parentCandidateNoticeSent = true;
+            child.parentNoticePending = true;
+            this.#saveChild(child);
+            // A terminal notice uses the same one-line delivery as child events.
+            // OS notification integration is separate from the CLI's own hooks.
+            await this.terminals
+              .sendLine(
+                conversation.terminalId,
+                `[iori] No available candidate for this delegation. Edit the team, then run iori tasks.`,
+                () => {
+                  delete child.parentNoticePending;
+                  this.#saveChild(child);
+                },
+              )
+              .catch(() => {});
+          }
         }
         this.#saveChild(child);
         continue;

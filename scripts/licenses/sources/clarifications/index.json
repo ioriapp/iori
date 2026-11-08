@@ -6,6 +6,13 @@
     "text": "MIT.txt",
     "source": "https://raw.githubusercontent.com/spdx/license-list-data/31846481de7ea17d92f2f46fad76abe58b2e9bb0/text/MIT.txt"
   },
+  "dwrote@0.11.5": {
+    "license": "MPL-2.0",
+    "author": "The Servo Project Developers and Vladimir Vukicevic",
+    "reason": "The crate declares MPL-2.0 and its source headers refer to the Mozilla Public License 2.0, but the crate and fixed upstream repository do not contain the license text.",
+    "text": "MPL-2.0.txt",
+    "source": "https://raw.githubusercontent.com/spdx/license-list-data/31846481de7ea17d92f2f46fad76abe58b2e9bb0/text/MPL-2.0.txt"
+  },
   "selectors@0.38.0": {
     "license": "MPL-2.0",
     "author": "The Servo Project Developers",

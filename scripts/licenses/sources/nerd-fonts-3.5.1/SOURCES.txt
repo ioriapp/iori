@@ -1,0 +1,23 @@
+Symbols Nerd Font Mono v3.5.1, unmodified:
+https://github.com/ryanoasis/nerd-fonts/releases/download/v3.5.1/NerdFontsSymbolsOnly.zip
+Archive SHA-256: fdca3682534f6f65e1ccb2345b0362ccf67d9b8eca7c8025330946e93e2473bc
+SymbolsNerdFontMono-Regular.ttf SHA-256: fe471e538392f51910faab985fa8e192a39dd3426125edd15b71b3680df0e749
+LICENSE and README.txt are from that archive. README.txt lists each icon set,
+its upstream, version, and license. Font Logos uses The Unlicense.
+
+Stored upstream license texts and sources:
+codicons.txt: https://raw.githubusercontent.com/microsoft/vscode-codicons/v0.0.45/LICENSE (CC BY 4.0)
+devicons.txt: https://raw.githubusercontent.com/devicons/devicon/v2.17.0/LICENSE (MIT)
+hack.txt: https://raw.githubusercontent.com/source-foundry/Hack/master/LICENSE.md (MIT and other notices)
+font-awesome.txt: https://raw.githubusercontent.com/FortAwesome/Font-Awesome/6.5.1/LICENSE.txt (CC BY 4.0, OFL and MIT notices; full CC BY 4.0 text in codicons.txt)
+font-awesome-extension.txt: https://raw.githubusercontent.com/AndreLZGava/font-awesome-extension/master/LICENCE (MIT)
+font-logos.txt: https://raw.githubusercontent.com/lukas-w/font-logos/v1.3.0/LICENSE (The Unlicense)
+materialdesign.txt: https://raw.githubusercontent.com/Templarian/MaterialDesign-Font/master/LICENSE (Apache 2.0 notice)
+apache-2.0.txt: https://www.apache.org/licenses/LICENSE-2.0.txt (Apache 2.0 full text)
+octicons.txt: https://raw.githubusercontent.com/primer/octicons/v18.3.0/LICENSE (MIT)
+seti.txt: https://raw.githubusercontent.com/jesseweed/seti-ui/v0.8.1/LICENSE.md (MIT; original glyphs are covered by the archive LICENSE)
+pomicons.txt: https://raw.githubusercontent.com/gabrielelana/pomicons/master/LICENSE (OFL 1.1 full text)
+powerline-extra.txt: https://raw.githubusercontent.com/ryanoasis/powerline-extra-symbols/master/LICENSE (MIT)
+powerline.txt: https://raw.githubusercontent.com/powerline/powerline/develop/LICENSE (MIT)
+power-symbols.txt: https://raw.githubusercontent.com/jloughry/Unicode/master/LICENSE.txt (MIT)
+weather-icons.txt: https://raw.githubusercontent.com/erikflowers/weather-icons/master/README.md (OFL 1.1 notice; full text in pomicons.txt)

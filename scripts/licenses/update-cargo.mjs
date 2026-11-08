@@ -114,6 +114,12 @@ function sourceFile(name, text, source) {
   objects.set(hash, text);
   return { name, hash, source };
 }
+// Crates that build and statically link a bundled C library carry that
+// library's own license text below the crate root.
+const bundledLicenseFiles = {
+  // FreeType 2 (FTL, chosen over GPLv2) is compiled on Ubuntu 22.04 builds.
+  "freetype-sys": ["freetype2/LICENSE.TXT", "freetype2/docs/FTL.TXT"],
+};
 const packages = {};
 for (const key of selected) {
   const item = metadata.get(key);
@@ -129,7 +135,7 @@ for (const key of selected) {
     .map((entry) => entry.name)
     .sort();
   let files = [];
-  for (const name of names)
+  for (const name of [...names, ...(bundledLicenseFiles[item.name] ?? [])])
     files.push(
       sourceFile(
         name,

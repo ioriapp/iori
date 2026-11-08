@@ -72,7 +72,7 @@ try {
             : "Windows",
       });
     });
-    for (const theme of ["light", "dark"])
+    for (const theme of option("themes", "light,dark").split(","))
       for (const state of states) {
         const name = `${size.name}-${state.id}-${theme}.png`;
         const row = {
@@ -111,6 +111,20 @@ try {
                 requestAnimationFrame(() => requestAnimationFrame(resolve)),
               );
             });
+            if (state.id.startsWith("terminal-font-")) {
+              const input = page.locator(
+                '[data-iori-field="terminal-font-family"]',
+              );
+              await page
+                .locator(".terminal-font-settings")
+                .scrollIntoViewIfNeeded();
+              if (
+                ["suggestions", "filter", "comma", "nomatch"].some(
+                  (name) => state.id === `terminal-font-${name}`,
+                )
+              )
+                await input.focus();
+            }
             if (renderError) row.unavailable = renderError;
             row.height = await page
               .locator(".host-flow-dialog")
@@ -121,7 +135,7 @@ try {
               );
             row.text = await page
               .locator(
-                ".host-flow-dialog, .host-toast, [data-iori-view='host-version'], [data-iori-view='initializing']",
+                ".host-flow-dialog, .host-toast, [data-iori-view='host-version'], [data-iori-view='initializing'], [data-iori-view='settings'], [data-iori-view='settings-discard-confirmation']",
               )
               .allTextContents();
             await page.screenshot({

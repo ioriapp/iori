@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { cp, readFile, access, readdir } from "node:fs/promises";
+import { cp, readFile, access, readdir, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { buildHost } from "../../scripts/release/host.mjs";
@@ -330,6 +330,35 @@ export async function hostUninstallScenario({
       `document.querySelector('[data-iori-action="host-uninstall"]')?.disabled === false`,
     ),
   );
+  // A directory where a hook file should be makes its removal fail while the
+  // Host remains available. Remove the obstruction before trying again.
+  const blockedHook = join(cliHome.home, ".iori/hooks/iori-cli-hook.cmd");
+  await mkdir(blockedHook);
+  try {
+    await screen.click('[data-iori-action="host-uninstall"]');
+    await screen.wait(dialog);
+    await waitFor(() =>
+      screen.evaluate(
+        `document.querySelector('[data-iori-action="host-maintenance-confirm"]')?.disabled === false`,
+      ),
+    );
+    await screen.click('[data-iori-action="host-maintenance-confirm"]');
+    await screen.wait('[data-iori-view="host-progress"]');
+    await screen.click('[data-iori-action="host-maintenance-close"]');
+    await screen.wait(notice);
+    assert.match(
+      await screen.text(notice),
+      /Could not uninstall iori Host|iori Hostをアンインストールできませんでした/u,
+    );
+    await closeSettingsIfOpen(screen);
+    await screen.click('[data-iori-action="host-notice-close"]');
+  } finally {
+    await rm(blockedHook, { recursive: true, force: true });
+  }
+  await reload();
+  await settings();
+  assert.equal(await screen.visible(notice), false);
+  record("dismissed-failure-stays-absent-after-reload", {});
   await remove(false);
   await reload();
   await screen.wait('[data-iori-view="first-run"]');
@@ -381,6 +410,10 @@ export async function hostUninstallScenario({
     database.close();
   }
   await remove(true);
+  await reload();
+  await screen.wait('[data-iori-view="first-run"]');
+  assert.equal(await screen.visible(notice), false);
+  record("dismissed-warning-stays-absent-after-reload", {});
   await waitFor(
     () => screen.visible(`[data-iori-host-key="${key}"]`),
     (visible) => !visible,

@@ -12,6 +12,11 @@ export async function teamNotificationsScenario({
   repository,
   notificationHook,
   notificationCommand,
+  notificationWorkerCommand,
+  notificationDelegations,
+  notificationParentInputs,
+  notificationParentBarriers,
+  notificationBeforeChildrenSnapshot,
   notificationSourceFault,
   childDisplayFixture,
   childRunningOnly = false,
@@ -140,11 +145,15 @@ export async function teamNotificationsScenario({
   }
 
   // CLIs added by name and command.
-  const addCli = (name) =>
+  const addCli = (name, command = notificationCommand) =>
     request("cli.definition.simple", {
-      simple: { name, command: notificationCommand, modelArgument: "" },
+      simple: { name, command, modelArgument: "" },
     });
   const parent = await addCli("Notification parent");
+  const worker =
+    !childrenOnly && !childRunningOnly
+      ? await addCli("Notification worker", notificationWorkerCommand)
+      : undefined;
   if (childRunningOnly)
     for (const name of [
       "Sidebar A",
@@ -229,6 +238,143 @@ export async function teamNotificationsScenario({
   );
   assert.equal(notices.length, 1);
   assert.equal(notices[0].target.teamId, saved.saved.id);
+  if (!childrenOnly && !childRunningOnly) {
+    const delegation = await waitFor(
+      notificationDelegations,
+      (entries) => entries.length === 1,
+      undefined,
+      "候補なしを返す委譲の完了",
+    );
+    assert.equal(delegation[0].result.data.waiting, "candidates");
+    const barriersBefore = (await notificationParentBarriers()).length;
+    await submitToCli(
+      client,
+      "PARENT_BARRIER",
+      undefined,
+      "candidate-notification-barrier",
+    );
+    await waitFor(
+      notificationParentBarriers,
+      (barriers) => barriers.length === barriersBefore + 1,
+      undefined,
+      "親の入力列を確定",
+    );
+    assert.deepEqual(
+      await notificationParentInputs(),
+      [],
+      "委譲の返答で候補なしを伝えた直後は同じ行を親へ送らない",
+    );
+
+    const active = JSON.parse(JSON.stringify(saved.saved));
+    active.roles[0].limit = "1";
+    active.roles[0].reuse = false;
+    active.roles[0].candidates.medium = [candidate("worker", worker.cliId)];
+    await request("teams.save", { teamId: saved.saved.id, definition: active });
+    await waitFor(
+      async () =>
+        (await request("teams.children", {})).children.some(
+          (child) =>
+            child.title === "Candidate notification" &&
+            child.state === "running",
+        ),
+      Boolean,
+      undefined,
+      "候補追加後に子が実行中",
+    );
+
+    await submitToCli(
+      client,
+      'DELEGATE {"title":"Late candidate notification"}',
+      undefined,
+      "late-candidate-notification",
+    );
+    const capacity = await waitFor(
+      notificationDelegations,
+      (entries) => entries.length === 2,
+      undefined,
+      "上限待ちの委譲の完了",
+    );
+    assert.equal(capacity[1].result.data.waiting, "capacity");
+
+    const unavailable = JSON.parse(JSON.stringify(active));
+    unavailable.roles[0].candidates.medium = [
+      candidate("missing-again", "absent-notification-cli"),
+    ];
+    await request("teams.save", {
+      teamId: saved.saved.id,
+      definition: unavailable,
+    });
+    await waitFor(
+      async () =>
+        (await request("teams.children", {})).children.some(
+          (child) =>
+            child.title === "Late candidate notification" &&
+            child.state === "waiting" &&
+            child.waiting === "candidates",
+        ),
+      Boolean,
+      undefined,
+      "上限待ちの委譲が候補なしへ変化",
+    );
+    await waitFor(
+      notificationParentInputs,
+      (lines) => lines.length === 1,
+      undefined,
+      "後から候補がなくなった時の親への知らせ",
+    );
+    assert.deepEqual(await notificationParentInputs(), [
+      "[iori] No available candidate for this delegation. Edit the team, then run iori tasks.",
+    ]);
+    await submitToCli(
+      client,
+      `SEND ${delegation[0].result.data.child}`,
+      undefined,
+      "replacement-candidate-notification",
+    );
+    await waitFor(
+      async () =>
+        (await request("teams.children", {})).children.some(
+          (child) =>
+            child.id !== delegation[0].result.data.child &&
+            child.title === "Candidate notification" &&
+            child.waiting === "candidates" &&
+            child.notified,
+        ),
+      Boolean,
+      undefined,
+      "作り直した子が候補なしで待機",
+    );
+    await waitFor(
+      notificationParentInputs,
+      (lines) => lines.length === 2,
+      undefined,
+      "作り直した子の候補なしを親へ知らせる",
+    );
+    const barriersAfterReplacement = (await notificationParentBarriers())
+      .length;
+    await submitToCli(
+      client,
+      "PARENT_BARRIER",
+      undefined,
+      "replacement-barrier",
+    );
+    await waitFor(
+      notificationParentBarriers,
+      (barriers) => barriers.length === barriersAfterReplacement + 1,
+      undefined,
+      "作り直した子の親への入力列を確定",
+    );
+    assert.deepEqual(await notificationParentInputs(), [
+      "[iori] No available candidate for this delegation. Edit the team, then run iori tasks.",
+      "[iori] No available candidate for this delegation. Edit the team, then run iori tasks.",
+    ]);
+    await record(
+      "子を再利用しない要求で作り直した子の候補なしを親へ一度知らせる",
+    );
+    await record(
+      "初回の候補なしは委譲の返答だけにし、後から上限待ちが候補なしへ変わった時は親へ一度知らせる",
+    );
+  }
   await record("使える候補が無い委譲は既存の通知入口へ一度だけ通知を渡す");
   if (childrenOnly) {
     await screen.wait("[data-iori-child-id] .nav-child-button");
@@ -276,6 +422,20 @@ export async function teamNotificationsScenario({
     });
     return;
   }
+  // E2E cannot normally control the ordering of a Host response and event.
+  // Hold the first snapshot across reload while a real delegation is created.
+  await notificationBeforeChildrenSnapshot(parentId);
+  const earlyNotices = await waitFor(
+    () => screen.evaluate("window.__candidateNotifications"),
+    (values) => values.length > 0,
+    30000,
+    "最初の子の一覧より先に届いた候補なしの通知",
+  );
+  assert.equal(earlyNotices.length, 1, "一覧に元からある待ちは通知しない");
+  assert.ok(earlyNotices[0].title.includes("Early candidate notification"));
+  await record(
+    "初回一覧より先の候補なし更新だけを通知し、一覧に元からある待ちは通知しない",
+  );
   await request("teams.settings", {
     enabled: true,
     defaultTeam: saved.saved.id,
@@ -295,9 +455,7 @@ export async function teamNotificationsScenario({
   await screen.wait(`[data-iori-terminal-row="${terminal.id}"]`);
   // Hide its CLI pane so the normal foreground suppression does not apply.
   await openWorkspaceView(screen, "files");
-  await screen.evaluate(
-    `(()=>{window.__candidateNotifications=[];window.addEventListener('iori:notification-request',event=>window.__candidateNotifications.push(event.detail));})()`,
-  );
+  await screen.evaluate("window.__candidateNotifications=[]");
   for (const state of ["waiting", "done"]) {
     notificationSourceFault(true, terminal, state);
     await waitFor(
@@ -380,8 +538,11 @@ export async function teamNotificationsScenario({
     '[data-iori-action="children-ended"][aria-expanded="false"]',
   );
   await waitFor(
-    () => screen.text("[data-iori-child-id] .nav-child-state"),
-    (value) => value === "Stopped · Hostの再起動",
+    () =>
+      screen.evaluate(
+        `Array.from(document.querySelectorAll('[data-iori-child-id] .nav-child-state')).some(element=>element.textContent.trim()==='Stopped · Hostの再起動')`,
+      ),
+    Boolean,
     30000,
     "未起動の委譲はHost再起動の理由を表示",
   );
@@ -403,7 +564,9 @@ export async function teamNotificationsScenario({
         conversation: after.children[0].conversation,
       })
     ).children.length,
-    1,
+    after.children.filter(
+      (child) => child.conversation === after.children[0].conversation,
+    ).length,
   );
   await record("親の会話を閉じて子の行を外し、Hostの記録は保持");
   assert.equal(

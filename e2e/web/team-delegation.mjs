@@ -46,6 +46,7 @@ export const delegationUserRequest = `Run exactly this one shell command: ${prob
 export async function teamDelegationScenario({
   fakeModelRequests,
   client,
+  hostData,
   worktree,
   teamRecords,
   teamDelivery,
@@ -370,13 +371,21 @@ export async function teamDelegationScenario({
     await returnToWorktree(screen, worktree);
     await screen.click(`[data-iori-terminal-row="${parentId}"]`);
   }
+  const candidatesInDelegateResponse = new Set();
   const parentInput = teamParentInput({
     client,
     parentId,
     teamRecords,
     teamDelivery,
+    candidatesInDelegateResponse,
   });
-  const parentCommand = (args, options) => teamCommand(parentId, args, options);
+  const parentCommand = async (args, options) => {
+    const result = await teamCommand(parentId, args, options);
+    if (args[0] === "delegate" && result.data?.waiting === "candidates") {
+      candidatesInDelegateResponse.add(result.data.child);
+    }
+    return result;
+  };
   if (failureOnly) {
     await childCliFailureScenario({
       restartPreservingHost,
@@ -480,6 +489,7 @@ export async function teamDelegationScenario({
   if (lifecycleOnly) {
     await childLifecycleScenario({
       client,
+      hostData,
       teamId,
       definition: savedTeam,
       worktree,
@@ -1632,6 +1642,7 @@ export async function teamDelegationScenario({
   await screen.click(`[data-iori-terminal-row="${parentId}"]`);
   await childLifecycleScenario({
     client,
+    hostData,
     teamId,
     definition: savedTeam,
     worktree,

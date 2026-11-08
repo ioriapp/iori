@@ -61,6 +61,9 @@ export function thirdPartyLicenses() {
         .filter((name) => name.endsWith("LICENSE.txt"))
         .sort())
         copied.push(`${icons}/${name}`);
+      const symbols = "scripts/licenses/sources/nerd-fonts-3.5.1";
+      for (const name of (await readdir(path.join(root, symbols))).sort())
+        copied.push(`${symbols}/${name}`);
       const copiedText = await Promise.all(
         copied.map(
           async (file) =>

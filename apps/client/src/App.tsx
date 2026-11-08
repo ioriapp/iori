@@ -72,6 +72,7 @@ const defaultPreferences: Preferences = {
   theme: "system",
   fontSize: 16,
   terminalFontSize: 14,
+  terminalFontFamily: "",
   terminalRightClick: "menu",
   terminalLinkOpen: "click",
   showForgeStatus: true,
@@ -133,6 +134,10 @@ function readPreferences(value: unknown): Preferences {
     fontSize: isNumber(value.fontSize)
       ? value.fontSize
       : defaultPreferences.fontSize,
+    terminalFontFamily:
+      typeof value.terminalFontFamily === "string"
+        ? value.terminalFontFamily
+        : defaultPreferences.terminalFontFamily,
     terminalFontSize: isNumber(value.terminalFontSize)
       ? value.terminalFontSize
       : defaultPreferences.terminalFontSize,
@@ -252,6 +257,7 @@ function AppContent({
   const preferencesDirty = useRef(false);
   const pendingPreferences = useRef<Preferences | undefined>(undefined);
   const preferencesQueue = useRef<Promise<void>>(Promise.resolve());
+  const attemptedSidebarCleanups = useRef(new Set<string>());
   const [preferencesError, setPreferencesError] = useState<"load" | "save">();
   const [preferencesLoaded, setPreferencesLoaded] = useState(false);
   useEffect(() => {
@@ -308,11 +314,24 @@ function AppContent({
     const signature = JSON.stringify([flow.operationId, flow.phase]);
     if (notifiedUninstalls.current.get(flow.hostKey) === signature) return;
     notifiedUninstalls.current.set(flow.hostKey, signature);
-    showUninstallNotice(flow, t, (result) => {
-      const live = uninstallFlow.getSnapshot()[result.hostKey];
-      if (live) void uninstallFlow.open(result.hostKey);
-      else setUninstallDetail(result);
-    });
+    showUninstallNotice(
+      flow,
+      t,
+      (result) => {
+        const live = uninstallFlow.getSnapshot()[result.hostKey];
+        if (live) void uninstallFlow.open(result.hostKey);
+        else setUninstallDetail(result);
+      },
+      (result) => {
+        const live = uninstallFlow.getSnapshot()[result.hostKey];
+        if (
+          result.phase.type === "failed" &&
+          live?.phase.type === "failed" &&
+          live.operationId === result.operationId
+        )
+          uninstallFlow.dismiss(result.hostKey);
+      },
+    );
   };
   const uninstallActions: UninstallActions = {
     ...uninstallFlow,
@@ -376,7 +395,8 @@ function AppContent({
 
   const savePreferences = useCallback((value: Preferences) => {
     pendingPreferences.current = value;
-    if (!preferencesReady.current) return;
+    if (!preferencesReady.current) return Promise.resolve(false);
+    let saved = true;
     preferencesQueue.current = preferencesQueue.current
       .catch(() => undefined)
       .then(async () => {
@@ -389,20 +409,32 @@ function AppContent({
         setPreferencesError(undefined);
       })
       .catch(() => {
+        saved = false;
         pendingPreferences.current = undefined;
         preferencesRef.current = savedPreferences.current;
         setPreferences(savedPreferences.current);
         setPreferencesError("save");
       });
+    return preferencesQueue.current.then(() => saved);
   }, []);
 
   const changePreferences = useCallback(
-    (change: Partial<Preferences>) => {
+    (change: Partial<Preferences>, automatic = false) => {
+      if (automatic) {
+        const cleanup = JSON.stringify([
+          preferencesRef.current.sidebarCollapsed,
+          change.sidebarCollapsed,
+        ]);
+        if (attemptedSidebarCleanups.current.has(cleanup)) return;
+        attemptedSidebarCleanups.current.add(cleanup);
+      } else if (change.sidebarCollapsed) {
+        attemptedSidebarCleanups.current.clear();
+      }
       preferencesDirty.current = true;
       const next = { ...preferencesRef.current, ...change };
       preferencesRef.current = next;
       setPreferences(next);
-      savePreferences(next);
+      return savePreferences(next);
     },
     [savePreferences],
   );
@@ -425,7 +457,7 @@ function AppContent({
       ),
     );
     if (sidebarCollapsed.length !== preferences.sidebarCollapsed.length)
-      changePreferences({ sidebarCollapsed });
+      changePreferences({ sidebarCollapsed }, true);
   }, [
     preferencesLoaded,
     state.initial,
@@ -1015,12 +1047,13 @@ function AppContent({
             changePreferences({ sidebarWidth })
           }
           sidebarCollapsed={preferences.sidebarCollapsed}
-          onSidebarCollapsedChange={(sidebarCollapsed) =>
-            changePreferences({ sidebarCollapsed })
+          onSidebarCollapsedChange={(sidebarCollapsed, automatic) =>
+            changePreferences({ sidebarCollapsed }, automatic)
           }
           lastWorkspaceTarget={preferences.lastWorkspaceTarget}
           onLastWorkspaceTargetChange={saveLastWorkspaceTarget}
           terminalFontSize={preferences.terminalFontSize}
+          terminalFontFamily={preferences.terminalFontFamily}
           onTerminalFontSize={changeTerminalFontSize}
           terminalRightClick={preferences.terminalRightClick}
           terminalLinkOpen={preferences.terminalLinkOpen}

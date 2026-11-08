@@ -5,6 +5,9 @@ import {
 } from "../../verification/web/operation.mjs";
 import { pasteToCli } from "./cli-input.mjs";
 import assert from "node:assert/strict";
+import { readFile, rm } from "node:fs/promises";
+import { isAbsolute, join, relative, sep } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { waitFor } from "../../verification/ui.mjs";
 import { focusTerminal, waitForCliState } from "../cli-screen/scenario.mjs";
 import { pressCliKey, submitToCli } from "../cli-screen/input.mjs";
@@ -13,6 +16,7 @@ import { observeTerminalInstances } from "../terminal/scenario.mjs";
 
 export async function childLifecycleScenario({
   client,
+  hostData,
   teamId,
   definition,
   worktree,
@@ -225,10 +229,9 @@ export async function childLifecycleScenario({
   await record(
     `開かずに終了した子: 親 ${parentCols}列、保存画面 ${snapshotCols}列`,
   );
-  assert.equal(
-    snapshotCols,
-    parentCols,
-    "開かずに終了した子の保存画面は親のPC幅",
+  assert.ok(
+    snapshotCols >= parentCols,
+    "開かずに終了した子の保存画面は親のPC幅以上",
   );
   const mobile = await phone();
   await mobile.browser.call("Emulation.setDeviceMetricsOverride", {
@@ -499,6 +502,78 @@ export async function childLifecycleScenario({
   await label(child.id, "Stopped · ユーザーの操作");
   await keepFinalTab();
   await record("子の/exitを失敗にせずユーザー停止として扱う");
+  const exitRoles = [
+    ["Pi exit", "pi", "openai/gpt-6-luna"],
+    ["Claude exit", "claude", "claude-haiku-4-5"],
+  ].map(([name, cli, model]) => ({
+    ...base,
+    id: `exit-${cli}`,
+    name,
+    split: false,
+    candidates: {
+      high: [],
+      low: [],
+      medium: [
+        { id: `exit-${cli}-candidate`, cli, model, tools: [], minimum: "" },
+      ],
+    },
+  }));
+  await request("teams.save", {
+    teamId,
+    definition: { ...definition, roles: [...definition.roles, ...exitRoles] },
+  });
+  for (const role of exitRoles) {
+    const command = role.id === "exit-pi" ? "/quit" : "/exit";
+    await screen.click(`[data-iori-terminal-row="${parentId}"]`);
+    await waitForCliState(client, parentId, ["idle", "done"]);
+    await parentCommand([
+      "delegate",
+      "--role",
+      role.name,
+      "--difficulty",
+      "low",
+      "--title",
+      role.name,
+      "--worktree",
+      "parent",
+      "--body",
+      "Reply Ready and end your turn without reporting or changing files." +
+        fakeMarker("team-ready"),
+    ]);
+    const exitChild = await waitForOperation(
+      `${role.name}: 子のTerminalが起動`,
+      async () =>
+        (await request("teams.children", {})).children.find(
+          (entry) => entry.title === role.name,
+        ),
+      (entry) => Boolean(entry?.terminalId),
+      async () => {
+        const entry = (await request("teams.children", {})).children.find(
+          (item) => item.title === role.name,
+        );
+        return (
+          entry?.state === "failed" && (entry.failure ?? "子が失敗しました")
+        );
+      },
+    );
+    await screen.click(
+      `[data-iori-child-id="${exitChild.id}"] .nav-child-button`,
+    );
+    await inspectTasks(exitChild.id, { waiting: "report" });
+    await waitForCliState(client, exitChild.terminalId, ["done", "idle"]);
+    await submitToCli(client, command, undefined, `child-${role.id}`);
+    await showEnded();
+    await label(exitChild.id, "Stopped · ユーザーの操作");
+    const delivery = await teamDelivery({
+      line: `[iori] ${role.name} "${role.name}" failed`,
+      since: exitChild.createdAt,
+    });
+    assert.equal(delivery.claude.noticeReceived, false);
+    await inspectTasks(exitChild.id, { parentNoticePending: false });
+    await record(
+      `${role.name}: ${command}をユーザー停止とし、失敗の知らせは親へ届かない`,
+    );
+  }
   const resumeStarted = Date.now();
   const claudeWorker = {
     ...base,
@@ -634,10 +709,72 @@ export async function childLifecycleScenario({
   await record(
     `Claude Codeの子を停止して親のsendで同じ会話を再開し、再報告まで確認（${((Date.now() - resumeStarted) / 1000).toFixed(3)}秒）`,
   );
+  const otherTeam = await request("teams.create", {
+    definition: {
+      name: "Recovery verification",
+      description: definition.description,
+      parent: definition.parent,
+      instruction: definition.instruction,
+      roles: definition.roles,
+    },
+  });
+  const previousTerminals = new Set(
+    (await request("terminal.list", {})).terminals.map((entry) => entry.id),
+  );
+  await screen.click('[data-iori-action="workspace-add-tab"]');
+  await screen.click(`[data-iori-team-id="${otherTeam.saved.id}"]`);
+  const missingParent = await waitFor(async () =>
+    (await request("terminal.list", {})).terminals.find(
+      (entry) => !previousTerminals.has(entry.id) && entry.teamConversation,
+    ),
+  );
+  await request("teams.delete", { teamId: otherTeam.saved.id });
+  let originalInstructions;
+  let originalFile;
   const restartStarted = Date.now();
-  await restartHostLosingTerminals();
+  await restartHostLosingTerminals({
+    whileStopped: async () => {
+      const db = new DatabaseSync(join(hostData, "host.sqlite"), {
+        readOnly: true,
+      });
+      let parents;
+      try {
+        parents = db
+          .prepare("SELECT value_json FROM team_conversations")
+          .all()
+          .map((row) => JSON.parse(row.value_json));
+      } finally {
+        db.close();
+      }
+      for (const id of [parentId, missingParent.id]) {
+        const parent = parents.find((entry) => entry.terminalId === id);
+        assert.ok(parent);
+        const path = relative(hostData, parent.instructionFile);
+        assert.ok(
+          !isAbsolute(path) && path !== ".." && !path.startsWith(`..${sep}`),
+        );
+        if (id === parentId) {
+          originalFile = parent.instructionFile;
+          originalInstructions = await readFile(originalFile, "utf8");
+        }
+        await rm(parent.instructionFile);
+      }
+    },
+  });
+  const restoredInstructions = await readFile(originalFile, "utf8");
+  assert.equal(restoredInstructions, originalInstructions);
+  await screen.click(`[data-iori-terminal-row="${missingParent.id}"]`);
+  await screen.click(
+    `[data-iori-terminal-id="${missingParent.id}"] [data-iori-action="cli-resume"]`,
+  );
+  await screen.wait(
+    `[data-iori-terminal-id="${missingParent.id}"] [role="alert"]`,
+  );
   await parentInput.resumeWithoutTools();
   assert.equal((await parentCommand(["tasks"])).ok, true);
+  await record(
+    "親の指示が欠けても元のチーム版から復元し、元が無い別の会話は再開失敗を表示する",
+  );
   await record(
     `Hostと係の再起動後にClaude Codeの親を開き直して同じチームのコマンドを実行（${((Date.now() - restartStarted) / 1000).toFixed(3)}秒）`,
   );

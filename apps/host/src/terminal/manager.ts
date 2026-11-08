@@ -11,7 +11,8 @@ import type { NativeBiStream, NativeConnection } from "../native.ts";
 import { CliRegistry } from "../cli/registry.ts";
 import { cliDefinitions } from "../cli/definitions.ts";
 import type { HookState } from "../cli/hooks.ts";
-import { discoverShells, type ShellDefinition } from "./platform.ts";
+import { type ShellDefinition } from "./platform.ts";
+import { discoverShells } from "./shells.ts";
 import { TerminalRuntime, type TeamTerminalOptions } from "./runtime.ts";
 import { RemotePtys } from "./remote-pty.ts";
 import { attachTerminalDaemon, stopTerminalDaemon } from "./daemon/launch.ts";
@@ -47,6 +48,7 @@ export class TerminalManager {
   #eventsReady = false;
   readonly #deliveries = new Map<string, () => void>();
   readonly #operationChains = new Map<string, Promise<void>>();
+  readonly #unrestoredTeamTerminals = new Set<string>();
   continuedTerminals = false;
   onTerminalsLost?: () => void;
   onCliExit?: (id: string, reason: "exit" | "user") => void | Promise<void>;
@@ -146,6 +148,8 @@ export class TerminalManager {
       remote,
       attached.continued,
     );
+    for (const id of this.#unrestoredTeamTerminals)
+      this.#runtime.markTeamTerminalUnrestored(id);
     this.#runtime.onCliExit = (id, reason) => {
       return this.onCliExit?.(id, reason);
     };
@@ -323,6 +327,11 @@ export class TerminalManager {
       base,
     );
     return { env, dispose: () => this.retireCommand(key) };
+  }
+  markTeamTerminalUnrestored(id: string) {
+    // Keep startup restoration failures when the daemon connection is rebuilt.
+    this.#unrestoredTeamTerminals.add(id);
+    this.#runtime.markTeamTerminalUnrestored(id);
   }
   configureTeamTerminal(id: string, options: TeamTerminalOptions) {
     void this.#call("configureTeamTerminal", id, options).catch(() => {});

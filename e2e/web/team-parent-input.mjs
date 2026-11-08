@@ -19,6 +19,7 @@ export function teamParentInput({
   parentId,
   teamRecords,
   teamDelivery,
+  candidatesInDelegateResponse,
 }) {
   const acknowledged = new Set();
   const settle = async () => {
@@ -37,7 +38,12 @@ export function teamParentInput({
           let since;
           let line;
           if (child.state === "waiting") {
-            if (child.waiting !== "candidates" || !child.notified) continue;
+            if (
+              child.waiting !== "candidates" ||
+              !child.notified ||
+              candidatesInDelegateResponse.has(child.id)
+            )
+              continue;
             event = "no available candidate";
             since = child.createdAt;
             line =

@@ -1,3 +1,11 @@
+import { native } from "./native.ts";
+import { Command as CommandPrimitive } from "cmdk";
+import { Command, CommandItem, CommandList } from "./components/ui/command.tsx";
+import {
+  Popover,
+  PopoverAnchor,
+  PopoverContent,
+} from "./components/ui/popover.tsx";
 import { sidebarOrder } from "@iori/protocol";
 import {
   useSettingsEditor,
@@ -105,6 +113,7 @@ export type Preferences = {
   theme: "system" | "light" | "dark";
   fontSize: number;
   terminalFontSize: number;
+  terminalFontFamily: string;
   showForgeStatus?: boolean;
   terminalRightClick: "menu" | "copyPaste";
   terminalLinkOpen: TerminalLinkOpen;
@@ -460,6 +469,191 @@ function Devices({
           });
           return ok;
         }}
+      />
+    </Section>
+  );
+}
+
+function TerminalFontSettings({
+  value: savedValue,
+  onSave,
+  t,
+  registerEditor,
+  mobile,
+}: {
+  value: string;
+  onSave: (value: string) => Promise<boolean | void>;
+  t: (key: string) => string;
+  registerEditor: RegisterSettingsEditor;
+  mobile: boolean;
+}) {
+  const [value, setValue] = useState(savedValue);
+  const saved = useRef(savedValue);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string>();
+  const [error, setError] = useState(false);
+  const [families, setFamilies] = useState<string[]>([]);
+  const [suggestionsOpen, setSuggestionsOpen] = useState(false);
+  const input = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (mobile) return;
+    let active = true;
+    void native.fontFamilies().then(
+      (names) => {
+        if (active) setFamilies(names);
+      },
+      () => undefined,
+    );
+    return () => {
+      active = false;
+    };
+  }, [mobile]);
+  useSettingsEditor(
+    () => value !== saved.current,
+    registerEditor,
+    () => {
+      setValue(saved.current);
+      setMessage(undefined);
+      setError(false);
+    },
+  );
+  const save = async () => {
+    if (busy) return;
+    const submitted = value.trim();
+    setBusy(true);
+    setMessage(undefined);
+    setError(false);
+    try {
+      const ok = await onSave(submitted);
+      if (ok === false) throw new Error();
+      saved.current = submitted;
+      // Keep edits made while the save was in progress.
+      setValue((current) => (current === value ? submitted : current));
+      setMessage(t("Settings saved"));
+    } catch {
+      setError(true);
+      setMessage(t("Could not save. Press Save or Enter to retry."));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const fragment = value
+    .slice(value.lastIndexOf(",") + 1)
+    .trim()
+    .toLowerCase();
+  const matches = families.filter((name) =>
+    name.toLowerCase().includes(fragment),
+  );
+  const completed = families.some((name) => name.toLowerCase() === fragment);
+  const shown = !mobile && suggestionsOpen && matches.length > 0 && !completed;
+  const change = (next: string) => {
+    setValue(next);
+    setMessage(undefined);
+  };
+  const choose = (name: string) => {
+    const comma = value.lastIndexOf(",");
+    change(comma < 0 ? name : value.slice(0, comma + 1) + " " + name);
+    setSuggestionsOpen(false);
+  };
+  const label = t("Font name");
+  return (
+    <Section
+      title={t("Terminal font")}
+      className="terminal-font-settings"
+      onSave={() => void save()}
+    >
+      <FieldRow
+        stacked
+        label={<label htmlFor="terminal-font-name">{label}</label>}
+        description={
+          <span id="terminal-font-help">
+            {t(
+              "To use several fonts, separate them with commas. The first font installed on this device is used; if the field is empty or none are installed, the default font is used.",
+            )}
+          </span>
+        }
+      >
+        <Command
+          label={label}
+          shouldFilter={false}
+          className="terminal-font-combobox"
+          onKeyDown={(event) => {
+            if (event.nativeEvent.isComposing) return;
+            if (event.key === "Escape" && shown) {
+              event.preventDefault();
+              event.stopPropagation();
+              setSuggestionsOpen(false);
+            } else if (event.key === "Enter") {
+              event.stopPropagation();
+              if (!shown) {
+                event.preventDefault();
+                void save();
+              }
+            }
+          }}
+        >
+          <Popover open={shown} onOpenChange={setSuggestionsOpen}>
+            <PopoverAnchor asChild>
+              <CommandPrimitive.Input
+                asChild
+                value={value}
+                onValueChange={(next) => {
+                  change(next);
+                  setSuggestionsOpen(true);
+                }}
+                onFocus={() => setSuggestionsOpen(true)}
+                onBlur={() => setSuggestionsOpen(false)}
+                aria-describedby="terminal-font-help"
+              >
+                <Input
+                  ref={input}
+                  id="terminal-font-name"
+                  data-iori-field="terminal-font-family"
+                  placeholder="JetBrains Mono"
+                  aria-expanded={shown}
+                />
+              </CommandPrimitive.Input>
+            </PopoverAnchor>
+            <PopoverContent
+              className="terminal-font-options"
+              align="start"
+              side="bottom"
+              sideOffset={4}
+              onOpenAutoFocus={(event) => event.preventDefault()}
+              onCloseAutoFocus={(event) => event.preventDefault()}
+              onInteractOutside={(event) => {
+                if (event.target === input.current) event.preventDefault();
+              }}
+              onEscapeKeyDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                setSuggestionsOpen(false);
+              }}
+            >
+              <CommandList label={label}>
+                {matches.map((name) => (
+                  <CommandItem
+                    key={name}
+                    value={name}
+                    onPointerDown={(event) => event.preventDefault()}
+                    onSelect={() => choose(name)}
+                  >
+                    {name}
+                  </CommandItem>
+                ))}
+              </CommandList>
+            </PopoverContent>
+          </Popover>
+        </Command>
+      </FieldRow>
+      <SectionSave
+        t={t}
+        busy={busy}
+        error={error}
+        message={message}
+        state="terminal-font-saved"
+        action="save-terminal-font"
+        onSave={() => void save()}
       />
     </Section>
   );
@@ -901,7 +1095,9 @@ export function SettingsDialog({
   onSectionChange: (section: SettingsSection) => void;
   preferences: Preferences;
   preferencesError?: "load" | "save";
-  onPreferencesChange: (change: Partial<Preferences>) => void;
+  onPreferencesChange: (
+    change: Partial<Preferences>,
+  ) => Promise<boolean> | void;
   onRetryPreferences: () => void;
   language: string;
   t: (key: string) => string;
@@ -1550,7 +1746,9 @@ export function SettingsDialog({
                       `terminal-size-${size}`,
                     ]),
                     (value) =>
-                      onPreferencesChange({ terminalFontSize: Number(value) }),
+                      onPreferencesChange({
+                        terminalFontSize: Number(value),
+                      }),
                     "terminal-text-size",
                     "terminalFontSize",
                   )}
@@ -1614,6 +1812,18 @@ export function SettingsDialog({
                     {preferenceError("doubleClickMaximize")}
                   </FieldRow>
                 </Section>
+              )}
+              {current === "display" && (
+                <TerminalFontSettings
+                  value={preferences.terminalFontFamily}
+                  onSave={async (terminalFontFamily) => {
+                    setPreferenceField("terminalFontFamily");
+                    return changePreferences({ terminalFontFamily });
+                  }}
+                  t={t}
+                  registerEditor={registerEditor}
+                  mobile={Boolean(state.initial?.mobile) || isMobile}
+                />
               )}
               {preferencesError &&
                 (preferencesError === "load" ||

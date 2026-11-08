@@ -273,6 +273,7 @@ export const native = {
     invoke<T | null>("native_load_workspace_layout", { scopeKey }),
   saveWorkspaceLayout: (scopeKey: string, layout: unknown) =>
     invoke<void>("native_save_workspace_layout", { scopeKey, layout }),
+  fontFamilies: () => invoke<string[]>("native_font_families"),
   loadClientPreferences: <T>() =>
     invoke<T | null>("native_load_client_preferences"),
   saveClientPreferences: (preferences: unknown) =>

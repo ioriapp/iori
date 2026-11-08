@@ -6,6 +6,13 @@
 @import "@fontsource-variable/noto-sans-jp";
 @import "@fontsource-variable/jetbrains-mono";
 
+@font-face {
+    font-family: "Symbols Nerd Font Mono";
+    src: url("./assets/SymbolsNerdFontMono-Regular.ttf") format("truetype");
+    font-style: normal;
+    font-weight: 400;
+}
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {

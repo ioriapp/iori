@@ -99,8 +99,14 @@ export async function webScenario({
   cliCommand,
   hostData,
   updates,
+  retainedDashShellId,
   notificationHook,
   notificationCommand,
+  notificationWorkerCommand,
+  notificationDelegations,
+  notificationParentInputs,
+  notificationParentBarriers,
+  notificationBeforeChildrenSnapshot,
   notificationPids,
   notificationSourceFault,
   childDisplayFixture,
@@ -537,6 +543,11 @@ export async function webScenario({
       repository,
       notificationHook,
       notificationCommand,
+      notificationWorkerCommand,
+      notificationDelegations,
+      notificationParentInputs,
+      notificationParentBarriers,
+      notificationBeforeChildrenSnapshot,
       notificationSourceFault,
       childDisplayFixture,
       childRunningOnly: only === "child-running",
@@ -562,6 +573,7 @@ export async function webScenario({
     await teamDelegationScenario({
       fakeModelRequests,
       client,
+      hostData,
       restartHostLosingTerminals,
       reload,
       lifecycleOnly: only === "child-lifecycle",
@@ -675,6 +687,7 @@ export async function webScenario({
       worktree,
       terminalId,
       record,
+      restartHostLosingTerminals,
     });
     return;
   }
@@ -701,6 +714,24 @@ export async function webScenario({
     return;
   }
   if (only === "web-terminal") {
+    await typeTerminal(
+      client,
+      "printf '\\357\\220\\230 \\356\\227\\277 \\357\\201\\273\\n'\r",
+    );
+    await observed(client, "\uf418 \ue5ff \uf07b");
+    await waitFor(() =>
+      screen.evaluate(`(() => {
+        const font = '14px "Symbols Nerd Font Mono"';
+        const text = "\uf418 \ue5ff \uf07b";
+        return [...document.fonts].some(face => face.family === "Symbols Nerd Font Mono" && face.status === "loaded") && document.fonts.check(font, text);
+      })()`),
+    );
+    const fontFamily = await screen.evaluate(
+      `document.querySelector('[data-iori-view="terminal"][data-iori-displayed="true"] [data-iori-part="terminal-screen"]').__e2eTerminal.options.fontFamily`,
+    );
+    assert.ok(fontFamily.includes('"Symbols Nerd Font Mono"'));
+    await shot("terminal-nerd-font");
+    await record("TerminalのNerd Fontの記号とフォントの読込");
     await paneResize({ client, terminalId, record });
     terminalId = await paneActions({
       client,
@@ -732,6 +763,7 @@ export async function webScenario({
       mobile,
       desktop,
       clipboardFiles,
+      reload,
     });
     return;
   }
@@ -836,7 +868,12 @@ export async function webScenario({
       record,
     });
     await screen.click(`[data-iori-tab-id="terminal:${terminalId}"]`);
-    await shellStartupScenario({ client, record, setBracketedPaste });
+    await shellStartupScenario({
+      client,
+      record,
+      setBracketedPaste,
+      retainedDashShellId,
+    });
     return;
   }
   if (only === "web-cli") {

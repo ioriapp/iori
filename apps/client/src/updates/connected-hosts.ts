@@ -70,8 +70,12 @@ async function checkHost(key: string, version: string) {
   change(key, { state: "checking", error: undefined });
   try {
     const reply = await connection.requestHost(key, "host.info", {});
-    if (!reply?.ok) {
+    if (!reply) {
       change(key, { state: "disconnected" });
+      return;
+    }
+    if (!reply.ok) {
+      change(key, { state: "failed", error: "request" });
       return;
     }
     // Only the authenticated connection owns the destination key.
@@ -132,7 +136,8 @@ export function watchConnectedHostUpdates() {
     connected = connection.getSnapshot().connectedHosts;
     for (const item of items) {
       if (
-        item.state === "disconnected" &&
+        (item.state === "disconnected" ||
+          (item.state === "failed" && item.error === "request")) &&
         !previous.includes(item.host.publicKey) &&
         connected.includes(item.host.publicKey)
       )

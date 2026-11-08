@@ -78,7 +78,6 @@ import {
   buildTerminalRestartRecoverySequence,
 } from "./restart-sequence.ts";
 import {
-  discoverShells,
   getHomeDirectory,
   getWindowsPtyCompatibility,
   getWindowsPtySpawnOptions,
@@ -86,6 +85,7 @@ import {
   ptyEnvironment,
   type ShellDefinition,
 } from "./platform.ts";
+import { discoverShells, resolveShell } from "./shells.ts";
 
 import { shellActivity, type ShellActivity } from "./shell-activity.ts";
 
@@ -112,6 +112,10 @@ const CHECKPOINT_INTERVAL_MS = 5_000;
 // Automatic permission replies were observed at ~100ms. Only presentation waits;
 // input delivery and submission must see the waiting state immediately.
 const CLI_WAIT_PRESENTATION_MS = 1_000;
+// Pi enabled paste in its first output (184–249ms after spawn); a plain-input
+// CLI drew its screen in one chunk (23–25ms). No startup output gaps preceded
+// readiness in those samples. Allow 300ms of quiet for CLIs without a signal.
+const INITIAL_INPUT_QUIET_MS = 300;
 // Idle text-only Claude/Codex samples redraw in <=49ms; allow margin for output gaps.
 const SUBMIT_QUIET_MS = 100;
 const SUBMIT_NO_OUTPUT_MS = 300;
@@ -344,7 +348,6 @@ export class TerminalRuntime {
   #defaultShell: string;
   readonly #windowsPty: TerminalWindowsPty | undefined;
   readonly #runtimes = new Map<string, RuntimeTerminal>();
-  #lastDesktopSize = { cols: 80, rows: 24 };
   readonly #teamChildIdentities = new Map<
     string,
     { child: string; conversation: string }
@@ -358,6 +361,7 @@ export class TerminalRuntime {
     import("../teams/assignment.ts").RunningCli
   >();
   readonly #teamOptions = new Map<string, TeamTerminalOptions>();
+  readonly #unrestoredTeamTerminals = new Set<string>();
   onCliExit?: (
     terminalId: string,
     reason: "exit" | "user",
@@ -392,6 +396,9 @@ export class TerminalRuntime {
             : {}),
         })),
     ];
+  }
+  markTeamTerminalUnrestored(id: string): void {
+    this.#unrestoredTeamTerminals.add(id);
   }
   configureTeamTerminal(id: string, options: TeamTerminalOptions): void {
     this.#teamOptions.set(id, options);
@@ -505,7 +512,7 @@ export class TerminalRuntime {
     let runtime = this.#runtimes.get(id);
     if (!runtime) runtime = this.#runtimeForStored(record);
     if (!runtime) return false;
-    const shell = this.#shells.find((s) => s.id === record.shell)!;
+    const shell = resolveShell(this.#shells, record.shell)!;
     const launch = await this.#clis.launch(
       saved.cli.id,
       shell,
@@ -574,9 +581,8 @@ export class TerminalRuntime {
   ): Promise<TerminalRuntime> {
     const discovered = await discoverShells();
     const stored = store.defaultTerminalShell();
-    const defaultShell = discovered.shells.some((shell) => shell.id === stored)
-      ? stored!
-      : discovered.preferred;
+    const defaultShell =
+      resolveShell(discovered.shells, stored)?.id ?? discovered.preferred;
     if (defaultShell) store.setDefaultTerminalShell(defaultShell);
     const manager = new TerminalRuntime(
       store,
@@ -651,7 +657,7 @@ export class TerminalRuntime {
         continue;
       const saved = this.#store.terminalCli(record.id),
         state = saved?.runtime;
-      const shell = this.#shells.find((s) => s.id === record.shell);
+      const shell = resolveShell(this.#shells, record.shell);
       if (!shell) {
         record.restartPending = true;
         this.#store.putTerminal(record);
@@ -771,9 +777,7 @@ export class TerminalRuntime {
       const previous =
         this.#store.terminalOperationResult<TerminalCreatedResult>(context);
       if (previous) return success(previous);
-      const shell = this.#shells.find(
-        (candidate) => candidate.id === (shellId ?? this.#defaultShell),
-      );
+      const shell = resolveShell(this.#shells, shellId ?? this.#defaultShell);
       if (!shell) return failed("invalid_request");
       let directory: string;
       try {
@@ -783,6 +787,20 @@ export class TerminalRuntime {
       } catch {
         return failed("invalid_request");
       }
+      const runningSizes = [...this.#runtimes.values()]
+        .filter(
+          (runtime) => runtime.pty && !runtime.ptyExited && !runtime.stopped,
+        )
+        .map((runtime) => runtime.record.lastDesktopSize);
+      const sizes = runningSizes.length
+        ? runningSizes
+        : this.#store
+            .listTerminals()
+            .map((terminal) => terminal.lastDesktopSize);
+      const initialSize = sizes.reduce(
+        (widest, size) => (size.cols > widest.cols ? size : widest),
+        sizes[0] ?? { cols: 80, rows: 24 },
+      );
       const record: StoredTerminal = {
         id: randomUUID(),
         shell: shell.id,
@@ -791,9 +809,9 @@ export class TerminalRuntime {
         title: shell.label,
         state: "running",
         exitCode: null,
-        cols: this.#lastDesktopSize.cols,
-        rows: this.#lastDesktopSize.rows,
-        lastDesktopSize: { ...this.#lastDesktopSize },
+        cols: initialSize.cols,
+        rows: initialSize.rows,
+        lastDesktopSize: { ...initialSize },
         restartPending: false,
         imageSequence: 0,
         snapshot: null,
@@ -914,9 +932,7 @@ export class TerminalRuntime {
       if (!runtime) return failed("invalid_request");
       return this.#runSerial(runtime, async () => {
         const setup = runtime.setup;
-        const shell = this.#shells.find(
-          (candidate) => candidate.id === runtime.record.shell,
-        );
+        const shell = resolveShell(this.#shells, runtime.record.shell);
         if (!setup || setup.state !== "failed" || !shell)
           return failed("invalid_request");
         // The failed process is gone; the terminal screen and its subscribers remain.
@@ -980,6 +996,8 @@ export class TerminalRuntime {
       if (previous) return success(previous);
       const runtime = this.#runtimes.get(terminalId);
       if (!runtime) return failed("invalid_request");
+      if (this.#unrestoredTeamTerminals.has(terminalId))
+        return failed("invalid_request");
       if (runtime.teamOptions && !runtime.teamOptions.role && !runtime.pty) {
         const resumed = await this.restartTeamTerminal(
           terminalId,
@@ -994,9 +1012,7 @@ export class TerminalRuntime {
         const saved = this.#store.terminalCli(terminalId);
         if (!saved?.resumePending || !runtime.pty)
           return failed("invalid_request");
-        const shell = this.#shells.find(
-          (shell) => shell.id === runtime.record.shell,
-        )!;
+        const shell = resolveShell(this.#shells, runtime.record.shell)!;
         const definition = cliDefinitions.find(
           (definition) => definition.id === saved.cli.id,
         );
@@ -1236,9 +1252,7 @@ export class TerminalRuntime {
             runtime.record.state === "running" &&
             !runtime.pty
           ) {
-            const shell = this.#shells.find(
-              (item) => item.id === runtime.record.shell,
-            );
+            const shell = resolveShell(this.#shells, runtime.record.shell);
             if (shell) await this.#spawn(runtime, shell);
           }
           subscriber = {
@@ -1493,7 +1507,12 @@ export class TerminalRuntime {
     const childIdentity = this.#teamChildIdentities.get(record.id);
     const teamConversation =
       this.#teamOptions.get(record.id)?.conversation ??
-      childIdentity?.conversation;
+      childIdentity?.conversation ??
+      (recovery?.resumePending
+        ? this.#store
+            .teamConversations()
+            .find((c) => c.terminalId === record.id)?.id
+        : undefined);
     return {
       ...toSummary(record, runtime?.emulator.getCwd() != null),
       ...(setup
@@ -2020,7 +2039,13 @@ export class TerminalRuntime {
         );
         return true;
       });
-    runtime.dataDisposer = child.onData((data) => {
+    let initialInputTimer: NodeJS.Timeout | undefined;
+    const clearInitialInputTimer = () => {
+      if (initialInputTimer) clearTimeout(initialInputTimer);
+      initialInputTimer = undefined;
+    };
+    const output = child.onData((data) => {
+      clearInitialInputTimer();
       if (runtime.stopped || this.#stopping) return;
       // Bound pending parser work at the PTY's read boundary, without delaying other terminals.
       child.pause();
@@ -2029,8 +2054,8 @@ export class TerminalRuntime {
         const previousCli = runtime.cli;
         const reported = runtime.emulator.getCwd() !== null;
         await runtime.emulator.write(data, { forwardQueryReplies: false });
-        // Only a CLI whose hooks announce the start of its session waits for
-        // that event; the others are ready once their input enables paste.
+        // A session-start hook remains authoritative. Otherwise paste mode
+        // announces readiness immediately; plain-input CLIs can also settle.
         if (
           !runtime.setup &&
           !runtime.hooks?.isSessionStart &&
@@ -2094,6 +2119,40 @@ export class TerminalRuntime {
         }
         this.#saveCli(runtime);
         this.#markDirty(runtime);
+        if (
+          !runtime.setup &&
+          runtime.cli &&
+          runtime.initialInput &&
+          !runtime.cliReady &&
+          !runtime.pendingCliCommand &&
+          !runtime.hooks?.isSessionStart &&
+          !cliDefinitions.find(
+            (definition) => definition.id === runtime.cli?.id,
+          )?.waitForBracketedPaste
+        ) {
+          const cli = runtime.cli;
+          const timer = setTimeout(() => {
+            void this.#runSerial(runtime, () => {
+              // A later output chunk or disposal cancels even a callback
+              // already queued behind parsing. Never write into another CLI.
+              if (initialInputTimer !== timer) return;
+              initialInputTimer = undefined;
+              if (
+                runtime.stopped ||
+                this.#stopping ||
+                runtime.ptyExited ||
+                runtime.pty !== child ||
+                runtime.cli !== cli ||
+                !runtime.initialInput
+              )
+                return;
+              runtime.cliReady = true;
+              this.#sendInitialInput(runtime);
+              this.#saveCli(runtime);
+            }).catch(() => this.#reportRuntimeError(runtime));
+          }, INITIAL_INPUT_QUIET_MS);
+          initialInputTimer = timer;
+        }
       })
         .catch(() => this.#reportRuntimeError(runtime))
         .finally(() => {
@@ -2104,6 +2163,12 @@ export class TerminalRuntime {
           else child.resume();
         });
     });
+    runtime.dataDisposer = {
+      dispose: () => {
+        clearInitialInputTimer();
+        output.dispose();
+      },
+    };
     runtime.exitDisposer = child.onExit(({ exitCode, signal }) => {
       if (runtime.pty === child) runtime.ptyExited = true;
       return this.#runSerial(runtime, async () => {
@@ -2239,9 +2304,7 @@ export class TerminalRuntime {
     await this.#remote.channel.call("resize", runtime.record.id, cols, rows);
     runtime.record.cols = cols;
     runtime.record.rows = rows;
-    const shell = this.#shells.find(
-      (candidate) => candidate.id === runtime.record.shell,
-    );
+    const shell = resolveShell(this.#shells, runtime.record.shell);
     if (!shell) {
       runtime.record.state = "error";
       runtime.record.exitCode = null;
@@ -2329,7 +2392,6 @@ export class TerminalRuntime {
       this.#remote.send("attributes", runtime.record.id, viewAttributes);
       return;
     }
-    if (deviceClass === "desktop") this.#lastDesktopSize = { cols, rows };
     const sizeChanged =
       runtime.record.cols !== cols || runtime.record.rows !== rows;
     const lastDesktopSizeChanged =
@@ -2467,9 +2529,7 @@ export class TerminalRuntime {
         if (runtime.pendingCliCommand) {
           runtime.pendingCliCommand = undefined;
           this.#clearCli(runtime);
-          const label = this.#shells.find(
-            (shell) => shell.id === runtime.record.shell,
-          )!.label;
+          const label = resolveShell(this.#shells, runtime.record.shell)!.label;
           runtime.emulator.setLastTitle(label);
           runtime.record.title = label;
           try {

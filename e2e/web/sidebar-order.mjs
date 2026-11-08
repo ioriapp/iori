@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { rename } from "node:fs/promises";
 import { join } from "node:path";
 import { waitFor } from "../../verification/ui.mjs";
 import { openFolder, selectWorktree } from "../workspace/scenario.mjs";
@@ -52,6 +53,26 @@ export async function sidebarOrderScenario({
     () => screen.attribute(worktreeToggle, "aria-expanded"),
     (v) => v === "false",
   );
+  const gitDirectory = join(a, ".git");
+  const unavailableGitDirectory = join(a, ".git-unavailable");
+  await rename(gitDirectory, unavailableGitDirectory);
+  try {
+    await reload();
+    await screen.wait(button(b));
+    await waitFor(
+      async () => !(await screen.visible(worktreeButton(worktree))),
+    );
+  } finally {
+    await rename(unavailableGitDirectory, gitDirectory);
+  }
+  await reload();
+  await screen.wait(worktreeToggle);
+  assert.equal(
+    await screen.attribute(worktreeToggle, "aria-expanded"),
+    "false",
+    "Gitを一時的に読めなくてもworktreeの閉じた状態を保持する",
+  );
+  await record("Gitを一時的に読めない間もworktreeの閉じた状態を保持する");
   // Collapse only the repository so the pointer crosses complete, visible rows.
   await screen.click(button(a));
   await waitFor(

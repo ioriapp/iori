@@ -56,7 +56,7 @@ export const fakeModelScenarios = {
   "claude-status": { clis: ["claude"], scripts: cliStatusScripts },
   "long-approval": { clis: ["claude"], scripts: cliStatusScripts },
   "child-lifecycle": {
-    clis: ["claude", "codex"],
+    clis: ["claude", "codex", "pi"],
     scripts: teamDelegationScripts,
     codexAccount: true,
   },
@@ -68,7 +68,7 @@ export const fakeModelScenarios = {
   "cli-definition": { clis: ["claude"], scripts: cliDefinitionScripts },
   "terminal-daemon": { clis: ["claude"], scripts: terminalDaemonScripts },
   "team-delegation": {
-    clis: ["claude", "codex"],
+    clis: ["claude", "codex", "pi"],
     scripts: teamDelegationScripts,
     codexAccount: true,
   },

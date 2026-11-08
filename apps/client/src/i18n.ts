@@ -318,6 +318,10 @@ const japanese: Record<string, string> = {
     "アカウントを保存できませんでした。アカウントをもう一度選択してください。",
   "Could not save settings. Choose it again to retry.":
     "設定を保存できませんでした。項目をもう一度選択してください。",
+  "Terminal font": "Terminalのフォント",
+  "Font name": "フォントの名前",
+  "To use several fonts, separate them with commas. The first font installed on this device is used; if the field is empty or none are installed, the default font is used.":
+    "複数を指定するときは、カンマで区切ってください。このデバイスにある最初のフォントを使い、空のときやどれもないときは既定のフォントを使います。",
   "Settings saved": "保存しました",
   "Show PR and CI status": "PR・CIの状態を表示",
   "CI passed": "CI成功",

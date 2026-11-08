@@ -430,6 +430,8 @@ export async function startBridge({
     maxPayload: MAX_FRAME_BYTES * 8,
   });
   const sessions = new Set();
+  // Keep input connections alive until shutdown so FIN reaches the Host.
+  const inputPeers = new Set();
   let offline = false;
   const token = randomBytes(32).toString("hex");
   try {
@@ -499,6 +501,7 @@ export async function startBridge({
         Buffer.from(hostKey, "hex"),
         await resolveAddresses(addresses),
       );
+      inputPeers.add(peer);
       const stream = await peer.openBi();
       try {
         await writeFrame(
@@ -537,7 +540,6 @@ export async function startBridge({
         await stream.finish();
       } finally {
         await stream.stop(0);
-        peer.close(0, Buffer.from("verification complete"));
       }
     },
     async requestHost(hostKey, addresses, method, params) {
@@ -571,7 +573,13 @@ export async function startBridge({
     },
     async close() {
       for (const ws of wss.clients) ws.terminate();
-      await Promise.all([...sessions].map((close) => close()));
+      try {
+        await Promise.all([...sessions].map((close) => close()));
+      } finally {
+        for (const peer of inputPeers)
+          peer.close(0, Buffer.from("verification complete"));
+        inputPeers.clear();
+      }
       await endpoint.close();
       await new Promise((resolve) => wss.close(resolve));
       await new Promise((resolve) => server.close(resolve));

@@ -37,6 +37,8 @@ OKLCHは明るさ・彩度・色相で色を指定する形式である。灰色
 
 画面はInter、日本語は同梱のNoto Sans JPを使う。Noto Sans JPで不足する中国語・韓国語の文字はOSの書体で補い、追加の書体は同梱しない。WindowsではMicrosoft YaHei UI・Microsoft JhengHei UI・Malgun Gothic、AndroidではデバイスのNoto Sans CJKを使う。等幅の日本語は、WindowsではBIZ UDゴシック、AndroidではデバイスのNoto Sans Mono CJK JPを使い、無い時は同梱のNoto Sans JPで補う。
 
+TerminalとCLIの画面ではSymbols Nerd Font Monoを同梱し、既定のフォントの並びの最後に使う。
+
 等幅はコード、コマンド、パス、diff、Terminalだけに使う。題名、ブランチ名、状態語、数字だけを理由に画面全体を等幅にしない。進捗や使用量の数字は桁の幅を揃えられる。
 
 文字サイズは既定16pxで、[設定](settings.md)からデバイスごとに変更する。本文を通常の前景色で最も読みやすくし、見出しは太さで区別する。補足と補助情報は本文より小さく薄くする。時刻、使用量、親の判定を本文より強く見せない。Markdownの見出しは本文から見分けられる段を付ける。サイドバーの主な文字と補足はBoardの同じ役割の文字と同じ段を使い、どちらも設定の文字サイズに連動する。TerminalとCLIの画面は既定14px、行の高さは1.25とし、画面の文字とは別に設定する。

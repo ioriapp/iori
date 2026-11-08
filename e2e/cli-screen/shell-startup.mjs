@@ -13,6 +13,7 @@ export async function shellStartupScenario({
   client,
   record,
   setBracketedPaste,
+  retainedDashShellId,
 }) {
   const screen = client.screen;
   const chooseShell = async (shell) => {
@@ -100,7 +101,7 @@ export async function shellStartupScenario({
     "準備の印が無いBashでも通常のキー入力で起動保留を解き、後の印で勝手に入力しない",
   );
 
-  await chooseShell("dash");
+  await chooseShell(retainedDashShellId);
   await clearObserved(client);
   const dash = await openPi();
   await waitForPiInput(client, dash);
@@ -116,7 +117,7 @@ export async function shellStartupScenario({
   );
   await observed(client, "dashから戻ったshell");
   await record(
-    "dashを既定shellにしたHostでもCLIを開き、終了後に同じshellで続ける",
+    "dashと同じ実体として一覧に残るshellを既定にしたHostでもCLIを開き、終了後に同じshellで続ける",
   );
   await chooseShell("bash");
 }

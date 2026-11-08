@@ -1,4 +1,6 @@
 mod file_saves;
+#[cfg(any(windows, target_os = "linux"))]
+mod fonts;
 mod host_setup;
 mod native;
 mod notifications;
@@ -97,6 +99,8 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
+            #[cfg(any(windows, target_os = "linux"))]
+            fonts::native_font_families,
             #[cfg(any(windows, target_os = "linux"))]
             host_setup::ssh::native_ssh_candidates,
             #[cfg(any(windows, target_os = "linux"))]

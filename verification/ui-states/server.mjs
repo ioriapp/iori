@@ -38,6 +38,7 @@ function stateDataPlugin(catalog) {
       "host-setup/HostSetupDialog.tsx",
       "ClientInitialization.tsx",
       "IntegrationsSettings.tsx",
+      "Settings.tsx",
       "GitSettings.tsx",
       "host-setup/SshSetup.tsx",
       "components/flow/Progress.tsx",

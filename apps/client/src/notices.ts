@@ -5,6 +5,7 @@ export type Notice = {
   text: string;
   detail?: { open: () => void };
   dismissible?: boolean;
+  onClose?: () => void;
 };
 
 let state: Notice[] = [];

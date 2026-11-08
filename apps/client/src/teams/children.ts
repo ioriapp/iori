@@ -6,6 +6,14 @@ import {
   type TerminalListResult,
 } from "@iori/protocol";
 import { connection } from "../connection.ts";
+
+// The visible list merges the snapshot with events that arrived while it was
+// loading. Keep their identities separately for the initial notification seed.
+const liveUpdates = new WeakMap<ChildSummary[], Set<string>>();
+export function isLiveChildUpdate(children: ChildSummary[], id: string) {
+  return liveUpdates.get(children)?.has(id) ?? false;
+}
+
 export function useTeamChildren(
   connectedHosts: string[],
   terminals: Record<string, TerminalListResult>,
@@ -56,7 +64,15 @@ export function useTeamChildren(
           (current[host] ?? []).map((child) => [child.id, child]),
         );
         for (const child of children.values()) merged.set(child.id, child);
-        return { ...current, [host]: [...merged.values()] };
+        const list = [...merged.values()];
+        liveUpdates.set(
+          list,
+          new Set([
+            ...(liveUpdates.get(current[host]) ?? []),
+            ...(updates.get(host)?.keys() ?? []),
+          ]),
+        );
+        return { ...current, [host]: list };
       });
     };
     const fetchMissing = (host: string) => {
@@ -90,12 +106,20 @@ export function useTeamChildren(
             conversation,
             children.filter((child) => !removed.has(child.id)),
           );
-        setLists((current) => ({
-          ...current,
-          [host]: (current[host] ?? []).filter(
+        setLists((current) => {
+          const list = (current[host] ?? []).filter(
             (child) => !removed.has(child.id),
-          ),
-        }));
+          );
+          liveUpdates.set(
+            list,
+            new Set(
+              [...(liveUpdates.get(current[host]) ?? [])].filter(
+                (id) => !removed.has(id),
+              ),
+            ),
+          );
+          return { ...current, [host]: list };
+        });
       }
       if (
         event.type === "teams.child.updated" ||

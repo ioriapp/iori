@@ -55,6 +55,7 @@ export function showUninstallNotice(
   flow: UninstallFlow,
   t: Translate,
   openDetail: (flow: UninstallFlow) => void,
+  closeNotice?: (flow: UninstallFlow) => void,
 ): void {
   const phase = flow.phase;
   if (
@@ -85,6 +86,7 @@ export function showUninstallNotice(
     key: flow.hostKey,
     text: onHost(t, key, flow.hostName),
     dismissible: !warning,
+    onClose: closeNotice ? () => closeNotice(flow) : undefined,
     detail:
       failed || warning
         ? {

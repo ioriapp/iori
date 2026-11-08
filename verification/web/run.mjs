@@ -85,7 +85,9 @@ import {
 import { cliRecordSummary, teamDeliverySummary } from "../cli/records.mjs";
 import { HostStore } from "../../apps/host/src/store.ts";
 import { removeCliHooks } from "../../apps/host/src/cli/hook-install.ts";
-import { discoverShells } from "../../apps/host/src/terminal/platform.ts";
+import { discoverShells } from "../../apps/host/src/terminal/shells.ts";
+import { focusTerminal } from "../../e2e/cli-screen/scenario.mjs";
+import { submitToCli } from "../../e2e/cli-screen/input.mjs";
 import { prepareReadingTree } from "../reading/responsiveness-fixture.mjs";
 import {
   observeLauncher,
@@ -175,6 +177,7 @@ let runRoot,
   forgeTokenFixture,
   cliErrorFixture,
   fakeModel;
+let retainedDashShellId;
 const originalHome = process.env.HOME;
 const diagnostics = [];
 let listRequests = 0;
@@ -652,7 +655,16 @@ process.stdin.resume();
     if (only === "opencode-delegation") store.setLastUsedCli("opencode");
     store.close();
   }
+  if (only === "web-terminal") {
+    const dashShell = (await discoverShells()).shells.find(
+      (shell) => shell.id === "dash" || shell.aliases?.includes("dash"),
+    );
+    if (!dashShell)
+      throw new Error("web-terminal requires an available dash shell");
+    retainedDashShellId = dashShell.id;
+  }
   const notificationParent = join(worktree, "notification-parent.mjs");
+  const notificationWorker = join(worktree, "notification-worker.mjs");
   if (
     [
       "team-notifications",
@@ -666,8 +678,10 @@ process.stdin.resume();
       `import {createInterface} from 'node:readline';import {execFile} from 'node:child_process';import {promisify} from 'node:util';import {appendFileSync} from 'node:fs';
 appendFileSync(${JSON.stringify(join(runRoot, "notification-pids"))},JSON.stringify({pid:process.pid,cwd:process.cwd()})+'\\n');
 const input=createInterface({input:process.stdin}); console.log('Notification parent ready');
-input.on('line',async line=>{if(!line.startsWith('DELEGATE'))return; const options=line==='DELEGATE'?{}:JSON.parse(line.slice(9)); try { console.log(await promisify(execFile)('iori',['delegate','--role','Worker','--difficulty',options.difficulty??'low','--title',options.title??'Candidate notification','--worktree',options.worktree??'parent','--body','Check candidate availability.','--json'])); }catch(error){console.error(error.message);}});`,
+input.on('line',async line=>{if(line.startsWith('[iori] '))appendFileSync(${JSON.stringify(join(runRoot, "notification-parent-inputs"))},line+'\\n');if(line==='PARENT_BARRIER'){appendFileSync(${JSON.stringify(join(runRoot, "notification-parent-barriers"))},'seen\\n');console.log('PARENT_BARRIER_ACK');return;}if(line.startsWith('SEND ')){try{const output=await promisify(execFile)('iori',['send',line.slice(5),'--kind','request','--body','Continue.','--json']);console.log(output.stdout);}catch(error){console.error(error.message);}return;}if(!line.startsWith('DELEGATE'))return;const options=line==='DELEGATE'?{}:JSON.parse(line.slice(9));try{const output=await promisify(execFile)('iori',['delegate','--role','Worker','--difficulty',options.difficulty??'low','--title',options.title??'Candidate notification','--worktree',options.worktree??'parent','--body','Check candidate availability.','--json']);const result=JSON.parse(output.stdout);appendFileSync(${JSON.stringify(join(runRoot, "notification-delegations"))},JSON.stringify({options,result})+'\\n');console.log(JSON.stringify(result));}catch(error){appendFileSync(${JSON.stringify(join(runRoot, "notification-delegations"))},JSON.stringify({options,error:error.message})+'\\n');console.error(error.message);}});`,
     );
+  if (only === "team-notifications")
+    await writeFile(notificationWorker, "process.stdin.resume();\n");
   const replacement = process.argv.includes("--replace-host-distribution")
     ? await prepareHostReplacement(runRoot)
     : undefined;
@@ -700,6 +714,7 @@ input.on('line',async line=>{if(!line.startsWith('DELEGATE'))return; const optio
     throw new Error(
       `Viteの依存の準備が失敗: exit ${preparationSignal ?? preparationCode}`,
     );
+  let heldChildrenResponse;
   web = await startWeb({
     storageRoot: join(runRoot, "client-data"),
     updateSource: updates?.source,
@@ -750,6 +765,11 @@ input.on('line',async line=>{if(!line.startsWith('DELEGATE'))return; const optio
       eventFault?.(payload, emit);
     },
     onResponse: async (method, json) => {
+      if (method === "teams.children" && heldChildrenResponse?.armed) {
+        heldChildrenResponse.armed = false;
+        heldChildrenResponse.snapshot = JSON.parse(json);
+        await heldChildrenResponse.released;
+      }
       // Trust the created path before the Client can launch Claude Code there.
       // Its exact path also covers worktrees whose names the Host generated.
       if (only === "worktree-create" && method === "worktrees.create") {
@@ -1119,6 +1139,7 @@ input.on('line',async line=>{if(!line.startsWith('DELEGATE'))return; const optio
       );
     },
     only,
+    retainedDashShellId,
     forgeFixture,
     forgeTokenFixture,
     hostData: join(runRoot, "host-data", "iori-host"),
@@ -1278,6 +1299,98 @@ input.on('line',async line=>{if(!line.startsWith('DELEGATE'))return; const optio
           }
         : undefined,
     notificationCommand: `${process.execPath} ${notificationParent}`,
+    notificationWorkerCommand: `${process.execPath} ${notificationWorker}`,
+    notificationDelegations: async () =>
+      (
+        await readFile(join(runRoot, "notification-delegations"), "utf8").catch(
+          () => "",
+        )
+      )
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => JSON.parse(line)),
+    notificationParentInputs: async () =>
+      (
+        await readFile(
+          join(runRoot, "notification-parent-inputs"),
+          "utf8",
+        ).catch(() => "")
+      )
+        .split("\n")
+        .filter(Boolean),
+    notificationParentBarriers: async () =>
+      (
+        await readFile(
+          join(runRoot, "notification-parent-barriers"),
+          "utf8",
+        ).catch(() => "")
+      )
+        .split("\n")
+        .filter(Boolean),
+    notificationBeforeChildrenSnapshot: async (terminalId) => {
+      await page.evaluate(async () => {
+        const { native } = await import("/src/native.ts");
+        await native.saveView("notification-seen", {});
+      });
+      let release;
+      heldChildrenResponse = {
+        armed: true,
+        released: new Promise((resolve) => {
+          release = resolve;
+        }),
+      };
+      await page.addInitScript({
+        content: `window.__candidateNotifications=[];window.__earlyChildEvents=[];
+          window.addEventListener('iori:notification-request',e=>window.__candidateNotifications.push(e.detail));
+          import('/src/connection.ts').then(({connection})=>{
+            connection.subscribeHostEvents((_host,event)=>{
+              if(event.type==='teams.child.updated')window.__earlyChildEvents.push(event.child);
+            });
+            window.__earlyChildReady=true;
+          });`,
+      });
+      try {
+        await page.reload();
+        const snapshot = await waitFor(
+          () => heldChildrenResponse.snapshot,
+          Boolean,
+          undefined,
+          "最初の子の一覧を保留",
+        );
+        assert.ok(
+          snapshot.ok &&
+            snapshot.result.children.some((child) => child.notified),
+        );
+        await waitFor(
+          () => page.evaluate("window.__earlyChildReady"),
+          Boolean,
+          undefined,
+          "子の更新の観測を開始",
+        );
+        await focusTerminal(client, terminalId);
+        await submitToCli(
+          client,
+          'DELEGATE {"title":"Early candidate notification"}',
+          undefined,
+          "early-candidate-notification",
+        );
+        await waitFor(
+          () => page.evaluate("window.__earlyChildEvents"),
+          (children) =>
+            children.some(
+              (child) =>
+                child.title === "Early candidate notification" &&
+                child.notified,
+            ),
+          undefined,
+          "保留中の候補なし更新",
+        );
+      } finally {
+        release();
+        heldChildrenResponse = undefined;
+      }
+      await observeAfterReload();
+    },
     notificationPids: join(runRoot, "notification-pids"),
     notificationSourceFault: (unavailable, terminal, state) => {
       childrenUnavailable = unavailable;

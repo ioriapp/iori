@@ -483,6 +483,38 @@ export async function paneActions({
   await record(
     "Teams画面の裏でプロセスが終了しても、戻ると空ペインの一覧から閉じられる",
   );
+  await screen.click(
+    `[data-iori-group-id="${group}"] ${action("split-right")}`,
+  );
+  await screen.wait(`${start} .cli-launcher-search input`);
+  const mobileExitGroup = await startGroup(screen);
+  await screen.click(`${start} [data-iori-shell-id="bash"]`);
+  const mobileExitTab = await waitFor(() =>
+    screen.attribute(
+      `[data-iori-group-id="${mobileExitGroup}"] [data-iori-tab-id^="terminal:"]`,
+      "data-iori-tab-id",
+    ),
+  );
+  const mobileExitId = mobileExitTab.replace(/^terminal:/, "");
+  await client.browser.viewport({ width: 390, height: 844 });
+  await screen.wait(
+    `[data-iori-workspace-panel="${mobileExitTab}"]:not([hidden])`,
+  );
+  await focusTerminal(client, mobileExitId);
+  await typeTerminal(client, "exit\r");
+  await waitFor(() =>
+    screen.evaluate(
+      `!document.querySelector('[data-iori-workspace-panel="${mobileExitTab}"]')`,
+    ),
+  );
+  await client.browser.viewport({ width: 1440, height: 1000 });
+  await screen.wait(
+    `[data-iori-empty-group="${mobileExitGroup}"] .cli-launcher-search input`,
+  );
+  await screen.click(
+    `[data-iori-empty-group="${mobileExitGroup}"] ${action("close-pane")}`,
+  );
+  await record("MobileでTerminalが終了しても、PCへ戻ると空ペインが残る");
   // With only one pane left, ending its last Terminal keeps the launcher but
   // cannot offer closing the user's final place to open a View.
   await screen.click(

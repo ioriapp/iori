@@ -114,6 +114,14 @@ CLI一覧を開いても未使用CLIの設定が変わらず、初めて開くCo
 
 - Terminalを別画面の裏で終了させるWeb E2Eは、shellが待機を始めた出力を観測し、移動先の画面が出てからFIFOで終了を知らせる。キー送信直後の画面移動や決まった秒数を、shellが入力を受け取った根拠にしない。
 
+- 操作列の途中でページを読み込み直すと、Terminalの出力の観測（`observed` が読む記録）が失われる。読み込み直しを足す前に要るかを考え、要る時は `observeAfterReload` で張り直す。ページを閉じる代わりに about:blank へ移す時、初期化のスクリプト（`addInitScript`）はアプリのoriginのページでだけ動かす（about:blankで `/src/...` を読み込もうとして未処理の例外になる）。
+
+- 偽のモデルの台本（`fakeMarker`）に頼る段は、実モデルの回（`result.realModels`）では飛ばす。実モデルは台本の指示（「承認を2回求めて」など）に従わず、聞き返して止まる。
+
+- 新しい操作列を `verification/web/scenarios.mjs` に足したら、全体の受入で流すかを決め、流すなら `scripts/release/acceptance.mjs` の `fullScenarioOrder` にも足す（足し忘れると全体の受入で一度も流れない）。
+
+- Releaseの作成（`scripts/release/build.mjs`）はAndroid・Linux Client・Windowsの作成と範囲の受入を同時に流すので、負荷の下でだけ操作列が落ちることがある（#305、web-cliで画面が空になった）。落ちたら同じ配布物でその操作列だけを負荷の無い時に流し直して分類する。
+
 ### 偽のモデルAPI
 
 `verification/web/fake-model-scenarios.mjs` の `clis` で指定したCLIは、試験の中で起動する `verification/fake-model/server.mjs` へ接続する。CLI本体・Host・画面・hooksは本物を使い、合否の判定も実モデルと同じにする。Claude Codeは `ANTHROPIC_BASE_URL` と試験専用の `ANTHROPIC_AUTH_TOKEN`、Codexは分離したHOMEの `config.toml` のproviderで接続先を変える。偽APIを使うCodexには通常本人の `auth.json` へのリンクを作らず、Claude Codeには試験用OAuthトークンを渡さない。残量の確認がある操作列では `codexAccount: true` を宣言してCodexのログインを共有し、残量は本物のapp-serverから取得する。モデルの要求は偽のproviderへ向けたままにする。呼び出し側の偽API用の環境変数も引き継がない。

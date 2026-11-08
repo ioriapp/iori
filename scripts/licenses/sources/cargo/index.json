@@ -5,8 +5,8 @@
     "apps/host/native/Cargo.toml": "93e8705004854fa70c27e95cbb891a7792dd9e724a73b873588c29384773e03e",
     "apps/host/terminal-native/Cargo.toml": "26c6d4043ac59124bca7af75fdeb719a1957d11ba53984180c46e7bd7abe0934",
     "crates/iori-iroh-config/Cargo.toml": "8922013ae58173d5f63aef308ed7a800175bd9acbf5458a572343652effb2a52",
-    "apps/client/src-tauri/Cargo.lock": "bad4afc1ddd19923f223d2d5e7180d7c6649806b34f7c1a4e1c8378b595a73c0",
-    "apps/client/src-tauri/Cargo.toml": "7f088ae91e59bf2052f4afe2e6e04946a7ad9de27b16826c9183f6a0db1ad42f",
+    "apps/client/src-tauri/Cargo.lock": "a0a6b0c03eba510536610f7897862f86da46fdc6db37aa6e1938a30fa1b7dc5a",
+    "apps/client/src-tauri/Cargo.toml": "b2d2852d002928ab9efeb9c1aee279be78f217ed6bea92df16970afbc4611df3",
     "apps/client/src-tauri/plugins/apk-installer/Cargo.toml": "d536a9b615c6e7e7fbfc88bae0dc5691ddbf4843bfd844e951102596798ced00",
     "apps/client/src-tauri/plugins/clipboard-image/Cargo.toml": "3cf0e502966548836bc7299feb678528463a17469d1b03ffae911ab02440dc98"
   },
@@ -538,6 +538,7 @@
       "brotli@9.0.0",
       "bytemuck@1.25.2",
       "byteorder-lite@0.1.0",
+      "byteorder@1.5.0",
       "bytes@1.12.1",
       "cairo-rs@0.18.5",
       "cairo-sys-rs@0.18.2",
@@ -578,7 +579,9 @@
       "diatomic-waker@0.2.3",
       "digest@0.11.3",
       "dirs-sys@0.5.0",
+      "dirs@6.0.0",
       "dirs@7.0.0",
+      "dlib@0.5.3",
       "dlopen2@0.8.2",
       "downcast-rs@1.2.1",
       "dpi@0.1.2",
@@ -601,10 +604,13 @@
       "filetime@0.2.29",
       "fixedbitset@0.5.7",
       "flate2@1.1.10",
+      "float-ord@0.3.2",
       "fnv@1.0.7",
       "foldhash@0.1.5",
       "foldhash@0.2.0",
+      "font-kit@0.14.3",
       "form_urlencoded@1.2.2",
+      "freetype-sys@0.20.1",
       "futures-buffered@0.2.13",
       "futures-channel@0.3.34",
       "futures-core@0.3.34",
@@ -687,8 +693,10 @@
       "json-patch@4.2.0",
       "jsonptr@0.7.1",
       "keyboard-types@0.8.3",
+      "lazy_static@1.5.1",
       "libc@0.2.190",
       "libdbus-sys@0.2.7",
+      "libloading@0.7.4",
       "libsqlite3-sys@0.38.2",
       "linux-raw-sys@0.12.1",
       "litemap@0.8.3",
@@ -747,6 +755,8 @@
       "parking@2.2.1",
       "parking_lot@0.12.5",
       "parking_lot_core@0.9.12",
+      "pathfinder_geometry@0.5.1",
+      "pathfinder_simd@0.5.6",
       "pem-rfc7468@1.0.0",
       "percent-encoding@2.3.2",
       "petgraph@0.8.3",
@@ -901,6 +911,7 @@
       "xattr@1.6.1",
       "xml-rs@0.8.29",
       "xmltree@0.10.3",
+      "yeslogic-fontconfig-sys@6.0.1",
       "yoke@0.8.3",
       "zbus@5.19.0",
       "zbus_names@4.3.4",
@@ -942,6 +953,7 @@
       "brotli@9.0.0",
       "bytemuck@1.25.2",
       "byteorder-lite@0.1.0",
+      "byteorder@1.5.0",
       "bytes@1.12.1",
       "cfb@0.14.0",
       "cfg-if@1.0.5",
@@ -979,6 +991,7 @@
       "dirs@7.0.0",
       "dpi@0.1.2",
       "dunce@1.0.5",
+      "dwrote@0.11.5",
       "ed25519-dalek@3.0.0",
       "ed25519@3.0.0",
       "either@1.19.0",
@@ -990,8 +1003,10 @@
       "fastrand@2.5.0",
       "fdeflate@0.3.7",
       "flate2@1.1.10",
+      "float-ord@0.3.2",
       "fnv@1.0.7",
       "foldhash@0.2.0",
+      "font-kit@0.14.3",
       "form_urlencoded@1.2.2",
       "futures-buffered@0.2.13",
       "futures-channel@0.3.34",
@@ -1051,6 +1066,7 @@
       "json-patch@4.2.0",
       "jsonptr@0.7.1",
       "keyboard-types@0.8.3",
+      "lazy_static@1.5.1",
       "libc@0.2.190",
       "libsqlite3-sys@0.38.2",
       "litemap@0.8.3",
@@ -1089,6 +1105,8 @@
       "parking@2.2.1",
       "parking_lot@0.12.5",
       "parking_lot_core@0.9.12",
+      "pathfinder_geometry@0.5.1",
+      "pathfinder_simd@0.5.6",
       "pem-rfc7468@1.0.0",
       "percent-encoding@2.3.2",
       "phf@0.13.1",
@@ -1216,6 +1234,7 @@
       "webview2-com@0.39.1",
       "widestring@1.2.1",
       "winapi-util@0.1.11",
+      "winapi@0.3.9",
       "window-vibrancy@0.8.1",
       "windows-collections@0.3.2",
       "windows-core@0.62.2",
@@ -1225,17 +1244,15 @@
       "windows-registry@0.6.1",
       "windows-result@0.4.1",
       "windows-strings@0.5.1",
-      "windows-sys@0.52.0",
       "windows-sys@0.60.2",
       "windows-sys@0.61.2",
-      "windows-targets@0.52.6",
       "windows-targets@0.53.5",
       "windows-threading@0.2.1",
       "windows-version@0.1.7",
       "windows@0.62.2",
-      "windows_x86_64_msvc@0.52.6",
       "windows_x86_64_msvc@0.53.1",
       "winnow@1.0.4",
+      "wio@0.2.2",
       "wmi@0.18.4",
       "writeable@0.6.4",
       "wry@0.57.0",
@@ -1619,6 +1636,7 @@
       "brotli@9.0.0",
       "bytemuck@1.25.2",
       "byteorder-lite@0.1.0",
+      "byteorder@1.5.0",
       "bytes@1.12.1",
       "cairo-rs@0.18.5",
       "cairo-sys-rs@0.18.2",
@@ -1665,7 +1683,9 @@
       "digest@0.10.7",
       "digest@0.11.3",
       "dirs-sys@0.5.0",
+      "dirs@6.0.0",
       "dirs@7.0.0",
+      "dlib@0.5.3",
       "dlopen2@0.8.2",
       "dom_query@0.28.0",
       "downcast-rs@1.2.1",
@@ -1673,6 +1693,7 @@
       "dtoa-short@0.3.5",
       "dtoa@1.0.11",
       "dunce@1.0.5",
+      "dwrote@0.11.5",
       "ed25519-dalek@3.0.0",
       "ed25519@3.0.0",
       "either@1.19.0",
@@ -1692,10 +1713,13 @@
       "filetime@0.2.29",
       "fixedbitset@0.5.7",
       "flate2@1.1.10",
+      "float-ord@0.3.2",
       "fnv@1.0.7",
       "foldhash@0.1.5",
       "foldhash@0.2.0",
+      "font-kit@0.14.3",
       "form_urlencoded@1.2.2",
+      "freetype-sys@0.20.1",
       "futures-buffered@0.2.13",
       "futures-channel@0.3.34",
       "futures-core@0.3.34",
@@ -1784,8 +1808,10 @@
       "json-patch@4.2.0",
       "jsonptr@0.7.1",
       "keyboard-types@0.8.3",
+      "lazy_static@1.5.1",
       "libc@0.2.190",
       "libdbus-sys@0.2.7",
+      "libloading@0.7.4",
       "libsqlite3-sys@0.38.2",
       "linux-raw-sys@0.12.1",
       "litemap@0.8.3",
@@ -1850,6 +1876,8 @@
       "parking@2.2.1",
       "parking_lot@0.12.5",
       "parking_lot_core@0.9.12",
+      "pathfinder_geometry@0.5.1",
+      "pathfinder_simd@0.5.6",
       "pem-rfc7468@1.0.0",
       "percent-encoding@2.3.2",
       "petgraph@0.8.3",
@@ -2012,6 +2040,7 @@
       "webview2-com@0.39.1",
       "widestring@1.2.1",
       "winapi-util@0.1.11",
+      "winapi@0.3.9",
       "window-vibrancy@0.8.1",
       "windows-collections@0.3.2",
       "windows-core@0.62.2",
@@ -2021,17 +2050,15 @@
       "windows-registry@0.6.1",
       "windows-result@0.4.1",
       "windows-strings@0.5.1",
-      "windows-sys@0.52.0",
       "windows-sys@0.60.2",
       "windows-sys@0.61.2",
-      "windows-targets@0.52.6",
       "windows-targets@0.53.5",
       "windows-threading@0.2.1",
       "windows-version@0.1.7",
       "windows@0.62.2",
-      "windows_x86_64_msvc@0.52.6",
       "windows_x86_64_msvc@0.53.1",
       "winnow@1.0.4",
+      "wio@0.2.2",
       "wl-clipboard-rs@0.9.4",
       "wmi@0.18.4",
       "writeable@0.6.4",
@@ -2043,6 +2070,7 @@
       "xattr@1.6.1",
       "xml-rs@0.8.29",
       "xmltree@0.10.3",
+      "yeslogic-fontconfig-sys@6.0.1",
       "yoke@0.8.3",
       "zbus@5.19.0",
       "zbus_names@4.3.4",
@@ -2780,6 +2808,27 @@
         }
       ]
     },
+    "byteorder@1.5.0": {
+      "license": "Unlicense OR MIT",
+      "authors": ["Andrew Gallant"],
+      "files": [
+        {
+          "name": "COPYING",
+          "hash": "01c266bced4a434da0051174d6bee16a4c82cf634e2679b6155d40d75012390f",
+          "source": "https://crates.io/api/v1/crates/byteorder/1.5.0/download"
+        },
+        {
+          "name": "LICENSE-MIT",
+          "hash": "0f96a83840e146e43c0ec96a22ec1f392e0680e6c1226e6f3ba87e0740af850f",
+          "source": "https://crates.io/api/v1/crates/byteorder/1.5.0/download"
+        },
+        {
+          "name": "UNLICENSE",
+          "hash": "7e12e5df4bae12cb21581ba157ced20e1986a0508dd10d0e8a4ab9a4cf94e85c",
+          "source": "https://crates.io/api/v1/crates/byteorder/1.5.0/download"
+        }
+      ]
+    },
     "bytes@1.12.1": {
       "license": "MIT",
       "authors": ["Carl Lerche", "Sean McArthur"],
@@ -3466,6 +3515,22 @@
         }
       ]
     },
+    "dirs@6.0.0": {
+      "license": "MIT OR Apache-2.0",
+      "authors": ["Simon Ochsenreither"],
+      "files": [
+        {
+          "name": "LICENSE-APACHE",
+          "hash": "d3174ad63e721d4c9dccb8ad4320848992d314369bc46319720b5802c9153fe9",
+          "source": "https://crates.io/api/v1/crates/dirs/6.0.0/download"
+        },
+        {
+          "name": "LICENSE-MIT",
+          "hash": "6a2e0ade09a7d5f816f11566fee2b151b32235a7fad52b41d49cce96f833c1a9",
+          "source": "https://crates.io/api/v1/crates/dirs/6.0.0/download"
+        }
+      ]
+    },
     "dirs@7.0.0": {
       "license": "MIT OR Apache-2.0",
       "authors": ["Simon Ochsenreither"],
@@ -3479,6 +3544,17 @@
           "name": "LICENSE-MIT",
           "hash": "6a2e0ade09a7d5f816f11566fee2b151b32235a7fad52b41d49cce96f833c1a9",
           "source": "https://crates.io/api/v1/crates/dirs/7.0.0/download"
+        }
+      ]
+    },
+    "dlib@0.5.3": {
+      "license": "MIT",
+      "authors": ["Elinor Berger"],
+      "files": [
+        {
+          "name": "LICENSE.txt",
+          "hash": "10e5daea68c3ab7da6468ea51860e9d4ac87ea6a9a2d34127beff17b7193b618",
+          "source": "https://crates.io/api/v1/crates/dlib/0.5.3/download"
         }
       ]
     },
@@ -3571,6 +3647,17 @@
           "name": "LICENSE",
           "hash": "a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499",
           "source": "https://crates.io/api/v1/crates/dunce/1.0.5/download"
+        }
+      ]
+    },
+    "dwrote@0.11.5": {
+      "license": "MPL-2.0",
+      "authors": ["The Servo Project Developers", "Vladimir Vukicevic"],
+      "files": [
+        {
+          "name": "clarification (MPL-2.0)",
+          "hash": "473022b1d50c577a336d866c717684583c657dce86d78d40764fae142504a4ca",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31846481de7ea17d92f2f46fad76abe58b2e9bb0/text/MPL-2.0.txt"
         }
       ]
     },
@@ -3863,6 +3950,22 @@
         }
       ]
     },
+    "float-ord@0.3.2": {
+      "license": "MIT / Apache-2.0",
+      "authors": ["Michael Howell"],
+      "files": [
+        {
+          "name": "LICENSE-APACHE",
+          "hash": "c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08",
+          "source": "https://crates.io/api/v1/crates/float-ord/0.3.2/download"
+        },
+        {
+          "name": "LICENSE-MIT",
+          "hash": "0a371b88c0f6a8766cddb6cd7b7dbe37c6645570888fb2b8619b16fd5983e884",
+          "source": "https://crates.io/api/v1/crates/float-ord/0.3.2/download"
+        }
+      ]
+    },
     "fnv@1.0.7": {
       "license": "Apache-2.0 / MIT",
       "authors": ["Alex Crichton"],
@@ -3901,6 +4004,22 @@
         }
       ]
     },
+    "font-kit@0.14.3": {
+      "license": "MIT OR Apache-2.0",
+      "authors": ["Patrick Walton"],
+      "files": [
+        {
+          "name": "LICENSE-APACHE",
+          "hash": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+          "source": "https://crates.io/api/v1/crates/font-kit/0.14.3/download"
+        },
+        {
+          "name": "LICENSE-MIT",
+          "hash": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+          "source": "https://crates.io/api/v1/crates/font-kit/0.14.3/download"
+        }
+      ]
+    },
     "form_urlencoded@1.2.2": {
       "license": "MIT OR Apache-2.0",
       "authors": ["The rust-url developers"],
@@ -3914,6 +4033,27 @@
           "name": "LICENSE-MIT",
           "hash": "20c7855c364d57ea4c97889a5e8d98470a9952dade37bd9248b9a54431670e5e",
           "source": "https://crates.io/api/v1/crates/form_urlencoded/1.2.2/download"
+        }
+      ]
+    },
+    "freetype-sys@0.20.1": {
+      "license": "MIT",
+      "authors": ["Coeuvre"],
+      "files": [
+        {
+          "name": "LICENSE",
+          "hash": "8911cb953a89daca54f0ab96616f5e447e2b1399fba7ec098872cfdacde5354b",
+          "source": "https://crates.io/api/v1/crates/freetype-sys/0.20.1/download"
+        },
+        {
+          "name": "freetype2/LICENSE.TXT",
+          "hash": "2e3bbb7d7c5c396368dd0853a790ec29ce5b8647163dde42a0493fb0d6556b2b",
+          "source": "https://crates.io/api/v1/crates/freetype-sys/0.20.1/download"
+        },
+        {
+          "name": "freetype2/docs/FTL.TXT",
+          "hash": "08c135755dd589039470f1fdbb400daaabaaa50d0b366d19cebff4d22986baa1",
+          "source": "https://crates.io/api/v1/crates/freetype-sys/0.20.1/download"
         }
       ]
     },
@@ -5250,6 +5390,17 @@
         }
       ]
     },
+    "libloading@0.7.4": {
+      "license": "ISC",
+      "authors": ["Simonas Kazlauskas"],
+      "files": [
+        {
+          "name": "LICENSE",
+          "hash": "b29f8b01452350c20dd1af16ef83b598fea3053578ccc1c7a0ef40e57be2620f",
+          "source": "https://crates.io/api/v1/crates/libloading/0.7.4/download"
+        }
+      ]
+    },
     "libloading@0.9.0": {
       "license": "ISC",
       "authors": ["Simonas Kazlauskas"],
@@ -6328,6 +6479,38 @@
           "name": "LICENSE-MIT",
           "hash": "c9a75f18b9ab2927829a208fc6aa2cf4e63b8420887ba29cdb265d6619ae82d5",
           "source": "https://crates.io/api/v1/crates/parking_lot_core/0.9.12/download"
+        }
+      ]
+    },
+    "pathfinder_geometry@0.5.1": {
+      "license": "MIT/Apache-2.0",
+      "authors": ["Patrick Walton"],
+      "files": [
+        {
+          "name": "LICENSE-MIT",
+          "hash": "0621878e61f0d0fda054bcbe02df75192c28bde1ecc8289cbd86aeba2dd72720",
+          "source": "https://raw.githubusercontent.com/servo/pathfinder/6c3c0466f451c5bd2007087728cd168798cd64e8/LICENSE-MIT"
+        },
+        {
+          "name": "LICENSE-APACHE",
+          "hash": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+          "source": "https://raw.githubusercontent.com/servo/pathfinder/6c3c0466f451c5bd2007087728cd168798cd64e8/LICENSE-APACHE"
+        }
+      ]
+    },
+    "pathfinder_simd@0.5.6": {
+      "license": "MIT OR Apache-2.0",
+      "authors": ["Patrick Walton"],
+      "files": [
+        {
+          "name": "LICENSE-MIT",
+          "hash": "0621878e61f0d0fda054bcbe02df75192c28bde1ecc8289cbd86aeba2dd72720",
+          "source": "https://raw.githubusercontent.com/servo/pathfinder/6c3c0466f451c5bd2007087728cd168798cd64e8/LICENSE-MIT"
+        },
+        {
+          "name": "LICENSE-APACHE",
+          "hash": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+          "source": "https://raw.githubusercontent.com/servo/pathfinder/6c3c0466f451c5bd2007087728cd168798cd64e8/LICENSE-APACHE"
         }
       ]
     },
@@ -8938,6 +9121,22 @@
         }
       ]
     },
+    "winapi@0.3.9": {
+      "license": "MIT/Apache-2.0",
+      "authors": ["Peter Atashian"],
+      "files": [
+        {
+          "name": "LICENSE-APACHE",
+          "hash": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1",
+          "source": "https://crates.io/api/v1/crates/winapi/0.3.9/download"
+        },
+        {
+          "name": "LICENSE-MIT",
+          "hash": "ce7bc3499fee93d5022ef430d5e4201e79a6d9154f3974e42f41349f0569e09b",
+          "source": "https://crates.io/api/v1/crates/winapi/0.3.9/download"
+        }
+      ]
+    },
     "window-vibrancy@0.8.1": {
       "license": "Apache-2.0 OR MIT",
       "authors": ["Tauri Programme within The Commons Conservancy"],
@@ -9087,22 +9286,6 @@
         }
       ]
     },
-    "windows-sys@0.52.0": {
-      "license": "MIT OR Apache-2.0",
-      "authors": ["Microsoft"],
-      "files": [
-        {
-          "name": "license-apache-2.0",
-          "hash": "c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b",
-          "source": "https://crates.io/api/v1/crates/windows-sys/0.52.0/download"
-        },
-        {
-          "name": "license-mit",
-          "hash": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383",
-          "source": "https://crates.io/api/v1/crates/windows-sys/0.52.0/download"
-        }
-      ]
-    },
     "windows-sys@0.60.2": {
       "license": "MIT OR Apache-2.0",
       "authors": ["Microsoft"],
@@ -9132,22 +9315,6 @@
           "name": "license-mit",
           "hash": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383",
           "source": "https://crates.io/api/v1/crates/windows-sys/0.61.2/download"
-        }
-      ]
-    },
-    "windows-targets@0.52.6": {
-      "license": "MIT OR Apache-2.0",
-      "authors": ["Microsoft"],
-      "files": [
-        {
-          "name": "license-apache-2.0",
-          "hash": "c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b",
-          "source": "https://crates.io/api/v1/crates/windows-targets/0.52.6/download"
-        },
-        {
-          "name": "license-mit",
-          "hash": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383",
-          "source": "https://crates.io/api/v1/crates/windows-targets/0.52.6/download"
         }
       ]
     },
@@ -9215,22 +9382,6 @@
         }
       ]
     },
-    "windows_x86_64_msvc@0.52.6": {
-      "license": "MIT OR Apache-2.0",
-      "authors": ["Microsoft"],
-      "files": [
-        {
-          "name": "license-apache-2.0",
-          "hash": "c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b",
-          "source": "https://crates.io/api/v1/crates/windows_x86_64_msvc/0.52.6/download"
-        },
-        {
-          "name": "license-mit",
-          "hash": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383",
-          "source": "https://crates.io/api/v1/crates/windows_x86_64_msvc/0.52.6/download"
-        }
-      ]
-    },
     "windows_x86_64_msvc@0.53.1": {
       "license": "MIT OR Apache-2.0",
       "authors": [],
@@ -9255,6 +9406,22 @@
           "name": "LICENSE-MIT",
           "hash": "cb5aedb296c5246d1f22e9099f925a65146f9f0d6b4eebba97fd27a6cdbbab2d",
           "source": "https://crates.io/api/v1/crates/winnow/1.0.4/download"
+        }
+      ]
+    },
+    "wio@0.2.2": {
+      "license": "MIT/Apache-2.0",
+      "authors": ["Peter Atashian"],
+      "files": [
+        {
+          "name": "LICENSE-APACHE",
+          "hash": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1",
+          "source": "https://crates.io/api/v1/crates/wio/0.2.2/download"
+        },
+        {
+          "name": "LICENSE-MIT",
+          "hash": "5b19674a1db628a475850a131956ed49521b744e3dda8f5a94141f9aba681219",
+          "source": "https://crates.io/api/v1/crates/wio/0.2.2/download"
         }
       ]
     },
@@ -9411,6 +9578,21 @@
           "name": "LICENSE",
           "hash": "8fca205ae3806d61379f2c91524275d85da99677ec3a4965351485470498238a",
           "source": "https://crates.io/api/v1/crates/xmltree/0.10.3/download"
+        }
+      ]
+    },
+    "yeslogic-fontconfig-sys@6.0.1": {
+      "license": "MIT",
+      "authors": [
+        "Austin Bonander",
+        "The Servo Project Developers",
+        "YesLogic Pty. Ltd."
+      ],
+      "files": [
+        {
+          "name": "LICENSE",
+          "hash": "2ae0635fa25509f3a5ac454f76ad21286a65714b460e55a581e457e07441bf14",
+          "source": "https://crates.io/api/v1/crates/yeslogic-fontconfig-sys/6.0.1/download"
         }
       ]
     },

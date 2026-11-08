@@ -54,7 +54,7 @@ worktreeを削除する時に流すコマンドは持たない。
 
 ## 子のworktreeを削除する
 
-親Agentが `finish` で残すか削除するかを指定する。削除できるのはioriがその子のために `new` で作ったworktreeだけで、既存のworktreeは残す。同じタスクの続きの子がioriの作ったworktreeを引き継ぐ時は、その所有も引き継ぐ。同じworktreeを別の子が使っている間も削除しない。ioriは自動では削除せず、Gitの取り込み判定を削除の条件にしない。未コミット・未追跡の変更がある時は、親が「変更ごと捨てる」を明示した時だけ削除し、子の会話へ残す。
+親Agentが `finish` で残すか削除するかを指定する。削除できるのはioriがその子のために `new` で作ったworktreeだけで、既存のworktreeは残す。同じタスクの続きの子がioriの作ったworktreeを引き継ぐ時は、その所有も引き継ぐ。同じworktreeを別の子が使っている間も削除しない。ioriは自動では削除せず、Gitの取り込み判定を削除の条件にしない。未コミット・未追跡の変更がある時は、親が「変更ごと捨てる」を明示した時だけ削除し、子の会話へ残す。そのworktreeで、子以外のTerminalがCLIを実行中か、シェルでコマンドを実行中の時は削除せず、親へ1行（`A Terminal opened in this worktree is still running. Use --worktree keep.`）で返す。プロンプトで待っているだけのTerminalは、サイドバーからの削除と同じく閉じてから削除する。
 
 `.gitignore` で除外されたファイル（依存やbuildの出力）はGitと同じくworktreeと一緒に削除される。
 

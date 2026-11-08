@@ -83,7 +83,10 @@ export function Toast({
           variant="ghost"
           size="icon-sm"
           aria-label={t("Close")}
-          onClick={() => notices.dismiss(notice.key)}
+          onClick={() => {
+            notices.dismiss(notice.key);
+            notice.onClose?.();
+          }}
         >
           <X />
         </Button>

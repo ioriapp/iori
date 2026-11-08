@@ -1,3 +1,4 @@
+import { terminalFontFamily } from "./terminal-font-family.ts";
 import {
   terminalPathLinks,
   tapTerminalLink,
@@ -119,6 +120,7 @@ type Props = {
   /** The key band; it comes from this device's Client settings. */
   accessoryLayout: TerminalAccessoryLayout;
   fontSize: number;
+  fontFamily: string;
   onFontSize: (size: number, save: boolean) => void;
   rightClick: "menu" | "copyPaste";
   linkOpen: TerminalLinkOpen;
@@ -297,6 +299,7 @@ export function TerminalPane({
   onOpenClaimConsumed,
   accessoryLayout,
   fontSize,
+  fontFamily,
   onFontSize,
   rightClick,
   linkOpen,
@@ -306,6 +309,7 @@ export function TerminalPane({
 }: Props) {
   const openFileRef = useRef(onOpenFile);
   openFileRef.current = onOpenFile;
+  const refreshFontRef = useRef<(() => void) | undefined>(undefined);
   const fontSizeRef = useRef(fontSize);
   fontSizeRef.current = fontSize;
   const onFontSizeRef = useRef(onFontSize);
@@ -1088,8 +1092,7 @@ export function TerminalPane({
       convertEol: false,
       cursorBlink: true,
       cursorStyle: "block",
-      fontFamily:
-        '"JetBrains Mono Variable", "BIZ UDGothic", "Noto Sans Mono CJK JP", "Noto Sans CJK JP", "Noto Sans JP Variable", monospace',
+      fontFamily: terminalFontFamily(fontFamily),
       fontSize,
       lineHeight: 1.25,
       scrollback: MAX_TERMINAL_SNAPSHOT_LINES,
@@ -1157,8 +1160,16 @@ export function TerminalPane({
     // A lost WebGL context (an app sent to the background, too many contexts)
     // falls back to xterm's DOM renderer instead of leaving a frozen screen.
     const webgl = new WebglAddon();
-    webgl.onContextLoss(() => webgl.dispose());
+    let webglActive = true;
+    webgl.onContextLoss(() => {
+      webglActive = false;
+      webgl.dispose();
+    });
     terminal.loadAddon(webgl);
+    refreshFontRef.current = () => {
+      if (webglActive) webgl.clearTextureAtlas();
+      terminal.refresh(0, terminal.rows - 1);
+    };
     activateOrcaTerminalUnicodeProvider(terminal as never);
     const imeHandler = installTerminalImeCandidateAnchor(terminal);
     terminalRef.current = terminal;
@@ -1374,6 +1385,7 @@ export function TerminalPane({
     fitTerminal();
 
     return () => {
+      refreshFontRef.current = undefined;
       setMounted(false);
       clearTimeout(fitTimerRef.current);
       for (const resolve of fitWaitersRef.current) resolve(false);
@@ -1423,8 +1435,23 @@ export function TerminalPane({
     const terminal = terminalRef.current;
     if (!terminal) return;
     terminal.options.fontSize = fontSize;
+    const family = terminalFontFamily(fontFamily);
+    terminal.options.fontFamily = family;
     fitTerminal();
-  }, [fontSize, fitTerminal]);
+    let active = true;
+    // Rebuild fallback glyphs and measure again once the selected fonts load.
+    void document.fonts.load(`${fontSize}px ${family}`, "Mあ\uf418").then(
+      () => {
+        if (!active) return;
+        refreshFontRef.current?.();
+        fitTerminal();
+      },
+      () => undefined,
+    );
+    return () => {
+      active = false;
+    };
+  }, [fontSize, fontFamily, fitTerminal]);
 
   useEffect(() => {
     const terminal = terminalRef.current;

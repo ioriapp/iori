@@ -1,5 +1,5 @@
 import { current, stateId } from "./runtime.ts";
-import { host, version } from "./fixtures.ts";
+import { host, version, terminalFontNames } from "./fixtures.ts";
 
 const previewHost = stateId.startsWith("token-")
   ? {
@@ -28,11 +28,13 @@ const snapshot = {
 };
 export const connection = {
   subscribe: () => () => {},
+  subscribeHostEvents: () => () => {},
+  requestHost: async () => ({ ok: true, result: { folders: [] } }),
   getSnapshot: () => snapshot,
   connectionIdOf: () => "ui-state",
 };
 // どのボタンを押してもnativeやHostへは接続しない。処理の遷移は扱わない。
-export const native = {};
+export const native = { fontFamilies: async () => terminalFontNames };
 export const hasWindowChrome = false;
 export const clientVersion = version;
 export const hostReleaseNotes = "";

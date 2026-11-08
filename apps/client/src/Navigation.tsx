@@ -92,7 +92,7 @@ type Props = {
   hosts: HostInfo[];
   onReorderHosts: (keys: string[]) => void;
   collapsedKeys?: string[];
-  onCollapsedChange: (keys: string[]) => void;
+  onCollapsedChange: (keys: string[], automatic?: boolean) => void;
   loadedHistoryHosts: string[];
   onReorderFolders: (hostKey: string, paths: string[]) => void;
   observedHosts: Record<string, HostInfo>;
@@ -414,9 +414,21 @@ export function Navigation({
         !loadedHistoryHosts.includes(host.publicKey)
       )
         return true;
+      if (
+        folders.some(
+          ({ host: folderHost, folder }) =>
+            folderHost.publicKey === host.publicKey &&
+            folder.kind === "git" &&
+            folder.worktrees === undefined &&
+            id.startsWith(
+              `worktree:${host.publicKey}:${folder.workspacePath}:`,
+            ),
+        )
+      )
+        return true;
       return existing.has(id);
     });
-    if (next.length !== collapsedKeys.length) onCollapsedChange(next);
+    if (next.length !== collapsedKeys.length) onCollapsedChange(next, true);
   }, [
     collapsedKeys,
     hosts,

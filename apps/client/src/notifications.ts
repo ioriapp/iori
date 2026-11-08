@@ -15,6 +15,7 @@ import {
   notificationText,
 } from "@iori/protocol";
 import { basename } from "./workspace-panel.tsx";
+import { isLiveChildUpdate } from "./teams/children.ts";
 
 // Based on Orca notification-options.ts; Copyright (c) 2026 Lovecast Inc.
 // MIT license: ../../host/src/cli/ORCA-LICENSE.txt.
@@ -152,7 +153,7 @@ export function useCliNotifications(
         handled.current.set(key, "candidate");
         changed = true;
         if (
-          childSeed ||
+          (childSeed && !isLiveChildUpdate(children!, child.id)) ||
           !preferences.notifyWaiting ||
           child.state !== "waiting" ||
           child.waiting !== "candidates"

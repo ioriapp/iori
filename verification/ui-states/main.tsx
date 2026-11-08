@@ -1,3 +1,9 @@
+import {
+  SettingsDialog as ProductSettings,
+  type Preferences,
+} from "../../apps/client/src/Settings.tsx";
+import { connection } from "../../apps/client/src/connection.ts";
+import { getDefaultTerminalAccessoryLayout } from "../../apps/client/src/terminal/terminal-accessory-layout.ts";
 import { IntegrationsSettings } from "../../apps/client/src/IntegrationsSettings.tsx";
 import { ClientInitialization } from "../../apps/client/src/ClientInitialization.tsx";
 import { useState } from "react";
@@ -110,6 +116,63 @@ function Version() {
     />
   );
 }
+function TerminalFontSettingsPreview() {
+  const [preferences, setPreferences] = useState<Preferences>({
+    notifyWaiting: true,
+    notifyDone: true,
+    backgroundConnection: false,
+    notificationPrompted: true,
+    closeToExit: false,
+    language: "ja",
+    theme: theme,
+    fontSize: 16,
+    terminalFontSize: 14,
+    terminalFontFamily:
+      stateId === "terminal-font-saved" ? "FiraCode Nerd Font" : "",
+    terminalRightClick: "menu",
+    terminalLinkOpen: "click",
+    doubleClickMaximize: true,
+    panelWidths: {},
+    panelFullWidth: {},
+  });
+  return (
+    <ProductSettings
+      open
+      section="display"
+      initialDetail
+      state={{
+        ...connection.getSnapshot(),
+        initial: {
+          ...connection.getSnapshot().initial,
+          mobile: matchMedia("(max-width:767px)").matches,
+        },
+      }}
+      preferences={preferences}
+      onPreferencesChange={async (change) => {
+        if (stateId === "terminal-font-error") return false;
+        setPreferences((current) => ({ ...current, ...change }));
+        return true;
+      }}
+      onRetryPreferences={noop}
+      language="ja"
+      t={t}
+      onOpenChange={noop}
+      onCloseHandler={noop}
+      onSectionChange={noop}
+      onRepositoryChange={noop}
+      onOpenTerminal={noop}
+      onRegisterNewHost={noop}
+      onNestedBack={noop}
+      disconnectedSeconds={0}
+      accessoryLayout={getDefaultTerminalAccessoryLayout()}
+      onDefaultShellChange={noop}
+      onNotificationPermission={noop}
+      uninstallActions={actions}
+      onUninstallClose={noop}
+    />
+  );
+}
+
 function SettingsBackdrop() {
   const setup = stateId.startsWith("A");
   const name = setup ? "office-win" : "build-linux";
@@ -289,6 +352,8 @@ function Frame() {
             stateId === "B5-last" ? (
               <Onboarding />
             ) : null
+          ) : current.kind === "terminal-font" ? (
+            <TerminalFontSettingsPreview />
           ) : (
             <SettingsBackdrop />
           )}

@@ -40,6 +40,7 @@ import {
   editDefinitionIcon,
 } from "./cli-definition-icons.mjs";
 import { definitionPictures } from "./cli-definition-capture.mjs";
+import { childInitialInputScenario } from "./child-initial-input.mjs";
 
 const cliId = "claude-definition";
 const model = "claude-haiku-4-5";
@@ -921,6 +922,14 @@ export async function cliDefinitionScenario({
   await record(
     "定義のCLIをチームの子としてモデルを指定して起動し、指示のファイル・フォルダー・最初の指示を引数で渡して報告まで進む",
   );
+  await childInitialInputScenario({
+    client,
+    teamId: saved.id,
+    definition: saved,
+    parentId,
+    parentCommand: (args) => teamCommand(parentId, args),
+    record,
+  });
 
   await screen.click(`[data-iori-tab-id="terminal:${id}"]`);
   await restartHostLosingTerminals({ terminalId: id });
