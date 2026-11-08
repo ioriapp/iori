@@ -6,7 +6,7 @@ import {
 import { ModelCommandError } from "./models.ts";
 import { hookInstallContext } from "./hook-install.ts";
 import type { CliHooks } from "./hooks.ts";
-import { readFile, stat } from "node:fs/promises";
+import { readFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import {
   DefinitionUploads,
@@ -605,6 +605,20 @@ export class CliRegistry {
         JSON.stringify(value, null, 2) + "\n",
         files,
       );
+      const retained = new Set(
+        attachedFiles({ ...info.file, icon: value.icon }),
+      );
+      for (const old of [info.file.icon?.light, info.file.icon?.dark]) {
+        if (
+          old &&
+          /^icon-[a-f0-9]{64}\.(?:svg|png)$/u.test(old) &&
+          !retained.has(old)
+        )
+          await rm(
+            join(this.#definitionsRoot!, "cli-definitions", params.cliId, old),
+            { force: true },
+          );
+      }
       if (params.image)
         await this.#uploads!.discard(context.clientPublicKey, [
           params.image.uploadId,
@@ -915,7 +929,12 @@ export class CliRegistry {
         ? teamStartupArguments(
             savedArguments,
             shell,
-            managedTeamArguments ?? [],
+            // Without a role, a repeatable option has no team value to protect.
+            team
+              ? (managedTeamArguments ?? [])
+              : (managedTeamArguments ?? []).filter(
+                  (option) => option.arity !== "many",
+                ),
             args,
           )
         : savedArguments;

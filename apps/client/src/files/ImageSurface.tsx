@@ -106,19 +106,25 @@ export function ImageSurface({
   return (
     <div className="reading-image-surface">
       {error && (
-        <ReadingError retryLabel={ja ? "再試行" : "Retry"} onRetry={retry}>
+        <ReadingError
+          centered={!url}
+          retryLabel={ja ? "再試行" : "Retry"}
+          onRetry={retry}
+        >
           {error}
         </ReadingError>
       )}
-      <ImageViewport
-        image={{
-          url,
-          path: info.path,
-          mimeType: info.mimeType,
-          sizeBytes: info.sizeBytes,
-        }}
-        locale={locale}
-      />
+      {(!error || url) && (
+        <ImageViewport
+          image={{
+            url,
+            path: info.path,
+            mimeType: info.mimeType,
+            sizeBytes: info.sizeBytes,
+          }}
+          locale={locale}
+        />
+      )}
     </div>
   );
 }

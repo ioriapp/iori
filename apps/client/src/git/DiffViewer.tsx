@@ -197,15 +197,15 @@ export function DiffViewer({
           ))}
         </div>
       )}
-      {!document.revision && Boolean(document.error) && (
+      {!document.revision && document.error ? (
         <ReadingError
+          centered
           retryLabel={ja ? "再試行" : "Retry"}
           onRetry={() => document.retry()}
         >
           {readErrorCopy(document.error, locale)}
         </ReadingError>
-      )}
-      {isImage || (probingImage && !singleImage) ? (
+      ) : isImage || (probingImage && !singleImage) ? (
         <GitImageDiff
           images={images}
           active={active}

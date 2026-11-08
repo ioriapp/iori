@@ -644,10 +644,18 @@ export class AutomationManager {
                 },
               );
         if (result.ok) run.terminalId = result.result.terminal.id;
-        else
-          run.launchError = run.issue
-            ? "Could not start the agent for this issue. Remove the label and add it again."
-            : "Could not start the agent. Edit the automation and run again.";
+        else {
+          const team =
+            automation.target.kind === "team"
+              ? this.store.readTeam(automation.target.teamId)?.saved
+              : undefined;
+          run.launchError =
+            team && !team.parent.cli
+              ? "This team has no parent CLI. Edit the team and choose one."
+              : run.issue
+                ? "Could not start the agent for this issue. Remove the label and add it again."
+                : "Could not start the agent. Edit the automation and run again.";
+        }
       }
     } catch {
       // A lost launch response does not prove that the CLI failed to start.

@@ -301,7 +301,7 @@ export class TeamManager {
       );
     terminals.onCliInput = (id) => {
       const child = manager.#terminalChildren.get(id);
-      if (child) {
+      if (child && (!child.userInput || child.parentResponse !== undefined)) {
         delete child.parentResponse;
         child.userInput = true;
         manager.#saveChild(child);

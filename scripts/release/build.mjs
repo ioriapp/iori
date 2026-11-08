@@ -23,6 +23,12 @@ await command(process.execPath, [
   "--head",
 ]);
 await command(process.execPath, ["scripts/licenses/check.mjs", "--head"]);
+// Publishing rejects these files too; find out before an 11-minute build.
+await command(process.execPath, [
+  "scripts/publish/snapshot.mjs",
+  JSON.parse(await readFile("release-version.json", "utf8")).version,
+  "--dry-run",
+]);
 // Reject unknown names before creating or removing any build output.
 const scenarios = releaseScenarios(process.argv.slice(2));
 let androidDevice;
@@ -58,6 +64,7 @@ try {
     CI: "true",
     npm_config_store_dir: store,
     pnpm_config_store_dir: store,
+    IORI_APPIMAGE_PREVIOUS_RELEASES: path.join(root, ".local/release"),
   };
   const platformAssets = {
     linux: ["iori-host-linux-x64.tar.gz", "install.sh"],

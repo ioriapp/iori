@@ -1,3 +1,4 @@
+import { newWorktreeLayout } from "./new-worktree-layout.mjs";
 import { sidebarWidth } from "./sidebar-width.mjs";
 import { terminalFit } from "./terminal-fit.mjs";
 import { terminalSend } from "./terminal-send.mjs";
@@ -108,6 +109,7 @@ export async function webScenario({
   updates,
   notificationHook,
   notificationCommand,
+  childListFault,
   notificationBeforeChildrenSnapshot,
   notificationPids,
   notificationSourceFault,
@@ -187,6 +189,8 @@ export async function webScenario({
       opencodeOnly: only === "opencode-delegation",
     });
   }
+  if (only === "new-worktree-layout")
+    return newWorktreeLayout({ client, repository, shot, record });
   if (only === "git-image-diff")
     return gitImageDiff({
       client,
@@ -415,7 +419,24 @@ export async function webScenario({
     "Hostの行の歯車でそのHostの設定の接続を開き、PCにホームは出さない",
   );
   if (only === "web-workspace" || only === "host-forget") {
-    if (only === "host-forget") await mobile();
+    if (only === "host-forget") {
+      await mobile();
+      await openSidebar(screen);
+      await screen.click(action("settings-open"));
+      await screen.click(action("open-connection"));
+      await screen.click(action("host-forget"));
+      await screen.wait('[data-iori-view="host-forget-confirmation"]');
+      await screen.key("Alt+ArrowLeft");
+      assert.equal(
+        await screen.visible('[data-iori-view="host-forget-confirmation"]'),
+        false,
+      );
+      assert.equal(await screen.visible(action("host-forget")), true);
+      await screen.click(action("settings-close"));
+      await record(
+        "端末の戻る操作でHost削除の確認だけを閉じ、接続の詳細を保つ",
+      );
+    }
     await forgetHostFromSettings(screen, { record, shot });
     await openFolder(screen, repository, false);
     await observe(
@@ -548,6 +569,7 @@ export async function webScenario({
       repository,
       notificationHook,
       notificationCommand,
+      childListFault,
       notificationBeforeChildrenSnapshot,
       notificationSourceFault,
       childDisplayFixture,

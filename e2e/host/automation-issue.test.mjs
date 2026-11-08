@@ -58,6 +58,46 @@ test("他の人が付けたIssueのlabelでは自動化を始めない", (t) =>
     );
   }));
 
+test("Issueから親CLIが未設定のチームを実行すると設定の案内を残す", (t) =>
+  runHostTest(t, async ({ client, dataRoot, restart }) => {
+    const { forge, automation } = await setup(t, client, dataRoot);
+    const team = await client.request("teams.create", {
+      template: "development",
+      language: "ja",
+    });
+    await client.request("teams.settings", {
+      enabled: true,
+      defaultTeam: team.saved.id,
+      limits: {},
+    });
+    await client.request("automation.save", {
+      id: automation.id,
+      definition: {
+        ...automation,
+        target: { kind: "team", teamId: team.saved.id },
+      },
+    });
+    forge.state.marks = [{ number: 1, login: "owner", at: Date.now() }];
+    client = await restart();
+    const events = await client.events();
+    await events.waitFor((event) => event.type === "snapshot");
+    for (;;) {
+      const seen = events.values.length;
+      const { runs } = await client.request("automation.history", {
+        id: automation.id,
+      });
+      if (runs[0]?.launchError) {
+        assert.equal(
+          runs[0].launchError,
+          "This team has no parent CLI. Edit the team and choose one.",
+        );
+        assert.equal(runs[0].terminalId, undefined);
+        break;
+      }
+      await events.waitFor(() => events.values.length > seen);
+    }
+  }));
+
 test("自分のIssueのlabelからworktreeで指示を渡し、前の作業が終わってから次を始める", (t) =>
   runHostTest(t, async ({ client, dataRoot, restart, stage }) => {
     const { forge, automation } = await setup(t, client, dataRoot);

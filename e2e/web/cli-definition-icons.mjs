@@ -116,6 +116,27 @@ export async function editDefinitionIcon({ screen, id, pictures, record }) {
     );
     await assertIcon(screen, row, light);
   }
+  // An upload transport failure must not be described as a bad image.
+  await screen.evaluate(`(async()=>{
+    const {connection}=await import('/src/connection.ts');
+    const original=connection.requestHost;
+    window.__restoreIconUpload=()=>{connection.requestHost=original;};
+    connection.requestHost=(...args)=>args[1]==='cli.definition.file.write'
+      ? Promise.reject(new Error('upload failed')) : original.apply(connection,args);
+  })()`);
+  try {
+    await chooseFiles(screen, `${row} [data-iori-field="cli-icon-image"]`, [
+      { name: "light.png", bytes: light, type: "image/png" },
+    ]);
+    await waitFor(
+      () => screen.text(`${row} .cli-def-icon-row [role="alert"]`),
+      (text) => text === "Hostで処理できませんでした。もう一度お試しください。",
+    );
+  } finally {
+    await screen.evaluate(
+      "window.__restoreIconUpload();delete window.__restoreIconUpload",
+    );
+  }
   await screen.click(`${row} [data-iori-action="cli-icon-reset"]`);
   await waitFor(() =>
     screen.evaluate(

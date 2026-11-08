@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import type { ComponentProps, KeyboardEvent, ReactNode } from "react";
 import { Button } from "./ui/button.tsx";
 import "./page-layout.css";
@@ -186,8 +187,13 @@ export function SectionSave({
   onSave: () => void;
   children?: ReactNode;
 }) {
+  const row = useRef<HTMLDivElement>(null);
+  // Saving with Enter from a field can leave the result below the fold.
+  useEffect(() => {
+    if (message) row.current?.scrollIntoView({ block: "nearest" });
+  }, [message]);
   return (
-    <div className="section-save">
+    <div className="section-save" ref={row}>
       <SaveResult message={message} error={error} state={state} />
       <Button
         type="button"

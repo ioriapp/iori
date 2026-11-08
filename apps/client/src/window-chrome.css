@@ -1,5 +1,5 @@
 /* Windows caption buttons use 46 × 32 logical pixels. Keep the existing
-   35px tab row; no extra title bar is added to the workspace. */
+   35px tab row and extend the caption background to its lower edge. */
 :root {
   --window-caption-height: 35px;
 }
@@ -12,7 +12,7 @@ body:has(.has-window-chrome) {
   position: fixed;
   top: 0;
   right: 0;
-  height: 32px;
+  height: var(--window-caption-height);
   display: flex;
   z-index: 100;
   background: var(--sidebar);
@@ -20,7 +20,7 @@ body:has(.has-window-chrome) {
 }
 .window-controls [data-slot="button"] {
   width: 46px;
-  height: 100%;
+  height: 32px;
   padding: 0;
   border: 0;
   border-radius: 0;

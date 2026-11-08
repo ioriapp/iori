@@ -10,6 +10,12 @@ import { connection } from "../connection.ts";
 // The visible list merges the snapshot with events that arrived while it was
 // loading. Keep their identities separately for the initial notification seed.
 const liveUpdates = new WeakMap<ChildSummary[], Set<string>>();
+const partialLists = new WeakSet<ChildSummary[]>();
+/** Some conversation has not delivered its first list, so a child found in
+ * this list may be old rather than new. */
+export function isPartialChildList(children: ChildSummary[]) {
+  return partialLists.has(children);
+}
 export function isLiveChildUpdate(children: ChildSummary[], id: string) {
   return liveUpdates.get(children)?.has(id) ?? false;
 }
@@ -47,8 +53,8 @@ export function useTeamChildren(
     const show = (host: string) => {
       const scope = scopes.find((scope) => scope.host === host)!;
       const stored = snapshots.get(host);
-      if (!scope.known || scope.conversations.some((id) => !stored?.has(id)))
-        return;
+      const partial =
+        !scope.known || scope.conversations.some((id) => !stored?.has(id));
       const children = new Map(
         (stored ? [...stored.values()].flat() : []).map((child) => [
           child.id,
@@ -72,6 +78,7 @@ export function useTeamChildren(
             ...(updates.get(host)?.keys() ?? []),
           ]),
         );
+        if (partial) partialLists.add(list);
         return { ...current, [host]: list };
       });
     };

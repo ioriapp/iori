@@ -340,7 +340,6 @@ export async function worktreeCreate({
     '[data-iori-field="worktree-setup-command"]',
     setupCommand,
   );
-  await screen.click('[data-iori-action="worktree-create"]');
   const waitForClaude = async (terminal) => {
     const tail = `window.__terminalObservation.tails[document.querySelector('[data-iori-terminal-id="${terminal.id}"]').getAttribute('data-iori-stream-id')]??''`;
     await answerClaudeStartup(client, terminal.id, async () => {
@@ -351,7 +350,45 @@ export async function worktreeCreate({
       );
     });
   };
-  await waitForClaude(await started(`${repository}-team-tabs`, true));
+  // Let the sidebar learn about the new worktree before launch returns, while
+  // retaining any folders.open response until navigation has been checked.
+  await screen.evaluate(`(async()=>{
+    const {connection}=await import('/src/connection.ts');
+    const original=connection.requestHost;
+    window.__restoreWorktreeNavigation=()=>{
+      connection.requestHost=original;
+      window.__releaseWorktreeLaunch?.();
+      window.__releaseWorktreeFolder?.();
+    };
+    connection.requestHost=async (...args)=>{
+      const response=await original(...args);
+      if(args[1]==='team.launch'){
+        window.__heldWorktreeLaunch=true;
+        await new Promise(resolve=>window.__releaseWorktreeLaunch=resolve);
+      }
+      if(args[1]==='folders.open' && response?.ok)
+        await new Promise(resolve=>window.__releaseWorktreeFolder=resolve);
+      return response;
+    };
+  })()`);
+  try {
+    await screen.click('[data-iori-action="worktree-create"]');
+    const teamPath = `${repository}-team-tabs`;
+    await screen.wait(
+      `button[data-iori-worktree-path=${JSON.stringify(teamPath)}]`,
+    );
+    await waitFor(() =>
+      screen.evaluate("Boolean(window.__heldWorktreeLaunch)"),
+    );
+    await screen.evaluate("window.__releaseWorktreeLaunch()");
+    const terminal = await started(teamPath, true);
+    await screen.wait(
+      `button[data-iori-worktree-path=${JSON.stringify(teamPath)}][aria-current="page"]`,
+    );
+    await waitForClaude(terminal);
+  } finally {
+    await screen.evaluate("window.__restoreWorktreeNavigation()");
+  }
   await record(
     "PCの作成フォームで選んだCLI・チームが始めるを置き換え、Files・GitとチームのBoardは見ていないタブで残り、同じ会話で続く",
   );

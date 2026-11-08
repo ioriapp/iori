@@ -210,6 +210,8 @@ const diagnostics = [];
 let listRequests = 0;
 let eventFault;
 let childrenUnavailable = false;
+let failedChildConversation;
+const childListRequests = [];
 let childDisplayBoard;
 let childDisplayChild;
 let childDisplayTerminal;
@@ -798,7 +800,18 @@ input.on('line',async line=>{if(!line.startsWith('DELEGATE'))return;const option
           );
       }
     },
-    onRequest: (method) => {
+    onRequest: (method, params) => {
+      if (method === "teams.children") {
+        const failed =
+          !!failedChildConversation &&
+          params?.conversation === failedChildConversation;
+        childListRequests.push({ conversation: params?.conversation, failed });
+        if (failed)
+          return JSON.stringify({
+            ok: false,
+            error: { code: "internal_error" },
+          });
+      }
       if (method === "files.list") listRequests++;
       if (method === "teams.board" && childDisplayBoard)
         return JSON.stringify({ ok: true, result: childDisplayBoard });
@@ -1283,6 +1296,16 @@ input.on('line',async line=>{if(!line.startsWith('DELEGATE'))return;const option
           }
         : undefined,
     notificationCommand: `${process.execPath} ${notificationParent}`,
+    childListFault: {
+      requests: childListRequests,
+      fail: (conversation) => {
+        failedChildConversation = conversation;
+      },
+      reload: async () => {
+        await page.reload();
+        await client.screen.wait('[data-iori-state="connected"]');
+      },
+    },
     notificationBeforeChildrenSnapshot: async (terminalId) => {
       await page.evaluate(async () => {
         const { native } = await import("/src/native.ts");

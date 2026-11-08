@@ -582,6 +582,69 @@ export async function teamsScenario({
     await screen.visible(`${piRow} .team-agent-settings [role="alert"]`),
     false,
   );
+  const piArguments = `${piRow} [data-iori-field="cli-arguments"]`;
+  for (const failedMethod of ["cli.arguments.set", "teams.settings"]) {
+    const argument = `--model "openai/gpt-6-luna" --${failedMethod === "teams.settings" ? "second" : "first"}`;
+    const limit = failedMethod === "teams.settings" ? "4" : "3";
+    await screen.input(piArguments, argument);
+    await screen.input(modelLimit, limit);
+    await screen.evaluate(`(async()=>{
+      const {connection}=await import('/src/connection.ts');
+      const original=connection.requestHost;
+      let fail=true;
+      window.__restorePartialSave=()=>{connection.requestHost=original;};
+      connection.requestHost=(...args)=>{
+        if(args[1]===${JSON.stringify(failedMethod)} && fail){fail=false;return Promise.reject(new Error('save failed'));}
+        return original.apply(connection,args);
+      };
+    })()`);
+    try {
+      await screen.click(`${piRow} [data-iori-action="save-cli-settings"]`);
+      await screen.wait(`${piRow} .team-agent-settings [role="alert"]`);
+      assert.equal(await screen.value(piArguments), argument);
+      assert.equal(await screen.value(modelLimit), limit);
+      await screen.click(`${piRow} [data-iori-action="save-cli-settings"]`);
+      await screen.wait(
+        `${piRow} .team-agent-settings [data-iori-state="saved"]`,
+      );
+      assert.equal(await screen.value(piArguments), argument);
+      assert.equal(await screen.value(modelLimit), limit);
+    } finally {
+      await screen.evaluate(
+        "window.__restorePartialSave();delete window.__restorePartialSave",
+      );
+    }
+  }
+  await screen.input(piArguments, '--model "openai/gpt-6-luna"');
+  await screen.input(modelLimit, "2");
+  await screen.click(`${piRow} [data-iori-action="save-cli-settings"]`);
+  await screen.wait(`${piRow} .team-agent-settings [data-iori-state="saved"]`);
+  await record(
+    "CLIの引数と上限のどちらかの保存が失敗しても両方の入力を保ち、再試行する",
+  );
+  await screen.input(modelLimit, "3");
+  await screen.evaluate(`(async()=>{
+    const {connection}=await import('/src/connection.ts');
+    const original=connection.requestHost;
+    let fail=true;
+    window.__restoreTeamSettings=()=>{connection.requestHost=original;};
+    connection.requestHost=(...args)=>{
+      if(args[1]==='teams.settings' && fail){fail=false;return Promise.reject(new Error('save failed'));}
+      return original.apply(connection,args);
+    };
+  })()`);
+  await screen.click(`${piRow} [data-iori-action="save-cli-settings"]`);
+  await screen.wait(`${piRow} .team-agent-settings [role="alert"]`);
+  assert.equal(await screen.value(modelLimit), "3");
+  await screen.click(`${piRow} [data-iori-action="save-cli-settings"]`);
+  await screen.wait(`${piRow} .team-agent-settings [data-iori-state="saved"]`);
+  await screen.evaluate(
+    "window.__restoreTeamSettings();delete window.__restoreTeamSettings",
+  );
+  await screen.input(modelLimit, "2");
+  await screen.click(`${piRow} [data-iori-action="save-cli-settings"]`);
+  await screen.wait(`${piRow} .team-agent-settings [data-iori-state="saved"]`);
+  await record("CLIの上限の保存が失敗しても入力を保ち、同じ保存で再試行する");
   await restartHostLosingTerminals();
   await record(
     "チームの作成、モデル検索・優先順・上限、保存・履歴・メモ・復元とHost設定の保存",

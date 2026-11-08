@@ -15,7 +15,7 @@ import {
   notificationText,
 } from "@iori/protocol";
 import { basename } from "./workspace-panel.tsx";
-import { isLiveChildUpdate } from "./teams/children.ts";
+import { isLiveChildUpdate, isPartialChildList } from "./teams/children.ts";
 
 // Based on Orca notification-options.ts; Copyright (c) 2026 Lovecast Inc.
 // MIT license: ../../host/src/cli/ORCA-LICENSE.txt.
@@ -47,6 +47,7 @@ export function useCliNotifications(
 ) {
   const handled = useRef(new Map<string, string>());
   const firstChildren = useRef(new Set<string>());
+  const seedingChildren = useRef(new Set<string>());
   const firstLists = useRef(new Set<string>());
   const [loaded, setLoaded] = useState(false);
   const [targets, setTargets] = useState<CliNotificationTarget[]>([]);
@@ -124,11 +125,23 @@ export function useCliNotifications(
       firstLists.current.add(host.publicKey);
       const childPrefix =
         JSON.stringify([host.publicKey, "child"]).slice(0, -1) + ",";
-      const childSeed =
+      if (
         children !== undefined &&
-        !firstChildren.current.has(host.publicKey) &&
-        ![...handled.current.keys()].some((key) => key.startsWith(childPrefix));
-      if (children !== undefined) firstChildren.current.add(host.publicKey);
+        !firstChildren.current.has(host.publicKey)
+      ) {
+        firstChildren.current.add(host.publicKey);
+        if (
+          ![...handled.current.keys()].some((key) =>
+            key.startsWith(childPrefix),
+          )
+        )
+          seedingChildren.current.add(host.publicKey);
+      }
+      // The first list of each conversation may arrive separately; children
+      // already there stay quiet until every conversation has reported.
+      const childSeed = seedingChildren.current.has(host.publicKey);
+      if (children !== undefined && !isPartialChildList(children))
+        seedingChildren.current.delete(host.publicKey);
       const live = new Set([
         ...list.terminals.map((terminal) =>
           JSON.stringify([host.publicKey, terminal.id]),

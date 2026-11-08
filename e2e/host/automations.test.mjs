@@ -137,6 +137,34 @@ test("存在しないフォルダーの起動失敗を履歴へ残し、編集�
     );
   }));
 
+test("親CLIが未設定のチームを実行すると設定の案内を履歴に残す", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    const team = await client.request("teams.create", {
+      template: "development",
+      language: "ja",
+    });
+    await client.request("teams.settings", {
+      enabled: true,
+      defaultTeam: team.saved.id,
+      limits: {},
+    });
+    const { automation } = await save(client, dataRoot, {
+      target: { kind: "team", teamId: team.saved.id },
+    });
+    const { run } = await client.request("automation.run", {
+      id: automation.id,
+    });
+    assert.equal(
+      run.launchError,
+      "This team has no parent CLI. Edit the team and choose one.",
+    );
+    assert.equal(run.terminalId, undefined);
+    const history = await client.request("automation.history", {
+      id: automation.id,
+    });
+    assert.equal(history.runs[0].launchError, run.launchError);
+  }));
+
 test("稼働中に一回の予定の時刻が来ると起動して無効になる", (t) =>
   runHostTest(t, async ({ client, dataRoot }) => {
     const at = Date.now() + 1500;

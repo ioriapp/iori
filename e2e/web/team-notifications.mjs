@@ -1,5 +1,6 @@
 import { openWorkspaceView } from "../../verification/workspace/interaction.mjs";
 import { openSidebar } from "../connection/scenario.mjs";
+import { childRowsRegression } from "./child-rows-regression.mjs";
 import { childRunningScenario } from "./child-running.mjs";
 import assert from "node:assert/strict";
 import { waitFor } from "../../verification/ui.mjs";
@@ -12,6 +13,7 @@ export async function teamNotificationsScenario({
   repository,
   notificationHook,
   notificationCommand,
+  childListFault,
   notificationBeforeChildrenSnapshot,
   notificationSourceFault,
   childDisplayFixture,
@@ -243,6 +245,13 @@ export async function teamNotificationsScenario({
     await record(
       "モデルを呼ばない委譲でもPC・Mobileの子の行の開始位置・字下げ・2段の内容を確認",
     );
+    await childRowsRegression({
+      client,
+      worktree,
+      repository,
+      childListFault,
+      record,
+    });
     return;
   }
   await screen.evaluate(

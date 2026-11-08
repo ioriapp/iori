@@ -1,13 +1,16 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
 import {
   access,
+  chmod,
   mkdir,
   readFile,
   rm,
   symlink,
   writeFile,
 } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import test from "node:test";
 import { runHostTest } from "../../verification/host/process.mjs";
@@ -17,7 +20,7 @@ import {
 } from "../../verification/host/scripted-definition.mjs";
 import { registerResponseCli } from "../../verification/host/response-definition.mjs";
 
-async function repository(root) {
+async function repository(root, refFormat) {
   await symlink(
     execFileSync("which", ["git"], { encoding: "utf8" }).trim(),
     join(root, "bin", "git"),
@@ -29,7 +32,13 @@ async function repository(root) {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
     }).trim();
-  git(path, "init", "-b", "main");
+  git(
+    path,
+    "init",
+    "-b",
+    "main",
+    ...(refFormat ? [`--ref-format=${refFormat}`] : []),
+  );
   git(path, "config", "user.name", "Worktree E2E");
   git(path, "config", "user.email", "worktree@localhost");
   await writeFile(join(path, "base.txt"), "base\n");
@@ -359,6 +368,25 @@ test("cherry-pick後に同じ行を編集しても取り込み済みとして片
     assert.equal(git(path, "branch", "--list", "picked"), "");
   }));
 
+test("mainをmergeした枝もcherry-pick後に同じ行を編集していれば取り込み済みとする", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    const { path, git, add } = await repository(dataRoot);
+    const worktree = add("merge-main");
+    await commit(git, worktree, "picked");
+    const picked = git(worktree, "rev-parse", "HEAD");
+    await commit(git, path, "main-before-merge");
+    git(worktree, "merge", "--no-ff", "main", "-m", "merge main");
+    git(path, "cherry-pick", picked);
+    await writeFile(join(path, "picked.txt"), "main edited the line\n");
+    git(path, "add", ".");
+    git(path, "commit", "-m", "edit after cherry-pick");
+    const preview = await client.request("worktrees.preview", {
+      path: worktree,
+    });
+    assert.equal(preview.items[0].merged, true);
+    assert.equal(preview.items[0].deleteBranch, true);
+  }));
+
 test("mergeコミットだけの新しい内容は未取り込みとして知らせる", (t) =>
   runHostTest(t, async ({ client, dataRoot }) => {
     const { path, git, add } = await repository(dataRoot);
@@ -557,6 +585,89 @@ test("外部Gitのworktree追加と削除を接続中のClientへ知らせる", 
     );
   }));
 
+// reftable needs Git 2.45 or later; older Git in CI cannot create one.
+const hasReftable = (() => {
+  const path = mkdtempSync(join(tmpdir(), "iori-reftable-"));
+  try {
+    execFileSync("git", ["init", "-q", "--ref-format=reftable", path], {
+      stdio: "ignore",
+    });
+    return true;
+  } catch {
+    return false;
+  } finally {
+    rmSync(path, { recursive: true, force: true });
+  }
+})();
+
+test(
+  "reftableの参照変更で取り込み済みの表示を更新する",
+  { skip: !hasReftable },
+  (t) =>
+    runHostTest(t, async ({ client, dataRoot, stage }) => {
+      const { path, git, add } = await repository(dataRoot, "reftable");
+      const base = git(path, "rev-parse", "HEAD");
+      const worktree = add("task");
+      await writeFile(
+        join(path, ".git", "worktrees", "task", "iori-base-commit"),
+        base,
+      );
+      await commit(git, worktree, "task");
+      const events = await client.events();
+      await events.waitFor((event) => event.type === "snapshot");
+      const opened = await client.request("folders.open", { path });
+      assert.equal(
+        opened.folder.worktrees.find((item) => item.path === worktree).merged,
+        false,
+      );
+      stage("監視を始めて外部のworktree追加を受け取る");
+      const marker = add("marker");
+      const added = await events.waitFor(
+        (event) =>
+          event.type === "worktrees.changed" &&
+          event.worktrees.some((item) => item.path === marker),
+      );
+      const addedIndex = events.values.indexOf(added);
+      stage("参照だけの更新で取り込み済みになる");
+      git(path, "cherry-pick", git(worktree, "rev-parse", "HEAD"));
+      await events.waitFor(
+        (event) =>
+          events.values.indexOf(event) > addedIndex &&
+          event.type === "worktrees.changed" &&
+          event.worktrees.some((item) => item.path === worktree && item.merged),
+      );
+    }),
+);
+
+test("サイドバーから外した履歴を読む時にGitを起動しない", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    const { path } = await repository(dataRoot);
+    await client.request("folders.open", { path });
+    await client.request("folders.sidebar.remove", { path });
+    const executable = execFileSync("which", ["git"], {
+      encoding: "utf8",
+    }).trim();
+    const log = join(dataRoot, "git-invocations");
+    const gitPath = join(dataRoot, "bin", "git");
+    await rm(gitPath);
+    await writeFile(
+      gitPath,
+      `#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\nexec '${executable}' "$@"\n`,
+    );
+    await chmod(gitPath, 0o755);
+    const history = await client.request("folders.history", {});
+    assert.equal(
+      history.folders.find((folder) => folder.path === path).inSidebar,
+      false,
+    );
+    assert.equal(
+      await readFile(log, "utf8").catch((error) =>
+        error.code === "ENOENT" ? "" : Promise.reject(error),
+      ),
+      "",
+    );
+  }));
+
 test("worktreeの削除でその場所のTerminalを閉じる", (t) =>
   runHostTest(t, async ({ client, dataRoot }) => {
     const { add } = await repository(dataRoot);
@@ -632,6 +743,90 @@ test("子のコミットをcherry-pickして編集した後は子のブランチ
     );
     assert.equal(await exists(child.cwd), false);
     assert.equal(git(path, "branch", "--list", branch), "");
+  }));
+
+test("受け入れた子とmainが似た別の変更をしても取り込み済みにしない", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    const { path, git, add } = await repository(dataRoot);
+    const lines = Array.from(
+      { length: 40 },
+      (_, index) => `line ${index + 1}\n`,
+    ).join("");
+    await writeFile(join(path, "lines.txt"), lines);
+    git(path, "add", ".");
+    git(path, "commit", "-m", "lines");
+    const parentPath = add("parent");
+    const team = await teamParent(client, dataRoot, parentPath);
+    const child = await team.delegate("child");
+    await writeFile(
+      join(child.cwd, "lines.txt"),
+      lines.replace("line 20\n", "child twenty\n"),
+    );
+    git(child.cwd, "add", ".");
+    git(
+      child.cwd,
+      "commit",
+      "--author=Child <child@localhost>",
+      "-m",
+      "change twenty",
+    );
+    await writeFile(
+      join(path, "lines.txt"),
+      lines.replace("line 20\n", "main twenty\n"),
+    );
+    git(path, "add", ".");
+    git(path, "commit", "-m", "change twenty");
+    await actorCommand(team.parent, "finish", [
+      "finish",
+      child.id,
+      "--decision",
+      "accept",
+      "--reason",
+      "accepted",
+      "--worktree",
+      "keep",
+    ]);
+    const preview = await client.request("worktrees.preview", {
+      path: parentPath,
+    });
+    const item = preview.items[0].worktrees.find(
+      (entry) => entry.path === child.cwd,
+    );
+    assert.equal(item.merged, false);
+    assert.equal(item.deleteBranch, false);
+    const cleanup = await client.request("worktrees.cleanup", { path });
+    assert.equal(
+      cleanup.items.some((entry) => entry.path === child.cwd),
+      false,
+    );
+  }));
+
+test("受け入れた子をcherry-pickすると取り込み済みになる", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    const { path, git, add } = await repository(dataRoot);
+    const parentPath = add("parent");
+    const team = await teamParent(client, dataRoot, parentPath);
+    const child = await team.delegate("child");
+    await commit(git, child.cwd, "child");
+    git(path, "cherry-pick", git(child.cwd, "rev-parse", "HEAD"));
+    await actorCommand(team.parent, "finish", [
+      "finish",
+      child.id,
+      "--decision",
+      "accept",
+      "--reason",
+      "accepted",
+      "--worktree",
+      "keep",
+    ]);
+    const preview = await client.request("worktrees.preview", {
+      path: parentPath,
+    });
+    const item = preview.items[0].worktrees.find(
+      (entry) => entry.path === child.cwd,
+    );
+    assert.equal(item.merged, true);
+    assert.equal(item.deleteBranch, true);
   }));
 
 test("親が競合を解決して取り込み受け入れた子も片付ける", (t) =>

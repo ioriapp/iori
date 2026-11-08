@@ -452,6 +452,7 @@ export function MarkdownSurface({
       )}
       {error && (
         <ReadingError
+          centered={text === undefined}
           retryLabel={ja ? "再試行" : "Retry"}
           onRetry={() => setRetry((value) => value + 1)}
         >

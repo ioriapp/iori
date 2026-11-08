@@ -12,6 +12,7 @@ import path from "node:path";
 import { root, output, command } from "./common.mjs";
 import { createSourceCopy } from "../../verification/native/source.mjs";
 import { sh } from "../../verification/native/remote.mjs";
+import { withoutWindowsTauri } from "../licenses/cargo.mjs";
 
 const docker = (args) =>
   command("docker", ["--config", "/tmp/iori-linux-client-docker", ...args]);
@@ -46,17 +47,15 @@ export async function buildLinuxClient({
   // leave the actual Windows manifest and build unchanged.
   const manifestPath = path.join(source, "apps/client/src-tauri/Cargo.toml");
   const manifest = await readFile(manifestPath, "utf8");
-  await writeFile(
-    manifestPath,
-    manifest.replace(
-      'tauri = { version = "2.12.0", features = ["tray-icon"] }\n',
-      "",
-    ),
-  );
+  await writeFile(manifestPath, withoutWindowsTauri(manifest));
   await mkdir(directory, { recursive: true });
   // Separate the Ubuntu target from native LXC builds. Artifacts are signed
   // after collection, so the build container does not receive the signing key.
   const container = `iori-linux-client-${process.pid}`;
+  const previousReleases =
+    process.env.IORI_APPIMAGE_PREVIOUS_RELEASES ??
+    path.join(root, ".local/release");
+  await mkdir(previousReleases, { recursive: true });
   try {
     await docker([
       "run",
@@ -80,12 +79,20 @@ export async function buildLinuxClient({
       // ~/.cache/tauri; keep them so a slow download is paid once (#251).
       "-v",
       "iori-linux-client-tauri-tools:/root/.cache/tauri",
+      "-v",
+      "iori-linux-client-appimage-sources:/opt/iori-appimage-sources",
+      "-v",
+      `${previousReleases}:/previous-releases:ro`,
       "-e",
       "CARGO_TARGET_DIR=/target",
       "-e",
       "APPIMAGE_EXTRACT_AND_RUN=1",
       "-e",
       "LDAI_RUNTIME_FILE=/opt/appimage-runtime",
+      "-e",
+      "IORI_APPIMAGE_SOURCE_CACHE=/opt/iori-appimage-sources",
+      "-e",
+      "IORI_APPIMAGE_PREVIOUS_RELEASES=/previous-releases",
       "-e",
       "CI=true",
       "-e",

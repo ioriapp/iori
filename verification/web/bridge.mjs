@@ -306,8 +306,8 @@ function session(
       peer.close(0, Buffer.from("client disconnected"));
     },
     native_request: async ({ connectionId, json, cancelKey }) => {
-      const method = JSON.parse(json).method;
-      const replacement = onRequest?.(method);
+      const { method, params } = JSON.parse(json);
+      const replacement = onRequest?.(method, params);
       if (replacement !== undefined) return replacement;
       const id = cancelKey === undefined ? randomUUID() : string(cancelKey);
       const entry = await open(connectionId, id, json, true);

@@ -1,3 +1,4 @@
+import { NewWorktreeLayoutSettings } from "./NewWorktreeLayoutSettings.tsx";
 import { native } from "./native.ts";
 import { Command as CommandPrimitive } from "cmdk";
 import { Command, CommandItem, CommandList } from "./components/ui/command.tsx";
@@ -1168,6 +1169,10 @@ export function SettingsDialog({
     ) : null;
   const editors = useRef(new Set<SettingsEditor>());
   const [pendingLeave, setPendingLeave] = useState<() => void>();
+  const [forgettingHost, setForgettingHost] = useState<{
+    publicKey: string;
+    hostName: string;
+  }>();
   const registerEditor = useCallback((editor: SettingsEditor) => {
     editors.current.add(editor);
     return () => {
@@ -1198,6 +1203,7 @@ export function SettingsDialog({
     if (!open) return;
     onNestedBack(() => {
       if (pendingLeave) setPendingLeave(undefined);
+      else if (forgettingHost) setForgettingHost(undefined);
       else if (childBack.current) childBack.current();
       else if (isMobile && mobileDetail) leave(() => setMobileDetail(false));
       else leave(() => onOpenChange(false));
@@ -1207,6 +1213,7 @@ export function SettingsDialog({
     open,
     onNestedBack,
     pendingLeave,
+    forgettingHost,
     isMobile,
     mobileDetail,
     leave,
@@ -1220,10 +1227,6 @@ export function SettingsDialog({
     if (next !== current) leave(select);
     else select();
   };
-  const [forgettingHost, setForgettingHost] = useState<{
-    publicKey: string;
-    hostName: string;
-  }>();
   const [forgetBusy, setForgetBusy] = useState(false);
   const [forgetError, setForgetError] = useState(false);
   const host = state.host
@@ -1857,6 +1860,9 @@ export function SettingsDialog({
                     {preferenceError("doubleClickMaximize")}
                   </FieldRow>
                 </Section>
+              )}
+              {current === "display" && !state.initial?.mobile && !isMobile && (
+                <NewWorktreeLayoutSettings t={t} />
               )}
               {current === "display" && (
                 <TerminalFontSettings

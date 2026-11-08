@@ -264,6 +264,35 @@ export async function automationsScenario({
   await screen.click(action("automation-run"));
   const first = await launched();
   await reply(first);
+  await screen.evaluate(`(async()=>{
+    const {connection}=await import('/src/connection.ts');
+    const original=connection.requestHost;
+    let fail=true;
+    window.__restoreAutomationSave=()=>{connection.requestHost=original;};
+    connection.requestHost=(...args)=>{
+      if(args[1]==='automation.save' && fail){fail=false;return Promise.reject(new Error('save failed'));}
+      return original.apply(connection,args);
+    };
+  })()`);
+  await screen.click(action("automation-enabled"));
+  await screen.wait(`${view} [role="alert"]`);
+  await screen.click(`${view} [role="alert"] button`);
+  await waitFor(() =>
+    screen.evaluate(
+      `document.querySelector('${view} ${action("automation-enabled")}')?.getAttribute('aria-checked') === 'false'`,
+    ),
+  );
+  await screen.evaluate(
+    "window.__restoreAutomationSave();delete window.__restoreAutomationSave",
+  );
+  await checkEnabled(manual.id, false);
+  await record("有効の切替が失敗しても再試行で同じ変更を保存する");
+  await screen.click(action("automation-enabled"));
+  await waitFor(() =>
+    screen.evaluate(
+      `document.querySelector('${view} ${action("automation-enabled")}')?.getAttribute('aria-checked') === 'true'`,
+    ),
+  );
   await disable(manual.id);
   await record(
     "パス入力でフォルダーを選んで作成→今すぐ実行→実CLIの応答→履歴の行→一覧で無効の表示を確認",

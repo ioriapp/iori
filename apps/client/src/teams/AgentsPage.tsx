@@ -617,7 +617,7 @@ function IconField({
         setMessage(t("Choose an SVG or PNG image."));
       else await onChanged();
     } catch {
-      setMessage(t(file ? "Choose an SVG or PNG image." : "internal_error"));
+      setMessage(t("internal_error"));
     } finally {
       await connection
         .requestHost(host, "cli.definition.files.discard", {

@@ -5,6 +5,13 @@ import path from "node:path";
 
 const directory = path.join(import.meta.dirname, "sources/cargo");
 const root = path.resolve(import.meta.dirname, "../..");
+export function withoutWindowsTauri(manifest) {
+  return manifest.replace(
+    /(^\[target\.'cfg\(windows\)'\.dependencies\][^\r\n]*(?:\r?\n|$))([^]*?)(?=^\[|$(?![^]))/m,
+    (section, header, body) =>
+      header + body.replace(/^[ \t]*tauri[ \t]*=[^\r\n]*(?:\r?\n|$)/m, ""),
+  );
+}
 export const cargoInputs = [
   "Cargo.lock",
   "Cargo.toml",
@@ -30,10 +37,7 @@ export async function cargoHashes(ref) {
       cargoInputs.map(async (file) => {
         let content = await readSource(file, ref);
         if (file === "apps/client/src-tauri/Cargo.toml")
-          content = content.replace(
-            'tauri = { version = "2.12.0", features = ["tray-icon"] }\n',
-            "",
-          );
+          content = withoutWindowsTauri(content);
         return [file, createHash("sha256").update(content).digest("hex")];
       }),
     ),

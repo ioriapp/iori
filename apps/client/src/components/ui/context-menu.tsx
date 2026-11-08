@@ -1,3 +1,4 @@
+import "./input-modality"
 import { Kbd } from "./kbd"
 import * as React from "react"
 import { windowCollisionPadding } from "./window-collision-padding"

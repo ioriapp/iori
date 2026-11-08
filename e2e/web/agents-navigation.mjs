@@ -70,7 +70,7 @@ export async function sidebarWorktrees({
   const parentRow = `[data-iori-terminal-row="${parent.id}"]`;
   const collapse = async () => {
     await screen.click(toggle);
-    await screen.wait(summary);
+    await screen.reveal(summary);
     await waitFor(async () => !(await screen.visible(parentRow)));
   };
   const launcher = '.new-items-popover[data-state="open"]';
@@ -96,9 +96,9 @@ export async function sidebarWorktrees({
     ),
   );
   const independentRow = `[data-iori-terminal-row="${independent.id}"]`;
-  await screen.wait(independentRow);
+  await screen.reveal(independentRow);
   await screen.click(button(worktree));
-  await screen.wait(parentRow);
+  await screen.reveal(parentRow);
   assert.equal(
     await screen.visible(independentRow),
     true,
@@ -115,7 +115,7 @@ export async function sidebarWorktrees({
   );
   await screen.wait(`button[data-iori-tab-id="terminal:${independent.id}"]`);
   await screen.click(button(worktree));
-  await screen.wait(parentRow);
+  await screen.reveal(parentRow);
   await screen.wait(`button[data-iori-tab-id="terminal:${parent.id}"]`);
   assert.equal(
     await tabIds(),
@@ -136,7 +136,7 @@ export async function sidebarWorktrees({
   });
   assert.equal(await screen.visible(independentToggle), false);
   await screen.click(button(worktree));
-  await screen.wait(parentRow);
+  await screen.reveal(parentRow);
 
   await screen.wait(`button[data-iori-tab-id="terminal:${parent.id}"]`);
   await screen.click('[data-iori-action="workspace-add-tab"]');
@@ -147,7 +147,7 @@ export async function sidebarWorktrees({
         (terminal) => terminal.cli?.id === parent.cli.id,
       ).length === 2,
   );
-  await screen.wait(parentRow);
+  await screen.reveal(parentRow);
   await screen.click(button(repository));
   assert.equal(
     await screen.visible(parentRow),
@@ -162,7 +162,7 @@ export async function sidebarWorktrees({
   assert.equal(await screen.attribute(toggle, "aria-expanded"), "false");
   await shot("pc-sidebar-collapsed");
   await screen.input(".nav-sidebar input", "サイドバー");
-  await screen.wait(parentRow);
+  await screen.reveal(parentRow);
   assert.equal(await screen.attribute(toggle, "aria-expanded"), "true");
   assert.match(await screen.attribute(toggle, "aria-label"), /折りたたむ/u);
   await screen.input(".nav-sidebar input", "");
@@ -172,7 +172,7 @@ export async function sidebarWorktrees({
     "検索中は畳んだworktreeの一致行を見せ、検索を消すと元の開閉へ戻る",
   );
   await screen.click(button(worktree));
-  await screen.wait(parentRow);
+  await screen.reveal(parentRow);
   assert.equal(await screen.attribute(toggle, "aria-expanded"), "true");
   const geometry = async () => {
     const value = await screen.evaluate(`(()=>{
@@ -205,7 +205,7 @@ export async function sidebarWorktrees({
     await screen.wait(`button[data-iori-tab-id="terminal:${parent.id}"]`);
     await screen.click('[data-iori-action="workspace-add-tab"]');
     await screen.click(`${launcher} [data-iori-cli-id="${cli.id}"]`);
-    await screen.wait(`[data-iori-row-cli="${cli.id}"]`);
+    await screen.reveal(`[data-iori-row-cli="${cli.id}"]`);
   }
   await collapse();
   assert.match(await screen.text(`${summary} .nav-activity-visible`), /\+\d/u);
@@ -218,15 +218,15 @@ export async function sidebarWorktrees({
     await screen.visible('[data-sidebar="sidebar"][data-mobile="true"]'),
     true,
   );
-  await screen.wait(
+  await screen.reveal(
     `${group(repository)} [data-iori-action="sidebar-open-files"]`,
   );
   await screen.click(button(worktree));
-  await screen.wait(parentRow);
+  await screen.reveal(parentRow);
   // Reload reads the real queued child first; then apply the display fixture.
-  await screen.wait(`${childRow} .nav-child-button`);
+  await screen.reveal(`${childRow} .nav-child-button`);
   showChild();
-  await screen.wait(".nav-children .nav-child-branch");
+  await screen.reveal(".nav-children .nav-child-branch");
   await record(
     `Mobileの子とworktreeの字下げ・2段の描画: ${JSON.stringify(await geometry())}`,
   );
@@ -235,7 +235,7 @@ export async function sidebarWorktrees({
   assert.match(await screen.text(`${summary} .nav-activity-visible`), /\+\d/u);
   await shot("mobile-sidebar-summary-overflow");
   await screen.click(button(worktree));
-  await screen.wait(parentRow);
+  await screen.reveal(parentRow);
   await screen.click(button(repository));
   await openWorkspaceView(screen, "files");
   await screen.wait('[data-iori-mobile-view-kind="files"]:not([hidden])');
@@ -251,6 +251,20 @@ export async function sidebarWorktrees({
     "別worktreeのTerminalタブをFilesの配置へ持ち込まない",
   );
   await shot("mobile-sidebar-files");
+  await screen.key("Alt+ArrowLeft");
+  await screen.wait('[data-iori-view="mobile-home"]');
+  await openSidebar(screen);
+  await screen.click(button(repository));
+  await openWorkspaceView(screen, "files");
+  await screen.wait('[data-iori-mobile-view-kind="files"]:not([hidden])');
+  await openSidebar(screen);
+  await screen.click(button(worktree));
+  await screen.click('[data-iori-action="open-agents-teams"]');
+  await screen.wait(".team-surface:not([hidden])");
+  await screen.key("Alt+ArrowLeft");
+  await waitFor(current, (path) => path === repository);
+  await screen.wait('[data-iori-mobile-view-kind="files"]:not([hidden])');
+  await record("Mobileのドロワーで覗いたworktreeを飛ばしてAI Agentsから戻る");
   await screen.key("Alt+ArrowLeft");
   await screen.wait('[data-iori-view="mobile-home"]');
   // Once the body is actually shown, Back remembers it, but still skips

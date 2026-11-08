@@ -43,7 +43,11 @@ type Props = {
   prefill?: WorktreePrefill;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onStarted: (terminal: TerminalSummary) => void;
+  onStarted: (
+    terminal: TerminalSummary,
+    path: string,
+    setupWorktree: boolean,
+  ) => void;
   onAddCli: () => void;
   onOpenTeams: (teamId?: string) => void;
   t: (key: string) => string;
@@ -180,7 +184,7 @@ export function WorktreeCreator({
             ...first,
           });
     if (result?.ok) {
-      onStarted(result.result.terminal);
+      onStarted(result.result.terminal, path, setupWorktree);
       onOpenChange(false);
     } else if (result)
       setError(

@@ -12,15 +12,22 @@ export function ReadingError({
   retryLabel,
   action,
   onRetry,
+  centered = false,
 }: {
   children: ReactNode;
   retryLabel: string;
   /** The retry's data-iori-action, where tests press it. */
   action?: string;
   onRetry: () => void;
+  /** No content has been read yet; use the same placement as an empty surface. */
+  centered?: boolean;
 }) {
   return (
-    <div className="reading-error" role="alert">
+    <div
+      className="reading-error"
+      data-centered={centered || undefined}
+      role="alert"
+    >
       <CircleAlert
         className="reading-error-mark"
         size={14}

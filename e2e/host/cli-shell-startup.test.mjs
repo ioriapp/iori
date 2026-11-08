@@ -1,5 +1,11 @@
 import assert from "node:assert/strict";
-import { appendFile, chmod, realpath, writeFile } from "node:fs/promises";
+import {
+  appendFile,
+  chmod,
+  readFile,
+  realpath,
+  writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { stripVTControlCharacters } from "node:util";
@@ -24,6 +30,43 @@ async function registerExitCli(client, dataRoot) {
   });
   return cliId;
 }
+
+test("Bashの利用者設定が別のshellへ移る前からioriを使える", (t) =>
+  runHostTest(t, async ({ client, dataRoot, stage }) => {
+    stage("利用者設定でioriの場所を確認し、別のBashへ移る");
+    const marker = join(dataRoot, "profile-command");
+    await writeFile(
+      join(dataRoot, "home", ".bash_profile"),
+      `command -v iori > '${marker}' || :\nexec /bin/bash --noprofile --norc -i\n`,
+    );
+    await client.request("terminal.defaultShell.set", { shell: "bash" });
+    const cliId = await registerExitCli(client, dataRoot);
+    const { terminal: created } = await client.request("cli.launch", {
+      cliId,
+      cwd: dataRoot,
+    });
+    const terminal = await client.terminal(created.id);
+    await terminal.output("ACTOR_READY");
+    assert.match(await readFile(marker, "utf8"), /\/iori\s*$/u);
+  }));
+
+test("シェル統合の資材を書けなくてもCLIを起動できる", (t) =>
+  runHostTest(t, async ({ client, dataRoot, stage }) => {
+    stage("シェル統合の保存先を作れない状態にする");
+    await writeFile(
+      join(dataRoot, "iori-host", "shell-integration"),
+      "blocked",
+    );
+    await client.request("terminal.defaultShell.set", { shell: "bash" });
+    const cliId = await registerExitCli(client, dataRoot);
+    stage("CLIを開く");
+    const { terminal: created } = await client.request("cli.launch", {
+      cliId,
+      cwd: dataRoot,
+    });
+    const terminal = await client.terminal(created.id);
+    await terminal.output("ACTOR_READY");
+  }));
 
 test("準備の印のないBashで入力するとCLIの起動を取り消し、後の印でも起動しない", (t) =>
   runHostTest(t, async ({ client, dataRoot, stage }) => {

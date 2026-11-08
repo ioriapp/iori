@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { watch } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 import { runHostTest } from "../../verification/host/process.mjs";
@@ -11,6 +11,45 @@ const definition = (id) => ({
   name: "Example CLI",
   command: "node",
 });
+
+test("アイコンの変更と復元で以前の画像を片付け、他のファイルを残す", (t) =>
+  runHostTest(t, async ({ client, dataRoot, stage }) => {
+    const value = definition("icon-cleanup");
+    await client.request("cli.definition.save", {
+      definition: JSON.stringify(value),
+    });
+    const folder = join(dataRoot, "iori-host", "cli-definitions", value.id);
+    await writeFile(join(folder, "helper.txt"), "keep");
+    const set = async (color) => {
+      const uploadId = crypto.randomUUID();
+      const image = `<svg xmlns="http://www.w3.org/2000/svg"><path fill="${color}" d="M0 0h1v1z"/></svg>`;
+      await client.request("cli.definition.file.write", {
+        uploadId,
+        first: true,
+        data: Buffer.from(image).toString("base64"),
+      });
+      await client.request("cli.icon.set", {
+        cliId: value.id,
+        image: { name: "icon.svg", uploadId },
+      });
+      return JSON.parse(await readFile(join(folder, "definition.json"), "utf8"))
+        .icon.light;
+    };
+    stage("画像を入れ替え、以前の画像を消す");
+    const first = await set("red");
+    const second = await set("blue");
+    assert.notEqual(first, second);
+    assert.deepEqual(
+      (await readdir(folder)).sort(),
+      ["definition.json", "helper.txt", second].sort(),
+    );
+    stage("共通の画像へ戻し、最後の画像を消す");
+    await client.request("cli.icon.set", { cliId: value.id });
+    assert.deepEqual((await readdir(folder)).sort(), [
+      "definition.json",
+      "helper.txt",
+    ]);
+  }));
 
 test("CLI定義を保存して再起動後も一覧から読める", (t) =>
   runHostTest(t, async ({ client, restart, stage }) => {

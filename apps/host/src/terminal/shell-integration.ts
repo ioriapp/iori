@@ -8,10 +8,14 @@ import type { ShellDefinition } from "./platform.ts";
 // Follow VS Code's startup-file routing, without its prompt/command hooks:
 // https://github.com/microsoft/vscode/tree/main/src/vs/workbench/contrib/terminal/common/scripts
 const prependPath = `if [ -n "\${IORI_COMMAND_BIN:-}" ]; then
-  export PATH="$IORI_COMMAND_BIN:$PATH"
+  case "$PATH" in
+    "$IORI_COMMAND_BIN"|"$IORI_COMMAND_BIN:"*) ;;
+    *) export PATH="$IORI_COMMAND_BIN:$PATH" ;;
+  esac
 fi
 `;
-const bashLogin = `if [ -r /etc/profile ]; then . /etc/profile; fi
+const bashLogin = `${prependPath}if [ -r /etc/profile ]; then . /etc/profile; fi
+${prependPath}
 for __iori_profile in ~/.bash_profile ~/.bash_login ~/.profile; do
   if [ -r "$__iori_profile" ]; then
     . "$__iori_profile"
@@ -88,7 +92,11 @@ export class ShellIntegration {
       this.#ready = undefined;
       throw error;
     });
-    await this.#ready;
+    try {
+      await this.#ready;
+    } catch {
+      return undefined;
+    }
     if (shell.id === "zsh")
       return {
         args: shell.args,

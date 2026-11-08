@@ -34,6 +34,7 @@ export type ConnectedHostUpdate = {
     | "checking"
     | "disconnected"
     | "current"
+    | "unknown-version"
     | "confirmation"
     | "submitted"
     | "failed";
@@ -81,7 +82,11 @@ async function checkHost(key: string, version: string) {
     // Only the authenticated connection owns the destination key.
     const host = { ...reply.result, publicKey: key };
     change(key, { host });
-    if (!host.version || compareVersions(host.version, version) >= 0) {
+    if (!host.version) {
+      change(key, { state: "unknown-version" });
+      return;
+    }
+    if (compareVersions(host.version, version) >= 0) {
       change(key, { state: "current" });
       return;
     }

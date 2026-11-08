@@ -73,6 +73,39 @@ export async function filesReading({
     }
   };
   await closeAll();
+  await writeFile(
+    join(worktree, "invalid-long.txt"),
+    Buffer.concat([
+      Buffer.from("before "),
+      Buffer.from([0xff]),
+      Buffer.from(" SELECTME " + "x".repeat(40_000)),
+    ]),
+  );
+  await open("invalid-long.txt");
+  const longText =
+    '[data-iori-view="files"] [data-iori-line="1"] .reading-line-text';
+  await waitFor(
+    () => screen.text(longText),
+    (text) => text.includes("SELECTME"),
+  );
+  const longPoint = (offset) =>
+    screen.evaluate(`(()=>{
+    const e=document.querySelector(${JSON.stringify(longText)}), w=document.createTreeWalker(e,NodeFilter.SHOW_TEXT);
+    let n, i=${offset}; while(n=w.nextNode()){if(i<=n.length){const r=document.createRange();r.setStart(n,i);r.collapse(true);const b=r.getBoundingClientRect();return {x:b.x+0.1,y:b.y+b.height/2};}i-=n.length;}
+  })()`);
+  await client.browser.drag(await longPoint(9), await longPoint(17));
+  await screen.evaluate("navigator.clipboard.writeText('before copy')");
+  await screen.key("Control+c");
+  await waitFor(
+    () => screen.evaluate("navigator.clipboard.readText()"),
+    (text) => text !== "before copy",
+  );
+  assert.equal(
+    await screen.evaluate("navigator.clipboard.readText()"),
+    "SELECTME",
+  );
+  await record("非UTF-8のバイトを含む巨大な行の選択を正しくコピー");
+  await closeAll();
   const names = ["syntax.ts", "syntax.rs", "syntax.json", "syntax.md"];
   for (const name of names) await open(name);
   await menu(names[1]);

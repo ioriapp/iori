@@ -139,6 +139,13 @@ function HostUpdateRow({
             {t("You are up to date")}
           </p>
         )}
+        {item.state === "unknown-version" && (
+          <p role="alert" className="connection-error">
+            {t(
+              "Could not check the iori Host version. Try updating from Version in settings.",
+            )}
+          </p>
+        )}
         {item.state === "disconnected" && (
           <div
             className="host-notice is-error"

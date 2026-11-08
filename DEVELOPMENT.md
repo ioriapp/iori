@@ -36,7 +36,7 @@ Release の受入は、配布物でしか確かめられない境界（導入・
 
 読み取りの負荷試験は `node scripts/run-bounded-check.mjs node verification/reading/load.mjs` で流す。専用のブラウザー・本物のHost・通信を使い、1分間、監視の開始・初回の全体更新・停止を繰り返し、その開始と重なる間にFilesの一覧・ファイル情報とGitの状態を並行して要求する。監視の失敗も試験の失敗とし、監視開始と重なった要求の応答を測る。応答の最大値が500ms未満かを判定し、件数・p50・p99・最大値を通常のWeb E2Eと同じ証拠先へ残す。性能に関わる変更時とRelease前に、他の受入やビルドと重ねず単独で流す。通常のE2EとCIからは呼ばない。準備は[ブラウザーの画面E2E](verification/README.md#ブラウザーの画面e2e)と同じ。
 
-2は本物のCLIの接続先を、試験の中で立てる偽のモデルAPI（`verification/fake-model/`）へ向け、台本どおりの応答（文・道具の呼び出し）を返させて流す。CLI本体・Host・画面・hookは本物のまま使い、モデルの沈黙・利用枠・応答の揺れで落ちないようにする。偽にする操作列とCLIは `verification/web/fake-model-scenarios.mjs` で宣言し、宣言の無いものは安い実モデルで流す。5は同じ操作列を `--real-models` で実モデルに流し、偽のAPIの前提（要求の経路・応答のeventの種類・hookの並び）が変わっていないかを確かめ、変わっていれば台本を直す。記録を再生する試験は補助で、本物のCLIを通した受入の代わりにしない。 Releaseの受入は `verification/fake-model/verified.json` とCLIの版・指示ファイルを比べ、変更に関係する操作列を実モデルでも自動で流す。成功後に証拠先へ出た更新案を確認し、`verified.json` に反映して版の変更と一緒にcommitする。
+画面のE2Eは本物のCLIの接続先を、試験の中で立てる偽のモデルAPI（`verification/fake-model/`）へ向け、台本どおりの応答（文・道具の呼び出し）を返させて流す。CLI本体・Host・画面・hookは本物のまま使い、モデルの沈黙・利用枠・応答の揺れで落ちないようにする。偽にする操作列とCLIは `verification/web/fake-model-scenarios.mjs` で宣言し、宣言の無いものは安い実モデルで流す。CLIの実物との照合は同じ操作列を `--real-models` で実モデルに流し、偽のAPIの前提（要求の経路・応答のeventの種類・hookの並び）が変わっていないかを確かめ、変わっていれば台本を直す。記録を再生する試験は補助で、本物のCLIを通した受入の代わりにしない。 Releaseの受入は `verification/fake-model/verified.json` とCLIの版・指示ファイルを比べ、変更に関係する操作列を実モデルでも自動で流す。成功後に証拠先へ出た更新案を確認し、`verified.json` に反映して版の変更と一緒にcommitする。
 
 Linuxで資源の上限付きの検査は `node scripts/run-bounded-check.mjs <command> [args...]` を入口にする。メモリ上限の枠の中ではそのまま時間制限を付けて実行し、枠の外ではsystemdのscopeで制限して実行する。制限を外さない。`node --test` を直接呼ぶ時は `--test-timeout` を指定する。
 

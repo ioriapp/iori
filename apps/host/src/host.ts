@@ -502,6 +502,12 @@ export async function startHost(
   }
   // Keep the same identity available while rebuilding the transport.
 
+  // A stopped Host can leave a temporary copy before the session receives it.
+  await rm(join(storage.root, "launch-instructions"), {
+    recursive: true,
+    force: true,
+  }).catch(() => console.error("iori-host launch-instructions cleanup failed"));
+
   const events = new EventHub();
   let terminalManager!: TerminalManager;
   let teamManager: TeamManager | undefined;

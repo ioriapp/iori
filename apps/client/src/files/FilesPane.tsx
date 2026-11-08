@@ -166,6 +166,25 @@ function FilesWorkspace({
   });
   const strip = useRef<HTMLDivElement>(null);
   const active = view.active;
+  useEffect(() => {
+    const list = strip.current;
+    if (!list) return;
+    const update = () => {
+      list.dataset.left = String(list.scrollLeft > 1);
+      list.dataset.right = String(
+        list.scrollLeft + list.clientWidth < list.scrollWidth - 1,
+      );
+    };
+    const observer = new ResizeObserver(update);
+    observer.observe(list);
+    for (const tab of list.children) observer.observe(tab);
+    list.addEventListener("scroll", update);
+    update();
+    return () => {
+      observer.disconnect();
+      list.removeEventListener("scroll", update);
+    };
+  }, [view.tabs, standalone]);
   const activeRef = useRef(active);
   activeRef.current = active;
   // Find and go-to requests belong to the file they were made for.
@@ -614,6 +633,7 @@ function FilesWorkspace({
   else if (infoError && !current)
     body = (
       <ReadingError
+        centered
         retryLabel={
           standalone || infoError.missing
             ? ja

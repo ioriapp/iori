@@ -67,6 +67,9 @@ function failure(error: unknown, fallback: State["error"]): State["error"] {
 }
 
 export function checkUpdate(explicit = false): Promise<void> {
+  // The downloaded Android package remains the active update until the
+  // installer permission flow finishes, even if the channel changes.
+  if (state.phase === "permission") return Promise.resolve();
   explicitCheck ||= explicit;
   if (checking) return checking;
   change({
@@ -77,7 +80,11 @@ export function checkUpdate(explicit = false): Promise<void> {
   checking = (async () => {
     try {
       const available = await native.updateCheck(development);
-      if (development !== receiveDevelopmentVersions) return;
+      if (
+        development !== receiveDevelopmentVersions ||
+        state.phase === "permission"
+      )
+        return;
       if (
         available &&
         available.version !== state.available?.version &&
@@ -186,13 +193,14 @@ const interval = 60 * 60 * 1000;
 export function startUpdateChecks(development = false) {
   if (receiveDevelopmentVersions !== development) {
     receiveDevelopmentVersions = development;
-    change({
-      available: undefined,
-      latest: undefined,
-      phase: "idle",
-      error: undefined,
-      progress: undefined,
-    });
+    if (state.phase !== "permission")
+      change({
+        available: undefined,
+        latest: undefined,
+        phase: "idle",
+        error: undefined,
+        progress: undefined,
+      });
   }
   let disposed = false;
   let timer: ReturnType<typeof setInterval> | undefined;

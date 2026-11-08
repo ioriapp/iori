@@ -75,6 +75,8 @@ type TextPoint = {
   column: number;
   rowStart: number;
   window: number;
+  windowCharacters: number;
+  windowEncodedBytes: number;
 };
 type CharacterSelection = { anchor: TextPoint; focus: TextPoint };
 
@@ -363,12 +365,18 @@ export function TextRows({
       prefix.selectNodeContents(text);
       prefix.setEnd(node, offset);
       const window = Number(text.dataset.textOffset ?? data.byteOffset);
-      const column =
-        window -
-        data.byteOffset +
-        new TextEncoder().encode(prefix.toString()).length;
+      const prefixText = prefix.toString();
+      const windowEncodedBytes = new TextEncoder().encode(prefixText).length;
+      const column = window - data.byteOffset + windowEncodedBytes;
       heldRows.current.set(row, data);
-      return { row, column, rowStart: data.byteOffset, window };
+      return {
+        row,
+        column,
+        rowStart: data.byteOffset,
+        window,
+        windowCharacters: prefixText.length,
+        windowEncodedBytes,
+      };
     };
     const changed = () => {
       const nativeSelection = window.getSelection();
@@ -409,16 +417,50 @@ export function TextRows({
   const copyCharacters = async () => {
     const range = characterRef.current;
     if (!range) return;
-    const { anchor, focus } = range;
+    copying.current?.abort();
+    const controller = new AbortController();
+    copying.current = controller;
+    const signal = controller.signal;
+    // The displayed replacement character may represent fewer source bytes than
+    // its UTF-8 encoding. Recover the source position within each long window.
+    const resolve = async (point: TextPoint): Promise<TextPoint> => {
+      const row = source.row(point.row) ?? heldRows.current.get(point.row);
+      if (row?.complete && row.text.length <= INLINE_ROW_CHARS) return point;
+      if (!point.windowCharacters)
+        return { ...point, column: point.window - point.rowStart };
+      const bytes = await source.read(
+        point.window,
+        point.windowEncodedBytes + 4,
+        signal,
+      );
+      const decoder = new TextDecoder();
+      let characters = 0;
+      for (let i = 0; i < bytes.length; i += 1) {
+        const text = decoder.decode(bytes.subarray(i, i + 1), { stream: true });
+        const before = characters;
+        characters += text.length;
+        if (characters >= point.windowCharacters) {
+          const previous =
+            text.length > 1 &&
+            text.startsWith("�") &&
+            before + 1 === point.windowCharacters;
+          return {
+            ...point,
+            column: point.window - point.rowStart + i + (previous ? 0 : 1),
+          };
+        }
+      }
+      return point;
+    };
+    const [anchor, focus] = await Promise.all([
+      resolve(range.anchor),
+      resolve(range.focus),
+    ]);
     const forward =
       anchor.row < focus.row ||
       (anchor.row === focus.row && anchor.column <= focus.column);
     const first = forward ? anchor : focus;
     const last = forward ? focus : anchor;
-    copying.current?.abort();
-    const controller = new AbortController();
-    copying.current = controller;
-    const signal = controller.signal;
     const edge = async (point: TextPoint, from: number, to?: number) => {
       const row = source.row(point.row) ?? heldRows.current.get(point.row);
       if (row?.complete && row.text.length <= INLINE_ROW_CHARS) {
@@ -776,6 +818,7 @@ export function TextRows({
       )}
       {(failure || Boolean(source.error)) && (
         <ReadingError
+          centered={Boolean(source.error) && !source.row(position.top)}
           retryLabel={ja ? "再試行" : "Retry"}
           action="reading-retry"
           onRetry={() => {

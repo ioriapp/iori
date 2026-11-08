@@ -139,6 +139,7 @@ export function Automations({
   const [draft, setDraft] = useState<Automation>();
   const [runs, setRuns] = useState<AutomationRun[]>([]);
   const [error, setError] = useState("");
+  const [retryEnabled, setRetryEnabled] = useState<() => void>();
   // The pressed action while it waits for the Host.
   const [workingOn, setWorkingOn] = useState<
     "save" | "run" | "delete" | "enabled" | "regenerate"
@@ -411,12 +412,13 @@ export function Automations({
       setWorkingOn(undefined);
     }
   };
-  const toggleEnabled = async (enabled: boolean) => {
-    if (!draft?.id) return;
-    const stored = savedDefinitions.current.get(draft.id);
+  const toggleEnabled = async (enabled: boolean, targetId = draft?.id) => {
+    if (!targetId) return;
+    const stored = savedDefinitions.current.get(targetId);
     if (!stored) return;
     setWorkingOn("enabled");
     setError("");
+    setRetryEnabled(undefined);
     try {
       const {
         id,
@@ -436,6 +438,7 @@ export function Automations({
       await load();
     } catch {
       setError("Could not change the automation. Retry.");
+      setRetryEnabled(() => () => void toggleEnabled(enabled, targetId));
     } finally {
       setWorkingOn(undefined);
     }
@@ -712,6 +715,13 @@ export function Automations({
             <Button
               variant="outline"
               onClick={() => {
+                if (
+                  error === "Could not change the automation. Retry." &&
+                  retryEnabled
+                ) {
+                  retryEnabled();
+                  return;
+                }
                 if (
                   error ===
                   "Could not restore this device's automation drafts. Retry."

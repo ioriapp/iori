@@ -153,14 +153,35 @@ export async function worktreeStateReader(
       if (base && branch) {
         state.createdCommits = await count(`${base}..${head}`);
         if (state.createdCommits > 0) {
-          const hasMerges = await collectGit(path, [
+          const merges = await collectGit(path, [
             "rev-list",
             "--merges",
-            "--count",
+            "--parents",
             `${base}..${head}`,
           ])
-            .then((result) => Number(result.stdout.toString("utf8")) > 0)
-            .catch(() => true);
+            .then((result) =>
+              result.stdout.toString("utf8").trim().split("\n").filter(Boolean),
+            )
+            .catch(() => undefined);
+          const hasMerges =
+            !merges ||
+            !(
+              await Promise.all(
+                merges.map(async (line) => {
+                  const [sha, ...parents] = line.split(" ");
+                  if (parents.length !== 2) return false;
+                  return collectGit(path, [
+                    "show",
+                    "--format=",
+                    "--remerge-diff",
+                    "--no-ext-diff",
+                    sha!,
+                  ])
+                    .then((result) => result.stdout.length === 0)
+                    .catch(() => false);
+                }),
+              )
+            ).every(Boolean);
           for (const target of targets)
             if (
               await matchesTarget(
@@ -247,8 +268,8 @@ async function matchesTarget(
 /**
  * Whether every commit the child made has a counterpart in the target: `git
  * range-diff` pairs them even when the parent had to change their content
- * (`!`). A commit only on the child's side (`<`) or a failure means not taken
- * in.
+ * (`!`). Each pair must also have the same author identity and date. A commit
+ * only on the child's side (`<`) or a failure means not taken in.
  */
 async function pairsWithTarget(
   path: string,
@@ -260,7 +281,14 @@ async function pairsWithTarget(
   // not a reason to forget the worktree's commit counts.
   const diff = await collectGit(
     path,
-    ["range-diff", `${base}..${head}`, `${base}..${sha}`],
+    [
+      "range-diff",
+      "--no-color",
+      "--no-abbrev",
+      "--no-patch",
+      `${base}..${head}`,
+      `${base}..${sha}`,
+    ],
     undefined,
     [0, 1],
   ).catch(() => undefined);
@@ -268,11 +296,42 @@ async function pairsWithTarget(
   const lines = diff.stdout
     .toString("utf8")
     .split("\n")
-    .map((line) => line.trimEnd())
+    .map((line) => line.trim())
     .filter(Boolean);
-  return (
-    lines.length > 0 && !lines.some((line) => /^[-0-9]+:\s+\S+\s+</u.test(line))
+  const headers = lines.filter((line) =>
+    /^(?:\d+|-):\s+\S+\s+[=!<>]\s+(?:\d+|-):\s+\S+/u.test(line),
   );
+  const pairs = headers.filter((line) => /^\d+:\s+\S+\s+[=!]/u.test(line));
+  if (
+    headers.length !== lines.length ||
+    pairs.length === 0 ||
+    headers.some((line) => /^\d+:\s+\S+\s+</u.test(line))
+  )
+    return false;
+  try {
+    const authors = await Promise.all(
+      pairs.map(async (line) => {
+        const match = /^\d+:\s+([0-9a-f]+)\s+[=!]\s+\d+:\s+([0-9a-f]+)/u.exec(
+          line,
+        );
+        if (!match) return false;
+        const [left, right] = await Promise.all(
+          [match[1]!, match[2]!].map((commit) =>
+            collectGit(path, [
+              "show",
+              "-s",
+              "--format=%an%x00%ae%x00%aI",
+              commit,
+            ]),
+          ),
+        );
+        return left.stdout.equals(right.stdout);
+      }),
+    );
+    return authors.every(Boolean);
+  } catch {
+    return false;
+  }
 }
 export async function worktreeState(
   path: string,

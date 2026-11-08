@@ -344,9 +344,15 @@ async function worktreeWatchDirectories(
   const metadataDirectory = join(commonDirectory, "worktrees");
   if (await pathIsDirectory(metadataDirectory))
     directories.add(metadataDirectory);
+  const reftableDirectory = join(commonDirectory, "reftable");
+  if (await pathIsDirectory(reftableDirectory))
+    directories.add(reftableDirectory);
   for (const worktree of worktrees) {
     directories.add(dirname(worktree.path));
     directories.add(worktree.gitDirectory);
+    const worktreeReftable = join(worktree.gitDirectory, "reftable");
+    if (await pathIsDirectory(worktreeReftable))
+      directories.add(worktreeReftable);
   }
   return [...directories];
 }
@@ -442,9 +448,11 @@ class WorktreeWatcher {
       ...this.#gitWorktrees.map((worktree) => worktree.gitDirectory),
     ]);
     if (metadata.has(directory))
-      return /^(?:HEAD|[A-Z_]+_HEAD|packed-refs|config(?:\.worktree)?|refs|worktrees|gitdir|commondir|iori-base-commit|iori-accepted-commit)$/u.test(
+      return /^(?:HEAD|[A-Z_]+_HEAD|packed-refs|config(?:\.worktree)?|refs|reftable|worktrees|gitdir|commondir|iori-base-commit|iori-accepted-commit)$/u.test(
         name,
       );
+    if ([...metadata].some((path) => directory === join(path, "reftable")))
+      return true;
     const rel = relative(this.#commonDirectory, directory);
     if (
       rel === "worktrees" ||
@@ -520,7 +528,7 @@ export class WorkspaceService {
     const folders = this.#store.folderHistory();
     const resolved = await Promise.all(
       folders.map(async (folder): Promise<FolderHistoryItem> => {
-        if (folder.kind !== "git") return folder;
+        if (folder.kind !== "git" || !folder.inSidebar) return folder;
         try {
           const workspace =
             (await inspectGitWorkspace(folder.path)) ??

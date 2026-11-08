@@ -21,6 +21,7 @@ import {
   Plus,
   Rows2,
   X,
+  LayoutTemplate,
 } from "lucide-react";
 import {
   DockviewReact,
@@ -127,6 +128,7 @@ function dropDirection(event: ReactDragEvent<HTMLElement>): DropDirection {
 
 export type DockContextValue = {
   tabs: WorkspaceTab[];
+  saveNewWorktreeLayout?: () => void;
   readingViews: ("files" | "git" | "board")[];
   openReadingView: (kind: "files" | "git" | "board", groupId: string) => void;
   t: (key: string) => string;
@@ -274,6 +276,7 @@ function DockTabHeader(panel: IDockviewPanelHeaderProps<{ tabId: string }>) {
     tabs,
     t,
     doubleClickMaximize,
+    saveNewWorktreeLayout,
     maximize,
     closeTab,
     closeTerminal,
@@ -436,6 +439,15 @@ function DockTabHeader(panel: IDockviewPanelHeaderProps<{ tabId: string }>) {
           <Maximize2 aria-hidden="true" />
           {t("Maximize")}
         </ContextMenuItem>
+        {saveNewWorktreeLayout && (
+          <ContextMenuItem
+            data-iori-action="save-worktree-layout-menu"
+            onSelect={saveNewWorktreeLayout}
+          >
+            <LayoutTemplate aria-hidden="true" />
+            {t("Use this layout for new worktrees")}
+          </ContextMenuItem>
+        )}
         <ContextMenuSeparator />
         <ContextMenuItem onSelect={() => closeTab(tab.id, panel.api.id)}>
           <X aria-hidden="true" />

@@ -1,3 +1,14 @@
+import {
+  pruneLayout,
+  type LayoutSlot,
+  type LayoutSlotKind,
+  type WorktreeLayoutTemplate,
+} from "./new-worktree-layout.ts";
+import { worktreeLayoutDefault } from "./new-worktree-layout-store.ts";
+import {
+  useIssueRepositories,
+  issueRepositoryKey,
+} from "./issues/issue-repositories.ts";
 import { creationOrder, issueWorktreeName, sidebarOrder } from "@iori/protocol";
 import { WorktreeRemoval } from "./WorktreeRemoval.tsx";
 import { WorktreeCreator, type WorktreePrefill } from "./WorktreeCreator.tsx";
@@ -385,6 +396,8 @@ function WorkspaceFrameInner({
   const [teamsEntry, setTeamsEntry] = useState(0);
   const openTeams = (host: HostInfo, page?: "agents" | "teams") => {
     leaveTeams(() => {
+      // A worktree selected only inside the drawer was never shown.
+      if (isMobile && openMobile) setSelectedTarget(shownMobileTarget.current);
       setTeamsInitialPage(page);
       setTeamsEntry((value) => value + 1);
       if (page === "agents") setTeamToOpen(undefined);
@@ -561,7 +574,7 @@ function WorkspaceFrameInner({
   const [visitedTargets, setVisitedTargets] = useState<WorkspaceTarget[]>([]);
   const shownMobileTarget = useRef<WorkspaceTarget | undefined>(undefined);
   useEffect(() => {
-    if (isMobile && openMobile) return;
+    if (isMobile && (openMobile || teamsHost)) return;
     const previous = shownMobileTarget.current;
     shownMobileTarget.current = selectedTarget;
     if (
@@ -580,7 +593,7 @@ function WorkspaceFrameInner({
         )
     )
       setVisitedTargets((stack) => [...stack, previous]);
-  }, [isMobile, openMobile, selectedTarget]);
+  }, [isMobile, openMobile, selectedTarget, teamsHost]);
   const [folderHostKey, setFolderHostKey] = useState<string>();
   const [terminalStatus, setTerminalStatus] = useState<
     Record<string, ShellStatus>
@@ -1111,10 +1124,47 @@ function WorkspaceFrameInner({
       )
     : "";
 
+  const nativeMobileRef = useRef(state.initial?.mobile);
+  nativeMobileRef.current = state.initial?.mobile;
+  const templateApplied = useRef(false);
+  const templateAgentPanel = useRef<string>(undefined);
+  const startingAttention = useRef<AttentionItem & { started?: boolean }>(
+    undefined,
+  );
+  const issueRepositories = useIssueRepositories(
+    allFolders
+      .filter(({ folder }) => folder.kind === "git")
+      .map(({ host, folder }) => ({
+        host: host.publicKey,
+        workspacePath: folder.workspacePath,
+      })),
+    state.connectedHosts,
+  );
+  const issueRepositoriesRef = useRef(issueRepositories);
+  issueRepositoriesRef.current = issueRepositories;
+  const defaultTabs = (
+    target: WorkspaceTarget,
+    mobile: boolean,
+  ): WorkspaceTab[] =>
+    (
+      [
+        "start",
+        ...(!mobile ? ["files" as const] : []),
+        ...(!mobile && target.folder.kind === "git" ? ["git" as const] : []),
+      ] as const
+    ).map((kind) => ({
+      id: `${kind}:${crypto.randomUUID()}`,
+      kind,
+      title: kind === "start" ? "Start" : kind === "files" ? "Files" : "Git",
+      target,
+    }));
+
   const loadTargetLayout = useCallback(
     async (targetScope: string, target?: WorkspaceTarget, mobile = false) => {
       setLayoutLoading(true);
       layoutSaved.current = false;
+      templateApplied.current = false;
+      templateAgentPanel.current = undefined;
       try {
         const pending = pendingLayoutSaves.current[targetScope];
         if (pending) {
@@ -1140,28 +1190,148 @@ function WorkspaceFrameInner({
           await native.loadWorkspaceLayout<unknown>(targetScope),
         );
         if (layoutScope.current !== targetScope) return;
-        const initialTabs: WorkspaceTab[] =
-          !saved && target
-            ? (
-                [
-                  "start",
-                  ...(!mobile ? ["files" as const] : []),
-                  ...(!mobile && target.folder.kind === "git"
-                    ? ["git" as const]
-                    : []),
-                ] as const
-              ).map((kind) => ({
-                id: `${kind}:${crypto.randomUUID()}`,
-                kind,
-                title:
-                  kind === "start"
-                    ? "Start"
-                    : kind === "files"
-                      ? "Files"
-                      : "Git",
-                target,
-              }))
-            : [];
+        let initialTabs: WorkspaceTab[] =
+          !saved && target ? defaultTabs(target, mobile) : [];
+        let templateLayout: SerializedDockview | undefined;
+        let templateActive: string | undefined;
+        if (!saved && target && !mobile && !nativeMobileRef.current) {
+          const template = await worktreeLayoutDefault.load();
+          if (layoutScope.current !== targetScope) return;
+          if (template) {
+            const attention = startingAttention.current;
+            const startedHere = Boolean(
+              attention?.started &&
+              attention.host.publicKey === target.host.publicKey &&
+              samePath(
+                attention.terminal.worktreePath ?? attention.terminal.cwd,
+                target.cwd,
+              ),
+            );
+            const team = Boolean(
+              startedHere && attention?.terminal.teamConversation,
+            );
+            const forge = Boolean(
+              issueRepositoriesRef.current[
+                issueRepositoryKey(
+                  target.host.publicKey,
+                  target.folder.workspacePath,
+                )
+              ],
+            );
+            const mapped = new Map<string, string>();
+            const restored: WorkspaceTab[] = [];
+            for (const slot of template.slots) {
+              if (
+                (slot.kind === "git" && target.folder.kind !== "git") ||
+                (slot.kind === "board" && !team) ||
+                ((slot.kind === "issues" || slot.kind === "ci") && !forge)
+              )
+                continue;
+              const kind = slot.kind === "agent" ? "start" : slot.kind;
+              let tab: WorkspaceTab;
+              if (kind === "terminal") {
+                if (!startedHere) continue;
+                if (layoutScope.current !== targetScope) break;
+                try {
+                  const result = await connection.requestHost(
+                    target.host.publicKey,
+                    "terminal.create",
+                    { cwd: target.cwd },
+                  );
+                  if (!result?.ok) continue;
+                  const terminal = result.result.terminal;
+                  setTerminalLists((current) => {
+                    const list = current[target.host.publicKey];
+                    return list
+                      ? {
+                          ...current,
+                          [target.host.publicKey]: applyTerminalEvent(list, {
+                            type: "terminal.created",
+                            terminal,
+                          }),
+                        }
+                      : current;
+                  });
+                  tab = {
+                    id: terminalTabId(terminal.id),
+                    kind,
+                    terminalId: terminal.id,
+                    title: terminal.title || terminal.shell,
+                    target,
+                  };
+                } catch {
+                  continue;
+                }
+              } else {
+                tab = {
+                  id: `${kind}:${crypto.randomUUID()}`,
+                  kind,
+                  title:
+                    kind === "start"
+                      ? "Start"
+                      : kind === "files"
+                        ? "Files"
+                        : kind === "git"
+                          ? "Git"
+                          : kind === "board"
+                            ? "Board"
+                            : kind === "issues"
+                              ? "Issues"
+                              : "CI",
+                  target,
+                };
+              }
+              if (slot.kind === "agent") templateAgentPanel.current = tab.id;
+              mapped.set(slot.id, tab.id);
+              restored.push(tab);
+            }
+            if (layoutScope.current !== targetScope) return;
+            templateLayout = pruneLayout(template.layout, mapped);
+            if (templateLayout) {
+              initialTabs = restored;
+              templateActive = mapped.get(template.activeSlot ?? "");
+              if (!templateActive) {
+                const selected = (
+                  node: SerializedDockview["grid"]["root"],
+                ): string | undefined =>
+                  Array.isArray(node.data)
+                    ? node.data.map(selected).find(Boolean)
+                    : node.data.id === templateLayout!.activeGroup
+                      ? node.data.activeView
+                      : undefined;
+                templateActive = selected(templateLayout.grid.root);
+              }
+              if (!initialTabs.some((tab) => tab.kind === "start")) {
+                const start: WorkspaceTab = {
+                  id: `start:${crypto.randomUUID()}`,
+                  kind: "start",
+                  title: "Start",
+                  target,
+                };
+                initialTabs.push(start);
+                templateAgentPanel.current = start.id;
+                const append = (
+                  node: SerializedDockview["grid"]["root"],
+                ): boolean => {
+                  if (Array.isArray(node.data)) return node.data.some(append);
+                  if (node.data.id !== templateLayout!.activeGroup)
+                    return false;
+                  node.data.views.push(start.id);
+                  node.data.activeView = start.id;
+                  return true;
+                };
+                append(templateLayout.grid.root);
+                templateLayout.panels[start.id] = {
+                  id: start.id,
+                  contentComponent: "workspace",
+                  params: { tabId: start.id },
+                };
+                templateActive = start.id;
+              }
+              templateApplied.current = true;
+            }
+          }
+        }
         const restoredTabs = saved?.tabs ?? initialTabs;
         if (
           target &&
@@ -1175,8 +1345,10 @@ function WorkspaceFrameInner({
             target,
           });
         setTabs(restoredTabs);
-        setActiveTabId(saved?.activeTabId || restoredTabs[0]?.id || "");
-        lastLayout.current = saved?.layout;
+        setActiveTabId(
+          saved?.activeTabId || templateActive || restoredTabs[0]?.id || "",
+        );
+        lastLayout.current = saved?.layout ?? templateLayout;
         mobileClosedTabs.current = saved?.mobileClosedTabs ?? [];
         viewStates.current = saved?.views ?? {};
         setLoadedLayoutScope(targetScope);
@@ -1526,6 +1698,7 @@ function WorkspaceFrameInner({
   const [attentionToOpen, setAttentionToOpen] = useState<
     AttentionItem & { started?: boolean }
   >();
+  startingAttention.current = attentionToOpen;
   const attentionItems: AttentionItem[] = hosts
     .flatMap((host) =>
       state.connectedHosts.includes(host.publicKey)
@@ -2109,9 +2282,24 @@ function WorkspaceFrameInner({
       try {
         api.fromJSON(lastLayout.current);
       } catch {
+        // Preserve a parent that already replaced Start before the dock mounted.
+        const agentId =
+          lastLayout.current.panels?.[templateAgentPanel.current ?? ""]?.params
+            ?.tabId;
+        const agent = tabsRef.current.find((tab) => tab.id === agentId);
+        const board = tabsRef.current.find((tab) => tab.kind === "board");
         // A layout Dockview cannot read opens as one group of the saved tabs.
         lastLayout.current = undefined;
         api.clear();
+        if (templateApplied.current && selectedTarget) {
+          tabsRef.current = defaultTabs(selectedTarget, false);
+          if (agent) tabsRef.current[0] = agent;
+          if (board) tabsRef.current.push(board);
+          setTabs(tabsRef.current);
+          activeTabRef.current = tabsRef.current[0].id;
+          setActiveTabId(activeTabRef.current);
+          templateApplied.current = false;
+        }
         if (selectedTarget && tabsRef.current.length === 0) {
           const start: WorkspaceTab = {
             id: `start:${crypto.randomUUID()}`,
@@ -2127,6 +2315,19 @@ function WorkspaceFrameInner({
       }
     }
     // Preserve groups whose last tab exited while Dockview was unmounted.
+    // A Mobile-only tab may have exited after every saved panel was closed.
+    // Keep one place to start again even though that tab had no saved panel.
+    const fallbackGroup =
+      tabsRef.current.length === 0 &&
+      mobileClosedTabs.current.some((closed) => closed.preservePane) &&
+      !api.panels.some((panel) =>
+        mobileClosedTabs.current.some(
+          (closed) => closed.preservePane && panel.params?.tabId === closed.id,
+        ),
+      ) &&
+      !api.panels.some((panel) => panel.params?.emptyPane)
+        ? (api.activeGroup ?? api.groups[0])
+        : undefined;
     for (const group of api.groups) {
       const lastClosed = [...mobileClosedTabs.current]
         .reverse()
@@ -2134,7 +2335,7 @@ function WorkspaceFrameInner({
           group.panels.some((panel) => panel.params?.tabId === closed.id),
         );
       if (
-        lastClosed?.preservePane &&
+        (lastClosed?.preservePane || group === fallbackGroup) &&
         group.panels.every(
           (panel) =>
             !panel.params?.emptyPane &&
@@ -2661,6 +2862,9 @@ function WorkspaceFrameInner({
     selectReadingWorktree,
   ]);
   const childStates = useRef(new Map<string, ChildSummary["state"]>());
+  const finishedChildTabs = useRef(
+    new Map<string, { hostKey: string; cwd: string; terminalId: string }>(),
+  );
   useEffect(() => {
     for (const [hostKey, children] of Object.entries(childrenByHost))
       for (const child of children) {
@@ -2672,12 +2876,29 @@ function WorkspaceFrameInner({
           previous &&
           previous !== "finished" &&
           child.state === "finished" &&
-          child.terminalId &&
-          tabsRef.current.some((tab) => tab.terminalId === child.terminalId)
-        )
-          closeTab(terminalTabId(child.terminalId), undefined, true);
+          child.terminalId
+        ) {
+          finishedChildTabs.current.set(key, {
+            hostKey,
+            cwd: child.parentCwd,
+            terminalId: child.terminalId,
+          });
+        }
       }
   }, [childrenByHost]);
+  useEffect(() => {
+    if (!selectedTarget || layoutLoading || loadedLayoutScope !== scope) return;
+    for (const [key, child] of finishedChildTabs.current) {
+      if (
+        child.hostKey !== selectedTarget.host.publicKey ||
+        !samePath(child.cwd, selectedTarget.cwd)
+      )
+        continue;
+      finishedChildTabs.current.delete(key);
+      if (tabsRef.current.some((tab) => tab.terminalId === child.terminalId))
+        closeTab(terminalTabId(child.terminalId), undefined, true);
+    }
+  }, [childrenByHost, selectedTarget, layoutLoading, loadedLayoutScope, scope]);
   // Tabs of Terminals that no longer exist on the Host leave the layout.
   useEffect(() => {
     if (
@@ -2933,8 +3154,89 @@ function WorkspaceFrameInner({
       : tab;
   });
 
+  const saveTemplateRef =
+    useRef<() => WorktreeLayoutTemplate | undefined>(undefined);
+  saveTemplateRef.current = () => {
+    const layout = dockApi.current?.toJSON();
+    if (!layout) return;
+    const candidates = displayTabs.filter(
+      (tab) => tab.kind === "terminal" && tab.cli && !tab.childId,
+    );
+    const agent =
+      candidates[0] ?? displayTabs.find((tab) => tab.kind === "start");
+    const slots: LayoutSlot[] = [];
+    const mapped = new Map<string, string>();
+    const seen = new Set<string>();
+    for (const panel of Object.values(layout.panels)) {
+      const tab = displayTabs.find((tab) => tab.id === panel.params?.tabId);
+      if (
+        !tab ||
+        panel.id.includes(":split:") ||
+        panel.id.includes(":reading:") ||
+        seen.has(tab.id)
+      )
+        continue;
+      let kind: LayoutSlotKind;
+      if (tab.id === agent?.id) kind = "agent";
+      else if (tab.kind === "terminal" && !tab.cli && !tab.childId)
+        kind = "terminal";
+      else if (["files", "git", "board", "issues", "ci"].includes(tab.kind))
+        kind = tab.kind as LayoutSlotKind;
+      else continue;
+      if (kind !== "terminal" && slots.some((slot) => slot.kind === kind))
+        continue;
+      seen.add(tab.id);
+      const id = `slot-${slots.length + 1}`;
+      slots.push({ id, kind });
+      mapped.set(panel.id, id);
+    }
+    const portable = pruneLayout(layout, mapped);
+    if (!portable) return;
+    const activePanel = dockApi.current?.activePanel?.id;
+    const selected = (
+      node: SerializedDockview["grid"]["root"],
+    ): string | undefined =>
+      Array.isArray(node.data)
+        ? node.data.map(selected).find(Boolean)
+        : node.data.id === portable.activeGroup
+          ? node.data.activeView
+          : undefined;
+    return {
+      version: 1,
+      layout: portable,
+      slots,
+      activeSlot: mapped.get(activePanel ?? "") ?? selected(portable.grid.root),
+    };
+  };
+  useEffect(
+    () =>
+      worktreeLayoutDefault.register(
+        selectedTarget &&
+          !isMobile &&
+          !state.initial?.mobile &&
+          !teamsHost &&
+          !layoutLoading &&
+          loadedLayoutScope === scope
+          ? () => saveTemplateRef.current?.()
+          : undefined,
+      ),
+    [
+      selectedTarget,
+      isMobile,
+      state.initial?.mobile,
+      teamsHost,
+      layoutLoading,
+      loadedLayoutScope,
+      scope,
+    ],
+  );
+
   const launchingItem = launching?.scope === scope ? launching.item : undefined;
   const dockContext: DockContextValue = {
+    saveNewWorktreeLayout:
+      !isMobile && !state.initial?.mobile
+        ? () => void worktreeLayoutDefault.save(t)
+        : undefined,
     readingViews: [
       "files",
       ...(targetFolder?.kind === "git" ? ["git" as const] : []),
@@ -3617,17 +3919,32 @@ function WorkspaceFrameInner({
             );
             openTeams(creationTarget.host, "teams");
           }}
-          onStarted={(terminal) => {
+          onStarted={(terminal, path, setupWorktree) => {
             applyTerminalEventFor(creationTarget.host.publicKey, {
               type: "terminal.created",
               terminal,
             });
             void refreshHistory(creationTarget.host.publicKey);
-            void openAttention({
+            const item = {
               host: creationTarget.host,
               terminal,
               started: true,
-            });
+            };
+            if (setupWorktree) {
+              const worktree = worktreesOf(creationTarget.folder).find(
+                (entry) => samePath(entry.path, path),
+              ) ?? { path, detached: false, primary: false };
+              const select = () => {
+                setAttentionToOpen(item);
+                openTarget(
+                  creationTarget.host,
+                  creationTarget.folder,
+                  worktree,
+                );
+              };
+              if (teamsHostRef.current) leaveTeams(select);
+              else select();
+            } else void openAttention(item);
             setCreationTarget(undefined);
           }}
         />

@@ -14,6 +14,7 @@ import {
   clearObserved,
 } from "../terminal/scenario.mjs";
 import { openAgents, returnToWorktree } from "./agents-navigation.mjs";
+import { openSidebar } from "../connection/scenario.mjs";
 
 const action = (name) => `[data-iori-action="workspace-${name}"]`;
 const tab = (id) => `[data-iori-tab-id="terminal:${id}"]`;
@@ -541,5 +542,39 @@ export async function paneActions({
   await typeTerminal(client, "printf '%s%s\\n' '空のペイン' 'で続ける'\r");
   await observed(client, "空のペインで続ける");
   await record("最後の空ペインからTerminalを開いて続けられる");
+  await client.browser.viewport({ width: 390, height: 844 });
+  await screen.wait(
+    `[data-iori-workspace-panel="${resumedTab}"]:not([hidden])`,
+  );
+  await screen.click(action("add-tab"));
+  await screen.click('[data-iori-shell-id="bash"]');
+  const mobileNewTab = await waitFor(
+    () =>
+      screen.attribute(
+        '[data-iori-workspace-panel^="terminal:"]:not([hidden])',
+        "data-iori-workspace-panel",
+      ),
+    (id) => Boolean(id && id !== resumedTab),
+  );
+  await openSidebar(screen);
+  await screen.click(`[data-iori-terminal-row="${resumedId}"]`);
+  await screen.click(action("close-tab"));
+  await screen.wait(
+    `[data-iori-workspace-panel="${mobileNewTab}"]:not([hidden])`,
+  );
+  await focusTerminal(client, mobileNewTab.replace(/^terminal:/, ""));
+  await typeTerminal(client, "exit\r");
+  await waitFor(() =>
+    screen.evaluate(
+      `!document.querySelector(${JSON.stringify(`[data-iori-workspace-panel="${mobileNewTab}"]`)})`,
+    ),
+  );
+  await client.browser.viewport({ width: 1440, height: 1000 });
+  await screen.wait(`${empty} .cli-launcher-search input`);
+  await screen.click(`[data-iori-terminal-row="${resumedId}"]`);
+  await screen.wait(tab(resumedId));
+  await record(
+    "MobileでPCのタブを閉じ新しいTerminalが終了してもPCで作業を続けられる",
+  );
   return resumedId;
 }

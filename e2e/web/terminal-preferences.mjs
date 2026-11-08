@@ -334,6 +334,42 @@ export async function terminalPreferences({
   await record(
     "Terminalフォントの保存・即時反映・候補未選択のEnterで入力値を保存・空欄で既定へ戻る操作・未保存の破棄確認",
   );
+  // The bundled Noto Sans JP has different character widths from the default
+  // JetBrains Mono. Keep the real PTY open while changing only the family.
+  const beforeFamilyCols = await screen.evaluate(`${terminal}.cols`);
+  await screen.evaluate(
+    `document.fonts.load('14px "Noto Sans JP Variable"', 'M')`,
+  );
+  await openFontSettings();
+  await screen.input(fontInput, "Noto Sans JP Variable");
+  await screen.click(action("save-terminal-font"));
+  await screen.wait('[data-iori-state="terminal-font-saved"]');
+  await screen.click(action("settings-close"));
+  const familySize = await waitFor(
+    () =>
+      screen.evaluate(`(()=>{
+      const t=${terminal};
+      const grid=t.element.querySelector('.xterm-screen').getBoundingClientRect();
+      const viewport=t.element.closest('[data-iori-part="terminal-viewport"]').getBoundingClientRect();
+      return {cols:t.cols,rows:t.rows,fits:grid.right<=viewport.right+0.5&&grid.bottom<=viewport.bottom+0.5};
+    })()`),
+    (size) => size?.fits && size.cols !== beforeFamilyCols,
+  );
+  await clearObserved(client);
+  await typeTerminal(
+    client,
+    "printf 'FAMILY_SIZE_%s_END\\n' \"$(stty size)\"\r",
+  );
+  await observed(
+    client,
+    `FAMILY_SIZE_${familySize.rows} ${familySize.cols}_END`,
+  );
+  await record("幅の違う同梱フォントへの変更が開いた画面と実PTYの寸法へ反映");
+  await openFontSettings();
+  await screen.input(fontInput, fontValue);
+  await screen.click(action("save-terminal-font"));
+  await screen.wait('[data-iori-state="terminal-font-saved"]');
+  await screen.click(action("settings-close"));
   const before = await screen.evaluate(
     `({font:${terminal}.options.fontSize,cols:${terminal}.cols})`,
   );

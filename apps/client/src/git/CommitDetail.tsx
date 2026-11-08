@@ -121,6 +121,7 @@ export function CommitDetail({
       </div>
       {error && (
         <ReadingError
+          centered={!commit}
           retryLabel={ja ? "再試行" : "Retry"}
           onRetry={() => setRetry((value) => value + 1)}
         >

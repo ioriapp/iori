@@ -1,5 +1,21 @@
 import { teamJapanese } from "./teams/translations.ts";
 const japanese: Record<string, string> = {
+  "Could not check the iori Host version. Try updating from Version in settings.":
+    "iori Hostのバージョンを確認できませんでした。設定の「バージョン」から更新をお試しください。",
+  "This team has no parent CLI. Edit the team and choose one.":
+    "チームの親のCLIが設定されていません。チームを編集して親のCLIを選んでください。",
+  "New worktree layout": "新しいworktreeの配置",
+  "Opens with the default layout.": "既定の配置で開きます。",
+  "Opens with your saved layout.": "保存した配置で開きます。",
+  "Save current layout": "今の配置を保存",
+  "Reset to default": "既定に戻す",
+  "Open a worktree, then save.": "worktreeを開いた状態で保存してください。",
+  "Use this layout for new worktrees": "この配置を新しいworktreeの既定にする",
+  "Saved for new worktrees.": "配置を新しいworktreeの既定にしました。",
+  "Could not save the layout. Try again.":
+    "配置を保存できませんでした。もう一度お試しください。",
+  "Reset to the default layout.": "既定の配置に戻しました。",
+
   "The SSH connection to {host} was lost, so the uninstall result could not be checked.":
     "{host}とのSSH接続が切断されたため、アンインストールの結果を確認できませんでした。",
   "Restart your PC, then delete this folder.":

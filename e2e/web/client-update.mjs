@@ -43,6 +43,45 @@ export async function clientUpdate({
   assert.equal(await screen.visible('[data-iori-state="update-error"]'), false);
   const development = action("receive-development-versions");
   assert.equal(await screen.attribute(development, "data-state"), "unchecked");
+  // Stand in for Android's installer permission while keeping the real update
+  // controls and preference change in the Client.
+  await screen.evaluate(`(async()=>{
+    const {native}=await import('/src/native.ts');
+    window.__permissionResume=[];
+    native.updateDownload=async()=>{};
+    native.updateInstall=async(resume)=>{
+      window.__permissionResume.push(resume);
+      return resume ? 'installing' : 'permission';
+    };
+  })()`);
+  await screen.click(action("update-install"));
+  await waitFor(() =>
+    screen.evaluate(
+      `document.querySelector('[data-iori-view="client-update"]')?.textContent.includes('Android')`,
+    ),
+  );
+  await screen.click(development);
+  await waitFor(
+    () => screen.attribute(development, "data-state"),
+    (value) => value === "checked",
+  );
+  await screen.evaluate(
+    `document.dispatchEvent(new Event('visibilitychange'))`,
+  );
+  await waitFor(() =>
+    screen.evaluate("window.__permissionResume.includes(true)"),
+  );
+  await record(
+    "Androidのインストール許可待ちに開発版の設定を変えても復帰時に再開",
+  );
+  await reload();
+  await screen.wait(action("settings-open"));
+  await openSettingsSection(screen, "settings-general");
+  await screen.click(development);
+  await waitFor(
+    () => screen.attribute(development, "data-state"),
+    (value) => value === "unchecked",
+  );
   await screen.click(development);
   await waitFor(
     () => screen.text('[data-iori-state="update-version"]'),
@@ -287,6 +326,41 @@ export async function clientHostUpdate({
   await screen.wait(action("settings-open"));
   assert.equal(await screen.visible(dialog), false);
   await record("更新後にもう一度開いてもHost更新の確認を繰り返さない");
+  await stopAdditionalUpdateHost();
+  await screen.evaluate(`(async () => {
+    const { native } = await import('/src/native.ts');
+    const { version } = await native.updateOptions();
+    await native.saveView('client-update-hosts', { version, hostKeys: [${JSON.stringify(offlineKey)}] });
+  })()`);
+  await reload();
+  await screen.wait('[data-iori-state="host-disconnected"]');
+  await screen.evaluate(`(async () => {
+    const { connection } = await import('/src/connection.ts');
+    const request = connection.requestHost;
+    connection.requestHost = async function(hostKey, method, ...args) {
+      const reply = await request.call(this, hostKey, method, ...args);
+      if (hostKey === ${JSON.stringify(offlineKey)} && method === 'host.info' && reply?.ok) {
+        const { version, ...result } = reply.result;
+        return { ...reply, result };
+      }
+      return reply;
+    };
+    window.__restoreHostInfo = () => { connection.requestHost = request; };
+  })()`);
+  await stopAdditionalUpdateHost(true);
+  await waitFor(
+    () => screen.text(dialog),
+    (text) =>
+      text?.includes(
+        "iori Hostのバージョンを確認できませんでした。設定の「バージョン」から更新をお試しください。",
+      ),
+  );
+  assert.equal(await screen.visible('[data-iori-state="host-current"]'), false);
+  await screen.evaluate("window.__restoreHostInfo()");
+  await screen.key("Escape");
+  await record(
+    "バージョンを返さないHostを最新と表示せず、設定からの更新を案内する",
+  );
   await stopAdditionalUpdateHost();
   await folderConnectionScenario({
     client,

@@ -216,9 +216,6 @@
 }
 [data-slot="scroll-area-thumb"] { background: var(--scrollbar-thumb); }
 
-[data-slot="collapsible-content"] {
-  overflow: hidden;
-}
 [data-slot="collapsible-content"][data-state="open"] {
   animation: tree-expand 150ms ease-out;
 }
@@ -227,17 +224,21 @@
 }
 @keyframes tree-expand {
   from {
+    overflow: hidden;
     height: 0;
   }
   to {
+    overflow: hidden;
     height: var(--radix-collapsible-content-height);
   }
 }
 @keyframes tree-collapse {
   from {
+    overflow: hidden;
     height: var(--radix-collapsible-content-height);
   }
   to {
+    overflow: hidden;
     height: 0;
   }
 }
