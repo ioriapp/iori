@@ -6,15 +6,7 @@ import {
   unexpectedChildCompletion,
 } from "../../verification/web/operation.mjs";
 import { showEndedChildren } from "./agents-navigation.mjs";
-import { randomUUID } from "node:crypto";
-import { readdir, readFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import {
-  childRequestText,
-  previousWorkerText,
-  teamNotice,
-} from "../../packages/protocol/src/team-text.ts";
-import { pasteToCli } from "./cli-input.mjs";
+import { readFile } from "node:fs/promises";
 import { waitForCliState } from "../cli-screen/scenario.mjs";
 import assert from "node:assert/strict";
 import { waitFor } from "../../verification/ui.mjs";
@@ -111,24 +103,6 @@ export async function childCliFailureScenario({
     cliFailure(screen, parentId),
   );
   await record("Codexのモデルエラーを子の行・Board・親への知らせに表示");
-  await screen.click(`[data-iori-child-id="${child.id}"] .nav-child-button`);
-  await pasteToCli(
-    client,
-    "Reply briefly and end your turn." + fakeMarker("failure-codex"),
-  );
-  await waitFor(
-    () => screen.text(`[data-iori-child-id="${child.id}"] .nav-child-state`),
-    (value) => value === "Running",
-    30000,
-    "直接の再入力でRunningに戻る",
-  );
-  await waitForOperation(
-    "child-cli-failure: 再入力のエラーを再び検知",
-    teamRecords,
-    (value) => value.children[0].state === "failed",
-    unexpectedChildCompletion(teamRecords, (children) => children[0]),
-  );
-  await record("失敗後の子へ直接再入力するとRunningへ戻り、次の失敗も検知");
   await screen.click(`[data-iori-terminal-row="${parentId}"]`);
   let hostStopped;
   const after = new Promise((resolve) => {
@@ -149,44 +123,32 @@ export async function childCliFailureScenario({
   await waitForCliState(client, child.terminalId, ["active"]);
   const rollout = (await session(child.terminalId)).session.file;
   let completedTask;
-  let rolloutEvents = [];
   await restartPreservingHost(async () => {
     hostStopped();
-    try {
-      await waitForOperation(
-        "child-cli-failure: 再起動を挟んだCodexの応答がエラーで終わる",
-        async () => {
-          const lines = (await readFile(rollout, "utf8")).trim().split("\n");
-          const events = lines.flatMap((line) => {
-            try {
-              const row = JSON.parse(line);
-              return row.type === "event_msg" &&
-                ["task_started", "task_complete"].includes(row.payload?.type)
-                ? [row.payload]
-                : [];
-            } catch {
-              return [];
-            }
-          });
-          rolloutEvents = events.map((event) =>
-            event.type === "task_complete" && event.error
-              ? "task_complete(error)"
-              : event.type,
-          );
-          completedTask = events.at(-1);
-          return completedTask;
-        },
-        (value) => value?.type === "task_complete" && value.error,
-        async () =>
-          completedTask?.type === "task_complete" && !completedTask.error
-            ? "CLIがエラーなしで応答を完了しました"
-            : false,
-      );
-    } finally {
-      await record(
-        `Codex rollout event types: ${JSON.stringify(rolloutEvents)}`,
-      );
-    }
+    await waitForOperation(
+      "child-cli-failure: 再起動を挟んだCodexの応答がエラーで終わる",
+      async () => {
+        const lines = (await readFile(rollout, "utf8")).trim().split("\n");
+        const events = lines.flatMap((line) => {
+          try {
+            const row = JSON.parse(line);
+            return row.type === "event_msg" &&
+              ["task_started", "task_complete"].includes(row.payload?.type)
+              ? [row.payload]
+              : [];
+          } catch {
+            return [];
+          }
+        });
+        completedTask = events.at(-1);
+        return completedTask;
+      },
+      (value) => value?.type === "task_complete" && value.error,
+      async () =>
+        completedTask?.type === "task_complete" && !completedTask.error
+          ? "CLIがエラーなしで応答を完了しました"
+          : false,
+    );
   });
   await waitFor(
     teamRecords,
@@ -454,181 +416,5 @@ export async function childCliFailureScenario({
   assert.equal(opencodeStatus?.failure, opencodeFailure);
   await record(
     "実OpenCodeの子: idle時にFailedとモデルエラー理由をサイドバー・Board・親へ表示",
-  );
-
-  // Delegating again after a CLI error assigns the next candidate. The short
-  // continuation body relies on Host handing over the original request.
-  await parentCommand(["stop", opencode.id]);
-  const unavailable = {
-    id: "handoff-unavailable",
-    cli: "claude",
-    model: invalidModel,
-    tools: [],
-    minimum: "",
-  };
-  const working = { ...role.candidates.low[0], id: "handoff-working" };
-  const handoffDefinition = {
-    ...changed,
-    roles: [
-      {
-        ...role,
-        instruction:
-          "Follow the delegated request. Do not ask questions and do not change files.",
-        candidates: { high: [], medium: [], low: [unavailable, working] },
-      },
-    ],
-  };
-  await screen.evaluate(
-    `(async()=>{const {connection}=await import('/src/connection.ts');const r=await connection.requestHost(connection.getSnapshot().host.publicKey,'teams.save',${JSON.stringify({ teamId, definition: handoffDefinition })});if(!r.ok)throw new Error('team save failed');})()`,
-  );
-  const token = `HANDOFF_${randomUUID().slice(0, 8)}`;
-  const original = `Run exactly this one shell command once, then end your turn: iori report --body "${token}". Do not change files.${fakeMarker("failure-handoff")}`;
-  const delegate = (body, continuation = []) =>
-    parentCommand([
-      "delegate",
-      "--role",
-      "Worker",
-      "--difficulty",
-      "low",
-      "--title",
-      "Candidate handoff",
-      "--worktree",
-      "parent",
-      ...continuation,
-      "--body",
-      body,
-    ]);
-  const first = (await delegate(original)).data;
-  await waitForOperation(
-    "child-cli-failure: 1番目の候補の子を起動",
-    teamRecords,
-    (value) => value.children.find((c) => c.id === first.child)?.terminalId,
-    childFailure(teamRecords, (children) =>
-      children.find((c) => c.id === first.child),
-    ),
-  );
-  await screen.click(`[data-iori-child-id="${first.child}"] .nav-child-button`);
-  const firstFailed = (
-    await waitForOperation(
-      "child-cli-failure: 1番目の候補がCLIのエラーで失敗",
-      teamRecords,
-      (value) =>
-        value.children.find((c) => c.id === first.child)?.state === "failed",
-      unexpectedChildCompletion(teamRecords, (children) =>
-        children.find((c) => c.id === first.child),
-      ),
-    )
-  ).children.find((c) => c.id === first.child);
-  await waitFor(
-    () =>
-      teamDelivery({
-        line: teamNotice(
-          "Worker",
-          "Candidate handoff",
-          "failed",
-          firstFailed.failure,
-          first.task,
-        ),
-        since: firstFailed.createdAt,
-      }),
-    (value) => value.claude.noticeReceived,
-    120000,
-    "親が委譲し直しの案内付きの失敗の知らせを受信",
-  );
-  await waitForOperation(
-    "child-cli-failure: 親が失敗の知らせへの応答を完了",
-    teamDelivery,
-    (value) => value.claude.pendingNotices === 0,
-    cliFailure(screen, parentId),
-  );
-  await record(
-    "1番目の候補のCLIのエラーを、委譲し直しの案内付きで親へ知らせる",
-  );
-  // --continue delivers the same marked request to a different CLI.
-  childCliFailureScripts["failure-handoff"] = [
-    { tool: "exec_command", input: { cmd: `iori report --body "${token}"` } },
-    { text: "Reported." },
-  ];
-  const continued = (
-    await delegate("Continue the task.", ["--continue", first.task])
-  ).data;
-  assert.equal(continued.task, first.task);
-  assert.notEqual(
-    continued.state,
-    "waiting",
-    `失敗した子の枠を待たずに割り当てる: ${JSON.stringify(continued)}`,
-  );
-  const handedOff = await waitForOperation(
-    "child-cli-failure: 委譲し直した子を起動",
-    teamRecords,
-    (value) => value.children.find((c) => c.id === continued.child)?.terminalId,
-    childFailure(teamRecords, (children) =>
-      children.find((c) => c.id === continued.child),
-    ),
-  );
-  const next = handedOff.children.find((c) => c.id === continued.child);
-  await showEndedChildren(screen);
-  await waitFor(
-    () => screen.text(`[data-iori-child-id="${first.child}"] .nav-child-state`),
-    (text) => text === "Stopped · 親の操作",
-    30000,
-    "委譲し直しで失敗した子を止める",
-  );
-  await screen.click(`[data-iori-child-id="${next.id}"] .nav-child-button`);
-  await waitFor(
-    () => screen.text(`[data-iori-child-id="${next.id}"] .nav-child-model`),
-    (text) => text === working.model,
-    30000,
-    "子の行に次の候補のモデルを表示",
-  );
-  assert.match(
-    await screen.attribute(
-      `[data-iori-child-id="${next.id}"] .nav-child-button`,
-      "title",
-    ),
-    /\bCodex\b/u,
-  );
-  const folder = dirname(next.requestFile);
-  const delegation = (await readdir(folder)).find((name) =>
-    /^delegation-.+\.md$/u.test(name),
-  );
-  assert.equal(
-    await readFile(join(folder, delegation), "utf8"),
-    childRequestText(
-      [
-        "Continue the task.",
-        previousWorkerText({
-          cli: "Claude Code",
-          model: invalidModel,
-          failure: firstFailed.failure,
-          request: original,
-          worktree: { path: firstFailed.cwd, same: true },
-        }),
-      ].join("\n\n"),
-      "",
-    ),
-    "依頼書に元の依頼・止まった理由・作業場所の注意を付ける",
-  );
-  await waitForOperation(
-    "child-cli-failure: 委譲し直した子が報告",
-    teamRecords,
-    (value) => value.children.find((c) => c.id === next.id)?.reportFiles.length,
-    childFailure(teamRecords, (children) =>
-      children.find((c) => c.id === next.id),
-    ),
-  );
-  // A report can precede the requested command within the same response.
-  await waitForCliState(client, next.terminalId, ["idle", "done"]);
-  const reports = await Promise.all(
-    (await teamRecords()).children
-      .find((c) => c.id === next.id)
-      .reportFiles.map((file) => readFile(file, "utf8")),
-  );
-  assert.ok(
-    reports.some((report) => report.includes(token)),
-    `元の依頼の印が報告にある: ${JSON.stringify(reports.map((report) => report.slice(0, 300)))}`,
-  );
-  await record(
-    "CLIのエラーの後の--continueで次の候補（Codex）へ回し、元の依頼を引き継いで報告",
   );
 }

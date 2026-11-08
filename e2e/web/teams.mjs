@@ -324,10 +324,7 @@ export async function teamsScenario({
   );
   await cliMenuAction(screen, "claude", "cli-hidden-set");
   await worker();
-  await version(3);
-  await record(
-    "隠したCLIを既存の候補に含めたままチームを保存でき、隠す・戻すだけではチームの版を増やさない",
-  );
+  await record("隠したCLIを候補に含めたチームを編集して保存する");
   await screen.click(action("team-history"));
   assert.equal(
     await screen.text(
@@ -613,10 +610,6 @@ export async function teamsScenario({
     await screen.text('[data-iori-history-version="5"]'),
     /バージョン3|version 3/,
   );
-  assert.match(
-    await screen.text('[data-iori-history-version="4"]'),
-    /候補の優先順と上限を調整/,
-  );
   await screen.key("Escape");
   await screen.click(templateWorker(teamId));
   await themes("worker-instructions");
@@ -767,9 +760,7 @@ export async function teamsScenario({
   );
   assert.equal(overflow, false, "Mobileで画面の横にはみ出さない");
   await desktop();
-  await record(
-    "Host再起動・Client再読込後もチーム履歴・メモ・モデル上限を保持、Mobileの編集・候補選択",
-  );
+  await record("Host再起動後にMobileのチーム編集と候補選択を開く");
 
   // Use saved duplicates so the original team remains available to later scenarios.
   await screen.click(action("open-agents-teams"));

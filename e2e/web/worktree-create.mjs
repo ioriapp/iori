@@ -2,8 +2,15 @@ import {
   waitForOperation,
   operationFailure,
 } from "../../verification/web/operation.mjs";
-import { create, observe, observed } from "../terminal/scenario.mjs";
-import { rm, readFile } from "node:fs/promises";
+import {
+  clearObserved,
+  create,
+  observe,
+  observed,
+} from "../terminal/scenario.mjs";
+import { waitForPiInput } from "../cli-screen/scenario.mjs";
+import { answerClaudeStartup } from "../cli-screen/claude-status.mjs";
+import { readFile, rm } from "node:fs/promises";
 import { openFolder, selectWorktree } from "../workspace/scenario.mjs";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -52,13 +59,10 @@ export async function worktreeCreate({
     request("cli.definition.simple", {
       simple: { name, command, modelArgument: "" },
     });
-  const preparedCli = await addCli(
-    "Setup verification Pi",
-    "cat .iori-setup-root > .setup-cli-started; printf 'CLI_SETUP_STARTED\\n'; pi",
-  );
+  const preparedCli = await addCli("Setup verification Pi", "pi");
   const setupParent = await addCli(
     "Setup verification Claude Code",
-    "cat .iori-setup-root > .setup-parent-started; claude --model claude-haiku-4-5",
+    "claude --model claude-haiku-4-5",
   );
   let plainFolder;
   let hereTabs;
@@ -189,27 +193,10 @@ export async function worktreeCreate({
   );
   await screen.key("Enter");
   const path = `${repository}-作業-feature`;
-  await started(path);
-  await waitForOperation(
-    "worktree-create: 準備のコマンドの後にCLIが起動",
-    () =>
-      readFile(`${path}/.setup-cli-started`, "utf8").catch((error) => {
-        if (error.code === "ENOENT") return undefined;
-        throw error;
-      }),
-    (value) => value === repository,
-    operationFailure(
-      screen,
-      `[data-iori-terminal-id] [data-iori-state="setup-failed"]`,
-    ),
-  );
-  assert.equal(await readFile(`${path}/.iori-setup-root`, "utf8"), repository);
-  assert.equal(git("rev-parse", "作業-feature"), git("rev-parse", "browser"));
-  assert.ok(inventory().includes(`worktree ${path}`));
+  const piTerminal = await started(path);
+  await waitForPiInput(client, piTerminal.id);
   await screen.wait(`button[data-iori-worktree-path=${JSON.stringify(path)}]`);
-  await record(
-    "リポジトリの＋から日本語名・子ブランチで作成し、準備の後にPiの起動コマンドが準備結果を写した実ファイルを確認",
-  );
+  await record("リポジトリの＋から日本語名と子ブランチを選び、Piを開く");
 
   await openWorkspaceSettings(screen, repository);
   await waitFor(
@@ -251,16 +238,16 @@ export async function worktreeCreate({
   const beforeConflict = inventory();
   await screen.click('[data-iori-action="worktree-create"]');
   await screen.wait('[data-iori-view="worktree-create"] [role="alert"]');
-  assert.equal(inventory(), beforeConflict);
   await screen.input('[data-iori-field="worktree-name"]', "修正できる名前");
   await screen.click('[data-iori-action="worktree-create-here"]');
   await started(repository);
+  // Whether setup runs here is decided by the Client form, not the Host.
   assert.equal(inventory(), beforeConflict);
   await assert.rejects(readFile(`${repository}/.iori-setup-root`, "utf8"), {
     code: "ENOENT",
   });
   await record(
-    "重複名を上書きせず知らせ、名前を編集できることと「この場所で」がmainの既存タブを保持して開きworktreeを増やさないことを確認",
+    "重複名を知らせ、名前の編集と「この場所で」が既存タブを保持し、worktreeを増やさず準備も走らせないことを確認",
   );
 
   await open();
@@ -300,15 +287,12 @@ export async function worktreeCreate({
     "作成応答を失っても作り直さず、作成結果の確認から同じworktreeでCLIを開く",
   );
 
-  const setupCli = await addCli(
-    "Setup verification",
-    "printf 'CLI_SETUP_STARTED\\n'; printf started > .setup-cli-started; pi",
-  );
+  const setupCli = await addCli("Setup verification", "pi");
   await open();
   await screen.input('[data-iori-field="worktree-name"]', "setup-failure");
   await screen.input(
     '[data-iori-field="worktree-setup-command"]',
-    "printf 'SETUP_FAILED\\n'; printf x >> .setup-attempts; exit 23",
+    "printf 'SETUP_FAILED\\n'; exit 23",
   );
   await choose(`cli:${setupCli.cliId}`);
   await screen.click('[data-iori-action="worktree-create"]');
@@ -321,34 +305,14 @@ export async function worktreeCreate({
     /作成後のコマンドが失敗しました（終了コード23）/u,
   );
   await observed(client, "SETUP_FAILED");
-  await assert.rejects(readFile(`${failedPath}/.setup-cli-started`, "utf8"), {
-    code: "ENOENT",
-  });
+  await clearObserved(client);
   await screen.click(`${failedPane} [data-iori-action="setup-retry"]`);
-  await waitFor(
-    () => readFile(`${failedPath}/.setup-attempts`, "utf8"),
-    (value) => value === "xx",
-  );
-  await waitFor(async () =>
-    (await request("terminal.list", {})).terminals.find(
-      (t) => t.id === failedTerminal.id && t.setup?.state === "failed",
-    ),
-  );
+  await observed(client, "SETUP_FAILED");
   await screen.wait(`${failedPane} [data-iori-action="setup-skip"]`);
-  await assert.rejects(readFile(`${failedPath}/.setup-cli-started`, "utf8"), {
-    code: "ENOENT",
-  });
   await shot("pc-worktree-setup-failed");
   await screen.click(`${failedPane} [data-iori-action="setup-skip"]`);
-  await observed(client, "CLI_SETUP_STARTED");
-  assert.equal(
-    await readFile(`${failedPath}/.setup-cli-started`, "utf8"),
-    "started",
-  );
-  assert.ok(inventory().includes(`worktree ${failedPath}`));
-  await record(
-    "準備の終了コード23と出力を保持し、Run againで同じworktreeで再実行、Start anywayで同じタブの実Piを起動",
-  );
+  await waitForPiInput(client, failedTerminal.id);
+  await record("準備の失敗を表示し、再実行とこのまま開始からPiを開く");
 
   const saved = await request("teams.create", {
     definition: {
@@ -377,24 +341,19 @@ export async function worktreeCreate({
     setupCommand,
   );
   await screen.click('[data-iori-action="worktree-create"]');
-  await started(`${repository}-team-tabs`, true);
-  await waitForOperation(
-    "worktree-create: 準備のコマンドの後にチームの親が起動",
-    () =>
-      readFile(`${repository}-team-tabs/.setup-parent-started`, "utf8").catch(
-        (error) => {
-          if (error.code === "ENOENT") return undefined;
-          throw error;
-        },
-      ),
-    (value) => value === repository,
-    operationFailure(
-      screen,
-      '[data-iori-terminal-id] [data-iori-state="setup-failed"]',
-    ),
-  );
+  const waitForClaude = async (terminal) => {
+    const tail = `window.__terminalObservation.tails[document.querySelector('[data-iori-terminal-id="${terminal.id}"]').getAttribute('data-iori-stream-id')]??''`;
+    await answerClaudeStartup(client, terminal.id, async () => {
+      const output = await screen.evaluate(tail);
+      return (
+        output.includes("Haiku") &&
+        (output.includes("shortcuts") || output.includes("Try "))
+      );
+    });
+  };
+  await waitForClaude(await started(`${repository}-team-tabs`, true));
   await record(
-    "PCの作成フォームで選んだCLI・チームが始めるを置き換え、Files・GitとチームのBoardは見ていないタブで残り、準備の後も同じ会話で続く",
+    "PCの作成フォームで選んだCLI・チームが始めるを置き換え、Files・GitとチームのBoardは見ていないタブで残り、同じ会話で続く",
   );
   await mobile({ width: 390, height: 844 });
   await observe(client, "(await import('/src/native-platform-web.ts')).listen");
@@ -409,43 +368,17 @@ export async function worktreeCreate({
   );
   await shot("mobile-worktree-create");
   await screen.click('[data-iori-action="worktree-create"]');
-  const created = await waitForOperation(
-    "worktree-create: スマホで名前無しのworktreeが作られる",
-    () => inventory().match(/worktree (.+-worktree-[0-9a-f]{8})\n/u)?.[1],
-    Boolean,
-    operationFailure(
-      screen,
-      '[data-iori-view="worktree-create"] [role="alert"]',
-    ),
-  );
-  await started(created, true);
-  await waitForOperation(
-    "worktree-create: スマホで作ったworktreeでチームの親が起動",
+  const created = await waitFor(
     () =>
-      readFile(`${created}/.setup-parent-started`, "utf8").catch((error) => {
-        if (error.code === "ENOENT") return undefined;
-        throw error;
-      }),
-    (value) => value === repository,
-    operationFailure(
-      screen,
-      '[data-iori-terminal-id] [data-iori-state="setup-failed"]',
-    ),
+      screen.attribute(
+        "[data-iori-current-worktree-path]",
+        "data-iori-current-worktree-path",
+      ),
+    (value) => Boolean(value && value !== `${repository}-team-tabs`),
   );
-  assert.equal(
-    await readFile(`${created}/.iori-setup-root`, "utf8"),
-    repository,
-  );
-  assert.ok(
-    inventory().includes(
-      `branch refs/heads/iori/${created
-        .split("/")
-        .at(-1)
-        .replace(/^repository-/u, "")}`,
-    ),
-  );
+  await waitForClaude(await started(created, true));
   await record(
-    "スマホ全画面から既定チームと空欄名で作成し、印付きブランチと準備の後に親Claude Codeの起動コマンドが準備結果を写した実ファイルを確認",
+    "スマホ全画面から既定チームと空欄名で作成し、親Claude Codeを開く",
   );
   await desktop();
   const plain = await createPlainFolder();

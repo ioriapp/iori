@@ -19,6 +19,7 @@ export async function startWebHost(
     dataRoot = process.env.XDG_DATA_HOME,
     port = process.env.IORI_HOST_PORT,
     onPtyDimensions,
+    onLog,
     cliEnvironment = {},
     fixtureHostName,
   } = {},
@@ -36,7 +37,12 @@ export async function startWebHost(
       execPath: distribution
         ? `${distribution}/runtime/node`
         : process.execPath,
-      stdio: ["ignore", "ignore", "inherit", "ipc"],
+      stdio: [
+        "ignore",
+        onLog ? "pipe" : "ignore",
+        onLog ? "pipe" : "inherit",
+        "ipc",
+      ],
       env: {
         ...verificationHostEnvironment(),
         ...cliEnvironment,
@@ -45,6 +51,13 @@ export async function startWebHost(
       },
     },
   );
+  if (onLog) {
+    child.stdout.on("data", (chunk) => onLog(chunk));
+    child.stderr.on("data", (chunk) => {
+      process.stderr.write(chunk);
+      onLog(chunk);
+    });
+  }
   const ready = new Promise((resolve) => {
     child.on("message", (message) => {
       if (message?.kind === "pty-dimensions") onPtyDimensions?.(message.entry);

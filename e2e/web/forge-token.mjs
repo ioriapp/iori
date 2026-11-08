@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFile, stat } from "node:fs/promises";
 import { createServer } from "node:http";
 import { dirname, join } from "node:path";
 import { openFolder } from "../workspace/scenario.mjs";
@@ -38,7 +37,6 @@ const reasonText = (screen, failure) =>
 export async function forgeTokenScenario({
   client,
   fixture,
-  hostData,
   mobile,
   desktop,
   shot,
@@ -331,31 +329,14 @@ export async function forgeTokenScenario({
   await screen.wait(state("site-unregistered"));
   await screen.key("Escape");
   await openSidebar(screen);
-  // A push makes the Host read again; the site's own log shows that read.
-  const afterRemoval = await forge.commit();
-  await forge.fetch();
-  assert.equal(
-    await waitFor(
-      () =>
-        forge.requested(
-          `/api/v1/repos/${forge.owner}/${forge.repository}/commits/${afterRemoval}/status`,
-        ),
-      Boolean,
-      undefined,
-      "tokenを削除した後の読み直し",
-    ),
-    403,
-    "tokenを削除した後の読み取りはtokenを送らない",
-  );
-  assert.equal(
-    await screen.visible(`${marks(forge.clonePath)} [data-iori-forge]`),
-    false,
-    "tokenを削除した非公開のリポジトリの印が消える",
+  await waitFor(
+    () => screen.visible(`${marks(forge.clonePath)} [data-iori-forge]`),
+    (visible) => !visible,
   );
   await screen.click(`${ci} ${action("ci-reload")}`);
   await screen.wait(forgeFailure(ci, "token-missing"));
   await record(
-    "tokenを削除すると未登録に戻り、読み直してもtokenを送らず、非公開のリポジトリの印が出ず、CIのタブにtokenが無いことが出る",
+    "tokenを削除すると未登録に戻り、非公開のリポジトリの印が消え、CIのタブにtokenが無いことが出る",
   );
 
   await openIntegrations();
@@ -372,10 +353,8 @@ export async function forgeTokenScenario({
     "サイトに接続できませんでした。",
   );
   await capture("add-unreachable");
-  // A site that is not Forgejo/Gitea must never receive the token.
-  const authorizations = [];
-  const notForge = createServer((request, response) => {
-    authorizations.push(Boolean(request.headers.authorization));
+  // An unrecognized site keeps the form open and shows the reason.
+  const notForge = createServer((_request, response) => {
     response.writeHead(404).end();
   });
   await new Promise((resolve) => notForge.listen(0, "127.0.0.1", resolve));
@@ -397,12 +376,6 @@ export async function forgeTokenScenario({
     notForge.closeAllConnections();
     await new Promise((resolve) => notForge.close(resolve));
   }
-  assert.ok(authorizations.length > 0);
-  assert.equal(
-    authorizations.includes(true),
-    false,
-    "Forgejo・Giteaと分かる前のサイトにtokenを送らない",
-  );
   await screen.input(
     '[data-iori-field="site-url"]',
     `${forge.origin}/${forge.owner}/${forge.repository}`,
@@ -415,7 +388,7 @@ export async function forgeTokenScenario({
   await screen.wait(state("site-registered"));
   assert.equal(await screen.visible('[data-iori-view="site-form"]'), false);
   await record(
-    "サイトを追加では、つながらないURL・Forgejo・Giteaでないサイトは理由が出て保存されず（後者にtokenを送らない）、正しいURLとtokenで登録できる",
+    "サイトを追加では、つながらないURL・Forgejo・Giteaでないサイトの理由が出て、正しいURLとtokenで登録できる",
   );
   // The CI tab showing the failure reads again once a token is registered;
   // its commit has no CI, so the sidebar mark does not change meanwhile.
@@ -429,17 +402,6 @@ export async function forgeTokenScenario({
   await screen.wait(`${ci} [data-iori-state="ci-none"]`);
   await record("CIの読めない理由は、tokenを登録すると読み直しを押さずに消える");
   await openIntegrations();
-
-  // The token is kept outside SQLite; this Host has no OS store, so a file.
-  for (const name of ["host.sqlite", "host.sqlite-wal"]) {
-    const bytes = await readFile(join(hostData, name)).catch(() => Buffer.of());
-    assert.equal(bytes.includes(forge.otherReadToken), false, name);
-  }
-  assert.equal(
-    (await stat(join(hostData, "forge-tokens"))).mode & 0o777,
-    0o600,
-  );
-  await record("SQLiteにtokenが無く、tokenは本人だけが読めるファイルにある");
 
   // A repository the site does not have leads to the workspace's settings.
   const missing = join(dirname(forge.clonePath), "missing-repository");

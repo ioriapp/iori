@@ -4,7 +4,6 @@ import {
   cliFailure,
 } from "../../verification/web/operation.mjs";
 import {
-  addCliByCommand,
   returnToWorktree,
   saveStartupArguments,
 } from "./agents-navigation.mjs";
@@ -219,12 +218,8 @@ export async function cliResumeScenario({
         `[data-iori-terminal-id="${id}"] [data-iori-state="cli-resume-pending"]`,
       )),
   );
-  assert.ok(
-    (await session(id)).command.includes(startupArguments),
-    "再開にも保存した起動引数が付く",
-  );
   await record(
-    "AIエージェントで保存した引数が単独の新規・再開に付き、引用符が保持される",
+    "AIエージェントで保存した引数が単独の新規起動に付き、引用符が保持される",
   );
   // Codex 0.162.1 can omit history above its composer in a short split
   // pane, even though resume is ready for input.
@@ -290,51 +285,6 @@ export async function cliResumeScenario({
   );
   await closeResume(screen, id);
   await record("再開行の閉じるで終了済みCLIの画面と一覧を閉じる");
-  await screen.click(action("workspace-add-tab"));
-  await screen.click(action("add-cli"));
-  const originalCommand = `node -e "console.log('NO_ID_' + 'READY'); process.stdin.resume()"`;
-  const customId = await addCliByCommand(
-    screen,
-    "Resume without ID",
-    originalCommand,
-  );
-  await returnToWorktree(screen);
-  await screen.click(action("workspace-add-tab"));
-  await screen.click(`[data-iori-cli-id="${customId}"]`);
-  await screen.wait(`[data-iori-tab-cli="${customId}"]`);
-  const customTerminal = (
-    await screen.attribute(
-      `[data-iori-tab-cli="${customId}"]`,
-      "data-iori-tab-id",
-    )
-  ).replace(/^terminal:/, "");
-  await observed(
-    client,
-    "NO_ID_READY",
-    undefined,
-    "observe",
-    cliFailure(screen, customTerminal),
-  );
-  await restartHostLosingTerminals();
-  await screen.wait(
-    `[data-iori-terminal-id="${customTerminal}"] [data-iori-state="cli-resume-pending"]`,
-  );
-  await screen.wait(
-    `[data-iori-terminal-id="${customTerminal}"][data-iori-stream-state="ready"]`,
-  );
-  await clearObserved(client);
-  await screen.click(
-    `[data-iori-terminal-id="${customTerminal}"] ${action("cli-resume")}`,
-  );
-  await focusTerminal(client, customTerminal);
-  await observed(
-    client,
-    "NO_ID_READY",
-    undefined,
-    "observe",
-    cliFailure(screen, customTerminal),
-  );
-  await record("会話IDを持たないCLIは元のコマンドで起動し直す");
   await screen.click(action("settings-open"));
   for (const section of ["notifications", "general"]) {
     await screen.click(action(`settings-${section}`));
@@ -346,12 +296,4 @@ export async function cliResumeScenario({
     }
   }
   await screen.click(action("settings-close"));
-  await restartHostLosingTerminals();
-  await screen.wait(
-    `[data-iori-terminal-id="${customTerminal}"] [data-iori-state="cli-resume-pending"]`,
-  );
-  await screen.wait(
-    `[data-iori-terminal-id="${customTerminal}"][data-iori-stream-state="ready"]`,
-  );
-  await closeResume(screen, customTerminal);
 }

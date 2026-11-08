@@ -6,11 +6,16 @@ import { runReadmeThemes } from "./readme-shots.mjs";
 import { startFakeModel } from "../fake-model/server.mjs";
 import { setRealModels } from "../../e2e/fake-model/marker.mjs";
 import { longApprovalCommand } from "../../e2e/fake-model/cli-status.mjs";
-import { basicWebScenarios } from "./scenarios.mjs";
+import {
+  basicWebScenarios,
+  teamWebScenarios,
+  childLifecycleScenarios,
+  cliDefinitionScenarios,
+} from "./scenarios.mjs";
 import { hostInvitationSwitch } from "./host-invitation-switch.mjs";
 import { hostUpdateMark } from "./host-update-mark.mjs";
 import { prepareCliErrorFixture } from "./cli-error-fixture.mjs";
-import { cliCommand, teamCommand } from "./team-command.mjs";
+import { teamCommand } from "./team-command.mjs";
 import { prepareForgeFixture } from "./forge-fixture.mjs";
 import { startDisposableForgejo } from "../forge/forgejo-container.mjs";
 import { chromiumExecutable } from "./browser.mjs";
@@ -116,10 +121,30 @@ const result = {
   ptyDimensions: [],
   node: { version: process.version, executable: process.execPath },
 };
+let hostLog = "";
+let phaseStart = { at: new Date().toISOString(), time: performance.now() };
+function recordPhase(name, details = {}) {
+  const now = performance.now();
+  result.phases.push({
+    name,
+    ...details,
+    startedAt: phaseStart.at,
+    seconds: Number(((now - phaseStart.time) / 1000).toFixed(3)),
+  });
+  phaseStart = { at: new Date().toISOString(), time: now };
+}
 const termination = new globalThis.AbortController();
-const stopObserving = observeOperations((name) => {
+const stopObserving = observeOperations((name, phase) => {
+  if (phase) {
+    result.phases.push(phase);
+    if (phase.failed) result.failedPhase = phase.name;
+    return;
+  }
   result.currentOperation = name;
-  if (name) result.lastOperation = name;
+  if (name) {
+    result.lastOperation = name;
+    delete result.failedPhase;
+  }
 }, termination.signal);
 const stopObservingCliQuiet = observeCliQuiet(
   () =>
@@ -163,6 +188,9 @@ function startObservedWebHost(distribution, options = {}) {
     cliEnvironment: cliHome?.environment,
     ...(only === "readme-shots" ? { fixtureHostName: "workstation" } : {}),
     onPtyDimensions: (entry) => result.ptyDimensions.push(entry),
+    onLog: (chunk) => {
+      hostLog = (hostLog + chunk.toString("utf8")).slice(-65536);
+    },
   });
 }
 let runRoot,
@@ -177,7 +205,6 @@ let runRoot,
   forgeTokenFixture,
   cliErrorFixture,
   fakeModel;
-let retainedDashShellId;
 const originalHome = process.env.HOME;
 const diagnostics = [];
 let listRequests = 0;
@@ -245,12 +272,12 @@ const updates = ["client-update", "host-update", "client-host-update"].includes(
   : undefined;
 const teamScenario = [
   "readme-shots",
-  "team-delegation",
+  ...teamWebScenarios,
   "automations",
   "repo-delegation",
   "board-activity",
   "opencode-delegation",
-  "child-lifecycle",
+  ...childLifecycleScenarios,
   "child-cli-failure",
   "terminal-daemon",
   "host-update",
@@ -393,12 +420,7 @@ try {
   process.env.XDG_DATA_HOME = dataRoot;
   process.env.IORI_HOST_PORT = String(await hostPort());
   const inputrc = join(runRoot, "inputrc");
-  const setBracketedPaste = (enabled) =>
-    writeFile(
-      inputrc,
-      `set enable-bracketed-paste ${enabled ? "on" : "off"}\n`,
-    );
-  await setBracketedPaste(true);
+  await writeFile(inputrc, "set enable-bracketed-paste on\n");
   // Only this run's child shells read the fixture; the user's file is intact.
   process.env.INPUTRC = inputrc;
   // Both CLIs use their standard directories in this run's isolated HOME.
@@ -415,7 +437,7 @@ try {
       ? join(runRoot, "cli-home", "projects", "acme-web-login")
       : join(runRoot, "worktree");
   const secondRepository = join(runRoot, "second-repository");
-  if (only === "repo-delegation" || only === "team-delegation") {
+  if (only === "repo-delegation") {
     await mkdir(join(secondRepository, "nested"), { recursive: true });
     git(secondRepository, "init", "-b", "main");
     await writeFile(
@@ -477,12 +499,9 @@ try {
   if (only === "readme-shots")
     await prepareReadmeRepository({ repository, worktree });
 
-  forgeFixture = [
-    "forge-status",
-    "forge-issues",
-    "forge-issue-start",
-    "forge-commands",
-  ].includes(only)
+  forgeFixture = ["forge-status", "forge-issues", "forge-issue-start"].includes(
+    only,
+  )
     ? await prepareForgeFixture(runRoot)
     : undefined;
   forgeTokenFixture = [
@@ -511,30 +530,9 @@ try {
     fakeModel,
     fakeModelClis,
     fakeModelCodexAccount: fakeModelScenario?.codexAccount ?? false,
-    // The omp scenario needs the real omp and the real Claude Code as the
-    // parent of its team child. Its own home is fully isolated.
-    clis:
-      basicScenario?.clis ??
-      ([
-        "automation-issue",
-        "automations",
-        "automation-webhook",
-        "web-recovery",
-        "forge-issue-start",
-        "host-update",
-        "host-uninstall",
-        "mobile-batch-input",
-        "mobile-images",
-      ].includes(only)
-        ? fakeModelScenario?.clis
-        : undefined) ??
-      (only === "cli-omp"
-        ? ["claude", "omp"]
-        : only === "opencode-delegation"
-          ? ["codex", "pi", "claude", "opencode"]
-          : undefined),
+    clis: basicScenario?.clis ?? fakeModelScenario?.clis ?? [],
     repositories:
-      only === "repo-delegation" || only === "team-delegation"
+      only === "repo-delegation"
         ? [repository, secondRepository]
         : only === "automation-issue"
           ? [repository, forgeTokenFixture.clonePath]
@@ -544,11 +542,11 @@ try {
     teamCommands:
       teamScenario ||
       only === "cli-omp" ||
-      only === "cli-definition" ||
+      cliDefinitionScenarios.includes(only) ||
       only === "cli-definition-plugin",
     // Claude Code starts in these folders as in folders the user trusted.
     ...(only === "worktree-create" ? { trustedFolders: [repository] } : {}),
-    ...(["forge-commands", "forge-issue-start"].includes(only)
+    ...(only === "forge-issue-start"
       ? {
           trustedFolders: [
             repository,
@@ -644,7 +642,7 @@ process.stdin.resume();
   }
   if (
     teamScenario ||
-    ["forge-commands", "forge-issue-start", "automation-issue"].includes(only)
+    ["forge-issue-start", "automation-issue"].includes(only)
   ) {
     // This fixture represents a Host whose user already opened both CLIs.
     // Host prepares their real hooks; no lifecycle events are fabricated.
@@ -655,16 +653,7 @@ process.stdin.resume();
     if (only === "opencode-delegation") store.setLastUsedCli("opencode");
     store.close();
   }
-  if (only === "web-terminal") {
-    const dashShell = (await discoverShells()).shells.find(
-      (shell) => shell.id === "dash" || shell.aliases?.includes("dash"),
-    );
-    if (!dashShell)
-      throw new Error("web-terminal requires an available dash shell");
-    retainedDashShellId = dashShell.id;
-  }
   const notificationParent = join(worktree, "notification-parent.mjs");
-  const notificationWorker = join(worktree, "notification-worker.mjs");
   if (
     [
       "team-notifications",
@@ -678,10 +667,8 @@ process.stdin.resume();
       `import {createInterface} from 'node:readline';import {execFile} from 'node:child_process';import {promisify} from 'node:util';import {appendFileSync} from 'node:fs';
 appendFileSync(${JSON.stringify(join(runRoot, "notification-pids"))},JSON.stringify({pid:process.pid,cwd:process.cwd()})+'\\n');
 const input=createInterface({input:process.stdin}); console.log('Notification parent ready');
-input.on('line',async line=>{if(line.startsWith('[iori] '))appendFileSync(${JSON.stringify(join(runRoot, "notification-parent-inputs"))},line+'\\n');if(line==='PARENT_BARRIER'){appendFileSync(${JSON.stringify(join(runRoot, "notification-parent-barriers"))},'seen\\n');console.log('PARENT_BARRIER_ACK');return;}if(line.startsWith('SEND ')){try{const output=await promisify(execFile)('iori',['send',line.slice(5),'--kind','request','--body','Continue.','--json']);console.log(output.stdout);}catch(error){console.error(error.message);}return;}if(!line.startsWith('DELEGATE'))return;const options=line==='DELEGATE'?{}:JSON.parse(line.slice(9));try{const output=await promisify(execFile)('iori',['delegate','--role','Worker','--difficulty',options.difficulty??'low','--title',options.title??'Candidate notification','--worktree',options.worktree??'parent','--body','Check candidate availability.','--json']);const result=JSON.parse(output.stdout);appendFileSync(${JSON.stringify(join(runRoot, "notification-delegations"))},JSON.stringify({options,result})+'\\n');console.log(JSON.stringify(result));}catch(error){appendFileSync(${JSON.stringify(join(runRoot, "notification-delegations"))},JSON.stringify({options,error:error.message})+'\\n');console.error(error.message);}});`,
+input.on('line',async line=>{if(!line.startsWith('DELEGATE'))return;const options=line==='DELEGATE'?{}:JSON.parse(line.slice(9));try{const output=await promisify(execFile)('iori',['delegate','--role','Worker','--difficulty',options.difficulty??'low','--title',options.title??'Candidate notification','--worktree',options.worktree??'parent','--body','Check candidate availability.','--json']);console.log(output.stdout);}catch(error){console.error(error.message);}});`,
     );
-  if (only === "team-notifications")
-    await writeFile(notificationWorker, "process.stdin.resume();\n");
   const replacement = process.argv.includes("--replace-host-distribution")
     ? await prepareHostReplacement(runRoot)
     : undefined;
@@ -988,6 +975,7 @@ input.on('line',async line=>{if(line.startsWith('[iori] '))appendFileSync(${JSON
   page = await context.newPage();
   let client = await clientFor(page);
   await page.goto(web.url);
+  recordPhase("準備");
   const observeAfterReload = async () => {
     const { observe } = await import("../../e2e/terminal/scenario.mjs");
     await observe(
@@ -1061,8 +1049,7 @@ input.on('line',async line=>{if(line.startsWith('[iori] '))appendFileSync(${JSON
                   cliEnvironment: cliHome.environment,
                 });
               },
-              record: (name, details) =>
-                result.phases.push({ name, ...details }),
+              record: (name, details) => recordPhase(name, details),
               shot: (name) =>
                 page.screenshot({ path: join(evidence, name + ".png") }),
               mobile: () => page.setViewportSize({ width: 400, height: 900 }),
@@ -1088,8 +1075,7 @@ input.on('line',async line=>{if(line.startsWith('[iori] '))appendFileSync(${JSON
               worktree,
               hostRoot: join(dataRoot, "iori-host"),
               ...details,
-              record: (name, details) =>
-                result.phases.push({ name, ...details }),
+              record: (name, details) => recordPhase(name, details),
               shot: (name) =>
                 page.screenshot({ path: join(evidence, name + ".png") }),
             })
@@ -1104,8 +1090,7 @@ input.on('line',async line=>{if(line.startsWith('[iori] '))appendFileSync(${JSON
               hostRoot: join(dataRoot, "iori-host"),
               unit: host.unit,
               ...details,
-              record: (name, details) =>
-                result.phases.push({ name, ...details }),
+              record: (name, details) => recordPhase(name, details),
               shot: async (name) =>
                 page.screenshot({ path: join(evidence, name + ".png") }),
               mobile: () => page.setViewportSize({ width: 400, height: 900 }),
@@ -1139,7 +1124,6 @@ input.on('line',async line=>{if(line.startsWith('[iori] '))appendFileSync(${JSON
       );
     },
     only,
-    retainedDashShellId,
     forgeFixture,
     forgeTokenFixture,
     hostData: join(runRoot, "host-data", "iori-host"),
@@ -1299,34 +1283,6 @@ input.on('line',async line=>{if(line.startsWith('[iori] '))appendFileSync(${JSON
           }
         : undefined,
     notificationCommand: `${process.execPath} ${notificationParent}`,
-    notificationWorkerCommand: `${process.execPath} ${notificationWorker}`,
-    notificationDelegations: async () =>
-      (
-        await readFile(join(runRoot, "notification-delegations"), "utf8").catch(
-          () => "",
-        )
-      )
-        .split("\n")
-        .filter(Boolean)
-        .map((line) => JSON.parse(line)),
-    notificationParentInputs: async () =>
-      (
-        await readFile(
-          join(runRoot, "notification-parent-inputs"),
-          "utf8",
-        ).catch(() => "")
-      )
-        .split("\n")
-        .filter(Boolean),
-    notificationParentBarriers: async () =>
-      (
-        await readFile(
-          join(runRoot, "notification-parent-barriers"),
-          "utf8",
-        ).catch(() => "")
-      )
-        .split("\n")
-        .filter(Boolean),
     notificationBeforeChildrenSnapshot: async (terminalId) => {
       await page.evaluate(async () => {
         const { native } = await import("/src/native.ts");
@@ -1430,10 +1386,6 @@ input.on('line',async line=>{if(line.startsWith('[iori] '))appendFileSync(${JSON
       }
     },
     teamCommand: teamCommand(
-      join(dataRoot, "iori-host"),
-      process.env.CLAUDE_CONFIG_DIR,
-    ),
-    cliCommand: cliCommand(
       join(dataRoot, "iori-host"),
       process.env.CLAUDE_CONFIG_DIR,
     ),
@@ -1705,7 +1657,6 @@ input.on('line',async line=>{if(line.startsWith('[iori] '))appendFileSync(${JSON
     repository,
     secondRepository,
     worktree,
-    setBracketedPaste,
     finishBackgroundTerminal: () =>
       writeFile(join(worktree, ".pane-exit"), "\n"),
     commits,
@@ -1721,7 +1672,7 @@ input.on('line',async line=>{if(line.startsWith('[iori] '))appendFileSync(${JSON
       return phoneClient;
     },
     record: async (phase) => {
-      result.phases.push(phase);
+      recordPhase(phase);
       console.log(phase);
     },
     disconnectedReads: async (expand) => {
@@ -1914,15 +1865,39 @@ input.on('line',async line=>{if(line.startsWith('[iori] '))appendFileSync(${JSON
       await page.screenshot({ path: join(evidence, `${name}.png`) });
     },
   });
+  recordPhase("操作列の終了");
   assert.deepEqual(diagnostics, [], "ブラウザーのconsoleと未処理例外");
   result.passed = true;
 } catch (error) {
+  recordPhase("失敗", { failed: true });
   result.operationAtFailure =
     result.interruptedOperation ??
+    result.failedPhase ??
     result.currentOperation ??
-    result.lastOperation;
+    result.lastOperation ??
+    result.lastUiOperation;
   result.terminalTransport = [...terminalTransport.values()];
+  await mkdir(evidence, { recursive: true });
+  if (host?.unit) {
+    const journal = spawnSync(
+      "journalctl",
+      ["--user", "-u", host.unit, "-n", "200", "--no-pager", "-o", "cat"],
+      { encoding: "utf8" },
+    );
+    hostLog += journal.stdout ?? "";
+  }
+  const redact = (value) =>
+    value.replace(/iori:\/\/\S+|[a-zA-Z0-9_-]{64,}/g, "[redacted]");
+  await writeFile(join(evidence, "host.log"), redact(hostLog.slice(-65536)));
   if (page) {
+    const { saveOpenTerminalTails } = await import("./terminal-failure.mjs");
+    await saveOpenTerminalTails(
+      page,
+      process.env.XDG_DATA_HOME,
+      evidence,
+    ).catch(() => {
+      result.terminalCaptureFailed = true;
+    });
     const { terminalState } = await import("../../e2e/terminal/scenario.mjs");
     result.terminalState = await terminalState({
       screen: { evaluate: (expression) => page.evaluate(expression) },
@@ -2019,6 +1994,8 @@ input.on('line',async line=>{if(line.startsWith('[iori] '))appendFileSync(${JSON
             ? ["codex", "claude"]
             : teamScenario
               ? [
+                  "child-background",
+                  "child-claude-resume",
                   "terminal-daemon",
                   "host-update",
                   "host-uninstall",
@@ -2038,7 +2015,8 @@ input.on('line',async line=>{if(line.startsWith('[iori] '))appendFileSync(${JSON
                           "long-approval",
                           "claude-status",
                           "mobile-batch-input",
-                          "cli-definition",
+                          "cli-definition-session",
+                          "cli-definition-team",
                         ].includes(only)
                       ? ["claude"]
                       : []);
@@ -2063,11 +2041,11 @@ input.on('line',async line=>{if(line.startsWith('[iori] '))appendFileSync(${JSON
               cli === "pi"
                 ? ["openai/gpt-6-luna"]
                 : only === "child-cli-failure"
-                  ? // The continuation after a CLI error uses the next candidate.
-                    ["gpt-6-luna", "iori-verification-unavailable-model"]
+                  ? // The next-candidate continuation is covered by Host E2E.
+                    ["iori-verification-unavailable-model"]
                   : ["gpt-6-luna"],
             );
-            if (cli === "codex" && only === "team-delegation")
+            if (cli === "codex" && only === "team-child-tabs")
               assert.deepEqual(records.efforts, ["low"]);
           }
         }
@@ -2112,6 +2090,7 @@ input.on('line',async line=>{if(line.startsWith('[iori] '))appendFileSync(${JSON
   result.cleanup = cleanupErrors.length === 0;
   result.cleanupErrors = cleanupErrors;
   if (cleanupErrors.length) process.exitCode = 1;
+  recordPhase("後始末");
   result.seconds = Number(((performance.now() - started) / 1000).toFixed(3));
   result.diagnostics = diagnostics;
   if (process.env.IORI_MEMORY_EVIDENCE_PATH)
@@ -2123,7 +2102,10 @@ input.on('line',async line=>{if(line.startsWith('[iori] '))appendFileSync(${JSON
     join(evidence, "result.json"),
     JSON.stringify(result, null, 2) + "\n",
   );
+  const oneLine = (value) => String(value).replace(/\s+/g, " ");
   console.log(
-    `${result.passed && result.cleanup ? "PASS" : "FAIL"}: ${result.seconds}秒（起動から後始末）。証拠: ${evidence}`,
+    result.passed && result.cleanup
+      ? `PASS: ${result.seconds}秒（起動から後始末）。証拠: ${evidence}`
+      : `FAIL: 段=${oneLine(result.failedPhase ?? result.scenario ?? "準備")} 待機=${oneLine(result.operationAtFailure ?? "不明")} 証拠=${evidence}`,
   );
 }

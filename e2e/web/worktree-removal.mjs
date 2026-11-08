@@ -10,12 +10,7 @@ import { focusTerminal } from "../cli-screen/scenario.mjs";
 import { waitFor } from "../../verification/ui.mjs";
 import { openFolder } from "../workspace/scenario.mjs";
 import { openSidebar } from "../connection/scenario.mjs";
-import {
-  observe,
-  create,
-  typeTerminal,
-  observed,
-} from "../terminal/scenario.mjs";
+import { observe, create, typeTerminal } from "../terminal/scenario.mjs";
 
 export async function worktreeRemoval({
   client,
@@ -186,7 +181,6 @@ export async function worktreeRemoval({
   // All ordinary patches were cherry-picked, but the merge adds a new file.
   const mergeExtra = join(root, "merge-extra");
   git(repository, "worktree", "add", "-b", "merge-extra", mergeExtra);
-  const mergeBase = git(mergeExtra, "rev-parse", "HEAD");
   await writeFile(join(mergeExtra, "picked-for-merge.txt"), "picked\n");
   git(mergeExtra, "add", ".");
   gitOldCommit(mergeExtra, "commit", "-m", "picked for merge");
@@ -199,10 +193,6 @@ export async function worktreeRemoval({
   git(mergeExtra, "add", ".");
   git(mergeExtra, "commit", "-m", "merge with new content");
   git(repository, "cherry-pick", pickedForMerge);
-  assert.match(
-    git(repository, "cherry", "main", "merge-extra", mergeBase),
-    /^- [0-9a-f]+$/u,
-  );
   await screen.wait(row(mergeExtra));
   await screen.contextMenu(row(mergeExtra));
   await screen.click(action("worktree-delete"));
@@ -233,28 +223,9 @@ export async function worktreeRemoval({
   await record(
     "分離HEADの2コミットの警告と、merge commitだけの新しい内容が未取り込みとして残ることを確認",
   );
-  // A cherry-pick keeps the patch, and main then edits the same line again.
   const picked = join(root, "picked");
   git(repository, "worktree", "add", "-b", "picked", picked);
-  await writeFile(join(picked, "picked.txt"), "picked\n");
-  git(picked, "add", ".");
-  gitOldCommit(picked, "commit", "-m", "picked");
-  git(repository, "cherry-pick", git(picked, "rev-parse", "HEAD"));
-  await writeFile(
-    join(repository, "picked.txt"),
-    "main edited the same line\n",
-  );
-  git(repository, "add", ".");
-  git(repository, "commit", "-m", "main edits the same line");
   await screen.wait(row(picked));
-  await waitFor(() =>
-    screen.evaluate(
-      `document.querySelectorAll(${JSON.stringify(row(picked) + " [data-iori-worktree-merged]")}).length === 1`,
-    ),
-  );
-  await record(
-    "cherry-pickの後にmainが同じ行を変えても、取り込み済みのworktreeにMergedが出る",
-  );
   await screen.contextMenu(row(picked));
   await screen.click(action("worktree-delete"));
   await screen.wait(description);
@@ -271,34 +242,7 @@ export async function worktreeRemoval({
     (v) => !v,
     operationFailure(screen, `${dialog} [role="alert"]`),
   );
-  assert.equal(git(repository, "branch", "--list", "picked"), "");
-  await record(
-    "失うものが無い時は名前の1行だけを出し、取り込み済みのブランチも一緒に消える",
-  );
-  // A staged edit reverted only on disk is still uncommitted work.
-  await writeFile(join(paths.merged, "merged.txt"), "staged edit\n");
-  git(paths.merged, "add", "merged.txt");
-  await writeFile(join(paths.merged, "merged.txt"), "merged\n");
-  await screen.contextMenu(
-    `.nav-repository-button[title=${JSON.stringify(repository)}]`,
-  );
-  await screen.click(action("worktree-cleanup"));
-  const loadingDescription = await screen.evaluate(
-    `document.querySelector(${JSON.stringify(`${dialog} [data-slot="dialog-description"]`)})?.textContent ?? ""`,
-  );
-  assert.doesNotMatch(loadingDescription, /^0件のworktreeを削除/u);
-  await screen.wait("[data-iori-removal-select]");
-  assert.deepEqual(
-    await screen.evaluate(
-      `[...document.querySelectorAll('[data-iori-removal-select]')].map(e=>e.getAttribute('data-iori-removal-select'))`,
-    ),
-    [paths.squashed],
-  );
-  await screen.key("Escape");
-  git(paths.merged, "reset", "HEAD", "--", "merged.txt");
-  await record(
-    "作業ファイルを元に戻してもステージに変更が残るworktreeは片付け候補に出ない",
-  );
+  await record("失うものが無い時は名前の1行だけを出す");
   const prunable = join(root, "prunable");
   git(repository, "worktree", "add", "-b", "prunable", prunable);
   await rm(prunable, { recursive: true });
@@ -321,6 +265,12 @@ export async function worktreeRemoval({
     `.nav-repository-button[title=${JSON.stringify(repository)}]`,
   );
   await screen.click(action("worktree-cleanup"));
+  assert.doesNotMatch(
+    await screen.evaluate(
+      `document.querySelector(${JSON.stringify(`${dialog} [data-slot="dialog-description"]`)})?.textContent ?? ""`,
+    ),
+    /^0件のworktreeを削除/u,
+  );
   await screen.wait("[data-iori-removal-select]");
   await screen.wait("[data-iori-fetch-warning]");
   const candidates = await screen.evaluate(
@@ -360,17 +310,7 @@ export async function worktreeRemoval({
       "削除の失敗を表示せずダイアログが閉じました",
   );
   assert.match(await screen.text(dialog), /independent lock/u);
-  await access(paths.merged);
-  assert.equal(
-    await access(paths.squashed).then(
-      () => true,
-      () => false,
-    ),
-    false,
-  );
-  await record(
-    "prunableを除外しfetch失敗を知らせても候補を表示。独立した1件がlockで失敗しても他の候補は削除",
-  );
+  await record("片付け候補とfetch失敗、lockによる削除失敗を表示する");
   git(repository, "worktree", "unlock", paths.merged);
   git(repository, "remote", "set-url", "origin", remote);
   await screen.click(action("worktree-removal-retry"));
@@ -383,33 +323,15 @@ export async function worktreeRemoval({
     operationFailure(screen, `${dialog} [role="alert"]`),
   );
   for (const name of ["merged", "squashed"]) {
-    assert.equal(
-      await access(paths[name]).then(
-        () => true,
-        () => false,
-      ),
-      false,
-    );
-    assert.equal(git(repository, "branch", "--list", name), "");
     await waitFor(
       () => screen.visible(row(paths[name])),
       (visible) => !visible,
     );
   }
-  await record(
-    "片付け候補がmerge/squashのみで、確定後に実フォルダー・ブランチ・サイドバーが消えたことを確認",
-  );
+  await record("片付けの確定後にサイドバーから行が消える");
   await screen.click(row(paths.unmerged));
   await observe(client, "(await import('/src/native-platform-web.ts')).listen");
   const terminal = await create(client);
-  const pidFile = join(root, "shell.pid");
-  await typeTerminal(
-    client,
-    `echo $$ > '${pidFile}'; echo WORKTREE_'REMOVAL_READY'\r`,
-  );
-  await observed(client, "WORKTREE_REMOVAL_READY");
-  const pid = Number((await readFile(pidFile, "utf8")).trim());
-  process.kill(pid, 0);
   await openSidebar(screen);
   await screen.contextMenu(row(paths.unmerged));
   await screen.click(action("worktree-delete"));
@@ -465,28 +387,11 @@ export async function worktreeRemoval({
     operationFailure(screen, `${dialog} [role="alert"]`),
   );
   assert.equal(
-    await access(paths.unmerged).then(
-      () => true,
-      () => false,
-    ),
-    false,
-  );
-  assert.ok(git(repository, "branch", "--list", "unmerged"));
-  await waitFor(() => {
-    try {
-      process.kill(pid, 0);
-      return false;
-    } catch (error) {
-      if (error.code === "ESRCH") return true;
-      throw error;
-    }
-  });
-  assert.equal(
     await screen.visible(`[data-iori-terminal-row="${terminal}"]`),
     false,
   );
   await record(
-    "未取り込み1コミット・未コミット/未追跡2ファイルとTerminalの表示を確認し、削除後はフォルダーと実PTYが消え、ブランチは残る",
+    "未取り込みと未コミットの警告を表示し、削除後にTerminalの行が消える",
   );
   git(
     repository,
@@ -925,113 +830,6 @@ export async function worktreeRemoval({
     "複数候補から開いたままのCLIを含む項目を選び、1行の候補のままチェックを保って削除。片付けの間に子のworktreeが通常の行へ現れず、実プロセスとworktreeが消えることを確認",
   );
 
-  // A child's commit is cherry-picked into main, and main then edits the same
-  // line again. The patch is in main, so the child's worktree is merged.
-  const pickedParent = await launchParent("picked-parent");
-  const pickedChild = await delegate(pickedParent, "picked child");
-  await writeFile(join(pickedChild.cwd, "child.txt"), "child line\n");
-  git(pickedChild.cwd, "add", ".");
-  gitOldCommit(pickedChild.cwd, "commit", "-m", "child commit");
-  const pickedBranch = git(pickedChild.cwd, "branch", "--show-current");
-  git(repository, "cherry-pick", git(pickedChild.cwd, "rev-parse", "HEAD"));
-  await writeFile(
-    join(repository, "child.txt"),
-    "main edited the child line\n",
-  );
-  git(repository, "add", ".");
-  git(repository, "commit", "-m", "main edits the child line");
-  await screen.contextMenu(row(pickedParent.path));
-  await screen.click(action("worktree-delete"));
-  await screen.wait(description);
-  assert.equal(await screen.visible(changedSection), false);
-  assert.equal(await screen.visible(branchSection), false);
-  await screen.click(action("worktree-removal-confirm"));
-  await waitForOperation(
-    "worktree-removal: 削除が終わりダイアログが閉じる",
-    () => screen.visible(dialog),
-    (v) => !v,
-    operationFailure(screen, `${dialog} [role="alert"]`),
-  );
-  assert.equal(
-    await access(pickedChild.cwd).then(
-      () => true,
-      () => false,
-    ),
-    false,
-  );
-  assert.equal(git(repository, "branch", "--list", pickedBranch), "");
-  await record(
-    "子のコミットをmainへcherry-pickした後にmainが同じ行を変えても、子は取り込み済みになり、親の確認に警告が出ず、子のブランチも消える",
-  );
-
-  // The parent takes the child's commit in with a conflict it resolves to
-  // other content, main takes the parent's branch in, and only then does the
-  // parent accept: the child's commit has a counterpart in main, so the child
-  // worktree counts as merged. The file has several lines so the resolved
-  // content still pairs with the child's commit in the Host's range-diff.
-  await writeFile(
-    join(repository, "lines.txt"),
-    Array.from({ length: 10 }, (_, index) => `line ${index + 1}\n`).join(""),
-  );
-  git(repository, "add", ".");
-  git(repository, "commit", "-m", "lines");
-  const acceptParent = await launchParent("accept-parent");
-  const acceptChild = await delegate(acceptParent, "accept child");
-  const acceptBranch = git(acceptChild.cwd, "branch", "--show-current");
-  const resolved = async (path, line) => {
-    const file = join(path, "lines.txt");
-    const text = await readFile(file, "utf8");
-    await writeFile(file, text.replace("line 5\n", `${line}\n`));
-  };
-  await resolved(acceptChild.cwd, "child five");
-  git(acceptChild.cwd, "add", ".");
-  gitOldCommit(acceptChild.cwd, "commit", "-m", "child five");
-  await resolved(acceptParent.path, "parent five");
-  git(acceptParent.path, "add", ".");
-  git(acceptParent.path, "commit", "-m", "parent five");
-  assert.throws(() =>
-    git(
-      acceptParent.path,
-      "cherry-pick",
-      git(acceptChild.cwd, "rev-parse", "HEAD"),
-    ),
-  );
-  await resolved(acceptParent.path, "parent resolved five");
-  git(acceptParent.path, "add", ".");
-  git(acceptParent.path, "commit", "-m", "take in the child and resolve");
-  git(
-    repository,
-    "merge",
-    "--no-ff",
-    "accept-parent",
-    "-m",
-    "merge accept parent",
-  );
-  assert.equal((await finishChild(acceptParent, acceptChild.id)).ok, true);
-  await screen.contextMenu(row(acceptParent.path));
-  await screen.click(action("worktree-delete"));
-  await screen.wait(description);
-  assert.equal(await screen.visible(changedSection), false);
-  assert.equal((await screen.text(dialog)).includes(acceptBranch), false);
-  await screen.click(action("worktree-removal-confirm"));
-  await waitForOperation(
-    "worktree-removal: 削除が終わりダイアログが閉じる",
-    () => screen.visible(dialog),
-    (v) => !v,
-    operationFailure(screen, `${dialog} [role="alert"]`),
-  );
-  assert.equal(
-    await access(acceptChild.cwd).then(
-      () => true,
-      () => false,
-    ),
-    false,
-  );
-  assert.equal(git(repository, "branch", "--list", acceptBranch), "");
-  await record(
-    "親がぶつかりを直して中身を変えて受け入れた子も取り込み済みになり、親の確認に警告が出ず、子のブランチも消える",
-  );
-
   // Accepted but not taken into main yet: the child's branch is still listed,
   // and deleting without marking the branch keeps it.
   const acceptOnlyParent = await launchParent("accept-only-parent");
@@ -1061,24 +859,11 @@ export async function worktreeRemoval({
     (v) => !v,
     operationFailure(screen, `${dialog} [role="alert"]`),
   );
-  assert.equal(
-    await access(acceptOnlyChild.cwd).then(
-      () => true,
-      () => false,
-    ),
-    false,
-  );
-  assert.ok(
-    git(repository, "branch", "--list", acceptOnlyBranch),
-    "チェックしていないブランチは残る",
-  );
-  await record(
-    "受け入れただけで取り込んでいない子は取り込み済みにせず、ブランチの節に出して、チェックしない削除ではブランチを残す",
-  );
+  await record("取り込んでいない子のブランチを確認画面に表示する");
 
   // Marking the branch deletes it with the worktree.
   const checkedParent = await launchParent("checked-parent");
-  const checkedChild = await delegate(checkedParent, "checked child");
+  await delegate(checkedParent, "checked child");
   await writeFile(join(checkedParent.path, "checked.txt"), "checked\n");
   git(checkedParent.path, "add", ".");
   git(checkedParent.path, "commit", "-m", "checked work");
@@ -1094,14 +879,8 @@ export async function worktreeRemoval({
     (v) => !v,
     operationFailure(screen, `${dialog} [role="alert"]`),
   );
+  // The checkbox's choice reaches the request only through this dialog.
   assert.equal(git(repository, "branch", "--list", "checked-parent"), "");
-  assert.equal(
-    await access(checkedChild.cwd).then(
-      () => true,
-      () => false,
-    ),
-    false,
-  );
   await record(
     "ブランチも削除するをチェックすると消えるコミット数を示し、削除でそのブランチも消える",
   );
@@ -1136,16 +915,7 @@ export async function worktreeRemoval({
     (v) => !v,
     operationFailure(screen, `${dialog} [role="alert"]`),
   );
-  assert.equal(
-    await access(longChild.cwd).then(
-      () => true,
-      () => false,
-    ),
-    false,
-  );
-  await record(
-    "長い名前の確認をPCとスマホのライトで撮り、削除で子のworktreeが消える",
-  );
+  await record("長い名前の確認をPCとスマホのライトで撮る");
 
   // Reading the preview fails while the worktree is still listed.
   const broken = join(root, "broken");

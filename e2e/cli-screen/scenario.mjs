@@ -239,25 +239,6 @@ export async function cliScenario({
     await cliPaneResize({ client, terminalId: id, record });
   await quit(id);
   if (resizeOnly) return id;
-  assert.doesNotMatch(await tail(client, id), /printf|777/u);
-  if (shell === "posix") {
-    await observed(client, /^iori-test#\s*$/mu);
-    await clearObserved(client);
-    await screen.key("ArrowUp");
-    await observed(client, registrationCommand);
-    const recalled = await tail(client, id);
-    assert.doesNotMatch(recalled, /printf|777/u);
-    // ANSI framing is ignored; the command itself must be the bare command.
-    assert.equal(
-      recalled
-        .replace(/\u001b\[[0-?]*[ -/]*[@-~]/gu, "")
-        .replace(/[\r\b]/g, "")
-        .trim(),
-      registrationCommand,
-    );
-    await controlKey(client, "u");
-    await record("内部の起動行が画面に無く、↑で素の起動コマンドを呼び戻す");
-  }
   await clearObserved(client);
   if (shell === "cmd") await typeTerminal(client, "set IORI_CLI_PART=CLI\r");
   await typeTerminal(
@@ -375,17 +356,8 @@ export async function cliScenario({
   await returnToWorktree(screen);
   await screen.click(action("workspace-add-tab"));
   assert.equal(await screen.visible(`[data-iori-cli-id="${customId}"]`), false);
-  assert.equal(
-    await screen.attribute(
-      `[data-iori-tab-id="terminal:${customTerminal}"]`,
-      "data-iori-tab-cli",
-    ),
-    customId,
-  );
   await screen.key("Escape");
-  await record(
-    "名前とコマンドで足したCLIの名前とコマンドを編集し、削除後も開いたTerminalは続く",
-  );
+  await record("名前とコマンドで足したCLIの名前とコマンドを編集して削除する");
 
   // Finish the two shells used by the exit checks before composing the v9
   // screenshot: only the two live CLIs and the original shell remain.

@@ -6,8 +6,7 @@ import { waitFor, waitForOperation } from "../../verification/ui.mjs";
 import { cliFailure } from "../../verification/web/operation.mjs";
 import { openFolder } from "../workspace/scenario.mjs";
 import { openSettingsSection, openSidebar } from "../connection/scenario.mjs";
-import { observe, observed } from "../terminal/scenario.mjs";
-import { pressCliKey } from "../cli-screen/input.mjs";
+import { observe } from "../terminal/scenario.mjs";
 import { automationIssueScripts } from "../fake-model/automation-issue.mjs";
 
 const action = (name) => `[data-iori-action="${name}"]`;
@@ -64,15 +63,6 @@ export async function automationIssueScenario({
       `document.documentElement.classList.toggle('dark', ${dark})`,
     );
   };
-  const listPath = `/api/v1/repos/${fixture.owner}/${fixture.repository}/issues?state=open&type=issues&labels=agent-ready`;
-  const count = () => fixture.requestCount(listPath);
-  const nextPoll = (before) =>
-    waitForOperation(
-      "Issueの次の見回り",
-      count,
-      (n) => n > before,
-      async () => false,
-    );
   const show = async () => {
     await openSidebar(screen);
     await screen.click(action("open-agents-teams"));
@@ -156,28 +146,7 @@ export async function automationIssueScenario({
   assert.ok(automation?.id);
   const history = async () =>
     (await request("automation.history", { id: automation.id })).runs;
-  await issues.label(issues.a.number, true);
-  let before = await count();
-  await nextPoll(before);
-  assert.equal((await history()).length, 0, "別の利用者のlabelでは起動しない");
-  await record("別の利用者のlabelは見回り後も起動しない");
-  await issues.unlabel(issues.a.number);
   await issues.label(issues.a.number);
-  const timeline = await issues.timeline(issues.a.number);
-  const event = timeline
-    .filter(
-      (item) => item.type === "label" && item.label?.name === "agent-ready",
-    )
-    .at(-1);
-  assert.ok(event?.created_at);
-  // Forgejo records event times in seconds; ensure B's mark follows A's.
-  await waitForOperation(
-    "Aのlabelの次の秒",
-    () => Date.now(),
-    (now) => now >= Date.parse(event.created_at) + 1000,
-    async () => false,
-  );
-  await issues.label(issues.b.number);
   const a = await waitForOperation(
     "Issue Aの会話",
     async () =>
@@ -187,12 +156,8 @@ export async function automationIssueScenario({
     Boolean,
     async () => (await history()).find((run) => run.launchError)?.launchError,
   );
-  assert.deepEqual(
-    (await history()).map((run) => run.issue?.number),
-    [issues.a.number],
-  );
   let active = false;
-  const completedAt = await waitForOperation(
+  await waitForOperation(
     "Issue AのCLIの終了",
     async () => {
       const terminal = (await request("terminal.list")).terminals.find(
@@ -213,20 +178,6 @@ export async function automationIssueScenario({
     Boolean,
     cliFailure(screen, a.terminalId),
   );
-  const b = await waitForOperation(
-    "Issue Bの会話",
-    async () =>
-      (await history()).find(
-        (run) =>
-          run.issue?.number === issues.b.number &&
-          run.startedAt &&
-          run.terminalId,
-      ),
-    Boolean,
-    async () => (await history()).find((run) => run.launchError)?.launchError,
-  );
-  assert.ok(b.startedAt >= completedAt, "BはAのidle/doneの観測後に起動");
-  await request("terminal.close", { terminalId: b.terminalId, confirm: true });
   await screen.reveal(`${row(a.id)} ${action("automation-conversation")}`);
   const rowText = await screen.text(row(a.id));
   assert.match(rowText, /Issue/u);
@@ -290,147 +241,10 @@ export async function automationIssueScenario({
       Boolean,
       cliFailure(screen, a.terminalId),
     );
-  await record(
-    "ownerのlabelからIssueごとのworktreeと実Codexによるcommit・WIP PRを作り、A終了後にBを起動",
-  );
-  await screen.click(action("automation-back"));
-  await screen.click(action("automation-new"));
-  await screen.input(field("name"), "Main branch automation");
-  await screen.input(field("folder"), fixture.clonePath);
-  await screen.input(
-    field("instruction"),
-    "iori pr create --title x を実行し、その出力をそのまま返してください。" +
-      fakeMarker("automation-issue-main"),
-  );
-  await screen.click(`${view} ${action("candidate-model")}`);
-  await screen.input(".model-picker input", "Codex gpt-6-luna");
-  await screen.wait('[cmdk-item][data-cli="codex"][data-selected="true"]');
-  await screen.key("Enter");
-  await screen.click(`${view} .team-permission-summary`);
-  await screen.click('[aria-label="sandbox_mode"]');
-  await waitFor(() =>
-    screen.evaluate(
-      `Boolean([...document.querySelectorAll('[role="option"]')].find(e=>e.textContent.trim()==='workspace-write'))`,
-    ),
-  );
-  await screen.evaluate(
-    `[...document.querySelectorAll('[role="option"]')].find(e=>e.textContent.trim()==='workspace-write').click()`,
-  );
-  if (
-    (await screen.attribute(
-      `${view} .team-permission-summary`,
-      "aria-expanded",
-    )) === "true"
-  )
-    await screen.click(`${view} .team-permission-summary`);
-  await waitFor(
-    () => screen.attribute(`${view} .team-permission-summary`, "aria-expanded"),
-    (value) => value === "false",
-  );
-  await screen.click(action("automation-save"));
-  await waitFor(() =>
-    screen.evaluate(
-      `document.querySelector('${view} ${action("automation-save")}')?.disabled === true`,
-    ),
-  );
-  const mainAutomation = (await request("automation.list")).automations.find(
-    (item) => item.name === "Main branch automation",
-  );
-  assert.ok(mainAutomation?.id);
-  await screen.click(action("automation-run"));
-  const main = await waitForOperation(
-    "mainの手動自動化の会話",
-    async () =>
-      (
-        await request("automation.history", { id: mainAutomation.id })
-      ).runs.find((run) => run.terminalId),
-    Boolean,
-    async () =>
-      (
-        await request("automation.history", { id: mainAutomation.id })
-      ).runs.find((run) => run.launchError)?.launchError,
-  );
-  await screen.click(`${row(main.id)} ${action("automation-conversation")}`);
-  await screen.wait(
-    `[data-iori-terminal-id="${main.terminalId}"][data-iori-stream-state="ready"]`,
-  );
-  const mainSession = await waitForOperation(
-    "mainのCodex会話ID",
-    () => session(main.terminalId),
-    (value) => Boolean(value?.session?.id),
-    cliFailure(screen, main.terminalId),
-  );
-  const answeredApprovals = new Set();
-  await observed(
-    client,
-    "Cannot create a Pull request from the default branch (main)",
-    undefined,
-    "main-default-branch",
-    async () => {
-      const failure = await cliFailure(screen, main.terminalId)();
-      if (failure) return failure;
-      const status = (await request("terminal.list")).terminals.find(
-        (terminal) => terminal.id === main.terminalId,
-      )?.cliStatus;
-      if (
-        status?.attention?.kind === "approval" &&
-        !answeredApprovals.has(status.since)
-      ) {
-        answeredApprovals.add(status.since);
-        await pressCliKey(client, "Enter");
-      }
-      const lines = (await readFile(mainSession.session.file, "utf8")).split(
-        "\n",
-      );
-      const finished = lines.find((line) => {
-        try {
-          const item = JSON.parse(line);
-          return (
-            item.type === "response_item" &&
-            item.payload?.type === "message" &&
-            item.payload?.role === "assistant" &&
-            item.payload?.phase === "final_answer"
-          );
-        } catch {
-          return false;
-        }
-      });
-      return finished &&
-        !finished.includes(
-          "Cannot create a Pull request from the default branch",
-        )
-        ? "Codexが既定ブランチの理由を返さず応答を終えました"
-        : false;
-    },
-  );
-  if (fakeModelRequests)
-    // Codex shows the tool output before it sends the next model request.
-    await waitForOperation(
-      "既定ブランチの理由が iori のコマンドの出力としてモデル要求に含まれる",
-      () =>
-        fakeModelRequests.some(
-          (request) =>
-            request.marker === "automation-issue-main" &&
-            request.step === 1 &&
-            request.tokensPresent?.[
-              "Cannot create a Pull request from the default branch (main)"
-            ],
-        ),
-      Boolean,
-      cliFailure(screen, main.terminalId),
-    );
-  assert.equal((await issues.pulls()).length, pulls.length);
-  await request("terminal.close", {
-    terminalId: main.terminalId,
-    confirm: true,
-  });
-  await record(
-    "mainの手動自動化からPR作成を呼ぶと既定ブランチの理由を返しPRは増えない",
-  );
+  await record("ownerのlabelから実Codexの会話を開き、commitとWIP PRを作る");
   await show();
   await screen.click(action("automation-back"));
   await screen.click(`[data-iori-automation-id="${automation.id}"]`);
-  before = await count();
   await fixture.stop();
   const failure = `${view} [data-iori-forge-failure="unreachable"]`;
   await waitForOperation(

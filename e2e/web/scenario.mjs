@@ -37,7 +37,17 @@ import { readingTextCopy } from "./reading-text-copy.mjs";
 import { filesReading } from "./files-reading.mjs";
 import { terminalPreferences } from "./terminal-preferences.mjs";
 import { teamNotificationsScenario } from "./team-notifications.mjs";
-import { teamDelegationScenario } from "./team-delegation.mjs";
+import { prepareTeamScenario } from "./team-fixture.mjs";
+import { teamCommandRouteScenario } from "./team-command-route.mjs";
+import { teamChildTabsScenario } from "./team-child-tabs.mjs";
+import { teamMessagesScenario } from "./team-messages.mjs";
+import { teamBoardScenario } from "./team-board.mjs";
+import { teamRecordsScenario } from "./team-records.mjs";
+import {
+  teamWebScenarios,
+  childLifecycleScenarios,
+  cliDefinitionScenarios,
+} from "../../verification/web/scenarios.mjs";
 import { teamsScenario } from "./teams.mjs";
 import { terminalRetention, eventTolerance } from "./terminal-recovery.mjs";
 import { longApproval } from "../cli-screen/claude-status.mjs";
@@ -48,7 +58,6 @@ import { terminalSizeOwnership } from "./terminal-size-ownership.mjs";
 import { terminalWidthHandoff } from "./terminal-width-handoff.mjs";
 import { cliStatusScenario } from "../cli-screen/status.mjs";
 import { cliScenario, modelFailureScenario } from "../cli-screen/scenario.mjs";
-import { shellStartupScenario } from "../cli-screen/shell-startup.mjs";
 import { cliLauncherScenario } from "./cli-launcher.mjs";
 import { cliDefinitionScenario } from "./cli-definition.mjs";
 import { cliDefinitionPluginScenario } from "./cli-definition-plugin.mjs";
@@ -78,7 +87,6 @@ export async function webScenario({
   desktop,
   shot,
   record,
-  setBracketedPaste,
   finishBackgroundTerminal,
   disconnectedReads,
   phone,
@@ -96,16 +104,10 @@ export async function webScenario({
   only,
   forgeFixture,
   forgeTokenFixture,
-  cliCommand,
   hostData,
   updates,
-  retainedDashShellId,
   notificationHook,
   notificationCommand,
-  notificationWorkerCommand,
-  notificationDelegations,
-  notificationParentInputs,
-  notificationParentBarriers,
   notificationBeforeChildrenSnapshot,
   notificationPids,
   notificationSourceFault,
@@ -130,6 +132,61 @@ export async function webScenario({
   await register(screen, invitation, "開発用Chromium");
   await screen.key("Escape");
   await record("招待で登録");
+  if (
+    [
+      ...teamWebScenarios,
+      ...childLifecycleScenarios,
+      ...cliDefinitionScenarios,
+      "repo-delegation",
+      "child-cli-failure",
+      "opencode-delegation",
+      "board-activity",
+    ].includes(only)
+  ) {
+    await openFolder(screen, repository, false);
+    await screen.click(
+      `button[data-iori-worktree-path=${JSON.stringify(worktree)}]`,
+    );
+    const options = {
+      fakeModelRequests,
+      client,
+      hostData,
+      session,
+      teamCommand,
+      teamRecords,
+      teamDelivery,
+      restartHostLosingTerminals,
+      restartPreservingHost,
+      reload,
+      secondRepository,
+      worktree,
+      record,
+      shot,
+      desktop,
+      mobile,
+      phone,
+      workflow: only,
+    };
+    if (cliDefinitionScenarios.includes(only))
+      return cliDefinitionScenario(options);
+    const scenarios = {
+      "team-command-route": teamCommandRouteScenario,
+      "team-child-tabs": teamChildTabsScenario,
+      "team-messages": teamMessagesScenario,
+      "team-board": teamBoardScenario,
+      "team-records": teamRecordsScenario,
+    };
+    if (scenarios[only]) return scenarios[only](options);
+    return prepareTeamScenario({
+      ...options,
+      lifecycleOnly: childLifecycleScenarios.includes(only),
+      lifecycleWorkflow: only,
+      failureOnly: only === "child-cli-failure",
+      repoOnly: only === "repo-delegation",
+      activityOnly: only === "board-activity",
+      opencodeOnly: only === "opencode-delegation",
+    });
+  }
   if (only === "git-image-diff")
     return gitImageDiff({
       client,
@@ -208,10 +265,7 @@ export async function webScenario({
   if (only === "forge-commands")
     return forgeCommandsScenario({
       client,
-      fixture: forgeFixture,
       tokenFixture: forgeTokenFixture,
-      session,
-      cliCommand,
       mobile,
       desktop,
       shot,
@@ -230,43 +284,6 @@ export async function webScenario({
       reload,
       record,
     });
-  if (only === "team-delegation") {
-    await openFolder(screen, secondRepository, false);
-    await screen.wait(
-      'button[data-iori-tab-kind="start"][data-state="active"]',
-    );
-    assert.deepEqual(
-      await screen.evaluate(
-        `Array.from(document.querySelectorAll('button[data-iori-tab-kind]'), tab => tab.dataset.ioriTabKind)`,
-      ),
-      ["start", "files", "git"],
-    );
-    await screen.click(
-      '[data-iori-view="workspace-start"] [data-iori-cli-id="pi"]',
-    );
-    await screen.wait('button[data-iori-tab-cli="pi"][data-state="active"]');
-    const startedCliTab = await screen.attribute(
-      'button[data-iori-tab-cli="pi"]',
-      "data-iori-tab-id",
-    );
-    await openFolder(screen, repository, false);
-    await selectWorktree(screen, secondRepository, false);
-    await screen.wait(
-      `button[data-iori-tab-id="${startedCliTab}"][data-state="active"]`,
-    );
-    assert.deepEqual(
-      await screen.evaluate(
-        `Array.from(document.querySelectorAll('button[data-iori-tab-kind]'), tab => tab.dataset.ioriTabKind)`,
-      ),
-      ["terminal", "files", "git"],
-    );
-    await screen.click(
-      '.dock-tab-header:has([data-iori-tab-cli="pi"]) [data-iori-action="workspace-close-tab"]',
-    );
-    await record(
-      "Gitの始めるからCLIを選び、ほかのタブを触らずworktreeを往復しても会話・Files・Gitが残る",
-    );
-  }
   await openFolder(screen, repository, false);
   await screen.click(
     `button[data-iori-worktree-path=${JSON.stringify(worktree)}]`,
@@ -506,18 +523,6 @@ export async function webScenario({
     });
     return;
   }
-  if (only === "cli-definition")
-    return cliDefinitionScenario({
-      fakeModelRequests,
-      client,
-      hostData,
-      teamCommand,
-      teamRecords,
-      session,
-      restartHostLosingTerminals,
-      record,
-      shot,
-    });
   if (only === "cli-definition-plugin")
     return cliDefinitionPluginScenario({
       client,
@@ -543,10 +548,6 @@ export async function webScenario({
       repository,
       notificationHook,
       notificationCommand,
-      notificationWorkerCommand,
-      notificationDelegations,
-      notificationParentInputs,
-      notificationParentBarriers,
       notificationBeforeChildrenSnapshot,
       notificationSourceFault,
       childDisplayFixture,
@@ -560,42 +561,7 @@ export async function webScenario({
     });
     return;
   }
-  if (
-    [
-      "team-delegation",
-      "repo-delegation",
-      "child-lifecycle",
-      "child-cli-failure",
-      "opencode-delegation",
-      "board-activity",
-    ].includes(only)
-  ) {
-    await teamDelegationScenario({
-      fakeModelRequests,
-      client,
-      hostData,
-      restartHostLosingTerminals,
-      reload,
-      lifecycleOnly: only === "child-lifecycle",
-      failureOnly: only === "child-cli-failure",
-      restartPreservingHost,
-      session,
-      repoOnly: only === "repo-delegation",
-      secondRepository,
-      activityOnly: only === "board-activity",
-      opencodeOnly: only === "opencode-delegation",
-      worktree,
-      teamRecords,
-      teamDelivery,
-      teamCommand,
-      record,
-      shot,
-      desktop,
-      mobile,
-      phone,
-    });
-    return;
-  }
+
   if (only === "model-failure") {
     await modelFailureScenario({ client, record });
     return;
@@ -866,13 +832,6 @@ export async function webScenario({
       worktree,
       terminalId,
       record,
-    });
-    await screen.click(`[data-iori-tab-id="terminal:${terminalId}"]`);
-    await shellStartupScenario({
-      client,
-      record,
-      setBracketedPaste,
-      retainedDashShellId,
     });
     return;
   }

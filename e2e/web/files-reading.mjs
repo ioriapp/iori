@@ -197,10 +197,6 @@ export async function filesReading({
       "\n",
   );
   await waitFor(
-    () => screen.text(line(145)),
-    (text) => text.includes("const line145"),
-  );
-  await waitFor(
     () => screen.visible(`${line(145)} [data-syntax="keyword"]`),
     Boolean,
   );

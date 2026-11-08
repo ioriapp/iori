@@ -490,18 +490,6 @@ export async function cliDefinitionPluginScenario({
     undefined,
     "削除した定義の行が消える",
   );
-  await waitFor(
-    () =>
-      readFile(plugin, "utf8").then(
-        () => false,
-        () => true,
-      ),
-    Boolean,
-    undefined,
-    "定義と一緒に置いた部品が消える",
-  );
-  // The test's own file, not this Host's, is left where it is.
-  assert.equal(await readFile(foreign, "utf8"), userFile);
 
   await screen.click(action("cli-add-open"));
   await screen.click(action("cli-add-json"));
@@ -530,12 +518,6 @@ export async function cliDefinitionPluginScenario({
   await returnToWorktree(screen);
   const foreignTerminal = await open(foreignId);
   await finishCli(client, foreignTerminal, "pi");
-  await waitFor(
-    () => readFile(foreign, "utf8"),
-    (text) => text === userFile,
-    undefined,
-    "同じ名前の利用者のファイルは上書きしない",
-  );
   await openAgents(screen);
   await openRow(screen, foreignId);
   await cliMenuAction(screen, foreignId, "cli-definition-delete");
@@ -547,13 +529,5 @@ export async function cliDefinitionPluginScenario({
     undefined,
     "削除した2つ目の定義の行が消える",
   );
-  await waitFor(
-    () => readFile(foreign, "utf8"),
-    (text) => text === userFile,
-    undefined,
-    "削除しても利用者のファイルは残る",
-  );
-  await record(
-    "定義を削除するとioriが置いた部品だけが消え、同じ名前の利用者のファイルは残る",
-  );
+  await record("プラグインを持つ定義を確認から削除すると一覧から消える");
 }

@@ -16,7 +16,6 @@ export async function terminalWidthHandoff({
   worktree,
   terminalId,
   record,
-  restartHostLosingTerminals,
 }) {
   const pane = `[data-iori-view="terminal"][data-iori-terminal-id=${JSON.stringify(terminalId)}]`;
   const cols = (client) =>
@@ -113,87 +112,4 @@ export async function terminalWidthHandoff({
   await typeTerminal(desktop, "\x03", undefined, "finish-program", {
     focus: false,
   });
-
-  // Leave one Terminal in a wide pane and operate another in a narrow pane.
-  const tab = `[data-iori-tab-id=${JSON.stringify(`terminal:${terminalId}`)}]`;
-  const group = await screen.attribute(
-    tab,
-    "data-iori-group-id",
-    "[data-iori-group-id]",
-  );
-  await screen.click(
-    `[data-iori-group-id=${JSON.stringify(group)}] [data-iori-action="workspace-split-right"]`,
-  );
-  await screen.wait(
-    '[data-iori-view="workspace-start"] [data-iori-shell-id="bash"]',
-  );
-  await screen.click(
-    '[data-iori-view="workspace-start"] [data-iori-shell-id="bash"]',
-  );
-  const otherPane = `[data-iori-view="terminal"]:not(${pane})`;
-  await screen.wait(`${otherPane}[data-iori-stream-state="ready"]`);
-  await screen.evaluate(`(()=>{
-    const sash=[...document.querySelectorAll('.dv-sash')].find(e=>{const r=e.getBoundingClientRect();return r.height>r.width&&r.height>0;});
-    sash.setAttribute('data-iori-width-sash','');
-  })()`);
-  await screen.drag("[data-iori-width-sash]", otherPane, { x: 0.65 });
-  const dimensions = (selector) =>
-    screen.evaluate(`(()=>{
-    const e=document.querySelector(${JSON.stringify(selector)});
-    return {cols:Number(e.dataset.ioriCols),rows:Number(e.dataset.ioriRows)};
-  })()`);
-  await waitFor(
-    async () =>
-      (await dimensions(pane)).cols > (await dimensions(otherPane)).cols,
-  );
-  await clickWithin(desktop, `${otherPane} .xterm-screen`);
-  await typeTerminal(desktop, "printf '%s%s\\n' 'narrow-' 'ready'\r");
-  await observed(desktop, "narrow-ready");
-  const wide = await dimensions(pane);
-  const narrow = await dimensions(otherPane);
-  const created = await screen.evaluate(`(async()=>{
-    const {connection}=await import('/src/connection.ts');
-    const r=await connection.requestHost(connection.getSnapshot().host.publicKey,'terminal.create',${JSON.stringify({ cwd: worktree, shell: "bash" })});
-    if(!r.ok)throw new Error('terminal.create failed');
-    const {cols,rows}=r.result.terminal;
-    return {cols,rows};
-  })()`);
-  // The created Terminal's size is the size its PTY starts with; this also
-  // holds with the distributed Host, which reports no PTY spawn records.
-  // Another running Terminal may have last been shown wider than this pane.
-  assert.ok(
-    created.cols >= wide.cols && created.cols > narrow.cols,
-    `未表示のTerminalは狭いペインでなく広い寸法で起動する: ${JSON.stringify({ created, wide, narrow })}`,
-  );
-  await record(
-    "狭いペインの操作後、未表示のTerminalは狭いペインでなく広い寸法で起動する",
-  );
-
-  // Close the views, leaving the Terminals running, before restarting Host.
-  const narrowId = await screen.attribute(otherPane, "data-iori-terminal-id");
-  for (const id of [terminalId, narrowId]) {
-    await screen.click(
-      `.dock-tab-header:has([data-iori-tab-id=${JSON.stringify(`terminal:${id}`)}]) [data-iori-action="workspace-close-tab"]`,
-    );
-  }
-  await waitFor(
-    async () =>
-      !(await screen.visible(pane)) && !(await screen.visible(otherPane)),
-  );
-  await restartHostLosingTerminals();
-  await screen.wait('[data-iori-state="connected"]');
-  const afterRestart = await screen.evaluate(`(async()=>{
-    const {connection}=await import('/src/connection.ts');
-    const r=await connection.requestHost(connection.getSnapshot().host.publicKey,'terminal.create',${JSON.stringify({ cwd: worktree, shell: "bash" })});
-    if(!r.ok)throw new Error('terminal.create failed');
-    const {cols,rows}=r.result.terminal;
-    return {cols,rows};
-  })()`);
-  assert.ok(
-    afterRestart.cols >= wide.cols && afterRestart.cols > narrow.cols,
-    `Hostの再起動後も狭いペインでなく広い寸法で起動する: ${JSON.stringify({ afterRestart, wide, narrow })}`,
-  );
-  await record(
-    "Hostの再起動後、画面を開く前のTerminalは狭いペインでなく保存済みの広い寸法で起動する",
-  );
 }

@@ -51,6 +51,7 @@ export class TerminalManager {
   readonly #unrestoredTeamTerminals = new Set<string>();
   continuedTerminals = false;
   onTerminalsLost?: () => void;
+  onRestoreTeamTerminals?: () => Promise<void>;
   onCliExit?: (id: string, reason: "exit" | "user") => void | Promise<void>;
   onSetupFailed?: (id: string, exitCode: number) => void | Promise<void>;
   onCliState?: (id: string, state: HookState) => void | Promise<void>;
@@ -164,6 +165,7 @@ export class TerminalManager {
       this.#deliveries.delete(id);
     };
     await this.#runtime.restore(screens);
+    await this.onRestoreTeamTerminals?.();
     await this.#channel.call("activate");
     this.#channel.disconnected = () => {
       if (!this.#closing) {
@@ -334,7 +336,7 @@ export class TerminalManager {
     this.#runtime.markTeamTerminalUnrestored(id);
   }
   configureTeamTerminal(id: string, options: TeamTerminalOptions) {
-    void this.#call("configureTeamTerminal", id, options).catch(() => {});
+    this.#runtime.configureTeamTerminal(id, options);
   }
   identifyTeamChild(id: string, child: string, conversation: string) {
     void this.#call("identifyTeamChild", id, child, conversation).catch(

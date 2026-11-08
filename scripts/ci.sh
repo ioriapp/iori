@@ -20,6 +20,7 @@ while (( $# != 0 )); do
   shift
 done
 started=$(date +%s)
+node scripts/publish/check-forbidden.mjs --if-configured
 # Concurrent worktrees own separate containers. The exit trap removes only ours.
 evidence_root="${IORI_VERIFICATION_EVIDENCE_ROOT:-$root/.local/evidence}/ci"
 mkdir -p "$evidence_root"

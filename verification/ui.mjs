@@ -1,3 +1,4 @@
+import { performance } from "node:perf_hooks";
 // The runner observes waits without changing the native/WebView callers.
 const operationObservers = new Set();
 const activeOperations = new Map();
@@ -26,15 +27,24 @@ export function observeOperations(listener, signal) {
 }
 function operationStarted(name) {
   const key = Symbol();
+  const startedAt = new Date().toISOString();
+  const started = performance.now();
   activeOperations.set(key, name);
   const notify = () => {
     const current = [...activeOperations.values()].at(-1);
     for (const listener of operationObservers) listener(current);
   };
   notify();
-  return () => {
+  return (failed = false) => {
     activeOperations.delete(key);
     notify();
+    const phase = {
+      name,
+      startedAt,
+      seconds: Number(((performance.now() - started) / 1000).toFixed(3)),
+      ...(failed ? { failed: true } : {}),
+    };
+    for (const listener of operationObservers) listener(undefined, phase);
   };
 }
 export async function withUiAbort(read) {
@@ -70,16 +80,20 @@ export async function waitFor(
   observation = "画面の待機",
 ) {
   const done = operationStarted(observation);
+  let completed = false;
   try {
     const end = Date.now() + milliseconds;
     while (Date.now() < end) {
       const result = await withUiAbort(read);
-      if (predicate(result)) return result;
+      if (predicate(result)) {
+        completed = true;
+        return result;
+      }
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
     throw new Error(`${observation}が観測期限を超過しました`);
   } finally {
-    done();
+    done(!completed);
   }
 }
 
@@ -91,13 +105,17 @@ export async function waitForOperation(observation, read, predicate, failed) {
   if (typeof observation !== "string" || !observation.trim())
     throw new TypeError("処理の待ちには観測名が必要です");
   const done = operationStarted(observation);
+  let completed = false;
   let fingerprint;
   let quietSince = Date.now();
   let nextStatusRead = 0;
   try {
     for (;;) {
       const value = await withUiAbort(read);
-      if (predicate(value)) return value;
+      if (predicate(value)) {
+        completed = true;
+        return value;
+      }
       const failure = await withUiAbort(failed);
       if (failure) throw new Error(`${observation}: ${failure}`);
       if (cliStatusReader && Date.now() >= nextStatusRead) {
@@ -143,7 +161,7 @@ export async function waitForOperation(observation, read, predicate, failed) {
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
   } finally {
-    done();
+    done(!completed);
   }
 }
 
@@ -185,12 +203,17 @@ export function ui(evaluate, gestures) {
     evaluate(
       `(()=>{${geometry}return Boolean(visibleRect(${query(selector)}));})()`,
     );
-  const wait = (selector) => waitFor(() => visible(selector));
+  const wait = (selector) =>
+    waitFor(() => visible(selector), Boolean, 45000, `表示: ${selector}`);
   const reveal = (selector) =>
-    waitFor(() =>
-      evaluate(
-        `(()=>{${geometry}const e=${query(selector)};if(!e)return false;e.scrollIntoView({block:'nearest',inline:'nearest'});return Boolean(visibleRect(e));})()`,
-      ),
+    waitFor(
+      () =>
+        evaluate(
+          `(()=>{${geometry}const e=${query(selector)};if(!e)return false;e.scrollIntoView({block:'nearest',inline:'nearest'});return Boolean(visibleRect(e));})()`,
+        ),
+      Boolean,
+      45000,
+      `表示: ${selector}`,
     );
   // Activate the rendered control directly once it is visible and enabled.
   // Native WebView pointer coordinates vary with window insets and modal
@@ -201,10 +224,14 @@ export function ui(evaluate, gestures) {
   const click = async (selector, { scroll = true, x = 0.5, y = 0.5 } = {}) => {
     if (scroll) await reveal(selector);
     else await wait(selector);
-    await waitFor(() =>
-      evaluate(
-        `(()=>{${interaction}const e=${query(selector, true, x, y)};if(!e||!e.isConnected||e.disabled)return false;if(${scroll})e.scrollIntoView({block:'nearest',inline:'nearest'});if(!hitTarget(e,visibleRect(e),${x},${y}))return false;if(e.getAttribute('role')==='tab')e.dispatchEvent(new MouseEvent('mousedown',{bubbles:true,button:0}));if(e.getAttribute('aria-haspopup')==='menu')e.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,cancelable:true,button:0,pointerType:'mouse'}));e.click();return true;})()`,
-      ),
+    await waitFor(
+      () =>
+        evaluate(
+          `(()=>{${interaction}const e=${query(selector, true, x, y)};if(!e||!e.isConnected||e.disabled)return false;if(${scroll})e.scrollIntoView({block:'nearest',inline:'nearest'});if(!hitTarget(e,visibleRect(e),${x},${y}))return false;if(e.getAttribute('role')==='tab')e.dispatchEvent(new MouseEvent('mousedown',{bubbles:true,button:0}));if(e.getAttribute('aria-haspopup')==='menu')e.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,cancelable:true,button:0,pointerType:'mouse'}));e.click();return true;})()`,
+        ),
+      Boolean,
+      45000,
+      `操作可能: ${selector}`,
     );
     // Let React commit the action and run its scheduled focus/scroll before
     // the next gesture. A menu opened before an edit's rAF can be closed by it.

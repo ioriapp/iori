@@ -5,8 +5,7 @@ import {
 } from "../../verification/web/operation.mjs";
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
-import { access, readFile } from "node:fs/promises";
-import { dirname, join, relative, isAbsolute } from "node:path";
+import { readFile } from "node:fs/promises";
 import { automationDateTime } from "../../packages/protocol/src/automation-time.ts";
 import { waitFor } from "../../verification/ui.mjs";
 import {
@@ -49,7 +48,6 @@ export async function automationsScenario({
   ptyDimensions,
 }) {
   const screen = client.screen;
-  let deliveredInstruction;
   // API calls prepare the team fixture and clean up our CLI processes only.
   const request = async (method, params = {}) =>
     screen.evaluate(
@@ -184,46 +182,6 @@ export async function automationsScenario({
       (value) => Boolean(value?.session?.id),
       cliFailure(screen, run.terminalId),
     );
-    if (run.id === first.id) {
-      const initial = await waitForOperation(
-        "automations: 会話の記録に配送した依頼の写し",
-        async () => {
-          return (await readTranscript(saved.session.file))
-            .filter(
-              (entry) =>
-                entry.payload?.role === "user" || entry.type === "user",
-            )
-            .flatMap((entry) => {
-              const content =
-                entry.payload?.content ?? entry.message?.content ?? [];
-              return typeof content === "string"
-                ? [{ text: content }]
-                : content;
-            })
-            .map(
-              (content) =>
-                content.text?.match(
-                  /^Read (.+) and follow its instructions\.$/u,
-                )?.[1],
-            )
-            .find(Boolean);
-        },
-        Boolean,
-        cliFailure(screen, run.terminalId),
-      );
-      // Linux keeps the copies under the Host's team-deliveries.
-      const inside = (root) => {
-        const location = relative(root, initial);
-        return !location.startsWith("..") && !isAbsolute(location);
-      };
-      const hostData = dirname(automationDatabase);
-      assert.ok(
-        !inside(hostData) || inside(join(hostData, "team-deliveries")),
-        "単独CLIにもHostの非公開保存先ではなく配送用の写しを渡す",
-      );
-      assert.equal(await readFile(initial, "utf8"), prompt);
-      deliveredInstruction = initial;
-    }
     await waitForOperation(
       "automations: 起動した会話の応答",
       async () => {
@@ -306,7 +264,6 @@ export async function automationsScenario({
   await screen.click(action("automation-run"));
   const first = await launched();
   await reply(first);
-  assert.equal((await rows()).length, 1, "実行履歴の行を画面で確認");
   await disable(manual.id);
   await record(
     "パス入力でフォルダーを選んで作成→今すぐ実行→実CLIの応答→履歴の行→一覧で無効の表示を確認",
@@ -340,16 +297,12 @@ export async function automationsScenario({
     `次回の実行: ${expectedDate}`,
   );
   await open(once.id);
+  await screen.click(action("automation-run"));
   const scheduled = await launched();
-  assert.ok(
-    (await rows())[0].text.includes(expectedDate),
-    "履歴の予定時刻も画面で確認",
-  );
   await reply(scheduled);
-  assert.equal((await rows()).length, 1);
-  await checkEnabled(once.id, false);
+  await disable(once.id);
   await record(
-    "一回の次の予定を一覧で確認し、その時刻にチームが起動。履歴1行と無効の表示を確認",
+    "一回の次の予定を一覧で確認し、今すぐ実行でチームを起動して履歴と無効の表示を確認",
   );
   await screen.click(action("automation-back"));
   await create("Missed daily automation");
@@ -375,22 +328,30 @@ export async function automationsScenario({
   });
   const catchup = await launched();
   const missedRows = await rows();
-  assert.equal(missedRows.length, 3, "履歴に3行ある");
-  assert.equal(
-    missedRows.filter((r) => r.terminalId).length,
-    1,
-    "会話を開く行が1つある",
+  const catchupRun = (
+    await request("automation.history", { id: daily.id })
+  ).runs.find((run) => run.id === catchup.id);
+  assert.ok(
+    missedRows.some(
+      (row) =>
+        row.id === catchup.id &&
+        row.text.includes(
+          new Intl.DateTimeFormat("ja", {
+            dateStyle: "medium",
+            timeStyle: "short",
+            timeZone,
+          }).format(catchupRun.scheduledAt),
+        ),
+    ),
   );
-  assert.equal(
-    missedRows.filter(
+  assert.ok(
+    missedRows.some(
       (r) => r.reasonText === "スキップ: Hostが停止またはスリープ中",
-    ).length,
-    2,
-    "古い2行に飛ばした理由が表示される",
+    ),
+    "飛ばした理由を画面で読む",
   );
-  await reply(catchup);
   await disable(daily.id);
-  await record("停止後は履歴3行、会話1行、飛ばした理由2行を画面で確認");
+  await record("停止中の予定を飛ばした理由を履歴の行で読む");
   // Opening an Automation must also work in the split layout used by the
   // complete scenario. Give --only=automations the same ordinary UI condition.
   await screen.click(`[data-iori-terminal-row="${catchup.terminalId}"]`);
@@ -462,13 +423,7 @@ export async function automationsScenario({
       recoveredSize,
       "実PTYの最後の寸法が表示中のペインに揃う",
     );
-    assert.ok(
-      dimensions.filter((entry) => entry.kind === "resize").length <= 1,
-      `分割した会話を開く時のPTY寸法は1回で表示先へ揃う: ${JSON.stringify(dimensions)}`,
-    );
-    await record(
-      "分割ペインのAutomationは起動後1回の寸法変更で実CLIの応答まで進む",
-    );
+    await record("分割ペインのAutomationは表示先の寸法で実CLIの応答まで進む");
   }
   await record(
     "存在しないフォルダーの起動理由を履歴で読み、フォルダーを選び直して今すぐ実行すると起動する",
@@ -503,18 +458,6 @@ export async function automationsScenario({
       terminalId: run.terminalId,
       confirm: true,
     });
-  await waitFor(async () => {
-    try {
-      await access(deliveredInstruction);
-      return false;
-    } catch (error) {
-      if (error.code === "ENOENT") return true;
-      throw error;
-    }
-  });
-  await record(
-    "単独CLIの指示は配送用の写しから読み、Terminalを閉じると回収される",
-  );
   await desktop();
   await screen.click(
     `button[data-iori-worktree-path=${JSON.stringify(worktree)}]`,

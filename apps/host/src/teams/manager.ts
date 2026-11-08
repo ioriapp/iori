@@ -159,70 +159,8 @@ export class TeamManager {
     publish: (event: Event) => void = () => {},
   ): Promise<TeamManager> {
     const manager = new TeamManager(store, terminals, root, publish);
-    for (const c of manager.#conversations.values()) {
-      if (!store.terminal(c.terminalId)) continue;
-      let instructions: string | ((directory: string) => string);
-      try {
-        instructions = await readFile(c.instructionFile, "utf8");
-      } catch {
-        // Rebuild a missing file from the team version this conversation
-        // started with, the same way a launch writes it.
-        const team = store
-          .readTeam(c.teamId)
-          ?.history.find((entry) => entry.team.version === c.teamVersion)?.team;
-        if (!team) {
-          terminals.markTeamTerminalUnrestored(c.terminalId);
-          continue;
-        }
-        instructions = (directory) =>
-          parentTeamText(team, {
-            directory,
-            windows: process.platform === "win32",
-          });
-        try {
-          await mkdir(dirname(c.instructionFile), {
-            recursive: true,
-            mode: 0o700,
-          });
-          await writeFile(c.instructionFile, "", { mode: 0o600, flag: "wx" });
-        } catch {
-          terminals.markTeamTerminalUnrestored(c.terminalId);
-          continue;
-        }
-      }
-      terminals.configureTeamTerminal(
-        c.terminalId,
-        await manager.#options(
-          { conversation: c.id },
-          c.parent,
-          c.instructionFile,
-          instructions,
-          undefined,
-          terminals.isCliRunning(c.terminalId),
-        ),
-      );
-    }
-    for (const child of manager.#children.values()) {
-      if (
-        !child.terminalId ||
-        !child.candidate ||
-        !child.instructionFile ||
-        !terminals.isCliRunning(child.terminalId)
-      )
-        continue;
-      const instructions = await readFile(child.instructionFile, "utf8");
-      terminals.configureTeamTerminal(
-        child.terminalId,
-        await manager.#options(
-          { conversation: child.conversation, child: child.id },
-          child.candidate,
-          child.instructionFile,
-          instructions,
-          undefined,
-          true,
-        ),
-      );
-    }
+    terminals.onRestoreTeamTerminals = () => manager.#restoreTerminals();
+    await manager.#restoreTerminals();
     if (!terminals.continuedTerminals) manager.#markLostTerminals();
     terminals.onTerminalsLost = () => {
       manager.#markLostTerminals();
@@ -1198,6 +1136,77 @@ export class TeamManager {
       .catch(() => {
         /* A later change retries assignment; commands remain usable. */
       });
+  }
+  async #restoreTerminals(): Promise<void> {
+    for (const c of this.#conversations.values()) {
+      if (!this.store.terminal(c.terminalId)) continue;
+      try {
+        let instructions: string | ((directory: string) => string);
+        try {
+          instructions = await readFile(c.instructionFile, "utf8");
+        } catch {
+          // Rebuild a missing file from the team version this conversation
+          // started with, the same way a launch writes it.
+          const team = this.store
+            .readTeam(c.teamId)
+            ?.history.find(
+              (entry) => entry.team.version === c.teamVersion,
+            )?.team;
+          if (!team) {
+            this.terminals.markTeamTerminalUnrestored(c.terminalId);
+            continue;
+          }
+          instructions = (directory) =>
+            parentTeamText(team, {
+              directory,
+              windows: process.platform === "win32",
+            });
+          await mkdir(dirname(c.instructionFile), {
+            recursive: true,
+            mode: 0o700,
+          });
+          await writeFile(c.instructionFile, "", { mode: 0o600, flag: "wx" });
+        }
+        this.terminals.configureTeamTerminal(
+          c.terminalId,
+          await this.#options(
+            { conversation: c.id },
+            c.parent,
+            c.instructionFile,
+            instructions,
+            undefined,
+            this.terminals.isCliRunning(c.terminalId),
+          ),
+        );
+      } catch {
+        this.terminals.markTeamTerminalUnrestored(c.terminalId);
+      }
+    }
+    for (const child of this.#children.values()) {
+      if (
+        !child.terminalId ||
+        !child.candidate ||
+        !child.instructionFile ||
+        !this.terminals.isCliRunning(child.terminalId)
+      )
+        continue;
+      try {
+        const instructions = await readFile(child.instructionFile, "utf8");
+        this.terminals.configureTeamTerminal(
+          child.terminalId,
+          await this.#options(
+            { conversation: child.conversation, child: child.id },
+            child.candidate,
+            child.instructionFile,
+            instructions,
+            undefined,
+            true,
+          ),
+        );
+      } catch {
+        this.terminals.markTeamTerminalUnrestored(child.terminalId);
+      }
+    }
   }
   async #options(
     caller: Caller,

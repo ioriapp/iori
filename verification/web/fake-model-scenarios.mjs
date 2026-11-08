@@ -1,3 +1,8 @@
+import {
+  teamWebScenarios,
+  childLifecycleScenarios,
+  cliDefinitionScenarios,
+} from "./scenarios.mjs";
 import { readmeScripts } from "../../e2e/fake-model/readme-shots.mjs";
 import { automationIssueScripts } from "../../e2e/fake-model/automation-issue.mjs";
 import { automationsScripts } from "../../e2e/fake-model/automations.mjs";
@@ -13,7 +18,7 @@ import { clipboardScripts } from "../../e2e/fake-model/clipboard.mjs";
 import { cliOmpScripts } from "../../e2e/fake-model/cli-omp.mjs";
 import { opencodeDelegationScripts } from "../../e2e/fake-model/opencode-delegation.mjs";
 import { cliStatusScripts } from "../../e2e/fake-model/cli-status.mjs";
-import { teamDelegationScripts } from "../../e2e/fake-model/team-delegation.mjs";
+import { teamMessageScripts } from "../../e2e/fake-model/team-messages.mjs";
 import { boardActivityScripts } from "../../e2e/fake-model/board-activity.mjs";
 
 import { cliDefinitionScripts } from "../../e2e/fake-model/cli-definition.mjs";
@@ -22,6 +27,23 @@ import { terminalDaemonScripts } from "../../e2e/fake-model/terminal-daemon.mjs"
 import { childCliFailureScripts } from "../../e2e/fake-model/child-cli-failure.mjs";
 
 export const fakeModelScenarios = {
+  ...Object.fromEntries(
+    [...teamWebScenarios, ...childLifecycleScenarios].map((name) => [
+      name,
+      {
+        clis: ["claude", "codex", "pi"],
+        scripts: teamMessageScripts,
+        codexAccount: ["team-child-tabs", "team-board"].includes(name),
+      },
+    ]),
+  ),
+  ...Object.fromEntries(
+    cliDefinitionScenarios.map((name) => [
+      name,
+      { clis: ["claude"], scripts: cliDefinitionScripts },
+    ]),
+  ),
+
   "readme-shots": { clis: ["claude", "codex"], scripts: readmeScripts },
   "child-cli-failure": {
     clis: ["claude", "codex"],
@@ -55,23 +77,13 @@ export const fakeModelScenarios = {
   "web-cli": { clis: ["claude", "codex", "pi"], scripts: cliStatusScripts },
   "claude-status": { clis: ["claude"], scripts: cliStatusScripts },
   "long-approval": { clis: ["claude"], scripts: cliStatusScripts },
-  "child-lifecycle": {
-    clis: ["claude", "codex", "pi"],
-    scripts: teamDelegationScripts,
-    codexAccount: true,
-  },
   "repo-delegation": {
     clis: ["claude", "codex"],
-    scripts: teamDelegationScripts,
+    scripts: teamMessageScripts,
     codexAccount: true,
   },
-  "cli-definition": { clis: ["claude"], scripts: cliDefinitionScripts },
+
   "terminal-daemon": { clis: ["claude"], scripts: terminalDaemonScripts },
-  "team-delegation": {
-    clis: ["claude", "codex", "pi"],
-    scripts: teamDelegationScripts,
-    codexAccount: true,
-  },
   "board-activity": {
     clis: ["claude", "codex"],
     scripts: boardActivityScripts,

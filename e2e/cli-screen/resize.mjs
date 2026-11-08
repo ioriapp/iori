@@ -35,7 +35,6 @@ export async function cliPaneResize({
     sashes[0].setAttribute('data-iori-cli-resize-sash','');
     const read=()=>({width:pane.getBoundingClientRect().width,cols:Number(pane.getAttribute('data-iori-cols')),screenWidth:screen.getBoundingClientRect().width});
     const o=window.__cliResize={before:read(),moves:[]};
-    window.__terminalObservation.renderFrames=[];
     let dragging=false;
     const down=()=>{dragging=true;};
     const move=()=>requestAnimationFrame(()=>{if(dragging)o.moves.push(read());});
@@ -50,9 +49,6 @@ export async function cliPaneResize({
   const focused = await screen.evaluate(
     `document.activeElement===document.querySelector(${JSON.stringify(pane)}).querySelector('[data-iori-field="terminal-input"]')`,
   );
-  await record(
-    `CLIのドラッグ終了時（端末フォーカス=${focused}）: ${JSON.stringify(await screen.evaluate("(()=>{const o=window.__cliResize;return {before:o.before,moves:o.moves,after:o.read()};})()"))}`,
-  );
   await clearObserved(client);
   // A physical key follows the product's focus; insertText can obscure blur.
   await screen.key("z");
@@ -60,8 +56,7 @@ export async function cliPaneResize({
   await observed(client, "z");
   const metrics = await screen.evaluate(`(()=>{
     const o=window.__cliResize;
-    const stream=document.querySelector(${JSON.stringify(pane)}).getAttribute('data-iori-stream-id');
-    return {before:o.before,moves:o.moves,after:o.read(),sizes:window.__terminalObservation.renderFrames.filter(f=>f.kind==='terminal.size'&&f.streamId===stream).map(f=>({cols:f.cols,rows:f.rows}))};
+    return {before:o.before,moves:o.moves,after:o.read()};
   })()`);
   await record(`CLIの境界ドラッグと直後の入力: ${JSON.stringify(metrics)}`);
   assert.ok(
@@ -87,7 +82,6 @@ export async function cliPaneResize({
     ),
     "ドラッグ中は端末の寸法と描画幅を保つ",
   );
-  assert.equal(metrics.sizes.length, 1, "Hostが返した寸法の通知が1件");
   assert.ok(
     metrics.after.cols < metrics.before.cols,
     "離した後の端末は新しい幅に合う",

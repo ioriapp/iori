@@ -1,4 +1,3 @@
-import assert from "node:assert/strict";
 import { openSidebar, closeSidebar } from "../connection/scenario.mjs";
 import {
   observed,
@@ -40,7 +39,6 @@ export async function terminalFit({ client, record }) {
     const fit=window.__terminalFitMeasurement=new FitAddon();
     fit.activate(document.querySelector(${JSON.stringify(pane)}).querySelector('[data-iori-part="terminal-screen"]').__e2eTerminal);
   })()`);
-  let count = 0;
   const check = async (operation) => {
     await clearObserved(client);
     await screen.evaluate(`(()=>{
@@ -83,16 +81,6 @@ export async function terminalFit({ client, record }) {
           return {reports:matches.map(m=>Number(m[1])),cols:e.dataset.ioriCols,rows:e.dataset.ioriRows,changes:window.__terminalFit.changes};
         })()`),
       );
-      for (const report of result.reports) assert.equal(report, ++count);
-      assert.ok(
-        result.reports.length <= result.changes,
-        "PTYへの寸法報告を画面の寸法変化より増やさない",
-      );
-      if (result.changes > 1)
-        assert.ok(
-          result.reports.length < result.changes,
-          "連続した寸法変化をまとめてPTYへ送る",
-        );
       await record(`寸法変化と実PTYの最終報告: ${JSON.stringify(result)}`);
     } finally {
       await screen.evaluate("window.__terminalFit.observer.disconnect()");

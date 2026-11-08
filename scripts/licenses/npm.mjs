@@ -16,7 +16,7 @@ async function filesAt(directory) {
 
 export async function npmNotice(
   packages,
-  { strict = true, warn = () => {} } = {},
+  { strict = true, warn = () => {}, keyringParent } = {},
 ) {
   const entries = [];
   for (const directory of [...packages].sort()) {
@@ -28,7 +28,8 @@ export async function npmNotice(
     let attribution = "";
     let filenames = await filesAt(source);
     if (!filenames.length && metadata.name.startsWith("@napi-rs/keyring-")) {
-      const parent = path.join(path.dirname(directory), "keyring");
+      const parent =
+        keyringParent ?? path.join(path.dirname(directory), "keyring");
       const parentMetadata = JSON.parse(
         await readFile(path.join(parent, "package.json"), "utf8"),
       );

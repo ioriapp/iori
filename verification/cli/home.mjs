@@ -58,7 +58,7 @@ export async function stopCliProcesses(home) {
 export async function prepareCliHome(
   root,
   {
-    clis = ["codex", "pi", "claude"],
+    clis = [],
     codexDefaults = false,
     fakeModel,
     fakeModelClis = [],

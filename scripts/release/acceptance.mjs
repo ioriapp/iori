@@ -1,3 +1,8 @@
+import {
+  teamWebScenarios,
+  childLifecycleScenarios,
+  cliDefinitionScenarios,
+} from "../../verification/web/scenarios.mjs";
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
@@ -20,8 +25,8 @@ import semver from "semver";
 const acceptanceConcurrency = 4;
 const fullScenarioOrder = [
   "web-cli",
-  "child-lifecycle",
-  "team-delegation",
+  ...childLifecycleScenarios,
+  ...teamWebScenarios,
   "terminal-preferences",
   "terminal-daemon",
   "child-cli-failure",
@@ -30,7 +35,7 @@ const fullScenarioOrder = [
   "automation-webhook",
   "automation-issue",
   "child-running",
-  "cli-definition",
+  ...cliDefinitionScenarios,
   "host-update",
   "clipboard",
   "sidebar-order",
@@ -71,7 +76,7 @@ const fullScenarioOrder = [
 ];
 
 // Names accepted by verification/web/run.mjs --only and e2e/web/scenario.mjs.
-const scenarioNames = new Set([
+export const scenarioNames = new Set([
   ...fullScenarioOrder,
   "repo-delegation",
   "host-forget",

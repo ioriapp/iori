@@ -1,15 +1,28 @@
-import { cp, mkdir, rm, mkdtemp } from "node:fs/promises";
+import { cp, mkdir, rm, mkdtemp, readFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
-import { root, output, version, git, command } from "./common.mjs";
-import { writeUpdater } from "./updater.mjs";
-import { writeManifest } from "./manifest.mjs";
-import {
-  acceptance,
-  reportFirstFailures,
-  releaseScenarios,
-  androidAcceptance,
-} from "./acceptance.mjs";
+import { fileURLToPath } from "node:url";
+const root = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../..",
+);
+const requiredNode = (
+  await readFile(path.join(root, ".node-version"), "utf8")
+).trim();
+if (process.versions.node !== requiredNode)
+  throw new Error(
+    `Node ${requiredNode}で配布物を作ってください（現在: ${process.versions.node}）`,
+  );
+const { output, version, git, command } = await import("./common.mjs");
+const { writeUpdater } = await import("./updater.mjs");
+const { writeManifest } = await import("./manifest.mjs");
+const { acceptance, reportFirstFailures, releaseScenarios, androidAcceptance } =
+  await import("./acceptance.mjs");
+await command(process.execPath, [
+  "scripts/publish/check-forbidden.mjs",
+  "--head",
+]);
+await command(process.execPath, ["scripts/licenses/check.mjs", "--head"]);
 // Reject unknown names before creating or removing any build output.
 const scenarios = releaseScenarios(process.argv.slice(2));
 let androidDevice;

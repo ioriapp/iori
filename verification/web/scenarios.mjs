@@ -30,3 +30,23 @@ export const basicWebScenarios = {
   "forge-status": {},
   "forge-issues": {},
 };
+
+export const teamWebScenarios = [
+  "team-command-route",
+  "team-child-tabs",
+  "team-messages",
+  "team-board",
+  "team-records",
+];
+export const childLifecycleScenarios = [
+  "child-read-only",
+  "child-cli-exit",
+  "child-background",
+  "child-claude-resume",
+];
+export const cliDefinitionScenarios = [
+  "cli-definition-editor",
+  "cli-definition-session",
+  "cli-definition-team",
+  "cli-definition-removal",
+];

@@ -2,6 +2,8 @@ import {
   SettingsDialog as ProductSettings,
   type Preferences,
 } from "../../apps/client/src/Settings.tsx";
+import { ChildRows } from "../../apps/client/src/teams/ChildRows.tsx";
+import { TerminalPane } from "../../apps/client/src/terminal/TerminalPane.tsx";
 import { connection } from "../../apps/client/src/connection.ts";
 import { getDefaultTerminalAccessoryLayout } from "../../apps/client/src/terminal/terminal-accessory-layout.ts";
 import { IntegrationsSettings } from "../../apps/client/src/IntegrationsSettings.tsx";
@@ -320,7 +322,113 @@ function Onboarding() {
     </main>
   );
 }
+function ChildStatesPreview() {
+  const common = {
+    createdAt: 1,
+    conversation: "parent",
+    parentTerminalId: "parent",
+    parentCwd: "/work",
+    teamId: "team",
+    role: "Worker",
+    title: "Task",
+    cli: { id: "codex", name: "Codex" },
+    model: "gpt-6.1-sol",
+    terminalId: "child",
+  };
+  const children = [
+    {
+      ...common,
+      id: "capacity",
+      state: "waiting" as const,
+      waiting: "capacity" as const,
+    },
+    {
+      ...common,
+      id: "candidates",
+      state: "waiting" as const,
+      waiting: "candidates" as const,
+    },
+    {
+      ...common,
+      id: "parent-exit",
+      state: "stopped" as const,
+      stoppedBy: "parent_exit" as const,
+    },
+    {
+      ...common,
+      id: "host-restart",
+      state: "stopped" as const,
+      stoppedBy: "host_restart" as const,
+    },
+  ];
+  return (
+    <div style={{ display: "flex", height: "100%" }}>
+      <SidebarProvider style={{ width: 500, minWidth: 500 }}>
+        <div style={{ width: 480 }}>
+          <SidebarMenu>
+            <ChildRows
+              hostKey={host.publicKey}
+              children={children}
+              t={t}
+              onOpen={noop}
+              onStop={noop}
+              onBranch={noop}
+              onDrag={() => noop}
+              dragViews={false}
+              errors={{}}
+              branches={{}}
+            />
+          </SidebarMenu>
+        </div>
+      </SidebarProvider>
+      <TerminalPane
+        viewId="preview"
+        hostKey={host.publicKey}
+        connectionId="preview"
+        connected={false}
+        foreground={false}
+        mobile={false}
+        claimSizeOnOpen={false}
+        visible={false}
+        terminal={{
+          id: "parent",
+          createdAt: 1,
+          shell: "bash",
+          cwd: "/work",
+          title: "Parent",
+          cols: 80,
+          rows: 24,
+          lastDesktopSize: { cols: 80, rows: 24 },
+          cliResumePending: true,
+        }}
+        onBackHandler={noop}
+        onResume={async () => false}
+        onCloseTerminal={noop}
+        onFocusConsumed={noop}
+        onOpenFile={noop}
+        onClosed={noop}
+        onOpenClaimConsumed={noop}
+        accessoryLayout={getDefaultTerminalAccessoryLayout()}
+        fontSize={14}
+        fontFamily=""
+        onFontSize={noop}
+        rightClick="menu"
+        linkOpen="click"
+        onInputPreferences={noop}
+        t={t}
+      />
+    </div>
+  );
+}
 function Frame() {
+  if (current.kind === "child-states")
+    return (
+      <TooltipProvider>
+        <div className="app-root">
+          <ChildStatesPreview />
+        </div>
+      </TooltipProvider>
+    );
   if (current.kind === "initialization")
     return (
       <div className="app-root">

@@ -205,6 +205,8 @@ interface RuntimeTerminal {
   hookRoute?: { url: string; dispose: () => void };
   /** A CLI typed in this shell puts the `iori` command's location on PATH. */
   commandPath?: boolean;
+  /** The non-secret command route inherited by this PTY. */
+  commandSession?: string;
   hookObserver?: ReturnType<NonNullable<CliHooks["observe"]>>;
   pendingCliCommand?: string;
   lineEditorReady?: LineEditorReady;
@@ -520,6 +522,11 @@ export class TerminalRuntime {
       { cwd: record.cwd, waitForVersion: true, arguments: args },
     );
     await this.#runSerial(runtime, async () => {
+      // A surviving shell can still carry an earlier command route. Pass the
+      // current parent environment only through a newly spawned PTY.
+      if (!options.role) {
+        await this.#killAndWait(runtime);
+      }
       runtime.cli = saved.cli;
       runtime.initialArgumentDelivered = initialArgs
         ? options.initialDelivered
@@ -540,6 +547,7 @@ export class TerminalRuntime {
           (await shellCommand(saved.command, args, shell, {
             commandLine: true,
           })),
+        !options.role ? launch?.env : undefined,
       );
       this.#publish({
         type: "terminal.updated",
@@ -629,6 +637,7 @@ export class TerminalRuntime {
         managed:
           managed ?? saved.runtime?.managed ?? Boolean(runtime.teamOptions),
         commandPath: runtime.commandPath,
+        commandSession: runtime.commandSession,
         pendingCommand: runtime.pendingCliCommand,
         initialInput: runtime.initialInput,
         initialDeliveryIds: runtime.initialDeliveryIds,
@@ -690,6 +699,7 @@ export class TerminalRuntime {
         this.#deferWaitingPresentation(runtime);
       runtime.pendingCliCommand = state?.pendingCommand;
       runtime.commandPath = state?.commandPath;
+      runtime.commandSession = state?.commandSession;
       runtime.initialInput = state?.initialInput;
       runtime.pendingLines = state?.pendingLines ?? [];
       runtime.initialDeliveryIds = state?.initialDeliveryIds;
@@ -998,7 +1008,15 @@ export class TerminalRuntime {
       if (!runtime) return failed("invalid_request");
       if (this.#unrestoredTeamTerminals.has(terminalId))
         return failed("invalid_request");
-      if (runtime.teamOptions && !runtime.teamOptions.role && !runtime.pty) {
+      if (
+        runtime.teamOptions &&
+        !runtime.teamOptions.role &&
+        this.#store.terminalCli(terminalId)?.resumePending &&
+        (!runtime.pty ||
+          !runtime.commandSession ||
+          runtime.commandSession !==
+            runtime.teamOptions.env.IORI_COMMAND_SESSION)
+      ) {
         const resumed = await this.restartTeamTerminal(
           terminalId,
           runtime.teamOptions,
@@ -2003,6 +2021,8 @@ export class TerminalRuntime {
       },
     });
     runtime.pty = child;
+    runtime.commandSession = (runtime.teamOptions?.env ?? commandEnvironment)
+      ?.IORI_COMMAND_SESSION;
     runtime.submissionStateChanged?.();
     runtime.ptyExited = false;
     runtime.userInputSinceActivity = false;

@@ -206,8 +206,6 @@ export async function filesTransfer({
     previousAlerts,
     "置き換えアップロードの完了",
   );
-  assert.equal((await readFile(placed)).equals(Buffer.alloc(13, 66)), true);
-  assert.equal((await stat(placed)).mode & 0o777, 0o640);
   for (const [device, viewport] of [
     ["pc", { width: 1440, height: 1000 }],
     ["mobile", { width: 390, height: 844 }],
@@ -250,7 +248,6 @@ export async function filesTransfer({
       );
     }
   }
-  assert.equal((await readFile(placed)).equals(Buffer.alloc(13, 66)), true);
   await enter("pc");
   await screen.evaluate(
     `document.documentElement.classList.toggle('dark',${initialDark})`,

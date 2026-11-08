@@ -11,6 +11,7 @@ if [[ "${1:-}" == "--docs-only" ]]; then
   git diff --check HEAD
   exit 0
 fi
+node scripts/run-bounded-check.mjs node scripts/licenses/check.mjs
 node scripts/run-bounded-check.mjs pnpm check
 node scripts/run-bounded-check.mjs pnpm lint
 node scripts/run-bounded-check.mjs pnpm --filter @iori/host build:native

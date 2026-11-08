@@ -139,7 +139,10 @@ export const forgejo: ForgeAdapter = {
       origin,
       commitChecks(
         origin,
-        statuses.flatMap((page) => array(object(page).statuses)),
+        statuses.flatMap((page) => {
+          const values = object(page).statuses;
+          return values === null ? [] : array(values);
+        }),
       ),
       forgejo.checkUrl(target).slice(origin.length),
     );

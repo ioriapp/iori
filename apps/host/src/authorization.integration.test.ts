@@ -643,148 +643,144 @@ test("Hostの受信用Endpointが外から閉じられても、同じ鍵で作�
 
 // E2E cannot prevent V8 from collecting native stream wrappers. Keep the Host's
 // wrappers alive so cancellation must return QUIC stream credit without GC.
-test(
-  "取り消した監視・events購読・読み取りのstreamがGC待ちで接続の枠を塞がない",
-  { timeout: 15_000 },
-  async (t) => {
-    const addon = loadNativeAddon();
-    const retained: NativeBiStream[] = [];
-    const trackedAddon: NativeAddon = {
-      ...addon,
-      Endpoint: new Proxy({} as typeof addon.Endpoint, {
-        get(target, key, receiver) {
-          if (key !== "bind") return Reflect.get(addon.Endpoint, key, receiver);
-          return async (...args: Parameters<typeof addon.Endpoint.bind>) => {
-            const endpoint = await addon.Endpoint.bind(...args);
-            return new Proxy(endpoint, {
-              get(target, key) {
-                if (key === "accept")
-                  return async () => {
-                    const incoming = await target.accept();
-                    if (!incoming) return incoming;
-                    return new Proxy(incoming, {
-                      get(target, key) {
-                        if (key === "handshake")
-                          return async () => {
-                            const connection = await target.handshake();
-                            return new Proxy(connection, {
-                              get(target, key) {
-                                if (key === "acceptBi")
-                                  return async () => {
-                                    const stream = await target.acceptBi();
-                                    retained.push(stream);
-                                    return stream;
-                                  };
-                                const value = Reflect.get(target, key, target);
-                                return typeof value === "function"
-                                  ? value.bind(target)
-                                  : value;
-                              },
-                            });
-                          };
-                        const value = Reflect.get(target, key, target);
-                        return typeof value === "function"
-                          ? value.bind(target)
-                          : value;
-                      },
-                    });
-                  };
-                const value = Reflect.get(target, key, target);
-                return typeof value === "function" ? value.bind(target) : value;
-              },
-            });
-          };
-        },
-      }),
-    };
-    const dataHome = await mkdtemp(join(tmpdir(), "iori-cancelled-streams-"));
-    const previousDataHome = process.env.XDG_DATA_HOME;
-    const previousPort = process.env.IORI_HOST_PORT;
-    const port = await availablePort();
-    process.env.XDG_DATA_HOME = dataHome;
-    process.env.IORI_HOST_PORT = String(port);
-    let host: Awaited<ReturnType<typeof startHost>> | undefined;
-    let client: Awaited<ReturnType<typeof connectClient>> | undefined;
-    try {
-      t.signal.addEventListener(
-        "abort",
-        () => {
-          void client?.endpoint.close();
-        },
-        { once: true },
-      );
-      host = await startHost(trackedAddon);
-      client = await connectClient(addon, host.endpoint, port);
-      await pair(
-        client,
-        (await readLocalInvite(dataHome)).secret,
-        "Cancellation client",
-      );
-      // noq's default connection credit is 100 bidirectional streams. Exercise
-      // both subscription paths beyond that credit, retaining every Host wrapper.
-      for (const method of ["reading.watch", "events"] as const) {
-        for (let index = 0; index < 128; index += 1) {
-          const stream = await client.connection.openBi();
-          await stream.write(
-            Buffer.from(
-              encodeFrame({
-                kind: "subscribe",
-                operationId: randomUUID(),
-                method,
-                params:
-                  method === "events" ? {} : { root: dataHome, scope: "files" },
-              }),
-            ),
-          );
-          await stream.finish();
-          const event = (await readFrame(stream)) as { type: string };
-          assert.equal(
-            event.type,
-            method === "events" ? "snapshot" : "reading.changed",
-          );
-          await stream.stop(0);
-        }
-      }
+test("取り消した監視・events購読・読み取りのstreamがGC待ちで接続の枠を塞がない", async (t) => {
+  const addon = loadNativeAddon();
+  const retained: NativeBiStream[] = [];
+  const trackedAddon: NativeAddon = {
+    ...addon,
+    Endpoint: new Proxy({} as typeof addon.Endpoint, {
+      get(target, key, receiver) {
+        if (key !== "bind") return Reflect.get(addon.Endpoint, key, receiver);
+        return async (...args: Parameters<typeof addon.Endpoint.bind>) => {
+          const endpoint = await addon.Endpoint.bind(...args);
+          return new Proxy(endpoint, {
+            get(target, key) {
+              if (key === "accept")
+                return async () => {
+                  const incoming = await target.accept();
+                  if (!incoming) return incoming;
+                  return new Proxy(incoming, {
+                    get(target, key) {
+                      if (key === "handshake")
+                        return async () => {
+                          const connection = await target.handshake();
+                          return new Proxy(connection, {
+                            get(target, key) {
+                              if (key === "acceptBi")
+                                return async () => {
+                                  const stream = await target.acceptBi();
+                                  retained.push(stream);
+                                  return stream;
+                                };
+                              const value = Reflect.get(target, key, target);
+                              return typeof value === "function"
+                                ? value.bind(target)
+                                : value;
+                            },
+                          });
+                        };
+                      const value = Reflect.get(target, key, target);
+                      return typeof value === "function"
+                        ? value.bind(target)
+                        : value;
+                    },
+                  });
+                };
+              const value = Reflect.get(target, key, target);
+              return typeof value === "function" ? value.bind(target) : value;
+            },
+          });
+        };
+      },
+    }),
+  };
+  const dataHome = await mkdtemp(join(tmpdir(), "iori-cancelled-streams-"));
+  const previousDataHome = process.env.XDG_DATA_HOME;
+  const previousPort = process.env.IORI_HOST_PORT;
+  const port = await availablePort();
+  process.env.XDG_DATA_HOME = dataHome;
+  process.env.IORI_HOST_PORT = String(port);
+  let host: Awaited<ReturnType<typeof startHost>> | undefined;
+  let client: Awaited<ReturnType<typeof connectClient>> | undefined;
+  try {
+    t.signal.addEventListener(
+      "abort",
+      () => {
+        void client?.endpoint.close();
+      },
+      { once: true },
+    );
+    host = await startHost(trackedAddon);
+    client = await connectClient(addon, host.endpoint, port);
+    await pair(
+      client,
+      (await readLocalInvite(dataHome)).secret,
+      "Cancellation client",
+    );
+    // noq's default connection credit is 100 bidirectional streams. Exercise
+    // both subscription paths beyond that credit, retaining every Host wrapper.
+    for (const method of ["reading.watch", "events"] as const) {
       for (let index = 0; index < 128; index += 1) {
         const stream = await client.connection.openBi();
         await stream.write(
           Buffer.from(
             encodeFrame({
-              kind: "request",
+              kind: "subscribe",
               operationId: randomUUID(),
-              method: "files.list",
-              params: { root: dataHome, path: "", start: 0, count: 10 },
+              method,
+              params:
+                method === "events" ? {} : { root: dataHome, scope: "files" },
             }),
           ),
         );
         await stream.finish();
+        const event = (await readFrame(stream)) as { type: string };
+        assert.equal(
+          event.type,
+          method === "events" ? "snapshot" : "reading.changed",
+        );
         await stream.stop(0);
       }
-      const response = responseSchema.parse(
-        await sendRequest(client.connection, {
-          kind: "request",
-          operationId: randomUUID(),
-          method: "host.info",
-          params: {},
-        }),
-      );
-      assert.equal(response.ok, true);
-      assert.ok(retained.length >= 386);
-    } finally {
-      if (client) {
-        client.connection.close(0, Buffer.from("test cleanup"));
-        await client.endpoint.close();
-      }
-      await host?.close();
-      await stopTerminalDaemon(join(dataHome, "iori-host"));
-      if (previousDataHome === undefined) delete process.env.XDG_DATA_HOME;
-      else process.env.XDG_DATA_HOME = previousDataHome;
-      if (previousPort === undefined) delete process.env.IORI_HOST_PORT;
-      else process.env.IORI_HOST_PORT = previousPort;
-      await rm(dataHome, { recursive: true, force: true });
     }
-  },
-);
+    for (let index = 0; index < 128; index += 1) {
+      const stream = await client.connection.openBi();
+      await stream.write(
+        Buffer.from(
+          encodeFrame({
+            kind: "request",
+            operationId: randomUUID(),
+            method: "files.list",
+            params: { root: dataHome, path: "", start: 0, count: 10 },
+          }),
+        ),
+      );
+      await stream.finish();
+      await stream.stop(0);
+    }
+    const response = responseSchema.parse(
+      await sendRequest(client.connection, {
+        kind: "request",
+        operationId: randomUUID(),
+        method: "host.info",
+        params: {},
+      }),
+    );
+    assert.equal(response.ok, true);
+    assert.ok(retained.length >= 386);
+  } finally {
+    if (client) {
+      client.connection.close(0, Buffer.from("test cleanup"));
+      await client.endpoint.close();
+    }
+    await host?.close();
+    await stopTerminalDaemon(join(dataHome, "iori-host"));
+    if (previousDataHome === undefined) delete process.env.XDG_DATA_HOME;
+    else process.env.XDG_DATA_HOME = previousDataHome;
+    if (previousPort === undefined) delete process.env.IORI_HOST_PORT;
+    else process.env.IORI_HOST_PORT = previousPort;
+    await rm(dataHome, { recursive: true, force: true });
+  }
+});
 
 // 通常UIでは未登録の鍵100個の接続を保持したり、枠の長さだけを不正に送れないため、実Hostと実addonを使う。
 test("未登録の接続100本と未完のhandshake10本が残っていても登録済みの端末が新しく要求でき、古い接続と1KiBを超す枠を閉じる", async () => {

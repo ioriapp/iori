@@ -494,7 +494,10 @@ function TerminalFontSettings({
   const [error, setError] = useState(false);
   const [families, setFamilies] = useState<string[]>([]);
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
-  const input = useRef<HTMLInputElement>(null);
+  const [selectedFont, setSelectedFont] = useState("");
+  const [unselectedVersion, setUnselectedVersion] = useState(0);
+  const selectingFont = useRef(false);
+  const [input, setInput] = useState<HTMLInputElement | null>(null);
   useEffect(() => {
     if (mobile) return;
     let active = true;
@@ -546,8 +549,26 @@ function TerminalFontSettings({
   );
   const completed = families.some((name) => name.toLowerCase() === fragment);
   const shown = !mobile && suggestionsOpen && matches.length > 0 && !completed;
+  const clearSelection = () => {
+    selectingFont.current = false;
+    setSelectedFont("");
+    // cmdk may select the first remaining item after removing the selected
+    // one. Change the controlled value even when already unselected so its
+    // internal value and selection styling are reset too.
+    setUnselectedVersion((version) => version + 1);
+  };
+  const startSelection = () => {
+    selectingFont.current = true;
+    // cmdk reports keyboard/pointer selection synchronously during the event.
+    // An event that leaves the selection unchanged must not authorize a later
+    // automatic selection when items mount or unmount.
+    queueMicrotask(() => {
+      selectingFont.current = false;
+    });
+  };
   const change = (next: string) => {
     setValue(next);
+    clearSelection();
     setMessage(undefined);
   };
   const choose = (name: string) => {
@@ -564,7 +585,7 @@ function TerminalFontSettings({
     >
       <FieldRow
         stacked
-        label={<label htmlFor="terminal-font-name">{label}</label>}
+        label={<label htmlFor={input?.id}>{label}</label>}
         description={
           <span id="terminal-font-help">
             {t(
@@ -576,17 +597,33 @@ function TerminalFontSettings({
         <Command
           label={label}
           shouldFilter={false}
+          // A nonempty value absent from font names suppresses cmdk's initial
+          // automatic selection. NUL cannot occur in an installed font name.
+          value={selectedFont || `\u0000${unselectedVersion}`}
+          onValueChange={(name) => {
+            if (selectingFont.current) {
+              selectingFont.current = false;
+              setSelectedFont(name);
+            } else {
+              clearSelection();
+            }
+          }}
+          loop={!selectedFont}
           className="terminal-font-combobox"
           onKeyDown={(event) => {
             if (event.nativeEvent.isComposing) return;
+            if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+              startSelection();
+            }
             if (event.key === "Escape" && shown) {
               event.preventDefault();
               event.stopPropagation();
               setSuggestionsOpen(false);
             } else if (event.key === "Enter") {
               event.stopPropagation();
-              if (!shown) {
+              if (!shown || !selectedFont) {
                 event.preventDefault();
+                setSuggestionsOpen(false);
                 void save();
               }
             }
@@ -596,18 +633,25 @@ function TerminalFontSettings({
             <PopoverAnchor asChild>
               <CommandPrimitive.Input
                 asChild
-                value={value}
+                // Filtering is handled above. Keeping cmdk's search empty
+                // avoids its automatic first-item selection on search changes.
+                value=""
                 onValueChange={(next) => {
                   change(next);
                   setSuggestionsOpen(true);
                 }}
-                onFocus={() => setSuggestionsOpen(true)}
+                onFocus={() => {
+                  clearSelection();
+                  setSuggestionsOpen(true);
+                }}
                 onBlur={() => setSuggestionsOpen(false)}
                 aria-describedby="terminal-font-help"
               >
                 <Input
-                  ref={input}
-                  id="terminal-font-name"
+                  // cmdk finds and focuses its input by the ID it generates.
+                  ref={setInput}
+                  value={value}
+                  {...(!selectedFont && { "aria-activedescendant": undefined })}
                   data-iori-field="terminal-font-family"
                   placeholder="JetBrains Mono"
                   aria-expanded={shown}
@@ -622,7 +666,7 @@ function TerminalFontSettings({
               onOpenAutoFocus={(event) => event.preventDefault()}
               onCloseAutoFocus={(event) => event.preventDefault()}
               onInteractOutside={(event) => {
-                if (event.target === input.current) event.preventDefault();
+                if (event.target === input) event.preventDefault();
               }}
               onEscapeKeyDown={(event) => {
                 event.preventDefault();
@@ -635,6 +679,7 @@ function TerminalFontSettings({
                   <CommandItem
                     key={name}
                     value={name}
+                    onPointerMoveCapture={startSelection}
                     onPointerDown={(event) => event.preventDefault()}
                     onSelect={() => choose(name)}
                   >

@@ -7,6 +7,7 @@ const files = globSync(
     "apps/**/*.test.{js,mjs,cjs,ts,mts,cts}",
     "scripts/**/*.test.{js,mjs,cjs,ts,mts,cts}",
     "verification/**/*.test.{js,mjs,cjs,ts,mts,cts}",
+    "e2e/host/**/*.test.{js,mjs,cjs,ts,mts,cts}",
   ],
   {
     exclude: [

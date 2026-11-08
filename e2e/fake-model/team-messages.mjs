@@ -8,7 +8,7 @@ const claudeCommand = (command, options = {}) => ({
   tool: "Bash",
   input: { command, ...options },
 });
-export const teamDelegationScripts = {
+export const teamMessageScripts = {
   "team-parent-delegate": [
     claudeCommand(probeDelegationCommand),
     { text: "OK" },
@@ -52,23 +52,16 @@ export const teamDelegationScripts = {
     }),
     { text: "42" },
   ],
-  "team-cancel": [{ text: "Cancelled." }],
-  "team-retained-report": [
-    codexCommand(
-      '"$IORI_COMMAND_BIN/iori" report --body "Parent exited; report retained."',
-      {
-        sandbox_permissions: "require_escalated",
-        justification: "Send the requested report outside the sandbox.",
-      },
-    ),
-    { text: "Reported." },
-  ],
   "team-background": [
     claudeCommand("sleep 45; echo background-complete", {
       run_in_background: true,
       description: "Wait for background verification",
     }),
     { text: "Waiting for background completion." },
+    claudeCommand('iori report --body "The initial request is complete."'),
+    { text: "Reported." },
+  ],
+  "team-claude-initial": [
     claudeCommand('iori report --body "The initial request is complete."'),
     { text: "Reported." },
   ],

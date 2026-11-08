@@ -6,6 +6,27 @@ import { promisify } from "node:util";
 
 const run = promisify(execFile);
 const units = new Map();
+const unboundedRoots = new Set();
+
+async function unitIsUnder(unit, root) {
+  let workingDirectory;
+  try {
+    ({ stdout: workingDirectory } = await run("systemctl", [
+      "--user",
+      "show",
+      unit,
+      "--property=WorkingDirectory",
+      "--value",
+    ]));
+  } catch (error) {
+    if (await loaded(unit)) throw error;
+    return false;
+  }
+  const path = workingDirectory.trim();
+  if (!isAbsolute(path)) return false;
+  const child = relative(resolve(root), path);
+  return child !== ".." && !child.startsWith(`..${sep}`) && !isAbsolute(child);
+}
 
 async function daemonUnit(root) {
   if (process.platform !== "linux") return undefined;
@@ -14,11 +35,16 @@ async function daemonUnit(root) {
       await readFile(join(root, "terminal-daemon", "connection.json"), "utf8"),
     );
     const cgroup = await readFile(`/proc/${pid}/cgroup`, "utf8");
-    return cgroup
+    const unit = cgroup
       .split(/[\/\n]/u)
       .find((part) =>
         /^iori-terminal-[a-f0-9]+-[a-f0-9-]+\.service$/u.test(part),
       );
+    // If systemd cannot be queried, ownership is not established. The caller
+    // can still shut down the daemon through its own connection.
+    return unit && (await unitIsUnder(unit, root).catch(() => false))
+      ? unit
+      : undefined;
   } catch (error) {
     if (error.code === "ENOENT") return undefined;
     throw error;
@@ -44,7 +70,10 @@ async function loaded(unit) {
 /** The product uses its normal unit; only the owned verification run caps it. */
 export async function boundTerminalDaemon(root) {
   const unit = await daemonUnit(root);
-  if (!unit) return;
+  if (!unit) {
+    unboundedRoots.add(root);
+    return;
+  }
   await run("systemctl", [
     "--user",
     "set-property",
@@ -91,13 +120,21 @@ export async function stopTerminalDaemon(root) {
   }
   for (const entry of units.values()) {
     if (entry.root !== root) continue;
+    // Every entry passed daemonUnit's ownership check when it was recorded.
     await stopUnit(entry.unit);
     entry.removed = true;
   }
 }
 
 export function terminalDaemonEvidence() {
-  return [...units.values()].map(({ root: _root, ...entry }) => entry);
+  return [
+    ...[...units.values()].map(({ root: _root, ...entry }) => entry),
+    ...[...unboundedRoots].map(() => ({
+      unit: null,
+      memoryMax: null,
+      reason: "no-owned-unit",
+    })),
+  ];
 }
 
 async function stopUnit(unit) {
@@ -131,24 +168,7 @@ export async function stopTerminalDaemonsUnder(directory) {
   for (const line of stdout.trim().split("\n")) {
     const unit = line.trim().split(/\s+/u)[0];
     if (!/^iori-terminal-[a-f0-9]+-[a-f0-9-]+\.service$/u.test(unit)) continue;
-    let workingDirectory;
-    try {
-      ({ stdout: workingDirectory } = await run("systemctl", [
-        "--user",
-        "show",
-        unit,
-        "--property=WorkingDirectory",
-        "--value",
-      ]));
-    } catch (error) {
-      if (await loaded(unit)) throw error;
-      continue;
-    }
-    const path = workingDirectory.trim();
-    if (!isAbsolute(path)) continue;
-    const child = relative(root, path);
-    if (child === ".." || child.startsWith(`..${sep}`) || isAbsolute(child))
-      continue;
+    if (!(await unitIsUnder(unit, root))) continue;
     await stopUnit(unit);
     console.log(`検証用Terminal係を回収: ${unit}`);
   }

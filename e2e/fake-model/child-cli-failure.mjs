@@ -17,5 +17,4 @@ const claudeError = {
 export const childCliFailureScripts = {
   "failure-codex": [codexError],
   "failure-claude": [claudeError],
-  "failure-handoff": [claudeError],
 };

@@ -88,6 +88,8 @@ export interface StoredCli {
     managed: boolean;
     /** A CLI typed in this shell puts the `iori` command's location on PATH. */
     commandPath?: boolean;
+    /** Non-secret command route passed when the surviving PTY was spawned. */
+    commandSession?: string;
     pendingCommand?: string;
     initialInput?: string;
     pendingLines: { line: string; deliveryId?: string }[];

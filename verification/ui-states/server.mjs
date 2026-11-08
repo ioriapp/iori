@@ -37,6 +37,8 @@ function stateDataPlugin(catalog) {
     [
       "host-setup/HostSetupDialog.tsx",
       "ClientInitialization.tsx",
+      "teams/ChildRows.tsx",
+      "terminal/TerminalPane.tsx",
       "IntegrationsSettings.tsx",
       "Settings.tsx",
       "GitSettings.tsx",
@@ -107,6 +109,7 @@ function stateDataPlugin(catalog) {
             "SshSetup",
             "IntegrationsSettings",
             "GitSettings",
+            "TerminalPane",
           ].includes(module) &&
           ts.isCallExpression(node) &&
           node.expression.getText(file) === "useEffect"

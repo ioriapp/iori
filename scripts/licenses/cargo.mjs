@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import path from "node:path";
 
 const directory = path.join(import.meta.dirname, "sources/cargo");
@@ -15,11 +16,19 @@ export const cargoInputs = [
   "apps/client/src-tauri/plugins/apk-installer/Cargo.toml",
   "apps/client/src-tauri/plugins/clipboard-image/Cargo.toml",
 ];
-export async function cargoHashes() {
+async function readSource(file, ref) {
+  return ref
+    ? execFileSync("git", ["show", `${ref}:${file}`], {
+        cwd: root,
+        encoding: "utf8",
+      })
+    : await readFile(path.join(root, file), "utf8");
+}
+export async function cargoHashes(ref) {
   return Object.fromEntries(
     await Promise.all(
       cargoInputs.map(async (file) => {
-        let content = await readFile(path.join(root, file), "utf8");
+        let content = await readSource(file, ref);
         if (file === "apps/client/src-tauri/Cargo.toml")
           content = content.replace(
             'tauri = { version = "2.12.0", features = ["tray-icon"] }\n',
@@ -32,12 +41,12 @@ export async function cargoHashes() {
 }
 export async function cargoNotice(
   profile,
-  { strict = true, warn = () => {} } = {},
+  { strict = true, warn = () => {}, ref } = {},
 ) {
   let index;
   try {
     index = JSON.parse(
-      await readFile(path.join(directory, "index.json"), "utf8"),
+      await readSource("scripts/licenses/sources/cargo/index.json", ref),
     );
   } catch (error) {
     if (error.code !== "ENOENT") throw error;
@@ -49,13 +58,13 @@ export async function cargoNotice(
       "Cargo license inventory missing; run node scripts/licenses/update-cargo.mjs",
     );
   }
-  const actual = await cargoHashes();
-  for (const [file, hash] of Object.entries(index.inputs))
+  const actual = await cargoHashes(ref);
+  for (const [file, hash] of Object.entries(actual))
     if (
       (profile.startsWith("host")
         ? !file.startsWith("apps/client/")
         : !file.startsWith("apps/host/") && file !== "Cargo.lock") &&
-      actual[file] !== hash
+      index.inputs[file] !== hash
     ) {
       if (strict)
         throw new Error(

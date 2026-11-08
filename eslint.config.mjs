@@ -277,7 +277,13 @@ export default [
   {
     files: [
       "e2e/cli-screen/*status.mjs",
-      "e2e/web/team-delegation.mjs",
+      "e2e/web/team-fixture.mjs",
+      "e2e/web/team-worker.mjs",
+      "e2e/web/team-command-route.mjs",
+      "e2e/web/team-child-tabs.mjs",
+      "e2e/web/team-messages.mjs",
+      "e2e/web/team-board.mjs",
+      "e2e/web/team-records.mjs",
       "e2e/web/child-lifecycle.mjs",
       "e2e/web/team-parent-input.mjs",
       "e2e/web/repo-delegation.mjs",

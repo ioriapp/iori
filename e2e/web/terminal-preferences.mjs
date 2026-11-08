@@ -156,6 +156,135 @@ export async function terminalPreferences({
     '"Missing Font \\"quoted\\"\\\\name", "JetBrains Mono Variable", ' +
     defaultFamily;
   await openFontSettings();
+  const fontOptions = '.terminal-font-options[data-state="open"]';
+  const fontList = `${fontOptions} [role="listbox"]`;
+  const pointAtFont = (selector) => screen.point(selector);
+  const clickFont = async (selector) => {
+    const point = await pointAtFont(selector);
+    for (const type of ["mouseMoved", "mousePressed", "mouseReleased"]) {
+      await client.browser.call("Input.dispatchMouseEvent", {
+        type,
+        ...point,
+        button: "left",
+        clickCount: 1,
+      });
+    }
+  };
+  await clickFont(fontInput);
+  await screen.wait(fontOptions);
+  const selectedFont = `${fontList} [aria-selected="true"]`;
+  assert.equal(await screen.visible(selectedFont), false);
+  await client.browser.call("Input.dispatchMouseEvent", {
+    type: "mouseMoved",
+    ...(await pointAtFont(`${fontList} [role="option"]`)),
+  });
+  await screen.wait(fontOptions);
+  await client.browser.call("Input.dispatchMouseEvent", {
+    type: "mouseWheel",
+    ...(await pointAtFont(fontList)),
+    deltaX: 0,
+    deltaY: 500,
+  });
+  await waitFor(() =>
+    screen.evaluate(
+      `document.querySelector(${JSON.stringify(fontList)})?.scrollTop > 0`,
+    ),
+  );
+  await clickFont(`${fontList} [data-value="Ubuntu Mono"]`);
+  assert.equal(await screen.value(fontInput), "Ubuntu Mono");
+  await waitFor(
+    () => screen.visible(fontOptions),
+    (visible) => !visible,
+  );
+  // Filter only the final comma-separated name, retaining the preceding font.
+  await screen.input(fontInput, "Ubuntu Mono, Fira");
+  await screen.wait(fontOptions);
+  await screen.key("ArrowDown");
+  await waitFor(
+    () => screen.text(selectedFont),
+    (text) => text === "Fira Mono",
+  );
+  await client.browser.call("Input.insertText", { text: "C" });
+  await waitFor(
+    () => screen.value(fontInput),
+    (value) => value === "Ubuntu Mono, FiraC",
+  );
+  assert.equal(await screen.visible(selectedFont), false);
+  assert.equal(await screen.attribute(fontInput, "aria-activedescendant"), "");
+  await screen.key("Enter");
+  await screen.wait('[data-iori-state="terminal-font-saved"]');
+  assert.equal(await screen.value(fontInput), "Ubuntu Mono, FiraC");
+  await waitFor(
+    () => screen.evaluate(`${terminal}.options.fontFamily`),
+    (value) => value === '"Ubuntu Mono", "FiraC", ' + defaultFamily,
+  );
+  await screen.input(fontInput, "");
+  await screen.key("Enter");
+  await screen.wait('[data-iori-state="terminal-font-saved"]');
+  await waitFor(
+    () => screen.evaluate(`${terminal}.options.fontFamily`),
+    (value) => value === defaultFamily,
+  );
+  await screen.input(fontInput, "Ubuntu Mono, cAsCaDiA");
+  await screen.wait(fontOptions);
+  assert.equal(await screen.visible(selectedFont), false);
+  assert.equal(await screen.attribute(fontInput, "aria-activedescendant"), "");
+  assert.deepEqual(
+    await screen.evaluate(
+      `Array.from(document.querySelectorAll(${JSON.stringify(`${fontList} [role="option"]`)}),e=>e.getAttribute('data-value'))`,
+    ),
+    ["Cascadia Code", "Cascadia Mono"],
+  );
+  await screen.key("ArrowDown");
+  await waitFor(
+    () => screen.text(selectedFont),
+    (text) => text === "Cascadia Code",
+  );
+  await screen.key("ArrowDown");
+  await waitFor(
+    () => screen.text(`${fontList} [aria-selected="true"]`),
+    (text) => text === "Cascadia Mono",
+  );
+  await screen.key("ArrowUp");
+  await waitFor(
+    () => screen.text(`${fontList} [aria-selected="true"]`),
+    (text) => text === "Cascadia Code",
+  );
+  await screen.key("Enter");
+  assert.equal(await screen.value(fontInput), "Ubuntu Mono, Cascadia Code");
+  await waitFor(
+    () => screen.visible(fontOptions),
+    (visible) => !visible,
+  );
+  assert.equal(
+    await screen.visible('[data-iori-state="terminal-font-saved"]'),
+    false,
+  );
+  await screen.input(fontInput, "Fira");
+  await screen.wait(fontOptions);
+  await screen.key("Escape");
+  await waitFor(
+    () => screen.visible(fontOptions),
+    (visible) => !visible,
+  );
+  assert.ok(await screen.visible(action("settings-close")));
+  await screen.input(fontInput, "Mono");
+  await screen.wait(fontOptions);
+  await screen.key("Tab");
+  await waitFor(
+    () => screen.visible(fontOptions),
+    (visible) => !visible,
+  );
+  await clickFont(".terminal-font-settings label");
+  await screen.wait(fontOptions);
+  await clickFont('[data-iori-action="settings-display"]');
+  await waitFor(
+    () => screen.visible(fontOptions),
+    (visible) => !visible,
+  );
+  await record(
+    "Terminalフォント候補の焦点での表示・マウス移動・ホイール・クリック・末尾の絞り込み・選択後の追加入力で未選択に戻りEnterで保存・上下矢印とEnter・Esc・Tab・欄の外のクリック",
+  );
   await screen.input(fontInput, "unsaved");
   await screen.click(action("settings-close"));
   await screen.wait('[data-iori-view="settings-discard-confirmation"]');
@@ -179,6 +308,16 @@ export async function terminalPreferences({
     (value) => value === expectedFamily,
   );
   await openFontSettings();
+  await screen.input(fontInput, "Fira");
+  await screen.wait(fontOptions);
+  assert.equal(await screen.visible(selectedFont), false);
+  await screen.key("Enter");
+  await screen.wait('[data-iori-state="terminal-font-saved"]');
+  assert.equal(await screen.value(fontInput), "Fira");
+  await waitFor(
+    () => screen.evaluate(`${terminal}.options.fontFamily`),
+    (value) => value === '"Fira", ' + defaultFamily,
+  );
   await screen.input(fontInput, "");
   await screen.key("Enter");
   await screen.wait('[data-iori-state="terminal-font-saved"]');
@@ -193,7 +332,7 @@ export async function terminalPreferences({
   await screen.wait('[data-iori-state="terminal-font-saved"]');
   await screen.click(action("settings-close"));
   await record(
-    "Terminalフォントの保存・即時反映・空欄で既定へ戻る操作・未保存の破棄確認",
+    "Terminalフォントの保存・即時反映・候補未選択のEnterで入力値を保存・空欄で既定へ戻る操作・未保存の破棄確認",
   );
   const before = await screen.evaluate(
     `({font:${terminal}.options.fontSize,cols:${terminal}.cols})`,

@@ -226,7 +226,6 @@ export async function claudeStatusScenario({
       undefined,
       "Readが終わり応答が続いていること",
     );
-    await record("Read完了後の応答中にEscを送る");
     await focusTerminal(client, interrupted);
     await pressCliKey(client, "Escape");
     await observedCurrentScreen(client, interrupted, /Interrupted/u);
@@ -246,7 +245,6 @@ export async function claudeStatusScenario({
     await record("応答中のEscで中断すると停止し、Runningが消える");
   } catch (error) {
     failures.push(`応答中の中断: ${error}`);
-    await record(`応答中の中断で停止へ変わらない: ${error}`);
   }
   await submitToCli(
     client,
@@ -303,7 +301,6 @@ export async function claudeStatusScenario({
     await record("承認画面でNoを選ぶと判断待ちから消える");
   } catch (error) {
     failures.push(`承認の拒否: ${error}`);
-    await record(`承認の拒否で判断待ちが残る: ${error}`);
   }
   await finishCli(client, denied, "claude");
   if (windows) await screen.evaluate("window.__claudeNativeUnsubscribe()");

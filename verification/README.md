@@ -10,6 +10,8 @@
 
 見本の状態一覧は `--catalog=〈host-setup-states.ts〉`、見本の画像は `--reference=〈フォルダー〉`、保存先は `--output=〈フォルダー〉` で変えられる（開発用ページでは `IORI_UI_STATE_CATALOG`）。既定は作業用の `.local/ui-sample/v16-host-setup/src/host-setup-states.ts` と `.local/ui-sample/dist-shots-v16-host-setup/`。一部だけ撮る時は `--only=A0,B2b` を使う。既存のPlaywrightとChromiumを使い、導入場所は `IORI_PLAYWRIGHT_MODULE` と `IORI_CHROMIUM_PATH` で指定できる。描画データは `verification/ui-states/fixtures.ts` に置き、画面の非公開の初期状態を渡す対応は開発用サーバーだけが持つ。
 
+子の行とCLIの再開失敗の表示は `node verification/ui-states/capture.mjs --catalog=verification/ui-states/child-states.ts` で撮影する。
+
 ## 追加の実機検証
 
 `verification/local.example.json` を `~/.config/iori/verification.json` にコピーし、検証環境に合わせて設定する。通信・端末登録、Clientの更新とHostの導入、Terminal・CLI・通知などの実機検証は `verification/` の各機能のrunnerを使う。Windows、Linux、Androidの対象設備とSSH・ADBなどが必要で、ブラウザーのE2Eとは別の確認である。runnerの一部は特定の検証環境のパスや利用者を前提とする。日常用の保存先と端末を使わず、検証用の環境を分ける。
@@ -51,6 +53,33 @@ Linuxの実機用buildもNode 24から起動する。`verification/connection/pr
 
 Linuxの検証用debの導入・回収は `verification/native/linux-packages.mjs` の共通helperを使い、apt-getの `DPkg::Lock::Timeout=-1` で鍵が空くまで待つ。鍵ファイルの削除や別のapt処理の停止はしない。
 
+## Hostの口からのE2E
+
+`e2e/host/*.test.mjs` に1本1振る舞いで置き、`node scripts/test.mjs` で流れる。1本だけ流す時は `node scripts/run-bounded-check.mjs node --test --test-timeout=60000 e2e/host/<名前>.test.mjs`。
+
+- `verification/host/process.mjs` の `runHostTest(t, body)`（中で `startHostTest(t)`）が、試験ごとの一時の保存先・HOME・PATH（nodeとshellだけ）・Hostの鍵・port・Clientの鍵で本物のHostを別のプロセスで起動し、`t.after` で接続・Host・Terminalの係・一時のフォルダーを片付ける。返る `client` はClientと同じirohの口で `request`・`events`・`terminal` を送る。Hostの中の関数は差し替えない。
+- CLIは `verification/host/scripted-cli.mjs` の台本のCLIを `scripted-definition.mjs` の `registerScriptedCli` で公開の `cli.definition.save` から登録して使う。台本のCLIはHostが作った本物のPTYで動き、hookは製品の送り口、チームの操作はHostが渡した `iori` で送る。PTYへJSONの行を入れて `actorCommand` で結果を待つ。
+- 待つのはイベントとPTYの出力の到着だけにし、固定の待ち時間で成否を決めない。上限は `--test-timeout` に任せる。`body` に渡る `stage(名前)` で段の名前を付けると、失敗・打ち切りの時にその名前が出る。
+- 検証の道具がTerminalの係を止める・上限を付ける時は、そのsystemdのunitのWorkingDirectoryが検証の保存先の中かを確かめてから行う（`verification/terminal/daemon-process.mjs`）。隔離したPATHのHostは係を直接起動するので、係は試験を流したプロセスのcgroupを継ぐ。cgroupのunitの名前だけで止めると、iori のTerminalの中から流した時に日常のTerminalの係を止める（#317）。
+
+## main 後の画面E2E
+
+Linux の専用作業場所で、main の新しい commit を30分ごとに確認する。4組まで並行し、結果は `~/.local/share/iori-background-e2e/latest.json`、証拠は同じ場所の `evidence/` に残る。失敗時は Forgejo の Issue #321 に通知する。日常 Host は使わない。
+
+Node 24・pnpm 11・Rust・Chromium・各 CLI と、このページのブラウザーE2Eの準備が必要。導入元のリポジトリで次を実行する。`PATH` は timer からも同じ道具を見つけるため保存する。
+
+```sh
+mkdir -p ~/.local/share/iori-background-e2e ~/.config/systemd/user ~/.config/iori
+git clone "$(git remote get-url origin)" ~/.local/share/iori-background-e2e/repo
+printf 'PATH=%s\n' "$PATH" > ~/.config/iori/background-e2e.env
+cp .forgejo/.env ~/.local/share/iori-background-e2e/repo/.forgejo/.env
+cp scripts/background-e2e/iori-background-e2e.{service,timer} ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now iori-background-e2e.timer
+```
+
+サービスはメモリを10 GiBに制限し、CPUの優先度を下げる。自動起動するログインの user service と Forgejo の認証が必要。状態とログは `systemctl --user status iori-background-e2e.timer` と `journalctl --user -u iori-background-e2e.service` で見られる。
+
 ## ブラウザーの画面E2E
 
 Web runnerも `~/.config/iori/verification.json` の `windows.home` を読込時に必要とし、cacheの一部は固定パスを使う。別の環境ではそのパスに書き込めず、手順どおりに流せない場合がある。
@@ -72,9 +101,9 @@ Webで複数Hostを確認する時は `startWebHost(distribution, { dataRoot, po
 | `git-image-diff`     | Gitの画像の変更前後・拡大・前後の切替、スマホの表示と戻る                                 |
 | `reading-text-copy`  | 本文のドラッグ・スクロール後のコピー、Gitの本文、スマホの長押しと行選択                   |
 | `reading-worktrees`  | worktree間のFiles/Git、Markdown・画像の表示                                               |
-| `web-terminal`       | 日本語、ペイン操作、読み位置と通信復帰、出来事の継続、PC・スマホの寸法、shellの初期化     |
+| `web-terminal`       | 日本語、ペイン操作、読み位置と通信復帰、出来事の継続、PC・スマホの寸法                    |
 | `web-cli`            | CLI設定・初回起動、最大化、状態と通知、hooksの失敗と再試行、CLI一覧、長い承認待ち         |
-| `web-recovery`       | Codexの会話の再開、会話IDの無いCLI、Files/Gitの通信復帰、スマホで同じTerminalへ戻る       |
+| `web-recovery`       | Codexの会話の再開、Files/Gitの通信復帰、スマホで同じTerminalへ戻る                        |
 | `automations`        | 自動化の作成・実行と履歴                                                                  |
 | `automation-webhook` | Webhookの受信・履歴・token更新・受信範囲・待受の変更                                      |
 | `automation-issue`   | Issueのラベルによる起動・履歴・PR作成・接続の回復                                         |
@@ -84,19 +113,19 @@ Webで複数Hostを確認する時は `startWebHost(distribution, { dataRoot, po
 | `forge-status`       | フォルダーの無い時の連携設定、Forgeの状態                                                 |
 | `forge-issues`       | ForgeのIssue一覧と詳細                                                                    |
 
-`web-cli`・`team-delegation` はClaude CodeとCodexをlocalhostの偽のモデルAPIへ向ける。`claude-status`・`long-approval` も同じClaude Codeの台本を単独で使う。`web-cli` のPiも偽のResponses APIを使う。`--real-models` を付けると、同じ操作列をClaude Codeのhaiku・Codex/Piのgpt-6-lunaの実モデルで通す。`web-recovery`・`automations`・`automation-webhook`・`automation-issue`・`forge-issue-start`・`host-update`・`host-uninstall`・`mobile-batch-input`・`mobile-images` は偽のAPIを使う。`web-terminal` は本物のPiを起動するがモデルへ依頼しない。残りのCLIとfixtureは各操作列の説明に従う。Releaseの範囲の受入も同じ名前を `--scenarios=web-cli,web-recovery` のように指定する。
+`web-cli`・チームの操作列はClaude CodeとCodexをlocalhostの偽のモデルAPIへ向ける。`claude-status`・`long-approval` も同じClaude Codeの台本を単独で使う。`web-cli` のPiも偽のResponses APIを使う。`--real-models` を付けると、同じ操作列をClaude Codeのhaiku・Codex/Piのgpt-6-lunaの実モデルで通す。`web-recovery`・`automations`・`automation-webhook`・`automation-issue`・`forge-issue-start`・`host-update`・`host-uninstall`・`mobile-batch-input`・`mobile-images` は偽のAPIを使う。`web-terminal` は本物のPiを起動するがモデルへ依頼しない。残りのCLIとfixtureは各操作列の説明に従う。Releaseの範囲の受入も同じ名前を `--scenarios=web-cli,web-recovery` のように指定する。
 
 `pnpm e2e:web --only=pane-maximize` は入れ子の分割を含む4ペインでTerminal・Pi・Filesを最大化し、タブを切り替えてからTerminal外へ焦点を移したEscape・復元ボタン・外側のクリック・タブのダブルクリックで戻す。背景が消え、内容が元の位置と大きさへ戻り、非表示タブの描画面もワークスペースからはみ出さないことを確かめる。比較元は選んだタブの内容がペインに収まってから取得する。Terminalに焦点がある時のEscapeは、最大化を保ったまま実PTYへ0x1bが届くことを確かめる。同じ操作列は `web-cli` にも含める。
 
-`pnpm e2e:web --only=web-cli` は本物のPiを「＋」から開いて終了し、同じshellでコマンドを実行する。設定の「AI エージェント」でバージョンを確認してCLIを追加し、検索して開く。shellが終了した後の空のペインからも続ける。PCの一覧・CLIのタブとサイドバー・設定を見本v9と同じ1440×1000の構図で明暗撮影する。操作列は [CLIの画面](../e2e/cli-screen/scenario.mjs) に置く。`--only=web-terminal` の[shell起動](../e2e/cli-screen/shell-startup.mjs)はrun専用のINPUTRCでBashの準備通知を止め、通常のキー入力による起動保留の取消と、後の通知で勝手な入力が起きないことを確かめ、既定shellを実物のdashへ変えてCLIの起動と終了も通す。CLIのHOMEとPiの会話保存先 `PI_CODING_AGENT_SESSION_DIR` はrun専用に分ける。認証の共有は[本物のCLIで確かめる時](#本物のcliで確かめる時)に従い、偽APIを使うCLIは共有しない。利用者の設定は写さず、モデルは検証HOMEでCodexの `gpt-6-luna` とPiの `openai/gpt-6-luna` を指定する。[状態と判断待ち](../e2e/cli-screen/status.mjs) は短い応答、承認が要るコマンド、Running撮影用のコマンドをそれぞれ一つ頼み、状態の印・完了を表示して待機中になること・PCとMobileの判断待ち・CLI内の回答による解消を通す。検証用の利用者hookを残し、ioriのhookとその信頼だけが撤去されることも確かめる。Claude Codeは分離した設定で `claude-haiku-4-5` を指定し、偽API（`--real-models` の時だけ試験専用トークン）で起動する。CLIの承認画面が表示されたことを確かめてEscで断り、実物の中断表示とioriの判断待ちの解消を通す。Mobileの最初の画面は400×900で明暗撮影する。Piの入力準備は共通の `waitForPiInput` で、そのTerminalの入力画面にある空のコンテキスト表示を待つ。起動案内は小さいペインの保存画面から消えることがあるため、準備の判定に使わない。shell履歴の照合ではreadlineのカーソル移動も除く。
+`pnpm e2e:web --only=web-cli` は本物のPiを「＋」から開いて終了し、同じshellでコマンドを実行する。設定の「AI エージェント」でバージョンを確認してCLIを追加し、検索して開く。shellが終了した後の空のペインからも続ける。PCの一覧・CLIのタブとサイドバー・設定を見本v9と同じ1440×1000の構図で明暗撮影する。操作列は [CLIの画面](../e2e/cli-screen/scenario.mjs) に置く。shellの起動と履歴は[Hostの口からのE2E](../e2e/host/cli-shell-startup.test.mjs)で確かめる。CLIのHOMEとPiの会話保存先 `PI_CODING_AGENT_SESSION_DIR` はrun専用に分ける。認証の共有は[本物のCLIで確かめる時](#本物のcliで確かめる時)に従い、偽APIを使うCLIは共有しない。利用者の設定は写さず、モデルは検証HOMEでCodexの `gpt-6-luna` とPiの `openai/gpt-6-luna` を指定する。[状態と判断待ち](../e2e/cli-screen/status.mjs) は短い応答、承認が要るコマンド、Running撮影用のコマンドをそれぞれ一つ頼み、状態の印・完了を表示して待機中になること・PCとMobileの判断待ち・CLI内の回答による解消を通す。検証用の利用者hookを残し、ioriのhookとその信頼だけが撤去されることも確かめる。Claude Codeは分離した設定で `claude-haiku-4-5` を指定し、偽API（`--real-models` の時だけ試験専用トークン）で起動する。CLIの承認画面が表示されたことを確かめてEscで断り、実物の中断表示とioriの判断待ちの解消を通す。Mobileの最初の画面は400×900で明暗撮影する。Piの入力準備は共通の `waitForPiInput` で、そのTerminalの入力画面にある空のコンテキスト表示を待つ。起動案内は小さいペインの保存画面から消えることがあるため、準備の判定に使わない。
 
 CLI一覧を開いても未使用CLIの設定が変わらず、初めて開くCodexも最初の会話から状態の印が出ることを確かめる。`pnpm e2e:web --only=cli-launcher` はhookの無いHOMEで、初めて開くPiの会話に起動直後から待機中の印が出ることも確認する。Claude Codeでは専用HOMEのhook用フォルダーに書き込みを妨げるファイルを置き、取り付けに失敗しても起動できること、障害を取り除いた後の起動で再試行し、その会話から待機中・承認待ちを観測できることを通す。このClaude Codeの操作列だけを流す時は `pnpm e2e:web --only=claude-status` を使う。
 
-`pnpm e2e:web --only=web-recovery` は、偽のAPIにつながるCodexへ記憶を頼み、Host再起動後に最後の画面と再開行を確認してから、同じ会話と記憶を戻す。会話IDを持たないCLIの元のコマンドでの起動し直し、閉じるも通す。通知はnativeの口の代わりの記録で、対象を見ていない時の文面と1回の要求、見ている時の抑制を確かめる。OSの通知の代用にはしない。通知の確認は `--only=web-cli` を使う。
+`pnpm e2e:web --only=web-recovery` は、偽のAPIにつながるCodexへ記憶を頼み、Host再起動後に最後の画面と再開行を確認してから、同じ会話と記憶を戻す。会話IDを持たないCLIの起動し直しと閉じる操作は[Hostの口からのE2E](../e2e/host/cli-shell-startup.test.mjs)で確かめる。通知はnativeの口の代わりの記録で、対象を見ていない時の文面と1回の要求、見ている時の抑制を確かめる。OSの通知の代用にはしない。通知の確認は `--only=web-cli` を使う。
 
-チームの子の表示・停止・再開と保留回答は `pnpm e2e:web --only=team-delegation` で確認する。親の終了で待機中の委譲を取り消す確認では、共通の直接実行helperで実物のioriを呼び、対象2件を一つずつ作る。子を別のworktreeの一覧から開かず、サイドバーの子の行から親の配置へ開く。チームをfixtureとして作る時は、Hostが返す役割と候補のIDを使い、作成要求のIDを再利用しない。残量の表示は本物のCodex app-serverから読み、残量の下限の選択は純粋関数の試験で確認する。
+チームの画面の操作列は `team-command-route`（親Claude Codeから実delegateと報告の通知）、`team-child-tabs`（子Codexの既定sandbox・残量・タブ・Mobileのドロワー）、`team-messages`（質問・回答・報告の実CLIの記録）、`team-board`（Plan・Agents・MobileのBoardsからの往復）、`team-records`（日付・チーム名の絞り込み・候補の点からタスクの経緯と最後の画面）へ分ける。各操作列は `node scripts/run-bounded-check.mjs node verification/web/run.mjs --only=〈名前〉` で、専用Host・通常の招待・独立したチームから実行する。チーム作成と親の起動は共通の `e2e/web/team-fixture.mjs`、子の準備は `team-worker.mjs` を使う。残量は本物のCodex app-serverから読み、下限の選択は純粋関数の試験で確認する。
 
-`pnpm e2e:web --only=child-lifecycle` は最初から道具なしの親を起動し、保留回答、親・子の終了、Claude Codeの子の停止から親のsendでの再開、Hostと係の再起動後のClaude Codeの親の開き直しを確認する。`--only=team-notifications` はモデルを呼ばずClientの通知入口を確認する。Claude CodeとCodexのモデル要求は偽のAPIへ向ける。
+子のライフサイクルは `child-read-only`（承認なしの報告と終了画面のPC・Mobile表示）、`child-cli-exit`（Codexの承認待ちと各CLIの終了操作）、`child-background`（Claude Codeのバックグラウンド処理完了から報告）、`child-claude-resume`（子を停止して親のsendから同じ会話を再開）へ分ける。どれも独立した親と子を起動する。保留回答と親の終了は `e2e/host/team-lifecycle.test.mjs`、Hostと係の再起動での未起動の子の停止は `e2e/host/team-candidates.test.mjs`、親の再開は `e2e/host/team-instruction-recovery.test.mjs` と `e2e/host/team-parent-reconnect.test.mjs` で確認する。
 
 ### ブラウザーE2Eの既知の失敗と対策
 
@@ -182,7 +211,7 @@ PC幅とスマホ幅の2ページで同じTerminalを表示し、表示中の選
 
 `pnpm e2e:web --only=cli-omp` は、同梱のompの定義と部品を実物のompで確かめる。通常は専用HOMEの通常の保存先と `--profile verification` の保存先の `models.yml` でResponses APIを偽へ向け、本人の `agent.db` を共有しない。`--real-models` の時だけ両方の `agent.db` は元の `~/.omp/agent/agent.db` へのsymlinkで参照する（コピーしない）。両方の `config.yml` に役割のモデル `openai-codex/gpt-6-luna` と `tools.approvalMode: write` を書く。「＋」からの1回目の起動で状態の印が出ること、応答中→完了、コマンドの承認待ちとCLIの画面での承認、Hostの再起動の後も `-r` で同じ会話へ戻り状態の印が出ること、チームの子として役割のモデル・許可の引数・最初の指示を受け `iori report` で報告すること、Boardの子の行にトークン量が出ることを通す。設定の起動時の引数に `--profile verification` を保存しても状態の印が出ることと、専用HOMEの `~/.omp/agent/hooks/`・`~/.omp/agent/extensions/` にioriの部品を書かないことも確かめる。実モデルの時はSQLiteがsymlinkを辿るので、`agent.db-wal`・`-shm` は元の `~/.omp/agent/` にできる。
 
-`pnpm e2e:web --only=cli-definition` は、AIエージェントの画面の「CLIを追加」から実物のClaude Codeを名前とコマンド（`claude --help` からのモデルの引数の自動入力）とJSON（正式対応と別の `id` のユーザーの定義）で足し、確認の変更する設定ファイル、対応状況、定義の編集、単独の起動での応答中→完了の印、チームの子としてモデルを指定した起動と報告（haiku）、Hostの再起動後の会話の再開、形の合わない定義の理由の行、確認からの削除とhookの片付け、TOMLの `list` の形のhooksの定義（Kimi Codeの形。起動コマンドは `cat`）の確認の変更する設定ファイル・起動で利用者のコメント入りの設定ファイルへ入るioriの項目・確認からの削除で元の内容に戻ること、同梱の定義の上書きと「同梱の定義に戻す」を通す。定義のJSONとSVGの選び足し・同じ名前の選び直し・一覧から外す操作と選択直後の不足の案内、JSONの追加・編集で不足する画像を選べること、最小の定義とアイコンだけの変更では確認を出さず、同じidの追加では項目が無くても上書きの確認を出し、名前とコマンドでも上書きでき、新しい定義が使う既存ファイルを残して使わなくなった画像を消すこと、hooksの確認に該当する項目だけを出すこと、一覧・「＋」・タブの画像、詳細の「画像を選ぶ」でライトとダークを同じPNGに替えることと共通アイコンへの復元、不正な画像では替えないこと、同梱ロゴの保持と復元、フォルダーの外を指す `icon` の拒否も通す。CLI の起動一覧の撮影は `definitionPictures.launcher` で各幅と元の幅へ戻した後に一覧を開き直し、PC のポップアップとスマホの `shell-picker` ダイアログを使い分ける（スマホの境界を越えると一覧が閉じ、表示の形も変わるため）。定義のhooksの書き込み先はこのrunの設定ファイルで、起動時の引数の `--settings` でClaude Codeに読ませ、Claude Codeの本来の設定（`CLAUDE_CONFIG_DIR`）には書かない。`IORI_CLI_DEFINITION_CAPTURE=1` を付けると、AIエージェントの画面（ユーザーの定義が無い一覧、全ての種類の行がそろった一覧の先頭と末尾、詳細（アイコンの「画像を選ぶ」を含む）、アイコン付きの「＋」の一覧、CLIを追加の3つの方法と入力の誤り、選択した2つのファイルと不足の案内、定義の編集、5つの確認）をPC 1440・WQHD 2560・スマホ 390のライト・ダークで、端末の登録の取り消しの確認をPC 1440・スマホ 390のライト・ダークで撮る。全ての種類の行のため、この撮影の間だけ同梱の定義のCLIの代わりの `qoder`（版を出すだけ）と、同梱の上書き・見つからない定義・読めない定義の定義ファイルを置き、撮った後に消す。 Claude Codeのモデル要求は偽のAPIへ向ける。
+CLIの定義は `cli-definition-editor`（名前・コマンド・JSONと画像の追加、編集、アイコン、隠す操作）、`cli-definition-session`（実物のClaude Codeのhooks・状態の印・Host再起動後の同じ会話の再開）、`cli-definition-team`（定義のCLIへモデル・指示・フォルダーを渡して子の報告）、`cli-definition-removal`（読めない定義の理由、削除、TOMLのhooks、同梱の定義へ戻す）へ分ける。各操作列は新しいHostと専用の設定ファイルを使い、後ろの操作列はHostの公開APIで定義を準備する。Claude Codeのモデル要求は偽のAPIへ向ける。`IORI_CLI_DEFINITION_CAPTURE=1` の撮影は各操作列で使える。
 
 shell初期化を変えた時は、`node scripts/run-bounded-check.mjs node verification/terminal/shell-integration.mjs <Debianパッケージの展開先> <証拠の保存先>` で本物のbash・zsh・fishも確認する。`zsh`・`zsh-common`・`fish`・`fish-common`を`apt-get download`でscratchpadへ取得し、`dpkg-deb -x`で同じ展開先へ置く（systemへはインストールしない）。Fishは実行ファイルからの相対配置に`usr/etc/fish`も必要なので、展開先の`usr/etc`を作り、そこで`ln -s ../../etc/fish fish`を実行する。runnerは証拠の保存先に専用HOMEとHost資材を作り、利用者ファイルの読込順・alias・プロンプト・PATH・履歴・終了時の設定を実PTYで確かめる。Bashの`.bash_logout`の実行有無は結果へ記録するだけにし、Zshは明示したHISTFILEとPrezto型の既定値について通常の`zsh -l`と同じ履歴ファイルを使い、元のZDOTDIR・`.zlogout`へ戻ることを確認する。通常UIのCLI起動・履歴は上記の`cli-settings`、会話の再開は`--only=web-recovery`で別に確かめる。
 
@@ -198,7 +227,7 @@ PlaywrightとChromiumを用意し、`IORI_PLAYWRIGHT_MODULE` と `IORI_CHROMIUM_
 
 チームのE2Eが失敗した時だけ、開いている子のTerminalタブ（親の背後にあるタブも含む）の画面を `failure-child-screens.json` へ残す。共通の失敗処理でHostの最新の保存画面を読み、会話IDの有無・hookの状態・保留入力の件数も記録する。成功時の操作は増やさない。
 
-`pnpm e2e:web --only=forge-token` は、検証の時だけ立てる使い捨てのForgejo（公式のコンテナイメージ `codeberg.org/forgejo/forgejo:16.0.5`、`verification/forge/forgejo-container.mjs`）をサインイン必須で立て、非公開のリポジトリ・PR・失敗したcommit status・読み取りのtokenを作る。設定の「連携」での登録・間違ったtokenの拒否・替える・削除・サイトを追加、サイトで取り消したtoken・権限の足りないtoken・つながらないサイトの行の表示と再試行、非公開のリポジトリのPR・CIの印、CIの印から開くCIのタブとIssuesのタブを通す。CI・Issuesのタブでは、tokenが無い・無効・権限が足りない・つながらない・リポジトリが見つからない時の理由と回復の操作（「連携を開く」で連携の行へ移る、つながった後の「再試行」、「ワークスペースの設定を開く」でそのワークスペースのGitの設定へ移る）を確かめる。削除の後の読み直しがtokenを送らないことはサイトのアクセスの記録で、Forgejo・Giteaでないサイトにtokenを送らないことは手元のHTTPのserverで確かめる。コンテナは127.0.0.1だけで待ち受け、このrunのlabelとowner PIDを付けて終了時に消す。前のrunの残りは、owner PIDが終わったものだけを消す。Dockerを使い、既存のForgejoと既存のコンテナには触らない。tokenは使い捨てのサイトのもので、記録・証拠へ出さない。`IORI_FORGE_CAPTURE=1` を付けると、連携の画面をPC 1440・WQHD 2560のライト・ダークとスマホ 390（一番下までスクロールした所も）で、CI・Issuesのタブの読めない理由とサイドバーのCIの実行中の印をPC 1440・WQHD 2560のライト・ダーク（印はスマホ 390も）で撮る。この操作列は全体の受入の追加画面の組にも入るので、受入の機械にもDockerと公式のForgejoのイメージ（無ければ初回にcodeberg.orgから取得する）が要る。
+`pnpm e2e:web --only=forge-token` は、検証の時だけ立てる使い捨てのForgejo（公式のコンテナイメージ `codeberg.org/forgejo/forgejo:16.0.5`、`verification/forge/forgejo-container.mjs`）をサインイン必須で立て、非公開のリポジトリ・PR・失敗したcommit status・読み取りのtokenを作る。設定の「連携」での登録・間違ったtokenの拒否・替える・削除・サイトを追加、サイトで取り消したtoken・権限の足りないtoken・つながらないサイトの行の表示と再試行、非公開のリポジトリのPR・CIの印、CIの印から開くCIのタブとIssuesのタブを通す。CI・Issuesのタブでは、tokenが無い・無効・権限が足りない・つながらない・リポジトリが見つからない時の理由と回復の操作（「連携を開く」で連携の行へ移る、つながった後の「再試行」、「ワークスペースの設定を開く」でそのワークスペースのGitの設定へ移る）を確かめる。削除後の読取とForgejo・Giteaでないサイトへのtokenの不送信はHostの口からのE2Eで確かめる。コンテナは127.0.0.1だけで待ち受け、このrunのlabelとowner PIDを付けて終了時に消す。前のrunの残りは、owner PIDが終わったものだけを消す。Dockerを使い、既存のForgejoと既存のコンテナには触らない。tokenは使い捨てのサイトのもので、記録・証拠へ出さない。`IORI_FORGE_CAPTURE=1` を付けると、連携の画面をPC 1440・WQHD 2560のライト・ダークとスマホ 390（一番下までスクロールした所も）で、CI・Issuesのタブの読めない理由とサイドバーのCIの実行中の印をPC 1440・WQHD 2560のライト・ダーク（印はスマホ 390も）で撮る。この操作列は全体の受入の追加画面の組にも入るので、受入の機械にもDockerと公式のForgejoのイメージ（無ければ初回にcodeberg.orgから取得する）が要る。
 
 `pnpm e2e:web --only=forge-status` は、公開Forgejoの検証用cloneを開き、ブランチ名・最新pushの実際のチェック・未pushブランチでの印の不在・表示設定の切替を通す。PC幅とスマホ幅で長い名前の中央省略と末尾・印の収まりも確認する。CIの印からCIのタブを開き、実APIと同じ実行・job・ブラウザーで開く先、失敗した実行（run 161）のログが失敗したstepの終わりで開くこと、CIの無いcommit（最初のcommit）と、CIを読めない時（検証用のHostはghにログインしていないので、GitHubのremoteを追うworktreeは読めない）のghにログインしていない理由と「連携を開く」の表示、スマホの一覧と詳細の行き来を確かめる。CIのタブのworktreeの切替の一覧は、PC 1440・スマホ 390のライト・ダークで撮る。古いcommitはcloneの中だけのremote-tracking refで追い、pushしない。cloneのremoteへpushせず、認証値は使わない。このE2Eは実行する機械に `gh` があることを前提とし、検証専用の設定ではログインせず、HostのGitHubの未ログイン表示も確認する。
 
@@ -210,9 +239,7 @@ PlaywrightとChromiumを用意し、`IORI_PLAYWRIGHT_MODULE` と `IORI_CHROMIUM_
 
 この操作列は特定のForgejoの履歴を前提とする。
 
-`pnpm e2e:web --only=forge-commands` は、チームでない会話として始めたClaude Codeのプロセスの環境と作業フォルダーで、PATHの先頭の実物の `iori` を `verification/web/team-command.mjs` の `cliCommand` から呼ぶ。公開ForgejoのIssues（既定の30件・`--limit`・`--label`・本文とコメント）とCI（失敗したjobとログ全体）をその時のForgejoのAPIの答えと照合し、チームのコマンドを使えないこと、ghにログインしていないGitHubと、tokenの無い非公開のForgejo（`forge-token` と同じ使い捨てのForgejo）の理由の文、連携でtokenを登録した後に読めてtokenがCLIの環境と答えに出ないこと、消えたIssueの答えを確かめる。ASCIIの題名のIssueから開いた作成画面の名前も確かめ、`IORI_START_CAPTURE=1` で撮る。
-
-この操作列は特定のForgejoの履歴を前提とする。
+チーム外のCLIからのForgeの読取と認証の理由は、偽のForgeと実際のPTY・CLIを使うHostの口からのE2Eで確かめる。
 
 子の行の見た目は `pnpm e2e:web --only=child-rows` でも確かめる。既存の通知用fixtureで候補待ちの委譲を作り、本物のCLIやモデルを呼ばず、PC・Mobile幅の行の開始位置・字下げ・2段の内容の収まりを確認する。全体の受入にも含め、実CLIの委譲の受入でも同じ寸法確認を残す。 `--only=child-running` は報告・質問後の状態表示に加え、worktreeごとの開閉、畳んだ行のCLI種類・件数と省略、親子の字下げ、MobileのドロワーからFilesへの移動を通す。CLI一覧のfixtureはClientの読込前に登録する。子の表示fixtureは一時的な出来事なので、再読込後はHostの子の行が現れてから同じfixtureを適用する。適用中はイベントと子・Terminalの一覧応答へ同じ状態を差し込み、Hostの再取得で表示が戻らないようにする。開閉の検査はアニメーション後の可視状態を共通helperで待つ。
 
@@ -220,17 +247,17 @@ AIエージェントの折り畳み行を操作する時は、`saveStartupArgume
 
 Boardの実行中の操作は `pnpm e2e:web --only=board-activity` で確認する。子のCodex（gpt-6-luna）に画面からコマンド実行・ファイル編集・報告を依頼し、Boardに出たツール名・対象・Thinking・Reportedを観測する。`IORI_BOARD_ACTIVITY_CLI=claude` を付けると子もClaude Code（haiku）で同じ操作を通す。Claudeの検証用候補は `acceptEdits` を指定し、Boardを表示したままファイル編集を観測する。通知が無い時のRunningとPC・スマホの長い表示の省略は `--only=child-running` で確認する。Claude CodeとCodexのモデル要求は偽のAPIへ向ける。
 
-チームの委譲・質問・報告・受け入れは `pnpm e2e:web --only=team-delegation` で実行する。保存済みの低コストのチームを使い、チーム機能の切替、PCとMobile幅の「＋」の一覧、実物の親Claude Codeと、許可を指定しない新しいworktreeの子Codex（通常は偽のAPI、`--real-models` でhaiku・gpt-6-luna）、Terminalの初回表示と開き直し、親への知らせ、子への回答、SQLiteの判定を一つの操作列で通す。専用Hostのfixtureは両CLIの利用履歴を持ち、Hostが実際のhooksを準備する。専用のClaude設定では作ったリポジトリだけを信頼する。ioriコマンドとチームのファイルへの許可は製品の起動引数で付ける。生成するHost・CLI HOME・リポジトリはディスク上の `/var/tmp/iori-web-runs/run-*` へ分離し、作業元のCLAUDE.md・rules・MCPを継承しない。アカウントのclaude.aiのコネクターもMCPの道具として残るので、共通の `prepareCliHome` が検証用のClaude設定で `mcp__*` を拒否する。`/tmp` がメモリ上の領域の場合、CLIが保存するruntimeやcacheも4GBの上限に含まれる。ソースの外にあるディスク領域を使い、repositoryの指示ファイルを継承せずにメモリ消費を抑える。終了時と残ったrunの回収は同じ所有確認付きhelperを使い、証拠は通常の.local/evidence/webへ保存する。Codexの検証用HOMEにはネットワークアクセス・sandbox・承認方針の上書きを置かない。入力待ちはHostの実際のhook状態とCLIの応答記録で観測し、TUIの案内や状態ラベルの文字を待たない。質問と報告の知らせは実際に委譲された子の役割名・題名を使ってClaude自身のuser入力、回答はCodex自身のuser入力の記録で照合し、Codexの実sandbox policyも確認する。試験が行う `iori` の操作は `verification/web/team-command.mjs` から実物のRustの `iori` を起動する。専用Hostの最新の親会話IDと、Claude自身が専用設定フォルダーの `sessions/<PID>.json` に保存した会話IDを専用Terminal係の子孫だけで照合し、その親の環境と作業フォルダーを子processへ引き継ぐ。PATHの先頭の実行ファイルから、親と同じ認証・通信・Hostの保存経路を通す。環境の値はログ・結果・証拠へ出さず、親の再開や係の再起動後も毎回最新の経路を取得する。本物の親モデルには、本体とは別の確認用の子への委譲を一度だけ依頼する。その子は直ちに短い報告を返し、製品の許可とPATHで実行できることと、報告の知らせが親の実入力へ届くことを確かめる。親がその報告を受け入れても本体の前提は変わらない。知らせの配送と親の自然な応答終了を待って `/exit` し、既存の `cli.arguments.set` で共通の `claudeWithoutTools`（`--tools ""`）を指定して同じ会話を再開する。確認用の子を終了済みに揃えてから、試験が本体の子を直接委譲する。本体の保存記録と初回応答は対象の役割と会話IDで選び、確認用の子を混ぜない。Board/Recordsは本体の行・Plan・タスクを選び、MobileのBoardsの状態件数は確認用のFinishedも含めて照合する。以降のtasks・read・send・finish・plan・delegateは試験が直接実行し、JSONの返答を照合する。通知を受ける親はClaude標準の道具なし起動とし、モデルが子へ追加依頼や判定を送らないようにする。親の再開では毎回同じ引数を適用し、起動後は元のCLI設定へ戻して本物のClaudeの子の道具を保つ。親のモデルの返答の文面・判断は合否に使わない。親の終了 `/exit` は `e2e/web/team-parent-input.mjs` で、子の応答と候補なし・失敗を含むHost側の通知配送、親の実入力記録、通知の応答終了と入力待ちを確かめてから送る。hookのidleだけで次のCLI操作を始めない。報告も質問も無く入力待ちになった子への知らせは初回と親の `send` 後にそれぞれ一度だけ届き、`iori tasks` に未報告の待ち理由が出ることを確かめる。ユーザーが子へ直接入力した応答と、親の依頼への応答中にEscで中断した場合は、その知らせが増えないことも同じ操作列で確認する。子の代替画面でホイールから入力が発生することを観測し、`iori tasks` でスクロール後には `userInput` が付かず、文字入力後には付くことを確かめる。証拠にはCLIごとの到達状況・sandbox policy・モデルの集計を残し、会話本文は残さない。承認選択中の保留と解放は別の保留入力試験が扱う。
+チームの実CLIの操作は `verification/web/team-command.mjs` から実物のioriを呼び、親と同じ環境・作業フォルダー・認証の経路を使う。通知を受ける親は通常の道具なし起動とし、親CLIから委譲する操作列だけ道具を有効にする。親モデルの返答や判断は合否に使わず、Claude Code・Codex自身の入力の記録とhookで確認する。知らせの回数・未報告の待ち理由・停止後のsend・引き継ぎは `e2e/host/team-messages.test.mjs`、worktreeの準備コマンドと環境は `e2e/host/worktrees.test.mjs` で確認し、画面の操作列へ重ねない。Codexの既定sandboxと起動引数、代替画面のホイールと文字入力は実物のCLIを使う `team-child-tabs` に残す。
 
-別リポジトリへの委譲は `pnpm e2e:web --only=repo-delegation` で、最初から道具なしで起動した親Claude Codeの経路から実物のioriを直接呼び、子Codex（gpt-6-luna）の編集・報告、Files/Gitの切替、削除まで通す。同じ操作は `team-delegation` にも含む。runnerが作る2つ目のリポジトリも、共通の `prepareCliHome` の `repositories` に渡して検証用CLIの信頼済み設定へ含める。製品が信頼確認へ自動で答える処理は加えない。 Claude CodeとCodexのモデル要求は偽のAPIへ向ける。
+別リポジトリへの委譲は `pnpm e2e:web --only=repo-delegation` で、最初から道具なしで起動した親Claude Codeの経路から実物のioriを直接呼び、子Codex（gpt-6-luna）の編集・報告、Files/Gitの切替、削除まで通す。runnerが作る2つ目のリポジトリも、共通の `prepareCliHome` の `repositories` に渡して検証用CLIの信頼済み設定へ含める。製品が信頼確認へ自動で答える処理は加えない。 Claude CodeとCodexのモデル要求は偽のAPIへ向ける。
 
 worktreeの削除は `pnpm e2e:web --only=worktree-removal` で、merge・squashの印と取り込み済みの削除の候補、未取り込みブランチの保持、実Terminalの停止、スマホの長押しを確認する。長押しはWeb runnerが公開する共通の `screen.longPress` を使い、右クリックイベントをタッチの代用にしない。Windows Hostのプロセス停止とフォルダー削除は `node scripts/run-bounded-check.mjs node verification/workspace/worktree-removal.mjs` で、専用Hostへ開発Clientから接続して確認する。検証環境の鍵・gate・source転送・起動と回収は共通helperを使う。登録の共通helperは接続を確認した「端末」設定画面で終わるため、フォルダー操作へ進むrunnerは「設定を閉じる」を押す。リポジトリを開いてからサイドバーの対象worktreeを選び、選択先を確認してTerminalを起動する。同じ実行で、別プロセスがファイルを開いているworktreeの削除は理由を示して拒み、ファイルとGitの登録が残ることも確認する。
 
 `pnpm e2e:web --only=model-failure` は、未ログインのCursor CLIを専用HOMEで使い、AIエージェントの行にCLI自身の認証エラーがシェルの警告や色の制御文字なしで表示されること、「詳細」で全文を開けること、再試行で詳細が閉じることを確認する。Cursor CLIの認証は共有・作成しない。
 
-`pnpm e2e:web --only=child-cli-failure` は、本物のCodex・Claude Code・OpenCodeの子を使えないモデル（OpenCodeは `verification/web/cli-error-fixture.mjs` の再試行しないHTTP 400）でエラーにし、子の行・Board・親への知らせに失敗とCLIの理由が出ること、再入力と親の `send` でRunningへ戻ること、Hostの不在中の失敗が復元されること、親の `--continue` で失敗した候補を飛ばし前の依頼を新しい子へ渡すことを確認する。
+`pnpm e2e:web --only=child-cli-failure` は、本物のCodex・Claude Code・OpenCodeの子を使えないモデル（OpenCodeは `verification/web/cli-error-fixture.mjs` の再試行しないHTTP 400）でエラーにし、子の行・Board・親への知らせに失敗とCLIの理由が出ること、親の `send` でRunningへ戻ることとHostの不在中の失敗が復元されることを確認する。再入力でRunningへ戻ることと `--continue` で次の候補へ依頼を渡すことは `e2e/host/team-lifecycle.test.mjs` で確認する。
 
-`pnpm e2e:web --only=opencode-delegation` は、親Claude Code（haiku）から、Effortを持つ保存済み候補のOpenCodeへ委譲し、子の報告までを確認する。V1は通常、認証を共有せず偽のResponses APIへ `openai/gpt-6-luna` で接続し（`--real-models` の時だけChatGPTのログインをsymlinkで共有）、V2は認証を共有せず `opencode/deepseek-v4.1-flash-free` を使う。CLIのHOME・データはチームの操作列と同じ専用の保存先を使う。 専用HOMEで `bash` と `external_directory` を `ask` に設定し、自動承認なしの子が製品pluginによって依頼書だけを追加承認なしで読み、報告コマンドの実行承認に答えて完了することを確認する。 停止した子へ親の `send` で追加依頼を送り、同じ会話で再開して報告できることも通す。報告も質問もない初回と `send` 後の応答終了では親への一行と `iori tasks --json` の `no_report` を確かめ、Auto-approveの子の初回も同じように確認する。 V2では、同じ操作列の中で「＋」からの通常起動、作業中・質問待ちから回答後の完了、HostとTerminalの係の停止後の「再開」も通す。再開は会話に保存されたモデルを使い、起動ごとのモデル指定を付け直さない。
+`pnpm e2e:web --only=opencode-delegation` は、親Claude Code（haiku）から、Effortを持つ保存済み候補のOpenCodeへ委譲し、子の報告までを確認する。V1は通常、認証を共有せず偽のResponses APIへ `openai/gpt-6-luna` で接続し（`--real-models` の時だけChatGPTのログインをsymlinkで共有）、V2は認証を共有せず `opencode/deepseek-v4.1-flash-free` を使う。CLIのHOME・データはチームの操作列と同じ専用の保存先を使う。 専用HOMEで `bash` と `external_directory` を `ask` に設定し、自動承認なしの子が製品pluginによって依頼書だけを追加承認なしで読み、報告コマンドの実行承認に答えて完了することを確認する。 停止した子へ親の `send` で追加依頼を送り、同じ会話で再開して報告できることも通す。報告も質問もない初回の応答終了では親への一行と `iori tasks --json` の `no_report` を確かめる（その後の回数と子ごとの宛先はHostの口からのE2E）。 V2では、同じ操作列の中で「＋」からの通常起動、作業中・質問待ちから回答後の完了、HostとTerminalの係の停止後の「再開」も通す。再開は会話に保存されたモデルを使い、起動ごとのモデル指定を付け直さない。
 
 V1（`opencode-ai`）とV2（`@opencode/cli`）を比べる時は、隔離した場所へ入れた版の実行ファイルを指す `opencode` を、そのrunのPATHの先頭へ置く。本人の `opencode` と `~/.config/opencode` は変えない。runのCLI一覧へ実際の版を記録し、V2の通常起動用モデルも専用HOMEだけに設定する。V2のシェル実行の承認はV2の正式名 `shell` で表示する。V2はTerminalごとの `--standalone` で起動し、チーム候補のモデルは `OPENCODE_CONFIG_CONTENT` で渡す。共有設定にV2専用の項目を書かず、V1/V2共通の1つの `iori-status.js` を使う。
 

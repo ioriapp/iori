@@ -116,35 +116,3 @@ export function teamCommand(root, claudeHome) {
     return result;
   };
 }
-
-/**
- * Execute the actual Rust CLI as a Claude Code outside a team runs it: with
- * that process's environment, in the folder the Terminal started in. Returns
- * the exit code, the answer, and whether the CLI's environment holds `secret`.
- */
-export function cliCommand(root, claudeHome) {
-  return async (terminalId, args, secret) => {
-    const db = new DatabaseSync(join(root, "host.sqlite"), { readOnly: true });
-    let session;
-    let cwd;
-    try {
-      session = savedSession(db, terminalId);
-      cwd = db
-        .prepare("SELECT path FROM terminal_worktrees WHERE terminal_id = ?")
-        .get(terminalId)?.path;
-    } finally {
-      db.close();
-    }
-    assert.ok(session, "CLIの開始hookが会話IDを保存している");
-    const env = await claudeEnvironment(root, claudeHome, session);
-    const result = await run(env, cwd, args);
-    return {
-      ...result,
-      secretInEnvironment:
-        secret !== undefined &&
-        Object.entries(env).some(
-          ([name, value]) => name.includes(secret) || value.includes(secret),
-        ),
-    };
-  };
-}

@@ -229,6 +229,22 @@ function session(
     native_load_client_preferences: () => storage.load("preferences"),
     native_save_client_preferences: ({ preferences }) =>
       storage.save("preferences", preferences),
+    // Installed-font stand-in for the development browser, which has no native
+    // font enumeration. Keep these names aligned with the UI preview fixture.
+    native_font_families: () => [
+      "BIZ UDGothic",
+      "Cascadia Code",
+      "Cascadia Mono",
+      "Consolas",
+      "DejaVu Sans Mono",
+      "Fira Mono",
+      "FiraCode Nerd Font",
+      "JetBrains Mono",
+      "MS Gothic",
+      "Noto Sans Mono",
+      "Segoe UI",
+      "Ubuntu Mono",
+    ],
     native_scan_qr: () => {
       throw new Error("QR scanning is available on Android only");
     },

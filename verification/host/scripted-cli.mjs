@@ -1,0 +1,88 @@
+import { execFile, spawn } from "node:child_process";
+import { readFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { join } from "node:path";
+import { createInterface } from "node:readline";
+import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
+
+const run = promisify(execFile);
+const hookScript = fileURLToPath(
+  new URL("../../apps/host/src/cli/hook-script.mjs", import.meta.url),
+);
+
+// Invoke the product sender as a real subprocess of this PTY's CLI.
+async function hook(event, payload) {
+  const child = spawn(process.execPath, [hookScript, event, "-"], {
+    stdio: ["pipe", "ignore", "inherit"],
+  });
+  const exited = new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("exit", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error("hook sender failed"));
+    });
+  });
+  child.stdin.end(JSON.stringify(payload));
+  await exited;
+}
+
+if (process.argv.includes("--version") || process.argv.includes("--help")) {
+  console.log("scripted-cli 1.0.0");
+} else {
+  process.stdin.setRawMode(true);
+  const input = createInterface({ input: process.stdin, terminal: false });
+  // readline only queues lines for an iterator that already exists.
+  const lines = input[Symbol.asyncIterator]();
+  const noReady = process.argv.includes("--no-ready");
+  const resumeIndex = process.argv.indexOf("--resume");
+  const sessionId =
+    resumeIndex === -1 ? randomUUID() : process.argv[resumeIndex + 1];
+  const startupId = randomUUID();
+  // Claude Code and Codex SessionStart both use session_id/cwd/source.
+  // Later steps can supply their CLI-specific fields through step.payload.
+  const payload = {
+    session_id: sessionId,
+    cwd: process.cwd(),
+    source: resumeIndex === -1 ? "startup" : "resume",
+  };
+  if (!noReady) await hook("SessionStart", payload);
+  console.log(noReady ? "NO_READY_SCREEN" : "ACTOR_READY");
+  console.log(`ACTOR_START:${startupId}`);
+  console.log(`ACTOR_SHELL_STATE:${process.env.IORI_TEST_SHELL_STATE ?? ""}`);
+  const instructionIndex = process.argv.indexOf("--instruction");
+  if (instructionIndex !== -1)
+    console.log(
+      `ACTOR_INSTRUCTIONS:${startupId}:${JSON.stringify(await readFile(process.argv[instructionIndex + 1], "utf8"))}`,
+    );
+  let requests = 0;
+  for await (const line of lines) {
+    if (line.startsWith("{")) {
+      const step = JSON.parse(line);
+      if (step.hook) {
+        await hook(step.hook, { ...payload, ...step.payload });
+        console.log(`ACTOR_HOOK:${step.id}`);
+      } else if (step.command) {
+        // Host-provided PATH/bin and authenticated route, just as real agents use.
+        const { stdout } = await run(
+          join(process.env.IORI_COMMAND_BIN, "iori"),
+          [...step.command, "--json"],
+        ).catch(() => ({ stdout: JSON.stringify({ ok: false }) }));
+        console.log(
+          `ACTOR_RESULT:${step.id}:${JSON.stringify(JSON.parse(stdout))}`,
+        );
+      }
+    } else if (!noReady) {
+      // Like a real CLI accepting a prompt: the Host writes the text and the
+      // Enter separately, so tests wait for this before typing their own lines.
+      console.log(`ACTOR_PROMPT:${startupId}`);
+    } else {
+      if (line.startsWith("[iori] Parent "))
+        console.log(`INITIAL_INPUT_COUNT=${requests}`);
+      else {
+        requests++;
+        console.log(`INITIAL_REQUEST_RECEIVED:${line}`);
+      }
+    }
+  }
+}

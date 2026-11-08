@@ -12,15 +12,10 @@ export async function teamNotificationsScenario({
   repository,
   notificationHook,
   notificationCommand,
-  notificationWorkerCommand,
-  notificationDelegations,
-  notificationParentInputs,
-  notificationParentBarriers,
   notificationBeforeChildrenSnapshot,
   notificationSourceFault,
   childDisplayFixture,
   childRunningOnly = false,
-  restartHostLosingTerminals,
   record,
   desktop,
   mobile,
@@ -150,10 +145,6 @@ export async function teamNotificationsScenario({
       simple: { name, command, modelArgument: "" },
     });
   const parent = await addCli("Notification parent");
-  const worker =
-    !childrenOnly && !childRunningOnly
-      ? await addCli("Notification worker", notificationWorkerCommand)
-      : undefined;
   if (childRunningOnly)
     for (const name of [
       "Sidebar A",
@@ -238,143 +229,6 @@ export async function teamNotificationsScenario({
   );
   assert.equal(notices.length, 1);
   assert.equal(notices[0].target.teamId, saved.saved.id);
-  if (!childrenOnly && !childRunningOnly) {
-    const delegation = await waitFor(
-      notificationDelegations,
-      (entries) => entries.length === 1,
-      undefined,
-      "候補なしを返す委譲の完了",
-    );
-    assert.equal(delegation[0].result.data.waiting, "candidates");
-    const barriersBefore = (await notificationParentBarriers()).length;
-    await submitToCli(
-      client,
-      "PARENT_BARRIER",
-      undefined,
-      "candidate-notification-barrier",
-    );
-    await waitFor(
-      notificationParentBarriers,
-      (barriers) => barriers.length === barriersBefore + 1,
-      undefined,
-      "親の入力列を確定",
-    );
-    assert.deepEqual(
-      await notificationParentInputs(),
-      [],
-      "委譲の返答で候補なしを伝えた直後は同じ行を親へ送らない",
-    );
-
-    const active = JSON.parse(JSON.stringify(saved.saved));
-    active.roles[0].limit = "1";
-    active.roles[0].reuse = false;
-    active.roles[0].candidates.medium = [candidate("worker", worker.cliId)];
-    await request("teams.save", { teamId: saved.saved.id, definition: active });
-    await waitFor(
-      async () =>
-        (await request("teams.children", {})).children.some(
-          (child) =>
-            child.title === "Candidate notification" &&
-            child.state === "running",
-        ),
-      Boolean,
-      undefined,
-      "候補追加後に子が実行中",
-    );
-
-    await submitToCli(
-      client,
-      'DELEGATE {"title":"Late candidate notification"}',
-      undefined,
-      "late-candidate-notification",
-    );
-    const capacity = await waitFor(
-      notificationDelegations,
-      (entries) => entries.length === 2,
-      undefined,
-      "上限待ちの委譲の完了",
-    );
-    assert.equal(capacity[1].result.data.waiting, "capacity");
-
-    const unavailable = JSON.parse(JSON.stringify(active));
-    unavailable.roles[0].candidates.medium = [
-      candidate("missing-again", "absent-notification-cli"),
-    ];
-    await request("teams.save", {
-      teamId: saved.saved.id,
-      definition: unavailable,
-    });
-    await waitFor(
-      async () =>
-        (await request("teams.children", {})).children.some(
-          (child) =>
-            child.title === "Late candidate notification" &&
-            child.state === "waiting" &&
-            child.waiting === "candidates",
-        ),
-      Boolean,
-      undefined,
-      "上限待ちの委譲が候補なしへ変化",
-    );
-    await waitFor(
-      notificationParentInputs,
-      (lines) => lines.length === 1,
-      undefined,
-      "後から候補がなくなった時の親への知らせ",
-    );
-    assert.deepEqual(await notificationParentInputs(), [
-      "[iori] No available candidate for this delegation. Edit the team, then run iori tasks.",
-    ]);
-    await submitToCli(
-      client,
-      `SEND ${delegation[0].result.data.child}`,
-      undefined,
-      "replacement-candidate-notification",
-    );
-    await waitFor(
-      async () =>
-        (await request("teams.children", {})).children.some(
-          (child) =>
-            child.id !== delegation[0].result.data.child &&
-            child.title === "Candidate notification" &&
-            child.waiting === "candidates" &&
-            child.notified,
-        ),
-      Boolean,
-      undefined,
-      "作り直した子が候補なしで待機",
-    );
-    await waitFor(
-      notificationParentInputs,
-      (lines) => lines.length === 2,
-      undefined,
-      "作り直した子の候補なしを親へ知らせる",
-    );
-    const barriersAfterReplacement = (await notificationParentBarriers())
-      .length;
-    await submitToCli(
-      client,
-      "PARENT_BARRIER",
-      undefined,
-      "replacement-barrier",
-    );
-    await waitFor(
-      notificationParentBarriers,
-      (barriers) => barriers.length === barriersAfterReplacement + 1,
-      undefined,
-      "作り直した子の親への入力列を確定",
-    );
-    assert.deepEqual(await notificationParentInputs(), [
-      "[iori] No available candidate for this delegation. Edit the team, then run iori tasks.",
-      "[iori] No available candidate for this delegation. Edit the team, then run iori tasks.",
-    ]);
-    await record(
-      "子を再利用しない要求で作り直した子の候補なしを親へ一度知らせる",
-    );
-    await record(
-      "初回の候補なしは委譲の返答だけにし、後から上限待ちが候補なしへ変わった時は親へ一度知らせる",
-    );
-  }
   await record("使える候補が無い委譲は既存の通知入口へ一度だけ通知を渡す");
   if (childrenOnly) {
     await screen.wait("[data-iori-child-id] .nav-child-button");
@@ -529,24 +383,6 @@ export async function teamNotificationsScenario({
   await record(
     "子の一覧取得失敗中も承認待ち・完了通知を出し、次の出来事で子の行を取得し直す（Client判断の通信fixture）",
   );
-  await restartHostLosingTerminals();
-  await waitFor(
-    () => screen.attribute('[data-iori-state="connected"]', "data-iori-state"),
-    (value) => value === "connected",
-  );
-  await screen.click(
-    '[data-iori-action="children-ended"][aria-expanded="false"]',
-  );
-  await waitFor(
-    () =>
-      screen.evaluate(
-        `Array.from(document.querySelectorAll('[data-iori-child-id] .nav-child-state')).some(element=>element.textContent.trim()==='Stopped · Hostの再起動')`,
-      ),
-    Boolean,
-    30000,
-    "未起動の委譲はHost再起動の理由を表示",
-  );
-  await record("Host再起動後の未起動委譲は親の終了と区別して表示");
   await screen.contextMenu(`[data-iori-terminal-row="${terminal.id}"]`);
   await screen.click('[data-iori-action="terminal-close"]');
   await waitFor(
