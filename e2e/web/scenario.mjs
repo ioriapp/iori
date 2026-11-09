@@ -476,6 +476,7 @@ export async function webScenario({
       repository,
       desktop,
       mobile,
+      phone,
       shot,
       record,
       notificationCommand,

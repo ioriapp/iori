@@ -18,6 +18,7 @@ function PopoverTrigger({
 function PopoverContent({
   className,
   collisionPadding,
+  onCloseAutoFocus,
   align = "center",
   sideOffset = 4,
   ...props
@@ -33,6 +34,21 @@ function PopoverContent({
           className
         )}
         {...props}
+        onCloseAutoFocus={(event) => {
+          onCloseAutoFocus?.(event)
+          if (event.defaultPrevented) return
+
+          const activeElement = document.activeElement
+          if (
+            activeElement &&
+            activeElement !== document.body &&
+            !(
+              event.target instanceof Node && event.target.contains(activeElement)
+            )
+          ) {
+            event.preventDefault()
+          }
+        }}
         collisionPadding={windowCollisionPadding(collisionPadding)}
       />
     </PopoverPrimitive.Portal>

@@ -109,7 +109,7 @@ export async function mobileTerminalReading({ client, record, shot }) {
   await atBottom();
   await scrollUp();
   // Button names widen the band; scope to the shown pane so the key scrolls in.
-  await screen.click(`${selector} [data-iori-key="enter"]`);
+  await screen.tap(`${selector} [data-iori-key="enter"]`);
   await atBottom();
   await typeTerminal(client, "\x03");
   await record(

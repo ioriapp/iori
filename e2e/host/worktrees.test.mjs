@@ -890,3 +890,115 @@ test("親が競合を解決して取り込み受け入れた子も片付ける",
     assert.equal(await exists(child.cwd), false);
     assert.equal(git(path, "branch", "--list", branch), "");
   }));
+
+test("背景削除中の親子を通知と履歴に示し、完了後に消す", (t) =>
+  runHostTest(t, async ({ client, dataRoot, stage }) => {
+    const { path, add } = await repository(dataRoot);
+    const parentPath = add("pending-parent");
+    const team = await teamParent(client, dataRoot, parentPath);
+    const child = await team.delegate("pending child");
+    await client.request("folders.open", { path });
+    const preview = await client.request("worktrees.preview", {
+      path: parentPath,
+    });
+    const fifo = join(dataRoot, "removal-gate");
+    execFileSync("mkfifo", [fifo]);
+    const gitPath = join(dataRoot, "bin", "git");
+    const realGit = execFileSync("which", ["git"], { encoding: "utf8" }).trim();
+    await rm(gitPath);
+    await writeFile(
+      gitPath,
+      `#!/bin/sh\ncase "$*" in *"worktree remove"*) read -r gate < '${fifo}';; esac\nexec '${realGit}' "$@"\n`,
+    );
+    await chmod(gitPath, 0o755);
+    stage("親子の削除中を通知と履歴から読む");
+    const removal = remove(client, preview, [parentPath]);
+    const pendingEvent = await team.events.waitFor(
+      (event) =>
+        event.type === "worktrees.changed" &&
+        [parentPath, child.cwd].every((p) =>
+          event.worktrees.some((item) => item.path === p && item.removing),
+        ),
+    );
+    const history = await client.request("folders.history", {});
+    const worktrees = history.folders.find(
+      (folder) => folder.path === path,
+    ).worktrees;
+    assert.ok(
+      [parentPath, child.cwd].every((p) =>
+        worktrees.some((item) => item.path === p && item.removing),
+      ),
+    );
+    // Each worktree invokes Git separately; release both removals.
+    await writeFile(fifo, "continue\n");
+    await writeFile(fifo, "continue\n");
+    assert.ok((await removal).outcomes.every((item) => item.removed));
+    await team.events.waitFor(
+      (event) =>
+        team.events.values.indexOf(event) >
+          team.events.values.indexOf(pendingEvent) &&
+        event.type === "worktrees.changed" &&
+        [parentPath, child.cwd].every(
+          (p) => !event.worktrees.some((item) => item.path === p),
+        ),
+    );
+    const done = await client.request("folders.history", {});
+    assert.ok(
+      [parentPath, child.cwd].every(
+        (p) =>
+          !done.folders
+            .find((folder) => folder.path === path)
+            .worktrees.some((item) => item.path === p),
+      ),
+    );
+  }));
+
+test("Gitのlock理由と停止したCLIの有無を失敗結果に返す", (t) =>
+  runHostTest(t, async ({ client, dataRoot, stage }) => {
+    const { path, git, add } = await repository(dataRoot);
+    const locked = add("locked-busy");
+    const withoutReason = add("locked-no-reason");
+    const cliId = await registerScriptedCli(client, dataRoot);
+    const { terminal: summary } = await client.request("cli.launch", {
+      cliId,
+      cwd: locked,
+    });
+    await (await client.terminal(summary.id)).output("ACTOR_READY");
+    git(path, "worktree", "lock", "--reason", "busy", locked);
+    git(path, "worktree", "lock", withoutReason);
+    await client.request("folders.open", { path });
+    const events = await client.events();
+    await events.waitFor((event) => event.type === "snapshot");
+    stage("CLIを停止してlockで失敗する");
+    const preview = await client.request("worktrees.preview", { path: locked });
+    const failed = (await remove(client, preview, [locked])).outcomes[0];
+    assert.equal(failed.removed, false);
+    assert.deepEqual(failed.locked, { reason: "busy" });
+    assert.equal(failed.stopped, true);
+    const pendingEvent = await events.waitFor(
+      (event) =>
+        event.type === "worktrees.changed" &&
+        event.worktrees.some((item) => item.path === locked && item.removing),
+    );
+    await events.waitFor(
+      (event) =>
+        events.values.indexOf(event) > events.values.indexOf(pendingEvent) &&
+        event.type === "worktrees.changed" &&
+        event.worktrees.some((item) => item.path === locked && !item.removing),
+    );
+    const history = await client.request("folders.history", {});
+    assert.ok(
+      !history.folders
+        .find((folder) => folder.path === path)
+        .worktrees.find((item) => item.path === locked).removing,
+    );
+    stage("理由と停止対象のないlockで失敗する");
+    const noReasonPreview = await client.request("worktrees.preview", {
+      path: withoutReason,
+    });
+    const noReason = (await remove(client, noReasonPreview, [withoutReason]))
+      .outcomes[0];
+    assert.equal(noReason.removed, false);
+    assert.deepEqual(noReason.locked, {});
+    assert.equal(noReason.stopped, undefined);
+  }));

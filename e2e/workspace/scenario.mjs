@@ -386,8 +386,8 @@ export async function workspaceScenario({
     await typeTerminal(client(), say(hostOs, "帯の矢印キー"));
     await observed(client(), "帯の矢印キー");
     await clearObserved(client());
-    await screen.click(`${mobileView("terminal")} [data-iori-key="arrowUp"]`);
-    await screen.click(`${mobileView("terminal")} [data-iori-key="enter"]`);
+    await screen.tap(`${mobileView("terminal")} [data-iori-key="arrowUp"]`);
+    await screen.tap(`${mobileView("terminal")} [data-iori-key="enter"]`);
     await observed(client(), "帯の矢印キー");
     await shot("mobile-terminal");
     await record("スマホの全画面のTerminalでキーの帯から矢印とEnterを送る");
@@ -412,7 +412,7 @@ export async function workspaceScenario({
       async () => !(await screen.visible('[data-iori-view="settings"]')),
     );
     await clearObserved(client());
-    await screen.click(`${mobileView("terminal")} [data-iori-key^="custom-"]`);
+    await screen.tap(`${mobileView("terminal")} [data-iori-key^="custom-"]`);
     await observed(client(), "決まった文字列キー");
     await record("キーボードの設定で決まった文字列のキーを足し、帯から送る");
     await back();

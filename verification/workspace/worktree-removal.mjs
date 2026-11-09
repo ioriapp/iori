@@ -158,7 +158,10 @@ try {
     () => client.screen.visible('[data-iori-view="worktree-removal"]'),
     (value) => !value,
   );
-  assert.equal(windows(`Test-Path -LiteralPath ${ps(worktree)}`), "False");
+  await waitUntil(
+    () => windows(`Test-Path -LiteralPath ${ps(worktree)}`),
+    (value) => value === "False",
+  );
   await waitUntil(
     () =>
       windows(`@(Get-Process -Id ${pid} -ErrorAction SilentlyContinue).Count`),
@@ -203,11 +206,13 @@ try {
   );
   result.stage = "open-file-delete";
   await client.screen.click('[data-iori-action="worktree-removal-confirm"]');
-  await client.screen.wait(
-    '[data-iori-view="worktree-removal"] [role="alert"]',
+  await client.screen.wait('[data-iori-removal-failure="true"]');
+  assert.equal(
+    await client.screen.visible('[data-iori-view="worktree-removal"]'),
+    false,
   );
   assert.match(
-    await client.screen.text('[data-iori-view="worktree-removal"]'),
+    await client.screen.text('[data-iori-removal-failure="true"]'),
     /ファイルを開いているプログラム|A program has files open/u,
   );
   assert.equal(windows(`[IO.File]::ReadAllText(${ps(heldFile)})`), "held");
@@ -244,7 +249,10 @@ try {
     () => client.screen.visible('[data-iori-view="worktree-removal"]'),
     (value) => !value,
   );
-  assert.equal(windows(`Test-Path -LiteralPath ${ps(blocked)}`), "False");
+  await waitUntil(
+    () => windows(`Test-Path -LiteralPath ${ps(blocked)}`),
+    (value) => value === "False",
+  );
   result.openFileReleasedAndRemoved = true;
   result.passed = true;
   result.stage = "complete";

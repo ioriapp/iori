@@ -1,3 +1,4 @@
+import { Spinner } from "../components/ui/spinner.tsx";
 import { creationOrder } from "@iori/protocol";
 import { useEffect, useState } from "react";
 import type { DragEvent } from "react";
@@ -29,6 +30,7 @@ import { childRank, childStatus } from "./children.ts";
 import "./children.css";
 export type ChildRowProps = {
   hostKey: string;
+  isRemoving?: (path: string) => boolean;
   children: ChildSummary[];
   activeTerminalId?: string;
   t: (key: string) => string;
@@ -85,6 +87,7 @@ export function ChildRows(props: ChildRowProps) {
   for (const child of children)
     (["finished", "stopped"].includes(child.state) ? ended : live).push(child);
   const row = (child: ChildSummary) => {
+    const removing = props.isRemoving?.(child.cwd ?? child.parentCwd);
     const status = childStatus(child);
     const reason =
       child.state === "failed"
@@ -95,7 +98,8 @@ export function ChildRows(props: ChildRowProps) {
     return (
       <div
         key={child.id}
-        className="nav-child"
+        className={`nav-child ${removing ? "removal-disabled" : ""}`}
+        inert={removing || undefined}
         data-iori-child-id={child.id}
         data-iori-child-state={child.state}
       >
@@ -113,8 +117,8 @@ export function ChildRows(props: ChildRowProps) {
             ]
               .filter(Boolean)
               .join(" · ")}
-            disabled={!child.terminalId}
-            draggable={dragViews && !!child.terminalId}
+            disabled={removing || !child.terminalId}
+            draggable={!removing && dragViews && !!child.terminalId}
             onDragStart={onDrag(child)}
             onClick={() => onOpen(child)}
           >
@@ -151,7 +155,7 @@ export function ChildRows(props: ChildRowProps) {
               </span>
             </span>
           </SidebarMenuButton>
-          {!["finished", "stopped"].includes(child.state) && (
+          {!removing && !["finished", "stopped"].includes(child.state) && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -205,22 +209,39 @@ export function ChildRows(props: ChildRowProps) {
           name(a, left).localeCompare(name(b, right)) || a.localeCompare(b),
       )
       .map(([path, own]) => {
+        const removing = props.isRemoving?.(path);
+        const label = `${own[0].repositoryName ? `${own[0].repositoryName} › ` : ""}${branches[path] ?? own[0].branch ?? path.split(/[\\/]/u).at(-1)}`;
+        const pendingLabel = removing
+          ? t("Deleting {name}").replace("{name}", () => label)
+          : undefined;
         return (
           <div key={path}>
             {path !== own[0].parentCwd && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="nav-child-branch"
-                onClick={() => onBranch(own[0])}
-                title={path}
+              <div
+                role="group"
+                title={pendingLabel}
+                aria-label={pendingLabel}
+                data-iori-worktree-removing={removing ? "true" : undefined}
               >
-                <GitBranch size={13} />
-                <MiddleEllipsis
-                  className="nav-child-branch-name"
-                  text={`${own[0].repositoryName ? `${own[0].repositoryName} › ` : ""}${branches[path] ?? own[0].branch ?? path.split(/[\\/]/u).at(-1)}`}
-                />
-              </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={removing}
+                  className={`nav-child-branch ${removing ? "is-deleting" : ""}`}
+                  onClick={() => onBranch(own[0])}
+                  title={removing ? undefined : path}
+                >
+                  {removing ? (
+                    <Spinner aria-hidden="true" />
+                  ) : (
+                    <GitBranch size={13} />
+                  )}
+                  <MiddleEllipsis
+                    className="nav-child-branch-name"
+                    text={`${own[0].repositoryName ? `${own[0].repositoryName} › ` : ""}${branches[path] ?? own[0].branch ?? path.split(/[\\/]/u).at(-1)}`}
+                  />
+                </Button>
+              </div>
             )}
             {own
               .sort(
@@ -241,6 +262,13 @@ export function ChildRows(props: ChildRowProps) {
               variant="ghost"
               size="sm"
               className="nav-children-toggle"
+              disabled={ended.every((child) =>
+                props.isRemoving?.(
+                  child.worktreeRemoved
+                    ? child.parentCwd
+                    : (child.cwd ?? child.parentCwd),
+                ),
+              )}
               data-iori-action="children-ended"
               aria-expanded={expanded}
             >

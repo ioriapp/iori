@@ -117,6 +117,7 @@ import {
   SheetTitle,
 } from "../components/ui/sheet.tsx";
 import { SidebarTrigger } from "../components/ui/sidebar.tsx";
+import { Badge } from "../components/ui/badge.tsx";
 import { useI18n } from "./context.tsx";
 import { ModelPicker } from "./ModelPicker.tsx";
 import { AgentSettings } from "./AgentSettings.tsx";
@@ -1715,7 +1716,7 @@ export function TeamEditor({
         <div className="team-list-name">
           <strong>{record.saved.name}</strong>
           {record.saved.id === data.defaultTeam && (
-            <span className="team-default-mark">{t("Default")}</span>
+            <Badge variant="outline">{t("Default")}</Badge>
           )}
         </div>
         <p>{record.saved.description}</p>

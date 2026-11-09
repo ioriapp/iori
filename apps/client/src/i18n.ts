@@ -217,6 +217,11 @@ const japanese: Record<string, string> = {
     "iori Hostは実行中ですが、{host}の再起動後は自動で起動しません。",
   "iori Host uninstallation": "iori Hostのアンインストール",
   Status: "状態",
+  "Enter a Relay URL to use an access token.":
+    "アクセストークンを使うには、RelayのURLを入力してください。",
+  "Commits made by a rebase in progress will be lost":
+    "rebaseの途中で作ったコミットは失われます",
+  "Original commits stay on {branch}": "元のコミットは{branch}に残ります",
   "Relay URL": "RelayのURL",
   "Relay access token (only if required)":
     "Relayのアクセストークン（必要な場合のみ）",
@@ -349,18 +354,36 @@ const japanese: Record<string, string> = {
   "Pull request #{number} closed": "PR #{number} Closed",
   "Fetch failed. Merged worktrees are checked against local references, which may be out of date.":
     "fetchできませんでした。Mergedの表示が最新でない可能性があります。",
-  "Connection lost. Check the sidebar and delete the worktree again if it remains.":
-    "接続が切断されました。サイドバーにworktreeが残っている場合は、もう一度削除してください。",
   "A program has files open in this worktree. Close it and retry deleting the worktree.":
     "このworktreeのファイルを開いているプログラムがあります。プログラムを閉じてから、もう一度お試しください。",
   "Could not stop a Terminal.":
     "Terminalを停止できませんでした。もう一度お試しください。",
   "A child worktree could not be removed. Retry after resolving its error.":
     "子のworktreeを削除できませんでした。表示されたエラーを解決してから、もう一度お試しください。",
-  "Could not delete the worktree.":
-    "worktreeを削除できませんでした。もう一度お試しください。",
+  "Deleting {name}": "{name}を削除中",
+  "Could not delete {name}": "{name}を削除できませんでした",
+  "Could not delete {count} worktrees":
+    "{count}件のworktreeを削除できませんでした",
+  "Could not delete the branch of {name}":
+    "{name}のブランチを削除できませんでした",
+  "The worktree was deleted. The branch remains.":
+    "worktreeは削除しました。ブランチは残っています。",
+  "Retry…": "再試行…",
+  "Git has locked this worktree (reason: {reason}). Unlock it with git worktree unlock, then try again.":
+    "このworktreeはGitでロックされています（理由: {reason}）。git worktree unlockで解除してから、もう一度お試しください。",
+  "Git has locked this worktree. Unlock it with git worktree unlock, then try again.":
+    "このworktreeはGitでロックされています。git worktree unlockで解除してから、もう一度お試しください。",
+  "Check the Git state, then try again.":
+    "Gitの状態を確認してから、もう一度お試しください。",
+  "Could not connect to the Host. Check the connection, then try again.":
+    "Hostに接続できませんでした。接続を確認してから、もう一度お試しください。",
+  "The CLI and Terminal in this worktree were stopped.":
+    "このworktreeのCLIとTerminalは停止しました。",
+  "Delete worktree?": "worktreeを削除しますか？",
+  "Delete merged worktrees?": "Mergedのworktreeを削除しますか？",
+  "Could not delete it last time. {reason}":
+    "前回は削除できませんでした。{reason}",
   "Delete worktree": "worktreeを削除",
-  "Delete merged worktrees": "Mergedのworktreeを削除",
   "Delete merged worktrees…": "Mergedのworktreeを削除…",
   "{name} will be deleted.": "{name}を削除します。",
   "Uncommitted changes will be lost": "未commitの変更は削除されます",
@@ -380,14 +403,6 @@ const japanese: Record<string, string> = {
   "No merged worktrees to delete.": "削除できるMergedのworktreeはありません。",
   "Could not load worktrees. Check Git and retry.":
     "worktreeを読み込めませんでした。Gitの状態を確認してから、もう一度お試しください。",
-  "Some worktrees could not be deleted. Review the result and retry.":
-    "削除できなかったworktreeがあります。結果を確認してから、もう一度お試しください。",
-  Deleted: "削除済み",
-  "Not deleted": "未削除",
-  "Git refused removal. Check whether the worktree is locked or files are open, then retry.":
-    "Gitでworktreeを削除できませんでした。worktreeがロックされていないか、ファイルが開かれていないかを確認してから、もう一度お試しください。",
-  "The worktree was removed, but Git could not delete its branch.":
-    "worktreeは削除しましたが、ブランチを削除できませんでした。",
 
   Home: "ホーム",
   "Host settings": "Hostの設定",

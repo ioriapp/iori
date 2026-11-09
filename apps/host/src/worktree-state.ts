@@ -14,6 +14,23 @@ export async function worktreeDirectory(path: string): Promise<string> {
   }
   return dotGit;
 }
+export async function rebasingBranch(
+  path: string,
+): Promise<string | undefined> {
+  try {
+    const directory = await worktreeDirectory(path);
+    for (const rebase of ["rebase-merge", "rebase-apply"]) {
+      const head = await readFile(join(directory, rebase, "head-name"), "utf8")
+        .then((value) => value.trim())
+        .catch(() => "");
+      const match = /^refs\/heads\/(.+)$/u.exec(head);
+      if (match) return match[1];
+    }
+  } catch {
+    // No readable rebase information: retain the detached HEAD warning.
+  }
+  return undefined;
+}
 export async function recordWorktreeBase(
   path: string,
   base: string,

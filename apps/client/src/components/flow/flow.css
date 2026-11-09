@@ -604,3 +604,173 @@
   word-break: auto-phrase;
   text-wrap: pretty;
 }
+
+/* v20: 本文だけをスクロールし、題・閉じる・再試行は残す。 */
+.host-toast {
+  position: relative;
+}
+.host-toast-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: calc(100dvh - var(--removal-lower-bands-height, 22px) - 64px);
+}
+.host-toast-body > * {
+  min-width: 0;
+}
+.host-toast-body > [data-slot="button"] {
+  align-self: flex-end;
+  flex: none;
+}
+.host-toast .host-toast-close[data-slot="button"] {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  margin: 0;
+}
+.host-toast-scroll.host-flow-panel {
+  display: grid;
+  gap: 16px;
+  padding: 0;
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.host-toast-scroll > p {
+  padding-right: 28px;
+}
+.host-toast p {
+  flex: none;
+  margin: 0;
+}
+.removal-toast-title {
+  display: flex;
+  align-items: baseline;
+  font-weight: 600;
+  padding-right: 28px;
+}
+.removal-inline-name {
+  display: inline-block;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  flex: 0 1 auto;
+  position: relative;
+}
+.removal-inline-name::before {
+  content: attr(data-iori-fitted-name);
+  visibility: hidden;
+  padding-inline-end: 1px;
+}
+.removal-inline-name > span {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+}
+.removal-toast-title > .removal-inline-name {
+  font-weight: 600;
+}
+.removal-template-affix {
+  flex: none;
+  white-space: pre;
+}
+.removal-failure-name {
+  display: flex;
+  font-weight: 500;
+}
+.removal-failure-name .removal-inline-name {
+  font-weight: 500;
+}
+.removal-reason {
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+}
+.removal-failure {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  gap: 4px;
+}
+.removal-stopped {
+  color: var(--muted-foreground);
+}
+.host-notice-stack:has(.removal-toast) {
+  bottom: calc(var(--removal-lower-bands-height, 22px) + 16px);
+}
+.removal-toast {
+  pointer-events: auto;
+  width: 420px;
+  min-width: 0;
+}
+.removal-dialog-reasons {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  gap: 16px;
+  color: var(--foreground);
+}
+.removal-previous {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--foreground);
+}
+.removal-previous > svg {
+  color: var(--status-failed);
+  width: 16px;
+  height: 16px;
+  margin-top: 4px;
+  flex: none;
+}
+.removal-previous p {
+  margin: 0;
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+}
+.removal-previous > div {
+  min-width: 0;
+}
+.removal-dialog[data-slot="dialog-content"] {
+  overflow: hidden;
+}
+.removal-dialog > *,
+.removal-dialog [data-slot="dialog-header"] {
+  min-width: 0;
+}
+.removal-dialog > [data-slot="dialog-header"],
+.removal-dialog > [data-slot="dialog-footer"] {
+  flex: none;
+}
+.removal-dialog > [data-slot="dialog-body"] {
+  flex: 0 1 auto;
+}
+.removal-original-slot {
+  font-size: 12px;
+  line-height: 1.5;
+  height: min(6lh, 30dvh);
+  min-height: 0;
+  overflow-y: auto;
+}
+.host-ssh-original-trigger[data-state="open"] svg {
+  transform: rotate(180deg);
+}
+.removal-merged-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+}
+@media (max-width: 767px) {
+  .host-notice-stack:has(.removal-toast) {
+    bottom: calc(var(--removal-lower-bands-height, 22px) + 8px);
+  }
+  .host-toast-body {
+    max-height: calc(100dvh - var(--removal-lower-bands-height, 22px) - 56px);
+  }
+}
+@media (max-width: 700px) {
+  .removal-toast {
+    width: 100%;
+  }
+}

@@ -601,6 +601,7 @@ export async function startHost(
     () => terminalManager,
     () => teamManager!,
     (path) => workspaces.stopRepositoryWatches(path),
+    (paths, removing) => workspaces.setRemoving(paths, removing),
   );
   // Each connection keeps the whole log of the done GitHub job it reads.
   const ciLogKeeps = new WeakMap<Session, CiLogKeep>();

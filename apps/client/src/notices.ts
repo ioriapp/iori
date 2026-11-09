@@ -3,6 +3,17 @@ import { useSyncExternalStore } from "react";
 export type Notice = {
   key: string;
   text: string;
+  title?: string;
+  titleName?: { text: string; at: number };
+  action?: { label: string; run: () => void };
+  persistent?: boolean;
+  removalFailure?: boolean;
+  items?: {
+    name?: string;
+    reason: string;
+    stopped?: string;
+    gitOutput?: string;
+  }[];
   detail?: { open: () => void };
   dismissible?: boolean;
   onClose?: () => void;

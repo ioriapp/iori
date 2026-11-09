@@ -85,10 +85,16 @@ async function readCi(
 export class ForgeCiFailure extends Error {
   readonly forge?: ForgeReadFailure;
   readonly unknownForge: boolean;
-  constructor(forge?: ForgeReadFailure, unknownForge = false) {
+  readonly noPushTarget: boolean;
+  constructor(
+    forge?: ForgeReadFailure,
+    unknownForge = false,
+    noPushTarget = false,
+  ) {
     super("Forge unavailable");
     this.forge = forge;
     this.unknownForge = unknownForge;
+    this.noPushTarget = noPushTarget;
   }
 }
 
@@ -138,6 +144,7 @@ export async function readForgeCiLog(
   let located: Located | undefined;
   try {
     located = await locate(path, store, detection, signal, redetect);
+    if (!located) throw new ForgeCiFailure(undefined, false, true);
     if (!located?.adapter) throw new Error("Forge unavailable");
     const { target, adapter, repository } = located;
     return await adapter.readCiLog!(
@@ -150,6 +157,7 @@ export async function readForgeCiLog(
     );
   } catch (error) {
     signal?.throwIfAborted();
+    if (error instanceof ForgeCiFailure) throw error;
     throw failure(error, located);
   }
 }

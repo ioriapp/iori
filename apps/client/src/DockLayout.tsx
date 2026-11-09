@@ -20,6 +20,7 @@ import {
   Minimize2,
   Plus,
   Rows2,
+  Square,
   X,
   LayoutTemplate,
 } from "lucide-react";
@@ -458,6 +459,7 @@ function DockTabHeader(panel: IDockviewPanelHeaderProps<{ tabId: string }>) {
             data-iori-action="child-tab-stop"
             onSelect={() => stopChild(tab.childId!)}
           >
+            <Square aria-hidden="true" />
             {t("Stop child")}
           </ContextMenuItem>
         )}

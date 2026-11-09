@@ -546,6 +546,34 @@ export async function terminalPreferences({
   await mobile();
   await screen.wait('[data-iori-view="workspace"]');
   await openSidebar(screen);
+  await screen.click(action("settings-open"));
+  await screen.click(action("settings-keyboard"));
+  const keyboardNames = '[data-iori-field="keyboard-show-button-names"]';
+  const initialNames = await screen.attribute(keyboardNames, "aria-checked");
+  // Fail one Web bridge request at the same boundary as native storage.
+  await screen.evaluate(`(()=>{
+    const send=WebSocket.prototype.send;
+    WebSocket.prototype.send=function(data){
+      if(JSON.parse(data).command==='native_save_client_preferences'){
+        WebSocket.prototype.send=send; throw new Error('save failed');
+      }
+      return send.call(this,data);
+    };
+  })()`);
+  await screen.click(keyboardNames);
+  await screen.reveal(action("preferences-retry"));
+  await screen.click(action("preferences-retry"));
+  const storedNames = () =>
+    screen.evaluate(`(async()=>{
+    const {native}=await import('/src/native.ts');
+    return (await native.loadClientPreferences())?.keyboard?.showButtonNames !== false;
+  })()`);
+  await waitFor(storedNames, (value) => value === (initialNames !== "true"));
+  await screen.click(keyboardNames);
+  await waitFor(storedNames, (value) => value === (initialNames === "true"));
+  await screen.click(action("settings-close"));
+  await record("このPCの設定の保存失敗後、再試行で変更した値を保存する");
+  await openSidebar(screen);
   await screen.click(
     `button[data-iori-worktree-path=${JSON.stringify(worktree)}]`,
   );

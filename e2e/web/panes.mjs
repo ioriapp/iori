@@ -273,9 +273,6 @@ finally:
     await focusTerminal(client, pane.terminal);
     await typeTerminal(client, "exit\r");
     await waitFor(async () => !(await screen.visible(tab(pane.terminal))));
-    await screen.wait(
-      `[data-iori-empty-group="${pane.group}"] ${action("close-pane")}`,
-    );
     await screen.click(
       `[data-iori-empty-group="${pane.group}"] ${action("close-pane")}`,
     );

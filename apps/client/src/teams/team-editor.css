@@ -269,15 +269,6 @@
   font-size: 1rem;
   font-weight: 500;
 }
-.team-default-mark {
-  display: inline-flex;
-  background: var(--muted);
-  color: var(--muted-foreground);
-  border-radius: var(--radius);
-  padding: var(--space-2) var(--space-2);
-  font-size: 0.75rem;
-  font-weight: 400;
-}
 .team-list-open p {
   color: var(--muted-foreground);
   font-weight: 400;

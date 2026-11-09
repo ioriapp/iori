@@ -22,6 +22,8 @@ type Operation = {
   status: MaintenanceStatus;
   instanceId?: string;
   sentOn?: string;
+  /** This Client asked for it: only then can "unknown" mean the request was lost. */
+  requestedHere?: boolean;
 };
 let operations: Record<string, Operation> = {};
 const listeners = new Set<() => void>();
@@ -66,6 +68,9 @@ export function startHostMaintenance() {
           current?.status.operationId === event.status.operationId
             ? current.sentOn
             : undefined,
+        requestedHere:
+          current?.status.operationId === event.status.operationId &&
+          current.requestedHere,
         status: event.status,
       });
     } else if (event.type === "snapshot" && current) {
@@ -100,13 +105,26 @@ export function startHostMaintenance() {
         })
         .then((result) => {
           if (
-            operations[hostKey]?.status.operationId === status.operationId &&
-            result?.ok &&
-            result.result.status
+            operations[hostKey]?.status.operationId !== status.operationId ||
+            !result?.ok
           )
+            return;
+          if (result.result.status)
             change(hostKey, {
               ...operations[hostKey],
               status: result.result.status,
+            });
+          else if (
+            operations[hostKey]?.status === status &&
+            current.requestedHere &&
+            status.phase !== "failed" &&
+            event.host.instanceId &&
+            event.host.instanceId === current.instanceId
+          )
+            // A received operation may briefly fail here before its status event arrives.
+            change(hostKey, {
+              ...operations[hostKey],
+              status: { ...status, phase: "failed", reason: "request" },
             });
         })
         .catch(() => {});
@@ -162,6 +180,7 @@ export async function performHostMaintenance(
   };
   const operation = {
     status,
+    requestedHere: true,
     sentOn: connection.connectionIdOf(hostKey),
     instanceId: connection.getSnapshot().observedHosts[hostKey]?.instanceId,
   };

@@ -218,8 +218,7 @@ export function ui(evaluate, gestures) {
   // Activate the rendered control directly once it is visible and enabled.
   // Native WebView pointer coordinates vary with window insets and modal
   // transitions; drag/swipe still use them.
-  // `scroll: false` keeps the scroll position the step set up. Radix tabs
-  // activate on mousedown, which `click()` alone does not send.
+  // `scroll: false` keeps the scroll position the step set up.
   // Optional x/y fractions choose where inside the visible element to hit.
   const click = async (selector, { scroll = true, x = 0.5, y = 0.5 } = {}) => {
     if (scroll) await reveal(selector);
@@ -227,11 +226,14 @@ export function ui(evaluate, gestures) {
     await waitFor(
       () =>
         evaluate(
-          `(()=>{${interaction}const e=${query(selector, true, x, y)};if(!e||!e.isConnected||e.disabled)return false;if(${scroll})e.scrollIntoView({block:'nearest',inline:'nearest'});if(!hitTarget(e,visibleRect(e),${x},${y}))return false;if(e.getAttribute('role')==='tab')e.dispatchEvent(new MouseEvent('mousedown',{bubbles:true,button:0}));if(e.getAttribute('aria-haspopup')==='menu')e.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,cancelable:true,button:0,pointerType:'mouse'}));e.click();return true;})()`,
+          `(()=>{${interaction}const e=${query(selector, true, x, y)};if(!e||!e.isConnected||e.disabled)return false;if(${scroll})e.scrollIntoView({block:'nearest',inline:'nearest'});if(!hitTarget(e,visibleRect(e),${x},${y}))return false;const pointer=e.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,cancelable:true,button:0,pointerType:'mouse'}));const mouse=e.dispatchEvent(new MouseEvent('mousedown',{bubbles:true,cancelable:true,button:0}));if(pointer&&mouse)e.focus();return true;})()`,
         ),
       Boolean,
       45000,
       `操作可能: ${selector}`,
+    );
+    await evaluate(
+      `(()=>{const e=${query(selector, true, x, y)};e.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,cancelable:true,button:0,pointerType:'mouse'}));e.dispatchEvent(new MouseEvent('mouseup',{bubbles:true,cancelable:true,button:0}));e.click();return true;})()`,
     );
     // Let React commit the action and run its scheduled focus/scroll before
     // the next gesture. A menu opened before an edit's rAF can be closed by it.

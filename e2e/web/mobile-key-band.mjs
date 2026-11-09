@@ -118,7 +118,7 @@ export async function mobileKeyBand({ client, mobile, record, shot }) {
     }
     await observed(client, "SLEEP_READY");
     if (mode === "batch") await screen.input(batch, "draft stays here");
-    await screen.click(key("ctrl"));
+    await screen.tap(key("ctrl"));
     assert.equal(await screen.attribute(key("ctrl"), "aria-pressed"), "true");
     if (composition) {
       const field =
@@ -173,17 +173,17 @@ export async function mobileKeyBand({ client, mobile, record, shot }) {
     "stty -echo; printf '%s%s\\n' 'CAT_' 'READY'; cat -v; stty echo\r",
   );
   await observed(client, "CAT_READY");
-  await screen.click(key("alt"));
+  await screen.tap(key("alt"));
   assert.equal(await screen.attribute(key("alt"), "aria-pressed"), "true");
   await shot("mobile-key-band-alt");
-  await screen.click(key("alt"));
+  await screen.tap(key("alt"));
   assert.equal(await screen.attribute(key("alt"), "aria-pressed"), "false");
   await screen.swipe(key("arrowUp"), { x: 0.5, y: 0.8 }, { x: 0.5, y: -1 });
-  await screen.click(key("enter"));
+  await screen.tap(key("enter"));
   // Echo is off: this exact line is cat's PTY output, including any stray Alt bytes.
   await observed(client, /(?:^|\n)\s*\^\[\[5~\s*(?:\n|$)/u);
   await shot("mobile-key-band-swipe");
-  await screen.click(key("ctrlC"));
+  await screen.tap(key("ctrlC"));
   await record(
     "Altの再タップは何も送らず解除し、↑の上スワイプがPgUpだけを実PTYへ送る",
   );

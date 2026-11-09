@@ -68,6 +68,7 @@ import {
 import { connection } from "./connection.ts";
 import { registeredDateMessage, registeredMessage } from "./i18n.ts";
 import { Button } from "./components/ui/button.tsx";
+import { Badge } from "./components/ui/badge.tsx";
 import { Input } from "./components/ui/input.tsx";
 import { Textarea } from "./components/ui/textarea.tsx";
 import {
@@ -405,9 +406,9 @@ function Devices({
                   {device.name}
                 </span>
                 {device.publicKey === state.initial?.publicKey ? (
-                  <span className="device-badge" data-iori-state="this-device">
+                  <Badge variant="outline" data-iori-state="this-device">
                     {t("This device")}
-                  </span>
+                  </Badge>
                 ) : !seen.has(seenDeviceKey(device)) ? (
                   <span className="device-badge" data-iori-state="new-device">
                     {t("New")}
@@ -809,7 +810,7 @@ function RelaySettings({
   );
   const [url, setUrl] = useState(state.host?.relay?.url ?? "");
   const [token, setToken] = useState(state.host?.relay?.token ?? "");
-  const [status, setStatus] = useState<"saved" | "error">();
+  const [status, setStatus] = useState<"saved" | "error" | "url-required">();
   const [busy, setBusy] = useState(false);
   const saved = useRef({ url, token });
   const draft = useRef({ url, token });
@@ -843,6 +844,10 @@ function RelaySettings({
   }, [state.host?.relay?.url, state.host?.relay?.token]);
   const save = async () => {
     if (busy) return;
+    if (!url.trim() && token && token !== saved.current.token) {
+      setStatus("url-required");
+      return;
+    }
     const submitted = { url, token };
     setBusy(true);
     setStatus(undefined);
@@ -928,16 +933,18 @@ function RelaySettings({
         busy={busy}
         action="save-relay"
         onSave={() => void save()}
-        error={status === "error"}
+        error={status === "error" || status === "url-required"}
         state={status === "saved" ? "relay-saved" : undefined}
         message={
           status === "saved"
             ? t("Settings saved")
-            : status === "error"
-              ? t(
-                  "Could not save Relay settings. Check the URL and token, then save again.",
-                )
-              : undefined
+            : status === "url-required"
+              ? t("Enter a Relay URL to use an access token.")
+              : status === "error"
+                ? t(
+                    "Could not save Relay settings. Check the URL and token, then save again.",
+                  )
+                : undefined
         }
       />
     </Section>
@@ -1411,7 +1418,9 @@ export function SettingsDialog({
             className="settings-nav v9-settings-nav"
             aria-label={t("Settings")}
           >
-            <div className="v9-settings-section-title">{t("This PC")}</div>
+            <div className="v9-settings-section-title" title={t("This PC")}>
+              {t("This PC")}
+            </div>
             <SidebarMenu>
               {[
                 ["general", "General", SettingsIcon],
@@ -1424,6 +1433,7 @@ export function SettingsDialog({
                       isActive={current === id}
                       aria-current={current === id ? "page" : undefined}
                       data-iori-action={`settings-${id}`}
+                      title={t(String(label))}
                       onClick={() => onSectionChange(id as SettingsSection)}
                     >
                       <ItemIcon size={14} aria-hidden="true" />
@@ -1438,6 +1448,7 @@ export function SettingsDialog({
                   isActive={current === "display"}
                   aria-current={current === "display" ? "page" : undefined}
                   data-iori-action="settings-display"
+                  title={t("Display")}
                   onClick={() => onSectionChange("display")}
                 >
                   <Monitor size={14} aria-hidden="true" />
@@ -1450,6 +1461,7 @@ export function SettingsDialog({
                     isActive={current === "keyboard"}
                     aria-current={current === "keyboard" ? "page" : undefined}
                     data-iori-action="settings-keyboard"
+                    title={t("Keyboard")}
                     onClick={() => onSectionChange("keyboard")}
                   >
                     <Keyboard size={14} aria-hidden="true" />
@@ -1460,15 +1472,19 @@ export function SettingsDialog({
             </SidebarMenu>
             {host && (
               <>
-                <div className="v9-settings-section-title v9-settings-host-title">
+                <div
+                  className="v9-settings-section-title v9-settings-host-title"
+                  title={t("Host")}
+                >
                   {t("Host")}
                 </div>
                 <Button
                   variant="outline"
                   data-iori-action="register-new-host"
+                  title={t("Add iori Host")}
                   onClick={() => leave(onRegisterNewHost)}
                 >
-                  {t("Add iori Host")}
+                  <span>{t("Add iori Host")}</span>
                 </Button>
                 <Select
                   value={host.publicKey}
@@ -1521,6 +1537,7 @@ export function SettingsDialog({
                           isActive={current === id}
                           aria-current={current === id ? "page" : undefined}
                           data-iori-action={action}
+                          title={t(label)}
                           onClick={() => {
                             onSectionChange(id);
                             connection.clearError();
@@ -1543,7 +1560,10 @@ export function SettingsDialog({
             )}
             {host && (
               <>
-                <div className="v9-settings-section-title v9-settings-host-title">
+                <div
+                  className="v9-settings-section-title v9-settings-host-title"
+                  title={t("Workspace")}
+                >
                   {t("Workspace")}
                 </div>
                 {repository && (

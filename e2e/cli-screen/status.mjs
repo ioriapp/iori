@@ -235,9 +235,7 @@ export async function cliStatusScenario({
   // A phone's CLI screen starts in batch input, where the terminal takes no
   // typed keys; the user answers with the key band's Enter.
   if (!windows)
-    await screen.click(
-      `[data-iori-terminal-id="${id}"] [data-iori-key="enter"]`,
-    );
+    await screen.tap(`[data-iori-terminal-id="${id}"] [data-iori-key="enter"]`);
   else {
     await focus(client, id);
     await screen.key("Enter");

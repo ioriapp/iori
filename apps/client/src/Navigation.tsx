@@ -1,3 +1,8 @@
+import {
+  useWorktreeRemovalFlow,
+  locallyRemoving,
+} from "./worktree-removal-flow.ts";
+import { Spinner } from "./components/ui/spinner.tsx";
 import { connection } from "./connection.ts";
 import { creationOrder, worktreeOrder, definitionOrder } from "@iori/protocol";
 import { terminalTitle } from "./workspace-panel.tsx";
@@ -169,7 +174,8 @@ function WorkspaceSidebarItem({
 function WorktreeRow({
   children,
   controls,
-}: {
+  ...props
+}: React.ComponentProps<"div"> & {
   children: React.ReactNode;
   controls: React.ReactNode;
 }) {
@@ -190,7 +196,7 @@ function WorktreeRow({
     return () => observer.disconnect();
   }, []);
   return (
-    <div className="nav-worktree-row" ref={row}>
+    <div className="nav-worktree-row" ref={row} {...props}>
       {children}
       <div className="nav-worktree-controls" ref={end}>
         {controls}
@@ -336,6 +342,16 @@ export function Navigation({
   onOpenTerminal,
   onCloseTerminal,
 }: Props) {
+  const removalState = useWorktreeRemovalFlow();
+  const isRemoving = (hostKey: string, path: string) =>
+    locallyRemoving(removalState, hostKey, path) ||
+    folders.some(
+      (entry) =>
+        entry.host.publicKey === hostKey &&
+        entry.folder.worktrees?.some(
+          (item) => item.path === path && item.removing,
+        ),
+    );
   const {
     isMobile,
     setOpenMobile,
@@ -507,6 +523,7 @@ export function Navigation({
     item: Worktree,
   ) => {
     const plain = folder.kind !== "git";
+    const removing = isRemoving(host.publicKey, item.path);
     const childRows = getChildRows(host.publicKey, item.path);
     const terminals = sessionsFor(host.publicKey, item.path).sort(
       creationOrder,
@@ -557,12 +574,17 @@ export function Navigation({
         addActivity(child.cli);
     const button = (
       <SortableRowButton
-        sortable={plain && !needle}
-        className={`nav-worktree-button ${isSelected ? "is-selected" : ""}`}
+        sortable={plain && !needle && !removing}
+        className={`nav-worktree-button ${isSelected ? "is-selected" : ""} ${removing ? "is-deleting" : ""}`}
+        disabled={removing}
         aria-current={isSelected ? "page" : undefined}
-        title={`${label}
+        title={
+          removing
+            ? undefined
+            : `${label}
 ${folderName}
-${item.path}`}
+${item.path}`
+        }
         data-iori-worktree-path={item.path}
         data-iori-workspace-path={plain ? folder.workspacePath : undefined}
         data-iori-host-key={host.publicKey}
@@ -572,7 +594,13 @@ ${item.path}`}
         }}
       >
         <span className="nav-worktree-titleline">
-          {plain ? <Folder size={14} /> : <GitBranch size={14} />}
+          {removing ? (
+            <Spinner aria-hidden="true" />
+          ) : plain ? (
+            <Folder size={14} />
+          ) : (
+            <GitBranch size={14} />
+          )}
           {/* Selection changes the font weight used to fit the name. */}
           <MiddleEllipsis
             key={isSelected ? "selected" : "unselected"}
@@ -608,10 +636,25 @@ ${item.path}`}
       >
         <Collapsible open={open} onOpenChange={(value) => toggle(id, value)}>
           <WorktreeRow
+            role="group"
+            title={
+              removing
+                ? t("Deleting {name}").replace("{name}", () => label)
+                : undefined
+            }
+            aria-label={
+              removing
+                ? t("Deleting {name}").replace("{name}", () => label)
+                : undefined
+            }
+            data-iori-worktree-removing={removing ? "true" : undefined}
+            onContextMenu={
+              removing ? (event) => event.preventDefault() : undefined
+            }
             controls={
               <>
                 <ForgeMarks
-                  status={forgeStatus}
+                  status={removing ? undefined : forgeStatus}
                   t={t}
                   onOpenCi={() => onOpenCi(host, folder, item)}
                 />
@@ -635,6 +678,7 @@ ${item.path}`}
                       variant="ghost"
                       size="icon-sm"
                       className="nav-worktree-toggle"
+                      disabled={removing}
                       aria-label={t(
                         open ? "Collapse {name}" : "Expand {name}",
                       ).replace("{name}", label)}
@@ -651,13 +695,17 @@ ${item.path}`}
               </>
             }
           >
-            <ContextMenu>
-              <ContextMenuTrigger asChild>{button}</ContextMenuTrigger>
-              {removeMenu(host, folder, item)}
-            </ContextMenu>
+            {removing ? (
+              button
+            ) : (
+              <ContextMenu>
+                <ContextMenuTrigger asChild>{button}</ContextMenuTrigger>
+                {removeMenu(host, folder, item)}
+              </ContextMenu>
+            )}
           </WorktreeRow>
           <CollapsibleContent>
-            {isSelected && isMobile && (
+            {isSelected && isMobile && !removing && (
               <WorktreeEntrances
                 plain={plain}
                 board={terminals.some((terminal) => terminal.teamConversation)}
@@ -675,16 +723,17 @@ ${item.path}`}
                 {terminals.map((terminal) => (
                   <SidebarMenuItem key={terminal.id}>
                     <ContextMenu>
-                      <ContextMenuTrigger asChild>
+                      <ContextMenuTrigger asChild disabled={removing}>
                         <SidebarMenuButton
-                          className={`nav-session ${terminal.id === activeTerminalId ? "is-current" : ""}`}
+                          className={`nav-session ${terminal.id === activeTerminalId ? "is-current" : ""} ${removing ? "removal-disabled" : ""}`}
                           aria-current={
                             terminal.id === activeTerminalId
                               ? "page"
                               : undefined
                           }
                           title={terminalTitle(terminal.title)}
-                          draggable={dragViews}
+                          disabled={removing}
+                          draggable={!removing && dragViews}
                           onDragStart={onDragView("terminal", terminal.id, {
                             hostKey: host.publicKey,
                             workspacePath: folder.workspacePath,
@@ -733,6 +782,9 @@ ${item.path}`}
                     </ContextMenu>
                     <ChildRows
                       {...childRows}
+                      isRemoving={(path) =>
+                        removing || isRemoving(host.publicKey, path)
+                      }
                       children={childrenByParent.get(terminal.id) ?? []}
                     />
                     {terminalErrors[terminal.id] && (

@@ -150,8 +150,14 @@ function parseGitWorktrees(output: string): Array<{
   return worktrees;
 }
 
-function publicWorktrees(worktrees: GitWorktree[]): Worktree[] {
-  return worktrees.map(({ gitDirectory: _gitDirectory, ...item }) => item);
+function publicWorktrees(
+  worktrees: GitWorktree[],
+  removing: ReadonlyMap<string, number>,
+): Worktree[] {
+  return worktrees.map(({ gitDirectory: _gitDirectory, ...item }) => ({
+    ...item,
+    ...(removing.has(item.path) ? { removing: true } : {}),
+  }));
 }
 
 async function worktreeGitDirectory(path: string): Promise<string | undefined> {
@@ -315,7 +321,7 @@ async function inspectOpenedFolder(
         openedAt: Date.now(),
         inSidebar: true,
         ...(gitWorkspace
-          ? { worktrees: publicWorktrees(gitWorkspace.worktrees) }
+          ? { worktrees: publicWorktrees(gitWorkspace.worktrees, new Map()) }
           : {}),
       },
       ...(gitWorkspace ? { workspace: gitWorkspace } : {}),
@@ -362,6 +368,7 @@ class WorktreeWatcher {
   readonly #commonDirectory: string;
   readonly #onChange: (event: Event) => void;
   readonly #onGitChange: (paths: string[]) => void;
+  readonly #removing: ReadonlyMap<string, number>;
   readonly #watchers = new Map<string, FSWatcher>();
   #worktrees: Worktree[];
   #gitWorktrees: GitWorktree[];
@@ -374,10 +381,12 @@ class WorktreeWatcher {
     worktrees: GitWorktree[],
     onChange: (event: Event) => void,
     onGitChange: (paths: string[]) => void,
+    removing: ReadonlyMap<string, number>,
   ) {
     this.workspacePath = workspacePath;
     this.#commonDirectory = commonDirectory;
-    this.#worktrees = publicWorktrees(worktrees);
+    this.#removing = removing;
+    this.#worktrees = publicWorktrees(worktrees, removing);
     this.#gitWorktrees = worktrees;
     this.#onChange = onChange;
     this.#onGitChange = onGitChange;
@@ -399,7 +408,11 @@ class WorktreeWatcher {
     this.#gitWorktrees = this.#gitWorktrees.filter(
       (worktree) => !paths.some((path) => relative(path, worktree.path) === ""),
     );
-    const worktrees = publicWorktrees(this.#gitWorktrees);
+    this.publishWorktrees();
+  }
+
+  publishWorktrees(): void {
+    const worktrees = publicWorktrees(this.#gitWorktrees, this.#removing);
     if (JSON.stringify(worktrees) === JSON.stringify(this.#worktrees)) return;
     this.#worktrees = worktrees;
     this.#onChange({
@@ -481,7 +494,7 @@ class WorktreeWatcher {
     this.#onGitChange(next.map((item) => item.path));
     await this.#syncWatchers();
     if (this.#closed) return;
-    const visibleWorktrees = publicWorktrees(next);
+    const visibleWorktrees = publicWorktrees(next, this.#removing);
     if (JSON.stringify(visibleWorktrees) !== JSON.stringify(this.#worktrees)) {
       this.#worktrees = visibleWorktrees;
       this.#onChange({
@@ -498,6 +511,8 @@ export class WorkspaceService {
   readonly #onEvent: (event: Event) => void;
   readonly #onGitChange: (paths: string[]) => void;
   readonly #watchers = new Map<string, WorktreeWatcher>();
+  readonly #suspended = new Set<WorktreeWatcher>();
+  readonly #removing = new Map<string, number>();
 
   constructor(
     store: HostStore,
@@ -509,18 +524,42 @@ export class WorkspaceService {
     this.#onGitChange = onGitChange;
   }
 
-  stopRepositoryWatches(path: string): (removed: string[]) => void {
+  setRemoving(paths: string[], removing: boolean): void {
+    for (const path of paths) {
+      const count = this.#removing.get(path) ?? 0;
+      if (removing) this.#removing.set(path, count + 1);
+      else if (count > 1) this.#removing.set(path, count - 1);
+      else this.#removing.delete(path);
+    }
+    for (const watcher of new Set([
+      ...this.#watchers.values(),
+      ...this.#suspended,
+    ]))
+      watcher.publishWorktrees();
+  }
+
+  stopRepositoryWatches(
+    path: string,
+  ): (removed: string[], done?: boolean) => void {
     const stopped: WorktreeWatcher[] = [];
     for (const [key, watcher] of this.#watchers) {
       if (relative(watcher.workspacePath, path) !== "") continue;
       watcher.close();
       this.#watchers.delete(key);
       stopped.push(watcher);
+      this.#suspended.add(watcher);
     }
     // Publish completed deletions from the snapshot, without asking Git to
     // rebuild the whole list while a parent and its children are being removed.
-    return (removed) => {
-      for (const watcher of stopped) watcher.publishRemovedWorktrees(removed);
+    return (removed, done) => {
+      for (const watcher of new Set([
+        ...stopped,
+        ...[...this.#watchers.values()].filter(
+          (watcher) => relative(watcher.workspacePath, path) === "",
+        ),
+      ]))
+        watcher.publishRemovedWorktrees(removed);
+      if (done) for (const watcher of stopped) this.#suspended.delete(watcher);
     };
   }
 
@@ -540,7 +579,7 @@ export class WorkspaceService {
             inSidebar:
               folder.inSidebar &&
               this.#store.isSidebarTarget(workspace.workspacePath),
-            worktrees: publicWorktrees(workspace.worktrees),
+            worktrees: publicWorktrees(workspace.worktrees, this.#removing),
           };
           if (enriched.inSidebar) this.#watch(workspace);
           return enriched;
@@ -563,6 +602,11 @@ export class WorkspaceService {
       const inspected = await inspectOpenedFolder(requestedPath);
       const result = this.#store.openFolder(context, inspected.folder);
       if (inspected.workspace) this.#watch(inspected.workspace);
+      if (result.response.ok && inspected.workspace)
+        result.response.result.folder.worktrees = publicWorktrees(
+          inspected.workspace.worktrees,
+          this.#removing,
+        );
       return result;
     } catch (error) {
       if (error instanceof WorkspaceError) {
@@ -611,6 +655,7 @@ export class WorkspaceService {
       workspace.worktrees,
       this.#onEvent,
       this.#onGitChange,
+      this.#removing,
     );
     this.#watchers.set(key, watcher);
     void watcher.start().catch(() => undefined);

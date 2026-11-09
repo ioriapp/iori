@@ -17,6 +17,7 @@ export async function worktreeRemoval({
   createPlainFolder,
   desktop,
   mobile,
+  phone,
   shot,
   record,
   repository: original,
@@ -80,6 +81,7 @@ export async function worktreeRemoval({
   const action = (name) => `[data-iori-action="${name}"]`;
   const dialog = '[data-iori-view="worktree-removal"]';
   const description = `${dialog} [data-slot="dialog-description"]`;
+  const failureToast = '[data-iori-removal-failure="true"]';
   const changedSection = `${dialog} [data-iori-removal-changes]`;
   const workingSection = `${dialog} [data-iori-removal-working]`;
   const branchSection = `${dialog} [data-iori-removal-branches]`;
@@ -148,6 +150,36 @@ export async function worktreeRemoval({
   await screen.key("Escape");
   await record(
     "作成のみ・merge・squash・未取り込みの実Gitを用意し、merge/squashだけMerged、mainには削除メニューなしを確認",
+  );
+  // A rebase can have one rewritten commit before a later conflict.
+  const rebasing = join(root, "rebasing");
+  git(repository, "worktree", "add", "-b", "rebasing", rebasing);
+  await writeFile(join(rebasing, "rebased.txt"), "first\n");
+  git(rebasing, "add", ".");
+  git(rebasing, "commit", "-m", "first");
+  await writeFile(join(rebasing, "base.txt"), "branch\n");
+  git(rebasing, "add", ".");
+  git(rebasing, "commit", "-m", "conflict");
+  await writeFile(join(repository, "base.txt"), "main\n");
+  git(repository, "add", ".");
+  git(repository, "commit", "-m", "main conflict");
+  assert.throws(() => git(rebasing, "rebase", "main"));
+  await screen.wait(row(rebasing));
+  await screen.contextMenu(row(rebasing));
+  await screen.click(action("worktree-delete"));
+  const rebaseSection = `${dialog} [data-iori-removal-rebasing]`;
+  await screen.wait(rebaseSection);
+  assert.match(
+    await screen.text(rebaseSection),
+    /rebaseの途中で作ったコミットは失われます/u,
+  );
+  assert.match(
+    await screen.text(rebaseSection),
+    /元のコミットはrebasingに残ります/u,
+  );
+  await screen.key("Escape");
+  await record(
+    "衝突で止まったrebaseの削除確認に元のブランチと専用の節を表示する",
   );
   // A detached HEAD can contain commits that no branch or other ref keeps.
   const detached = join(root, "detached");
@@ -230,6 +262,10 @@ export async function worktreeRemoval({
   await screen.click(action("worktree-delete"));
   await screen.wait(description);
   // Nothing is lost: the confirmation is the one line naming the worktree.
+  assert.equal(
+    await screen.text(`${dialog} [data-slot="dialog-title"]`),
+    "worktreeを削除しますか？",
+  );
   assert.equal(await screen.text(description), "pickedを削除します。");
   assert.equal(await screen.visible(changedSection), false);
   assert.equal(await screen.visible(workingSection), false);
@@ -237,7 +273,7 @@ export async function worktreeRemoval({
   await pictures("one-line");
   await screen.click(action("worktree-removal-confirm"));
   await waitForOperation(
-    "worktree-removal: 削除が終わりダイアログが閉じる",
+    "worktree-removal: 削除確認が閉じる",
     () => screen.visible(dialog),
     (v) => !v,
     operationFailure(screen, `${dialog} [role="alert"]`),
@@ -301,23 +337,24 @@ export async function worktreeRemoval({
   );
   await shot("pc-worktree-cleanup");
   await screen.click(action("worktree-removal-confirm"));
-  await waitForOperation(
-    "worktree-removal: ロック中の削除の失敗を表示",
-    () => screen.visible(`${dialog} [role="alert"]`),
-    Boolean,
-    async () =>
-      !(await screen.visible(dialog)) &&
-      "削除の失敗を表示せずダイアログが閉じました",
-  );
-  assert.match(await screen.text(dialog), /independent lock/u);
+  await screen.wait(failureToast);
+  assert.equal(await screen.visible(dialog), false);
+  assert.match(await screen.text(failureToast), /independent lock/u);
+  await waitFor(() => screen.visible(row(paths.merged)));
+  await shot("pc-worktree-removal-failure");
   await record("片付け候補とfetch失敗、lockによる削除失敗を表示する");
   git(repository, "worktree", "unlock", paths.merged);
   git(repository, "remote", "set-url", "origin", remote);
   await screen.click(action("worktree-removal-retry"));
-  await screen.wait(action("worktree-removal-confirm"));
+  await screen.wait(`${dialog} .removal-previous`);
+  assert.match(
+    await screen.text(dialog),
+    /前回は削除できませんでした。.*independent lock/u,
+  );
+  await shot("pc-worktree-removal-retry");
   await screen.click(action("worktree-removal-confirm"));
   await waitForOperation(
-    "worktree-removal: 削除が終わりダイアログが閉じる",
+    "worktree-removal: 削除確認が閉じる",
     () => screen.visible(dialog),
     (visible) => !visible,
     operationFailure(screen, `${dialog} [role="alert"]`),
@@ -329,6 +366,9 @@ export async function worktreeRemoval({
     );
   }
   await record("片付けの確定後にサイドバーから行が消える");
+  const mainTabs = await screen.evaluate(
+    `([...document.querySelectorAll('[data-iori-tab-id]')].map(e=>e.getAttribute('data-iori-tab-id'))).sort()`,
+  );
   await screen.click(row(paths.unmerged));
   await observe(client, "(await import('/src/native-platform-web.ts')).listen");
   const terminal = await create(client);
@@ -363,29 +403,36 @@ export async function worktreeRemoval({
   );
   assert.equal((await screen.text(dialog)).includes(paths.unmerged), false);
   await shot("pc-worktree-delete");
-  // Record every state the pressed button takes while the Host deletes, so a
-  // fast reply cannot hide the waiting state from the check.
+  // Observe the transient removal state even when Git completes quickly.
   await screen.evaluate(
-    `(()=>{const b=document.querySelector(${JSON.stringify(action("worktree-removal-confirm"))});const box=()=>{const r=b.getBoundingClientRect();return [r.left,r.width]};window.__ioriPressed={box:box(),name:b.textContent.trim(),busy:[]};new MutationObserver(()=>{if(b.getAttribute('aria-busy')==='true')window.__ioriPressed.busy.push({box:box(),disabled:b.disabled,spinner:!!b.querySelector('[data-slot="spinner"]'),name:b.textContent.trim()})}).observe(b,{attributes:true,attributeFilter:['aria-busy']})})()`,
+    `(()=>{const states=[];const observer=new MutationObserver(()=>{const row=document.querySelector(${JSON.stringify(row(paths.unmerged))});if(row?.closest('[data-iori-worktree-removing="true"]'))states.push(true)});observer.observe(document.querySelector('.nav-sidebar'),{subtree:true,attributes:true,childList:true});window.__ioriRemoving={states,observer}})()`,
   );
   await screen.click(action("worktree-removal-confirm"));
-  if (await screen.visible(`${action("worktree-removal-confirm")}[aria-busy]`))
-    await shot("pc-worktree-delete-pending");
-  const pressed = await screen.evaluate("window.__ioriPressed");
-  assert.equal(pressed.busy.length > 0, true);
-  // The label keeps its place and name: the button neither moves nor resizes.
-  assert.deepEqual(pressed.busy[0], {
-    box: pressed.box,
-    disabled: true,
-    spinner: true,
-    name: pressed.name,
-  });
-  await waitForOperation(
-    "worktree-removal: 削除が終わりダイアログが閉じる",
-    () => screen.visible(dialog),
-    (visible) => !visible,
-    operationFailure(screen, `${dialog} [role="alert"]`),
+  assert.equal(await screen.visible(dialog), false);
+  await shot("pc-worktree-removal-selected");
+  await waitFor(() =>
+    screen.evaluate(
+      `!!document.querySelector(${JSON.stringify(row(repository) + ".is-selected")})`,
+    ),
   );
+  await waitFor(
+    () =>
+      screen.evaluate(
+        `([...document.querySelectorAll('[data-iori-tab-id]')].map(e=>e.getAttribute('data-iori-tab-id'))).sort()`,
+      ),
+    (tabs) => JSON.stringify(tabs) === JSON.stringify(mainTabs),
+  );
+  await waitFor(
+    () => screen.visible(row(paths.unmerged)),
+    (visible) => !visible,
+  );
+  assert.equal(
+    await screen.evaluate(
+      `(()=>{const {states,observer}=window.__ioriRemoving;observer.disconnect();delete window.__ioriRemoving;return states.length>0})()`,
+    ),
+    true,
+  );
+  assert.equal(await screen.visible(failureToast), false);
   assert.equal(
     await screen.visible(`[data-iori-terminal-row="${terminal}"]`),
     false,
@@ -393,12 +440,61 @@ export async function worktreeRemoval({
   await record(
     "未取り込みと未コミットの警告を表示し、削除後にTerminalの行が消える",
   );
+  // A separate Client starts deletion: the observing Client follows the
+  // Host's removing event and restores both worktrees' own layouts.
+  const remoteLocked = join(root, "remote-$&");
+  git(repository, "worktree", "add", "-b", "remote-$&", remoteLocked);
+  git(repository, "worktree", "lock", "--reason", "remote lock", remoteLocked);
+  await screen.wait(row(remoteLocked));
+  await screen.click(row(remoteLocked));
+  const readTabs = () =>
+    screen.evaluate(
+      `([...document.querySelectorAll('[data-iori-tab-id]')].map(e=>e.getAttribute('data-iori-tab-id'))).sort()`,
+    );
+  const remoteTabs = await waitFor(
+    readTabs,
+    (tabs) =>
+      tabs.length > 0 && JSON.stringify(tabs) !== JSON.stringify(mainTabs),
+  );
+  const other = await phone();
+  await other.screen.wait('[data-iori-view="workspace"]');
+  await openSidebar(other.screen);
+  await other.screen.longPress(row(remoteLocked));
+  await other.screen.click(action("worktree-delete"));
+  await other.screen.wait(action("worktree-removal-confirm"));
+  await other.screen.click(action("worktree-removal-confirm"));
+  await other.screen.wait(failureToast);
+  assert.match(
+    await other.screen.text(failureToast),
+    /remote-\$&を削除できませんでした/u,
+  );
+  assert.match(await other.screen.text(failureToast), /remote lock/u);
+  await waitFor(() =>
+    screen.evaluate(
+      `!!document.querySelector(${JSON.stringify(row(repository) + ".is-selected")})`,
+    ),
+  );
+  await waitFor(
+    readTabs,
+    (tabs) => JSON.stringify(tabs) === JSON.stringify(mainTabs),
+  );
+  await screen.click(row(remoteLocked));
+  await waitFor(
+    readTabs,
+    (tabs) => JSON.stringify(tabs) === JSON.stringify(remoteTabs),
+  );
+  await other.browser.call("Page.close");
+  git(repository, "worktree", "unlock", remoteLocked);
+  await screen.click(row(repository));
+  await record(
+    "別のClientの削除開始でmainの配置へ移り、失敗後は元のworktreeの配置を再び開く",
+  );
   git(
     repository,
     "worktree",
     "lock",
     "--reason",
-    "verification lock",
+    "verification $& lock",
     paths.empty,
   );
   await mobile();
@@ -412,15 +508,11 @@ export async function worktreeRemoval({
   assert.equal(await screen.visible(branchSection), false);
   await shot("mobile-worktree-delete");
   await screen.click(action("worktree-removal-confirm"));
-  await waitForOperation(
-    "worktree-removal: ロック中の削除の失敗を表示",
-    () => screen.visible(`${dialog} [role="alert"]`),
-    Boolean,
-    async () =>
-      !(await screen.visible(dialog)) &&
-      "削除の失敗を表示せずダイアログが閉じました",
-  );
-  assert.match(await screen.text(dialog), /verification lock/u);
+  await screen.wait(failureToast);
+  assert.equal(await screen.visible(dialog), false);
+  assert.match(await screen.text(failureToast), /verification \$& lock/u);
+  await waitFor(() => screen.visible(row(paths.empty)));
+  await shot("mobile-worktree-removal-failure");
   assert.equal(
     await access(paths.empty).then(
       () => true,
@@ -431,10 +523,22 @@ export async function worktreeRemoval({
   git(repository, "worktree", "unlock", paths.empty);
   await screen.click(action("worktree-removal-retry"));
   await screen.wait(action("worktree-removal-confirm"));
+  assert.match(
+    await screen.text(dialog),
+    /前回は削除できませんでした。.*verification \$& lock/u,
+  );
   await screen.click(action("worktree-removal-confirm"));
   await waitFor(
     () => screen.visible(dialog),
     (visible) => !visible,
+  );
+  await waitFor(
+    () =>
+      access(paths.empty).then(
+        () => true,
+        () => false,
+      ),
+    (exists) => !exists,
   );
   assert.equal(
     await access(paths.empty).then(
@@ -560,6 +664,87 @@ export async function worktreeRemoval({
     );
     return JSON.parse(answer);
   };
+  // A failed parent deletion must keep selection and warnings aligned with the
+  // whole tree that the Host would remove on retry.
+  const retryParent = await launchParent("retry-parent");
+  const retryChild = await delegate(retryParent, "retry locked child");
+  const laterChild = await delegate(retryParent, "retry later child");
+  git(repository, "worktree", "lock", "--reason", "retry lock", retryChild.cwd);
+  await screen.contextMenu(row(retryParent.path));
+  await screen.click(action("worktree-delete"));
+  await screen.wait(action("worktree-removal-confirm"));
+  await screen.click(action("worktree-removal-confirm"));
+  await screen.wait(failureToast);
+  assert.match(await screen.text(failureToast), /retry lock/u);
+  await writeFile(join(retryParent.path, "parent-draft.txt"), "draft\n");
+  await writeFile(join(retryChild.cwd, "child-draft.txt"), "draft\n");
+  await screen.click(action("worktree-removal-retry"));
+  const select = (path) =>
+    `${dialog} [data-iori-removal-select=${JSON.stringify(path)}]`;
+  await screen.wait(select(retryParent.path));
+  assert.equal(
+    await screen.text(`${dialog} [data-slot="dialog-title"]`),
+    "worktreeを削除しますか？",
+  );
+  assert.equal(await screen.visible(changedSection), false);
+  await screen.click(select(retryParent.path));
+  assert.equal(
+    await screen.evaluate(
+      `document.querySelector(${JSON.stringify(select(retryChild.cwd))}).disabled`,
+    ),
+    true,
+  );
+  assert.equal(
+    await screen.evaluate(
+      `document.querySelector(${JSON.stringify(select(retryChild.cwd))}).dataset.state`,
+    ),
+    "checked",
+  );
+  assert.match(await screen.text(description), /3件/u);
+  assert.deepEqual(
+    await screen.evaluate(
+      `[...document.querySelectorAll('[data-iori-removal-changed]')].map(e=>e.getAttribute('data-iori-removal-changed')).sort()`,
+    ),
+    [retryParent.path, retryChild.cwd].sort(),
+  );
+  await screen.click(select(retryParent.path));
+  assert.equal(
+    await screen.evaluate(
+      `document.querySelector(${JSON.stringify(select(retryChild.cwd))}).disabled`,
+    ),
+    false,
+  );
+  assert.equal(
+    await screen.evaluate(
+      `document.querySelector(${JSON.stringify(select(retryChild.cwd))}).dataset.state`,
+    ),
+    "checked",
+  );
+  await screen.click(select(retryChild.cwd));
+  await screen.click(select(retryChild.cwd));
+  assert.match(await screen.text(description), /1件/u);
+  assert.deepEqual(
+    await screen.evaluate(
+      `[...document.querySelectorAll('[data-iori-removal-changed]')].map(e=>e.getAttribute('data-iori-removal-changed'))`,
+    ),
+    [retryChild.cwd],
+  );
+  git(repository, "worktree", "unlock", retryChild.cwd);
+  await screen.click(action("worktree-removal-confirm"));
+  await waitFor(
+    () =>
+      access(retryChild.cwd).then(
+        () => true,
+        () => false,
+      ),
+    (exists) => !exists,
+  );
+  await access(retryParent.path);
+  await access(laterChild.cwd);
+  await record(
+    "親子の再試行で選択と警告を実際の削除範囲に揃え、子だけの削除と未実行の子の保持を確認",
+  );
+
   const single = await launchParent("single-parent");
   const owned = await delegate(single, "owned child");
   const shared = await delegate(single, "shared child");
@@ -646,7 +831,7 @@ export async function worktreeRemoval({
   assert.match(await screen.text(branchSection), /にないcommitがあるブランチ/u);
   assert.match(await screen.text(branchSection), /1件のcommit/u);
   assert.equal(await screen.visible(branchLoss), false);
-  await screen.scroll(`${dialog} [data-slot="scroll-area-viewport"]`, {
+  await screen.scroll(`${dialog} [data-slot="dialog-body"]`, {
     top: 0,
   });
   await pictures("three-sections");
@@ -658,12 +843,27 @@ export async function worktreeRemoval({
   await screen.reveal(branchSection);
   await pictures("branch-checked", { reveal: branchSection });
   await screen.click(branchSelect("single-parent"));
+  await screen.evaluate(
+    `(()=>{const seen=[];const observer=new MutationObserver(()=>{const p=document.querySelector(${JSON.stringify(row(single.path))})?.closest('[data-iori-worktree-removing="true"]');const c=[...document.querySelectorAll('[data-iori-worktree-removing="true"] .nav-child-branch')].some(e=>e.textContent.includes(${JSON.stringify(git(owned.cwd, "branch", "--show-current"))}));if(p&&c)seen.push(true)});observer.observe(document.querySelector('.nav-sidebar'),{subtree:true,attributes:true,childList:true});window.__ioriParentChild={seen,observer}})()`,
+  );
   await screen.click(action("worktree-removal-confirm"));
+  assert.equal(await screen.visible(dialog), false);
+  await shot("pc-worktree-removing-parent-child");
   await waitForOperation(
-    "worktree-removal: 削除が終わりダイアログが閉じる",
+    "worktree-removal: 削除確認が閉じる",
     () => screen.visible(dialog),
     (v) => !v,
     operationFailure(screen, `${dialog} [role="alert"]`),
+  );
+  await waitFor(
+    () => screen.visible(row(single.path)),
+    (visible) => !visible,
+  );
+  assert.equal(
+    await screen.evaluate(
+      `(()=>{const {seen,observer}=window.__ioriParentChild;observer.disconnect();delete window.__ioriParentChild;return seen.length>0})()`,
+    ),
+    true,
   );
   for (const p of [single.path, owned.cwd])
     assert.equal(
@@ -787,10 +987,18 @@ export async function worktreeRemoval({
   })()`);
   await screen.click(action("worktree-removal-confirm"));
   await waitForOperation(
-    "worktree-removal: 削除が終わりダイアログが閉じる",
+    "worktree-removal: 削除確認が閉じる",
     () => screen.visible(dialog),
     (v) => !v,
     operationFailure(screen, `${dialog} [role="alert"]`),
+  );
+  await waitFor(
+    () => screen.visible(row(grouped.path)),
+    (visible) => !visible,
+  );
+  await waitFor(
+    () => screen.visible(row(plainPath)),
+    (visible) => !visible,
   );
   for (const p of [grouped.path, committed.cwd, emptyChild.cwd])
     assert.equal(
@@ -854,7 +1062,7 @@ export async function worktreeRemoval({
   assert.equal(await screen.visible(branchLoss), false);
   await screen.click(action("worktree-removal-confirm"));
   await waitForOperation(
-    "worktree-removal: 削除が終わりダイアログが閉じる",
+    "worktree-removal: 削除確認が閉じる",
     () => screen.visible(dialog),
     (v) => !v,
     operationFailure(screen, `${dialog} [role="alert"]`),
@@ -874,10 +1082,14 @@ export async function worktreeRemoval({
   await screen.wait(branchLoss);
   await screen.click(action("worktree-removal-confirm"));
   await waitForOperation(
-    "worktree-removal: 削除が終わりダイアログが閉じる",
+    "worktree-removal: 削除確認が閉じる",
     () => screen.visible(dialog),
     (v) => !v,
     operationFailure(screen, `${dialog} [role="alert"]`),
+  );
+  await waitFor(
+    () => screen.visible(row(checkedParent.path)),
+    (visible) => !visible,
   );
   // The checkbox's choice reaches the request only through this dialog.
   assert.equal(git(repository, "branch", "--list", "checked-parent"), "");
@@ -901,7 +1113,7 @@ export async function worktreeRemoval({
   await screen.click(action("worktree-delete"));
   await screen.wait(description);
   await screen.wait(branchSection);
-  await screen.scroll(`${dialog} [data-slot="scroll-area-viewport"]`, {
+  await screen.scroll(`${dialog} [data-slot="dialog-body"]`, {
     top: 0,
   });
   await pictures("long-names", {
@@ -910,7 +1122,7 @@ export async function worktreeRemoval({
   });
   await screen.click(action("worktree-removal-confirm"));
   await waitForOperation(
-    "worktree-removal: 削除が終わりダイアログが閉じる",
+    "worktree-removal: 削除確認が閉じる",
     () => screen.visible(dialog),
     (v) => !v,
     operationFailure(screen, `${dialog} [role="alert"]`),

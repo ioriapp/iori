@@ -461,6 +461,12 @@ async function readCi(
         : `There is no CI for commit ${short}.`;
     return { ok: true, text, data: { commit, runs, results } };
   } catch (error) {
+    if (error instanceof ForgeCiFailure && error.noPushTarget)
+      return {
+        ok: true,
+        text: "This branch has no push target. Push it to see the CI of its commit.",
+        data: { runs: [], results: [] },
+      };
     if (error instanceof ForgeCiFailure && error.unknownForge) return noForge;
     if (error instanceof ForgeCiFailure && error.forge)
       return failed(forgeFailureText(error.forge));

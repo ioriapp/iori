@@ -184,4 +184,25 @@ export async function childRowsRegression({
   );
   assert.equal(await screen.visible(tab), true, "開き直した最後の画面を残す");
   await record("別worktreeで終了した子のタブを閉じ、開き直した画面を残す");
+  await screen.contextMenu(`[data-iori-terminal-row="${parent.id}"]`);
+  await screen.click('[data-iori-action="terminal-close"]');
+  if (await screen.visible('[data-iori-dialog="terminal-close-confirmation"]'))
+    await screen.click('[data-iori-action="terminal-confirm-close"]');
+  await waitFor(
+    async () =>
+      !(await request("terminal.list")).terminals.some(
+        (entry) => entry.id === parent.id,
+      ),
+  );
+  await waitFor(() =>
+    screen.evaluate(`!document.querySelector(${JSON.stringify(row)})`),
+  );
+  await screen.wait(
+    `button[data-iori-worktree-path=${JSON.stringify(child.cwd)}]`,
+  );
+  await childListFault.reload();
+  await screen.wait(
+    `button[data-iori-worktree-path=${JSON.stringify(child.cwd)}]`,
+  );
+  await record("親を閉じた子のworktreeを再読込の前後で通常行として表示する");
 }

@@ -1,7 +1,7 @@
 import { openWorkspaceView } from "../../verification/workspace/interaction.mjs";
 import assert from "node:assert/strict";
 import { waitFor } from "../../verification/ui.mjs";
-import { openSidebar } from "../connection/scenario.mjs";
+import { closeSidebar, openSidebar } from "../connection/scenario.mjs";
 
 /** The Host surface returns to the worktree layout that stayed mounted. */
 export async function returnToWorktree(screen, worktreePath) {
@@ -315,6 +315,21 @@ export async function sidebarWorktrees({
   await record(
     "MobileでBoardを見て別worktreeのFilesへ移り、戻ると元のBoardを表示",
   );
+  await openSidebar(screen);
+  await openWorkspaceView(screen, "files");
+  await screen.wait('[data-iori-mobile-view-kind="files"]:not([hidden])');
+  await openSidebar(screen);
+  await openWorkspaceView(screen, "git");
+  await screen.wait('[data-iori-mobile-view-kind="git"]:not([hidden])');
+  await openSidebar(screen);
+  await screen.click(button(repository));
+  await screen.click(button(worktree));
+  await closeSidebar(screen);
+  await screen.key("Alt+ArrowLeft");
+  await screen.wait('[data-iori-mobile-view-kind="files"]:not([hidden])');
+  await screen.key("Alt+ArrowLeft");
+  await screen.wait('[data-iori-mobile-view-kind="board"]:not([hidden])');
+  await record("Mobileで別worktreeを覗いた後も元のタブの戻る順を保つ");
   await record(
     "worktree別の開閉・CLI種類と数・要約の省略、Mobileでworktree選択後もドロワーからFilesへ移動",
   );

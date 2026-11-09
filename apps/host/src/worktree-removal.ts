@@ -2,8 +2,8 @@ import { worktreeOrder, creationOrder } from "@iori/protocol";
 import { randomUUID } from "node:crypto";
 import { stopWatchingPath } from "./directory-watch.ts";
 import { checkWindowsWorktreeRemoval } from "./windows/worktree-removal.ts";
-import { lstat, realpath } from "node:fs/promises";
-import { relative } from "node:path";
+import { lstat, readFile, realpath } from "node:fs/promises";
+import { join, relative } from "node:path";
 import {
   cliWorkState,
   type WorktreeRemovalItem,
@@ -20,6 +20,7 @@ import {
   worktreeDirectory,
   worktreeState,
   worktreeStateReader,
+  rebasingBranch,
 } from "./worktree-state.ts";
 import {
   checkChildWorktreeRemoval,
@@ -55,17 +56,24 @@ export class WorktreeRemover {
   readonly store: HostStore;
   readonly terminals: () => TerminalManager;
   readonly teams: () => TeamManager;
-  readonly stopRepositoryWatches: (path: string) => (removed: string[]) => void;
+  readonly stopRepositoryWatches: (
+    path: string,
+  ) => (removed: string[], done?: boolean) => void;
+  readonly setRemoving: (paths: string[], removing: boolean) => void;
   constructor(
     store: HostStore,
     terminals: () => TerminalManager,
     teams: () => TeamManager,
-    stopRepositoryWatches: (path: string) => (removed: string[]) => void,
+    stopRepositoryWatches: (
+      path: string,
+    ) => (removed: string[], done?: boolean) => void,
+    setRemoving: (paths: string[], removing: boolean) => void,
   ) {
     this.store = store;
     this.terminals = terminals;
     this.teams = teams;
     this.stopRepositoryWatches = stopRepositoryWatches;
+    this.setRemoving = setRemoving;
   }
 
   async preview(
@@ -141,6 +149,10 @@ export class WorktreeRemover {
       const state = same(ownMain, mainPath)
         ? await stateOf(path, branch)
         : await worktreeState(path, branch);
+      const rebase =
+        detachedCommits && detachedCommits > 0
+          ? await rebasingBranch(path)
+          : undefined;
       if (state.createdCommits === 0) empty.add(path);
       const conversations = new Set(
         children
@@ -180,6 +192,7 @@ export class WorktreeRemover {
         target: state.target,
         commits: state.commits,
         ...(detachedCommits && detachedCommits > 0 ? { detachedCommits } : {}),
+        ...(rebase ? { rebasingBranch: rebase } : {}),
         merged: state.merged,
         deleteBranch: !!branch && (state.merged || state.createdCommits === 0),
         terminals: [...terminals.values()]
@@ -355,7 +368,17 @@ export class WorktreeRemover {
     if (!preview) throw new Error("Open the deletion dialog again.");
     const selected = preview.items.filter((item) => paths.includes(item.path));
     const outcomes: WorktreeRemovalResult["outcomes"] = [];
-    const repositories = new Map<string, (removed: string[]) => void>();
+    const repositories = new Map<
+      string,
+      (removed: string[], done?: boolean) => void
+    >();
+    const pending = new Set<string>();
+    const collect = (item: WorktreeRemovalItem) => {
+      pending.add(item.path);
+      item.worktrees.forEach(collect);
+    };
+    selected.forEach(collect);
+    this.setRemoving([...pending], true);
     const exists = async (path: string) => {
       try {
         await lstat(path);
@@ -367,21 +390,37 @@ export class WorktreeRemover {
     };
     const remove = async (item: WorktreeRemovalItem): Promise<boolean> => {
       let error: string | undefined;
+      let locked: { reason?: string } | undefined;
+      let gitOutput: string | undefined;
+      let stopped = false;
+      let branchRemains = false;
       const finishWatches: Array<(restore: boolean) => void> = [];
       try {
-        for (const child of item.children)
-          await this.teams().stopChild(
+        for (const child of item.children) {
+          const state = this.store
+            .teamChildren()
+            .find((record) => record.id === child.id)?.state;
+          const result = await this.teams().stopChild(
             { ...context, operationId: randomUUID() },
             child.id,
           );
+          if (result.ok && state && state !== "finished" && state !== "stopped")
+            stopped = true;
+        }
         for (const terminal of item.terminals) {
+          const existed = Boolean(this.store.terminalSummary(terminal.id));
+          const running =
+            this.terminals().isCliRunning(terminal.id) ||
+            this.store.terminal(terminal.id)?.state === "running";
           await this.terminals().stopTeamTerminal(terminal.id);
+          if (running) stopped = true;
           const result = await this.terminals().closeTerminal(
             { ...context, operationId: randomUUID() },
             terminal.id,
             true,
           );
           if (!result.ok) throw new Error("Could not stop a Terminal.");
+          if (existed) stopped = true;
         }
         for (const child of item.worktrees)
           if (!(await remove(child)))
@@ -409,9 +448,8 @@ export class WorktreeRemover {
         if (!repositories.has(ownMain))
           repositories.set(ownMain, this.stopRepositoryWatches(ownMain));
         finishWatches.push(await stopWatchingPath(item.path));
-        finishWatches.push(
-          await stopWatchingPath(await worktreeDirectory(item.path)),
-        );
+        const gitDirectory = await worktreeDirectory(item.path);
+        finishWatches.push(await stopWatchingPath(gitDirectory));
         if (process.platform === "win32")
           await checkWindowsWorktreeRemoval(item.path);
         const removal = startGit(ownMain, [
@@ -422,13 +460,23 @@ export class WorktreeRemover {
           item.path,
         ]);
         removal.child.stdout.resume();
-        const code = await finishGit(removal, undefined, [0, 1, 128, 255]);
-        if (code !== 0)
+        const exit = await removal.closed;
+        const code = await finishGit(removal, undefined, [exit.code ?? -1]);
+        if (code !== 0) {
+          const lockPath = join(gitDirectory, "locked");
+          if (await exists(lockPath)) {
+            const trimmed = (
+              await readFile(lockPath, "utf8").catch(() => "")
+            ).trim();
+            locked = trimmed ? { reason: trimmed } : {};
+          } else gitOutput = removal.stderr().trim() || undefined;
           error =
             removal.stderr().trim() ||
             "Git refused removal. Check whether the worktree is locked or files are open, then retry.";
+        }
         if (!(await exists(item.path))) {
           if (deleteBranch && item.branch) {
+            branchRemains = true;
             const result = await collectGit(
               ownMain,
               ["branch", "-D", "--", item.branch],
@@ -438,6 +486,7 @@ export class WorktreeRemover {
             if (result.code !== 0)
               error =
                 "The worktree was removed, but Git could not delete its branch.";
+            else branchRemains = false;
           }
         }
       } catch (reason) {
@@ -448,20 +497,27 @@ export class WorktreeRemover {
       }
       const removed = !(await exists(item.path));
       for (const finish of finishWatches) finish(!removed);
-      outcomes.push({ path: item.path, removed, ...(error ? { error } : {}) });
+      outcomes.push({
+        path: item.path,
+        removed,
+        ...(error ? { error } : {}),
+        ...(locked ? { locked } : {}),
+        ...(error && stopped ? { stopped: true } : {}),
+        ...(gitOutput ? { gitOutput } : {}),
+        ...(branchRemains ? { branchRemains: true } : {}),
+      });
+      if (removed) {
+        for (const publish of repositories.values()) publish([item.path]);
+        this.teams().forgetWorktree(item.path);
+      }
+      if (pending.delete(item.path)) this.setRemoving([item.path], false);
       return removed;
     };
-    for (const item of selected) {
-      const start = outcomes.length;
-      await remove(item);
-      const removed = outcomes
-        .slice(start)
-        .filter((outcome) => outcome.removed)
-        .map((outcome) => outcome.path);
-      // Remove the completed group from the sidebar before dropping child
-      // identities. Otherwise the old list briefly exposes them as parent rows.
-      for (const publish of repositories.values()) publish(removed);
-      for (const path of removed) this.teams().forgetWorktree(path);
+    try {
+      for (const item of selected) await remove(item);
+    } finally {
+      this.setRemoving([...pending], false);
+      for (const publish of repositories.values()) publish([], true);
     }
     return { outcomes };
   }

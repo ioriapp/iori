@@ -92,6 +92,50 @@ async function checkSettingsNavigation(screen, fixture, record) {
   );
   await record("接続先とRelayの値が変わらない再保存では接続を保つ");
 
+  const relayToken = '[data-iori-field="relay-token"]';
+  const relayState = () =>
+    screen.evaluate(`(async()=>{
+    const {connection}=await import('/src/connection.ts');
+    return JSON.stringify(connection.getSnapshot().host?.relay ?? null);
+  })()`);
+  await screen.evaluate(`(async()=>{
+    const {connection}=await import('/src/connection.ts');
+    window.__relayDisconnected=false;
+    window.__relayStop=connection.subscribe(()=>{
+      if(!connection.getSnapshot().connected) window.__relayDisconnected=true;
+    });
+  })()`);
+  const reconnected = () =>
+    screen.evaluate(`(async()=>{
+    const {connection}=await import('/src/connection.ts');
+    return window.__relayDisconnected && connection.getSnapshot().connected;
+  })()`);
+  await screen.input(relayUrl, "https://relay.example.invalid");
+  await screen.input(relayToken, "existing-token");
+  await screen.click(action("save-relay"));
+  await screen.wait('[data-iori-state="relay-saved"]');
+  await waitFor(reconnected);
+  const originalRelay = await relayState();
+  await screen.input(relayUrl, "");
+  await screen.input(relayToken, "new-token");
+  await screen.click(action("save-relay"));
+  assert.equal(
+    await screen.text('[data-iori-view="relay"] .section-save-result'),
+    "アクセストークンを使うには、RelayのURLを入力してください。",
+  );
+  assert.equal(await screen.visible('[data-iori-state="relay-saved"]'), false);
+  assert.equal(await relayState(), originalRelay);
+  await screen.evaluate("window.__relayDisconnected=false");
+  await screen.input(relayToken, "");
+  await screen.click(action("save-relay"));
+  await screen.wait('[data-iori-state="relay-saved"]');
+  await waitFor(reconnected);
+  assert.equal(await relayState(), "null");
+  await screen.evaluate("window.__relayStop()");
+  await record(
+    "URLなしの新しいトークンは保存せず、両方を空にした解除は保存する",
+  );
+
   await screen.input(relayUrl, "https://unsaved.example.invalid");
   await screen.click(action("open-connection"));
   await screen.click(action("settings-repository-select"));

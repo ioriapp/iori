@@ -556,3 +556,24 @@
 .nav-sidebar[data-mobile="true"] {
   background: var(--sidebar);
 }
+
+/* v20: 削除中も行を残し、外側で全文を読み上げる。 */
+.nav-sidebar .nav-worktree-button.is-deleting {
+  opacity: 1;
+  cursor: default;
+  pointer-events: none;
+  color: var(--muted-foreground);
+}
+.nav-sidebar .nav-worktree-button.is-deleting .nav-worktree-name {
+  color: var(--muted-foreground);
+}
+.nav-sidebar .nav-worktree-row:has(.is-deleting):hover .nav-worktree-button {
+  background: transparent;
+}
+.removal-disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+.removal-disabled [data-slot="sidebar-menu-button"]:disabled {
+  opacity: 1;
+}

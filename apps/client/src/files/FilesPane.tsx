@@ -854,10 +854,10 @@ function FilesWorkspace({
                     info?.path === path ? info.absolutePath : `${root}/${path}`
                   }
                   locale={locale}
+                  showIcons={false}
                   leadingActions={[
                     {
                       label: ja ? "閉じる" : "Close",
-                      icon: <X />,
                       action: "file-tab-close",
                       run: () => close(path),
                     },

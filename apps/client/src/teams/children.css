@@ -148,3 +148,10 @@
     white-space: nowrap;
   }
 }
+
+.nav-child-branch.is-deleting {
+  opacity: 1;
+  cursor: default;
+  pointer-events: none;
+  color: var(--muted-foreground);
+}

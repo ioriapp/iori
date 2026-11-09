@@ -10,6 +10,11 @@ import {
   issueRepositoryKey,
 } from "./issues/issue-repositories.ts";
 import { creationOrder, issueWorktreeName, sidebarOrder } from "@iori/protocol";
+import {
+  locallyRemoving,
+  useWorktreeRemovalFlow,
+  worktreeRemovalFlow,
+} from "./worktree-removal-flow.ts";
 import { WorktreeRemoval } from "./WorktreeRemoval.tsx";
 import { WorktreeCreator, type WorktreePrefill } from "./WorktreeCreator.tsx";
 import { useMobileBoards } from "./teams/mobile-boards.ts";
@@ -488,6 +493,9 @@ function WorkspaceFrameInner({
     roleId?: string;
     nonce: number;
   }>();
+  const [closedParents, setClosedParents] = useState<
+    Record<string, Set<string>>
+  >({});
   const childTerminalStatuses = useMemo(
     () =>
       Object.fromEntries(
@@ -520,7 +528,9 @@ function WorkspaceFrameInner({
           for (const child of displayed) {
             if (child.terminalId) terminalIds.add(child.terminalId);
             parentCwds.add(hostPathKey(child.parentCwd));
+            const closed = closedParents[host]?.has(child.parentTerminalId);
             if (
+              !closed &&
               !child.worktreeRemoved &&
               child.cwd &&
               !child.repositoryName &&
@@ -539,7 +549,7 @@ function WorkspaceFrameInner({
           ];
         }),
       ),
-    [childrenByHost, childTerminalStatuses, terminalLists],
+    [childrenByHost, childTerminalStatuses, terminalLists, closedParents],
   );
   const childrenFor = (hostKey: string) =>
     childDisplay[hostKey]?.displayed ?? [];
@@ -611,7 +621,9 @@ function WorkspaceFrameInner({
   const terminalViewIds = useRef(new Map<string, string>());
   const [tabs, setTabs] = useState<WorkspaceTab[]>([]);
   const [activeTabId, setActiveTabId] = useState("");
-  const [tabVisitHistory, setTabVisitHistory] = useState<string[]>([]);
+  const [tabVisitHistories, setTabVisitHistories] = useState<
+    Record<string, string[]>
+  >({});
   const shownMobileTab = useRef<{ scope: string; id: string } | undefined>(
     undefined,
   );
@@ -640,12 +652,9 @@ function WorkspaceFrameInner({
     prefill?: WorktreePrefill & { id: number };
   }>();
   const [creationOpen, setCreationOpen] = useState(false);
-  const [removalTarget, setRemovalTarget] = useState<{
-    host: HostInfo;
-    path: string;
-    cleanup: boolean;
-    label?: string;
-  }>();
+  const removalState = useWorktreeRemovalFlow();
+  const removalTarget = removalState.target;
+  const setRemovalTarget = worktreeRemovalFlow.open;
   const [shellPickerOpen, setShellPickerOpen] = useState(false);
   const pendingDockPosition = useRef<
     { groupId: string; direction: DropDirection } | undefined
@@ -965,6 +974,26 @@ function WorkspaceFrameInner({
     [isMobile, onLastWorkspaceTargetChange, selectedTarget, setOpenMobile],
   );
 
+  useEffect(() => {
+    if (!selectedTarget) return;
+    const { host, folder, worktree } = selectedTarget;
+    const currentFolder = (histories[host.publicKey] ?? []).find(
+      (item) => item.workspacePath === folder.workspacePath,
+    );
+    const removing =
+      locallyRemoving(removalState, host.publicKey, worktree.path) ||
+      currentFolder?.worktrees?.some(
+        (item) => item.path === worktree.path && item.removing,
+      );
+    if (!removing) return;
+    openTarget(
+      host,
+      currentFolder ?? folder,
+      (currentFolder ?? folder).worktrees?.find((item) => item.primary),
+      false,
+    );
+  }, [histories, removalState, selectedTarget, openTarget]);
+
   // PC reopens the last worktree. Mobile starts from its first screen.
   useEffect(() => {
     if (isMobile || selectedTarget || !lastWorkspaceTarget) return;
@@ -1123,6 +1152,17 @@ function WorkspaceFrameInner({
         selectedTarget.worktree.path,
       )
     : "";
+  const tabVisitHistory = tabVisitHistories[scope] ?? [];
+  const setTabVisitHistory = useCallback(
+    (update: string[] | ((current: string[]) => string[])) => {
+      setTabVisitHistories((current) => ({
+        ...current,
+        [scope]:
+          typeof update === "function" ? update(current[scope] ?? []) : update,
+      }));
+    },
+    [scope],
+  );
 
   const nativeMobileRef = useRef(state.initial?.mobile);
   nativeMobileRef.current = state.initial?.mobile;
@@ -1169,8 +1209,11 @@ function WorkspaceFrameInner({
         const pending = pendingLayoutSaves.current[targetScope];
         if (pending) {
           if (layoutScope.current !== targetScope) return;
-          setTabs(pending.tabs);
-          setActiveTabId(pending.activeTabId ?? pending.tabs[0]?.id ?? "");
+          tabsRef.current = pending.tabs;
+          activeTabRef.current =
+            pending.activeTabId ?? pending.tabs[0]?.id ?? "";
+          setTabs(tabsRef.current);
+          setActiveTabId(activeTabRef.current);
           lastLayout.current = pending.layout;
           mobileClosedTabs.current = pending.mobileClosedTabs ?? [];
           viewStates.current = pending.views ?? {};
@@ -1344,10 +1387,13 @@ function WorkspaceFrameInner({
             title: "Start",
             target,
           });
-        setTabs(restoredTabs);
-        setActiveTabId(
-          saved?.activeTabId || templateActive || restoredTabs[0]?.id || "",
-        );
+        // A closing View can save while React is committing the new layout.
+        // Keep the synchronous snapshot aligned with the new scope first.
+        tabsRef.current = restoredTabs;
+        activeTabRef.current =
+          saved?.activeTabId || templateActive || restoredTabs[0]?.id || "";
+        setTabs(tabsRef.current);
+        setActiveTabId(activeTabRef.current);
         lastLayout.current = saved?.layout ?? templateLayout;
         mobileClosedTabs.current = saved?.mobileClosedTabs ?? [];
         viewStates.current = saved?.views ?? {};
@@ -1377,7 +1423,6 @@ function WorkspaceFrameInner({
     layoutScope.current = scope;
     layoutSaved.current = false;
     setMaximizedGroup(undefined);
-    setTabVisitHistory([]);
     setFileHistoryRequest(undefined);
     closedPanels.current.clear();
     if (!scope) {
@@ -1533,7 +1578,7 @@ function WorkspaceFrameInner({
       activeTabRef.current = id;
       setActiveTabId(id);
     },
-    [isMobile, scope],
+    [isMobile, scope, setTabVisitHistory],
   );
 
   const showPanel = (id: string) => {
@@ -2039,7 +2084,16 @@ function WorkspaceFrameInner({
     onRefresh: () => {
       if (currentHostKey) void loadTerminals(currentHostKey);
     },
-    onClosed: (terminalId) => removeTerminal(currentHostKey, terminalId),
+    onClosed: (terminalId) => {
+      setClosedParents((current) => ({
+        ...current,
+        [currentHostKey]: new Set([
+          ...(current[currentHostKey] ?? []),
+          terminalId,
+        ]),
+      }));
+      removeTerminal(currentHostKey, terminalId);
+    },
     t,
   });
   const closeTerminal = (terminalId: string) => {
@@ -2693,6 +2747,7 @@ function WorkspaceFrameInner({
     openMobile,
     setOpenMobile,
     tabVisitHistory,
+    setTabVisitHistory,
     tabs,
     visitedTargets,
     openTarget,
@@ -3492,7 +3547,7 @@ function WorkspaceFrameInner({
         {t("Discard the layout and open")}
       </Button>
     </div>
-  ) : !layoutReady || boardToOpen ? null : isMobile ? (
+  ) : !layoutReady || boardToOpen || viewToOpen ? null : isMobile ? (
     <MobileWorkspace
       name={targetName}
       branch={target.worktree.branch}
@@ -3869,18 +3924,11 @@ function WorkspaceFrameInner({
       {terminalClose.dialog}
       {removalTarget && (
         <WorktreeRemoval
+          key={`${removalTarget.host.publicKey}:${removalTarget.path}:${removalTarget.failures ? "retry" : "initial"}`}
           {...removalTarget}
           t={t}
           onClose={() => setRemovalTarget(undefined)}
-          onRemoved={(paths) => {
-            void refreshHistory(removalTarget.host.publicKey);
-            setVisitedTargets((targets) =>
-              targets.filter(
-                (target) =>
-                  target.host.publicKey !== removalTarget.host.publicKey ||
-                  !paths.includes(target.worktree.path),
-              ),
-            );
+          onStarted={(paths) => {
             if (
               selectedTarget?.host.publicKey === removalTarget.host.publicKey &&
               paths.includes(selectedTarget.worktree.path)
@@ -3892,6 +3940,16 @@ function WorkspaceFrameInner({
                 false,
               );
             }
+          }}
+          onRemoved={(paths) => {
+            void refreshHistory(removalTarget.host.publicKey);
+            setVisitedTargets((targets) =>
+              targets.filter(
+                (target) =>
+                  target.host.publicKey !== removalTarget.host.publicKey ||
+                  !paths.includes(target.worktree.path),
+              ),
+            );
           }}
         />
       )}

@@ -33,6 +33,7 @@ export function PathMenu({
   separateActions = true,
   locale = "en",
   selectable = false,
+  showIcons = true,
 }: {
   children: ReactNode;
   path: string;
@@ -44,6 +45,7 @@ export function PathMenu({
   locale?: string;
   /** Text surfaces leave touch long-press and selection to the OS. */
   selectable?: boolean;
+  showIcons?: boolean;
 }) {
   const [error, setError] = useState(false);
   const [open, setOpen] = useState(false);
@@ -58,18 +60,17 @@ export function PathMenu({
       setError(true);
     }
   };
-  const renderAction = (item: MenuAction, inset = false) => (
+  const renderAction = (item: MenuAction) => (
     <ContextMenuItem
       key={item.action}
       data-iori-action={item.action}
       disabled={item.disabled}
-      inset={inset && !item.icon ? true : undefined}
       onSelect={(event) => {
         event.preventDefault();
         void run(item.run);
       }}
     >
-      {item.icon}
+      {showIcons && item.icon}
       {item.label}
       {item.shortcut && (
         <ContextMenuShortcut>{item.shortcut}</ContextMenuShortcut>
@@ -107,7 +108,7 @@ export function PathMenu({
         {children}
       </ContextMenuTrigger>
       <ContextMenuContent className="reading-context-menu" collisionPadding={8}>
-        {leadingActions.map((item) => renderAction(item, true))}
+        {leadingActions.map(renderAction)}
         {leadingActions.length > 0 && <ContextMenuSeparator />}
         <ContextMenuItem
           onSelect={(event) => {
@@ -116,7 +117,7 @@ export function PathMenu({
           }}
           data-iori-action="copy-path"
         >
-          <Copy />
+          {showIcons && <Copy />}
           {ja ? "パスをコピー" : "Copy path"}
         </ContextMenuItem>
         {lines && (
@@ -131,7 +132,7 @@ export function PathMenu({
             }}
             data-iori-action="copy-line-path"
           >
-            <ListTree />
+            {showIcons && <ListTree />}
             {ja ? "行番号付きのパスをコピー" : "Copy path with line"}
           </ContextMenuItem>
         )}

@@ -114,6 +114,9 @@
 }
 
 .v9-settings-section-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   padding: var(--space-2) var(--space-2) var(--space-2);
   color: var(--muted-foreground);
   font-size: 0.86rem;
@@ -161,7 +164,7 @@
 }
 
 .v9-settings-row [data-slot="select-trigger"] {
-  width: 180px;
+  width: 232px;
   min-width: 140px;
   flex-shrink: 0;
 }
@@ -399,10 +402,6 @@
 }
 
 @media (max-width: 1100px) {
-  .v9-settings-pane {
-    grid-template-columns: 126px minmax(0, 1fr);
-  }
-
   .v9-settings-nav {
     padding: var(--space-2) var(--space-2);
   }
@@ -411,7 +410,7 @@
     height: auto;
     min-height: 28px;
     padding: var(--space-2) var(--space-2);
-    white-space: normal;
+    white-space: nowrap;
   }
 
   .v9-settings-section-title {
@@ -647,6 +646,12 @@
   width: 100%;
   margin-bottom: var(--space-3);
 }
+.settings-nav > [data-iori-action="register-new-host"] > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .settings-content .page-body > .field-row {
   margin-bottom: var(--space-4);
 }
@@ -765,7 +770,7 @@
   .section-body
   > .v9-settings-row
   [data-slot="select-trigger"] {
-  width: 180px;
+  width: 232px;
   min-width: 0;
 }
 .settings-content .section-body > .section-heading {
@@ -980,16 +985,6 @@
   display: flex;
   justify-content: flex-end;
   gap: var(--space-2);
-}
-
-.device-badge[data-iori-state="this-device"] {
-  background: var(--secondary);
-  color: var(--secondary-foreground);
-}
-
-.dark .device-badge[data-iori-state="this-device"] {
-  background: var(--popover);
-  color: var(--popover-foreground);
 }
 
 .site-token-field > .field-control {

@@ -191,6 +191,7 @@ export interface WorktreeRemovalItem {
   changes: { files: number; added: number; removed: number };
   commits?: number;
   detachedCommits?: number;
+  rebasingBranch?: string;
   target?: string;
   merged: boolean;
   /** The branch goes with the worktree without asking: merged or no commits. */
@@ -223,8 +224,21 @@ export interface WorktreeRemovalPreview {
   /** Work that stops with the deletion, in the order the dialog shows it. */
   working?: WorktreeRemovalWorking[];
 }
+export interface WorktreeRemovalOutcome {
+  path: string;
+  removed: boolean;
+  error?: string;
+  /** Git refused because the worktree is locked; `reason` is the lock's own text. */
+  locked?: { reason?: string };
+  /** CLIs, Terminals or children were stopped before the failure. */
+  stopped?: boolean;
+  /** Git's own message for a failure that is not a lock. */
+  gitOutput?: string;
+  /** The worktree is gone but its branch could not be deleted. */
+  branchRemains?: boolean;
+}
 export interface WorktreeRemovalResult {
-  outcomes: { path: string; removed: boolean; error?: string }[];
+  outcomes: WorktreeRemovalOutcome[];
 }
 
 export const MAX_FRAME_BYTES = 4 * 1024 * 1024;
@@ -404,6 +418,8 @@ export interface Worktree {
   detached: boolean;
   primary: boolean;
   merged?: boolean;
+  /** The Host is deleting this worktree. */
+  removing?: boolean;
 }
 
 export interface FolderHistoryItem {
@@ -1619,6 +1635,9 @@ function parseWorktree(value: unknown): Worktree {
     ...(input.merged === undefined
       ? {}
       : { merged: boolean(input.merged, "merged") }),
+    ...(input.removing === undefined
+      ? {}
+      : { removing: boolean(input.removing, "removing") }),
   };
 }
 
@@ -1644,6 +1663,9 @@ function parseRemovalItem(value: unknown): WorktreeRemovalItem {
     input.detachedCommits > 0
       ? { detachedCommits: input.detachedCommits }
       : {}),
+    ...(input.rebasingBranch === undefined
+      ? {}
+      : { rebasingBranch: string(input.rebasingBranch, "rebasingBranch") }),
     ...(input.target === undefined
       ? {}
       : { target: string(input.target, "target") }),
@@ -1727,6 +1749,25 @@ function parseRemovalResult(value: unknown): WorktreeRemovalResult {
         ...(item.error === undefined
           ? {}
           : { error: string(item.error, "error") }),
+        ...(item.locked === undefined
+          ? {}
+          : {
+              locked: (() => {
+                const locked = record(item.locked);
+                return locked.reason === undefined
+                  ? {}
+                  : { reason: string(locked.reason, "reason") };
+              })(),
+            }),
+        ...(item.stopped === undefined
+          ? {}
+          : { stopped: boolean(item.stopped, "stopped") }),
+        ...(item.gitOutput === undefined
+          ? {}
+          : { gitOutput: string(item.gitOutput, "gitOutput") }),
+        ...(item.branchRemains === undefined
+          ? {}
+          : { branchRemains: boolean(item.branchRemains, "branchRemains") }),
       };
     }),
   };
@@ -2457,7 +2498,6 @@ function parseEvent(value: unknown): Event | undefined {
       };
     case "cli.usage": {
       const usage = parseCliUsage(input.usage);
-      if (input.usage !== undefined && !usage) return undefined;
       return {
         type: "cli.usage",
         cliId: nonEmptyString(input.cliId, "cliId"),

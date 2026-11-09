@@ -178,6 +178,18 @@ test("単独CLIのiori ci listとlogはpush先のCIと失敗したjobのログ�
     );
     const log = await automationCommand(terminal, "log", ["ci", "log", "9"]);
     assert.equal(log.stdout, "first line\n⚙️ failed\nlast line\n\n");
+    forge.git("branch", "--unset-upstream");
+    const noPushList = await automationCommand(terminal, "no-push-list", [
+      "ci",
+      "list",
+    ]);
+    const noPushLog = await automationCommand(terminal, "no-push-log", [
+      "ci",
+      "log",
+      "9",
+    ]);
+    assert.equal(noPushLog.stdout, noPushList.stdout);
+    assert.match(noPushLog.stdout, /This branch has no push target/u);
   }));
 
 test("チーム外のCLIのioriはForgeを案内しチーム専用コマンドには理由を返す", (t) =>

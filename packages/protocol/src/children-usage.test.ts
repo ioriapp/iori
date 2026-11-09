@@ -66,9 +66,9 @@ test("Client checks the shape and numeric ranges of usage windows received from 
     { windows: "all" },
   ]) {
     assert.equal(parseCliUsage(value), undefined);
-    assert.equal(
+    assert.deepEqual(
       eventSchema.parse({ type: "cli.usage", cliId: "codex", usage: value }),
-      undefined,
+      { type: "cli.usage", cliId: "codex" },
     );
     const parsed = parseResponse("cli.list", {
       ok: true,

@@ -256,6 +256,7 @@ function AppContent({
   const preferencesReady = useRef(false);
   const preferencesDirty = useRef(false);
   const pendingPreferences = useRef<Preferences | undefined>(undefined);
+  const failedPreferences = useRef<Preferences | undefined>(undefined);
   const preferencesQueue = useRef<Promise<void>>(Promise.resolve());
   const attemptedSidebarCleanups = useRef(new Set<string>());
   const [preferencesError, setPreferencesError] = useState<"load" | "save">();
@@ -393,23 +394,32 @@ function AppContent({
         : "light"
       : preferences.theme;
 
-  const savePreferences = useCallback((value: Preferences) => {
+  const savePreferences = useCallback((value: Preferences, restore = false) => {
     pendingPreferences.current = value;
     if (!preferencesReady.current) return Promise.resolve(false);
+    const displayed = preferencesRef.current;
     let saved = true;
+    let snapshot: Preferences | undefined;
     preferencesQueue.current = preferencesQueue.current
       .catch(() => undefined)
       .then(async () => {
-        const snapshot = pendingPreferences.current;
+        snapshot = pendingPreferences.current;
         if (!snapshot) return;
         await native.saveClientPreferences(snapshot);
         savedPreferences.current = snapshot;
-        if (pendingPreferences.current === snapshot)
+        failedPreferences.current = undefined;
+        if (pendingPreferences.current === snapshot) {
           pendingPreferences.current = undefined;
+          if (restore && preferencesRef.current === displayed) {
+            preferencesRef.current = snapshot;
+            setPreferences(snapshot);
+          }
+        }
         setPreferencesError(undefined);
       })
       .catch(() => {
         saved = false;
+        failedPreferences.current = pendingPreferences.current ?? snapshot;
         pendingPreferences.current = undefined;
         preferencesRef.current = savedPreferences.current;
         setPreferences(savedPreferences.current);
@@ -621,7 +631,12 @@ function AppContent({
 
   const retryPreferences = () => {
     if (preferencesError === "save") {
-      savePreferences(pendingPreferences.current ?? preferencesRef.current);
+      savePreferences(
+        pendingPreferences.current ??
+          failedPreferences.current ??
+          preferencesRef.current,
+        true,
+      );
       return;
     }
     void loadPreferences();

@@ -262,8 +262,10 @@ function GitHubAccountSetting({
   const [error, setError] = useState(false);
   const pending = useRef<Promise<boolean>>(Promise.resolve(true));
   const selection = useRef(value);
+  const saved = useRef(value);
   const dirty = useRef(false);
   useEffect(() => {
+    saved.current = value;
     if (!dirty.current) {
       selection.current = value;
       setSelected(value);
@@ -282,14 +284,15 @@ function GitHubAccountSetting({
           { path, githubAccount: next },
         );
         if (!response?.ok) throw new Error();
+        saved.current = next;
         if (selection.current === next) dirty.current = false;
         return true;
       } catch {
         if (selection.current === next) {
           setError(true);
-          selection.current = value;
+          selection.current = saved.current;
           dirty.current = false;
-          setSelected(value);
+          setSelected(saved.current);
         }
         return false;
       }
