@@ -315,8 +315,13 @@ hooks を持つ CLI は、CLI の設定へ iori の hook のコマンドを書�
   - 起動: バージョンや OS に依る引数（Codex の共有 server を使わない起動、Windows だけのフォルダーの許可、Codex の read-only の permission profile）、Codex の `-c` の値の引用、Claude Code の `--allowedTools` の組み立て、チームの環境変数、通信フォルダー
   - hooks: 書き込み先と出来事の対応の全て（道具の中身の表示、道具の名前による質問待ち、出来事ごとの返事、Claude Code の Esc で待ちを解く処理、直前の状態に依る判断、Codex の hook の信頼の記録、バージョンによる hooks の可否を含む）
   - モデル・Effort・許可を構造で返す候補の取得
+- 同梱の定義にも、定義で表せない処理だけをコードで持つ物がある。Muse Code のモデル一覧は CLI のコマンドが無いので、MSP（`muse serve`、stdio の JSON-RPC）で `initialize` → `initialized` の通知 → `model/list` を送って取る（`apps/host/src/cli/muse-code/models.ts`）。
 - 正式対応の利用枠・トークン量は、本物の CLI の出力を記録した試験で正しさを保証する。定義ファイルのスクリプトから得た値は保証しない。
 - Records と画面では、正式対応の値と定義ファイルの値を区別しない。正式対応以外の CLI の値が参考値であることは、ユーザー向けの文書（README）に書く。
+
+## 同梱の定義の個別の事情
+
+- **Muse Code**（Meta、`muse`。#328）: user hooks・project hooks・plugin の hooks には親の環境変数が渡らない（`HOME`・`PATH` など決まった変数と `MUSE_SESSION_ID` だけ）。環境変数を渡せる managed hooks を `hooks.link` で使う。`~/.config/muse/settings.json` は `"schema_version": 1` が必須で、無いと Muse の全コマンドが起動しない。利用枠は `muse usage --json`（モデルを呼ばない。窓の長さは出力に無く、公式の説明から5時間と週）、トークン量は会話の記録（`~/.local/share/muse/sessions/…/session.jsonl`）の provider の量をバックグラウンドの処理も含めて足す（TUI の `/usage` の合計と同じ）。シェルの道具は OS のサンドボックスで動き、作業ディレクトリの外へ書けず、作業ディレクトリの中の `.git` も読み取り専用なので、サンドボックスありのチームの子は `iori report` と commit ができない見込み（未確認）。サブスクは学習へのデータ利用（Contributor mode）が初期値で有効。
 
 ## 今後
 

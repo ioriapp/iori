@@ -93,7 +93,10 @@ import { ToolActivity, type CliHooks, type HookState } from "../cli/hooks.ts";
 import { cliDefinitions, withCurrentCliIcon } from "../cli/definitions.ts";
 import type { CliRegistry } from "../cli/registry.ts";
 import { readCommonHook } from "../cli/common-hook.ts";
-export type RuntimeCli = Pick<CliRegistry, "launch" | "refreshUsage">;
+export type RuntimeCli = Pick<
+  CliRegistry,
+  "launch" | "refreshUsage" | "resumeWithTeamPrompt"
+>;
 import {
   withCommandPath,
   cliStartup,
@@ -482,13 +485,14 @@ export class TerminalRuntime {
     const tokens = this.#runtimes.get(id)?.hookTokens;
     return tokens && tokens.sessionId === sessionId ? tokens.usage : undefined;
   }
-  canResumeWithInput(id: string): boolean {
+  async canResumeWithInput(id: string): Promise<boolean> {
     const saved = this.#store.terminalCli(id);
-    return (
-      !!saved?.session &&
-      !!cliDefinitions.find((definition) => definition.id === saved.cli.id)
-        ?.resumeWithInputArguments
-    );
+    if (!saved?.session) return false;
+    const definition = cliDefinitions.find((d) => d.id === saved.cli.id);
+    if (definition?.resumeWithInputArguments) return true;
+    const record = this.#store.terminal(id);
+    const shell = record && resolveShell(this.#shells, record.shell);
+    return !!shell && this.#clis.resumeWithTeamPrompt(saved.cli.id, shell);
   }
   async restartTeamTerminal(
     id: string,
@@ -515,10 +519,19 @@ export class TerminalRuntime {
     if (!runtime) runtime = this.#runtimeForStored(record);
     if (!runtime) return false;
     const shell = resolveShell(this.#shells, record.shell)!;
+    const teamPrompt =
+      !!options.team.initial &&
+      (await this.#clis.resumeWithTeamPrompt(saved.cli.id, shell));
     const launch = await this.#clis.launch(
       saved.cli.id,
       shell,
-      { ...options.team, initial: undefined },
+      {
+        ...options.team,
+        initial: teamPrompt
+          ? // One line: cmd /c stops reading its command at a line break.
+            `Read ${options.team.instructionFile} and follow its instructions. ${options.team.initial}`
+          : undefined,
+      },
       { cwd: record.cwd, waitForVersion: true, arguments: args },
     );
     await this.#runSerial(runtime, async () => {
@@ -531,9 +544,8 @@ export class TerminalRuntime {
       runtime.initialArgumentDelivered = initialArgs
         ? options.initialDelivered
         : undefined;
-      runtime.initialDeliveryIds = initialArgs
-        ? options.initialDeliveryIds
-        : undefined;
+      runtime.initialDeliveryIds =
+        initialArgs || teamPrompt ? options.initialDeliveryIds : undefined;
       runtime.hooks = saved.observed ? definition?.hooks : undefined;
       this.#store.setTerminalCli(id, {
         ...saved,
@@ -549,6 +561,11 @@ export class TerminalRuntime {
           })),
         !options.role ? launch?.env : undefined,
       );
+      if (teamPrompt && launch) {
+        options.initialDelivered?.();
+        runtime.initialDeliveryIds = undefined;
+        this.#saveCli(runtime);
+      }
       this.#publish({
         type: "terminal.updated",
         terminal: this.#summary(record),

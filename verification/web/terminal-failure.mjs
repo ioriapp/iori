@@ -1,7 +1,18 @@
 import { DatabaseSync } from "node:sqlite";
-import { writeFile } from "node:fs/promises";
+import { copyFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { stripVTControlCharacters } from "node:util";
+
+export async function saveOpenCodeLog(dataRoot, evidence) {
+  try {
+    await copyFile(
+      join(dataRoot, "opencode/log/opencode.log"),
+      join(evidence, "opencode.log"),
+    );
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
+}
 
 export async function saveOpenTerminalTails(page, dataRoot, evidence) {
   const open = await page.evaluate(`(() => {

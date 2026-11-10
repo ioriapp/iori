@@ -201,6 +201,7 @@ export class CliRegistry {
             ? {
                 id: definition.id,
                 name: definition.name,
+                launchEffort: definition.launchEffort,
                 ...edit,
                 missing: true,
                 hidden: this.#store.cliHidden(definition.id),
@@ -253,6 +254,7 @@ export class CliRegistry {
           modelCatalog: _modelCatalog,
           session: _session,
           resumeWithInputArguments: _resumeWithInputArguments,
+          resumeWithTeamPrompt: _resumeWithTeamPrompt,
           resumeArguments: _resumeArguments,
           command: _command,
           hooks: _hooks,
@@ -799,6 +801,21 @@ export class CliRegistry {
     return definition?.commandLine ? resolved : invocation(resolved, shell);
   }
 
+  async resumeWithTeamPrompt(
+    id: string,
+    shell: ShellDefinition,
+  ): Promise<boolean> {
+    const definition = cliDefinitions.find((cli) => cli.id === id);
+    if (!definition?.resumeWithTeamPrompt) return false;
+    const resolved =
+      this.#resolved.get(shell.executable)?.get(id) ??
+      (await this.#resolve(definition, shell));
+    if (!resolved) return false;
+    const probe = await this.#probeVersion(id, shell, resolved);
+    await probe.pending;
+    return definition.resumeWithTeamPrompt(probe.version);
+  }
+
   async launch(
     id: string,
     shell: ShellDefinition,
@@ -848,6 +865,7 @@ export class CliRegistry {
       modelCatalog: _modelCatalog,
       session: _session,
       resumeArguments: _resumeArguments,
+      resumeWithTeamPrompt: _resumeWithTeamPrompt,
       command: _command,
       hooks,
       launchArguments,

@@ -1113,4 +1113,30 @@ export async function teamsScenario({
   await screen.click(researchRow);
   await screen.wait('[data-iori-tab-cli="codex"]');
   await record("未設定の親を編集して保存し、チームを開始");
+
+  const effortTeamId = await screen.evaluate(
+    `(async()=>{const {connection}=await import('/src/connection.ts');const host=connection.getSnapshot().host.publicKey;const read=await connection.requestHost(host,'teams.read',{teamId:${JSON.stringify(teamId)}});if(!read.ok)throw new Error('team read failed');const definition=structuredClone(read.result.saved);definition.name='Effort';definition.roles[0].candidates.medium=[{id:crypto.randomUUID(),cli:'opencode',model:'opencode/not-in-list',effort:'high',tools:[],minimum:''}];definition.roles[0].split=false;const created=await connection.requestHost(host,'teams.create',{definition});if(!created.ok)throw new Error('team create failed');return created.result.saved.id;})()`,
+  );
+  await screen.click(action("open-agents-teams"));
+  await screen.click(inTeam(action("teams-list")));
+  await screen.click(
+    inTeam(`.team-list [data-iori-team-id="${effortTeamId}"]`),
+  );
+  await screen.click(templateWorker(effortTeamId));
+  await waitFor(
+    () =>
+      screen.visible(
+        inTeam(
+          '.team-candidate-row:not(.team-candidate-missing) [data-iori-cli="opencode"][data-iori-model="opencode/not-in-list"]',
+        ),
+      ),
+    Boolean,
+  );
+  assert.equal(
+    await screen.evaluate(
+      `document.querySelectorAll('${surface} .team-candidate-row .team-candidate-effort button').length`,
+    ),
+    0,
+  );
+  await record("保存済みの一覧に無いOpenCodeモデルにはEffortの操作を出さない");
 }

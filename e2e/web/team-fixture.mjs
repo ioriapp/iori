@@ -502,6 +502,30 @@ export async function prepareTeamScenario({
     return;
   }
   if (opencodeOnly) {
+    const answerReportApproval = async (status, answered, reportText) => {
+      if (status?.attention?.kind !== "approval" || answered.has(status.since))
+        return false;
+      const { tool, summary = "" } = status.attention;
+      assert.equal(tool, opencodeV2 ? "shell" : "bash");
+      const report = new RegExp(
+        `^(?:[\\w./-]*/)?iori\\s+report\\s+--body\\s+(["']?)${reportText}\\1\\s*$`,
+        "u",
+      ).test(summary);
+      const discovery =
+        ["command -v iori", "which iori", "type iori", "iori --help"].includes(
+          summary.trim(),
+        ) ||
+        /^command -v iori; iori --help 2>&1 \| head -\d+$/u.test(
+          summary.trim(),
+        );
+      assert.ok(report || discovery, `unexpected approval: ${summary}`);
+      await typeTerminal(client, "");
+      await observed(client, "Permission required");
+      answered.add(status.since);
+      // OpenCode 1.19.2 selects Allow once first in its permission prompt.
+      await screen.key("Enter");
+      return report;
+    };
     await parentCommand([
       "delegate",
       "--role",
@@ -563,6 +587,7 @@ export async function prepareTeamScenario({
         fakeMarker("opencode-report"),
     ]);
     const answered = new Set();
+    let reportApproved = false;
     const result = await waitForOperation(
       "チーム: OpenCodeの報告",
       async () => {
@@ -572,33 +597,26 @@ export async function prepareTeamScenario({
         const status = await screen.evaluate(
           `(async()=>{const {connection}=await import('/src/connection.ts');const r=await connection.requestHost(connection.getSnapshot().host.publicKey,'terminal.list',{});return r.result.terminals.find(t=>t.id===${JSON.stringify(child.terminalId)})?.cliStatus})()`,
         );
-        if (
-          status?.attention?.kind === "approval" &&
-          !answered.has(status.since)
-        ) {
-          const { tool, summary = "" } = status.attention;
-          assert.equal(
-            tool,
-            opencodeV2 ? "shell" : "bash",
-            "依頼書の外部フォルダー承認は出ず、報告のbashだけを許可する",
-          );
-          assert.match(summary, /iori.*report/u);
-          await typeTerminal(client, "");
-          await observed(client, "Permission required");
-          answered.add(status.since);
-          // OpenCode 1.19.2 selects Allow once first in its permission prompt.
-          await screen.key("Enter");
-        }
+        reportApproved =
+          (await answerReportApproval(
+            status,
+            answered,
+            "OPENCODE_REPORT_OK",
+          )) || reportApproved;
         return value;
       },
       (value) => ["reported", "failed"].includes(value.children[0].state),
       childFailure(teamRecords, (children) => children[0]),
     );
     assert.equal(result.children[0].state, "reported");
-    assert.ok(answered.size > 0, "報告のbashの承認に答えて完了する");
+    assert.ok(reportApproved, "報告のシェルの承認に答えて完了する");
+    assert.match(
+      await readFile(result.children[0].reportFiles.at(-1), "utf8"),
+      /OPENCODE_REPORT_OK/u,
+    );
     await screen.wait('[data-iori-child-state="reported"]');
     await record(
-      `無料OpenCodeは依頼書の外部フォルダー承認なしで読み取り、報告のbash承認${answered.size}回に答えて完了`,
+      `無料OpenCodeは依頼書を外部フォルダー承認なしで読み取り、探索・報告のシェル承認${answered.size}回に答えて完了`,
     );
     await waitForCliState(client, child.terminalId, ["idle", "done"]);
     await parentCommand(["stop", child.id]);
@@ -620,6 +638,7 @@ export async function prepareTeamScenario({
     ]);
     assert.match(resumed.text, /Message queued for resume/u);
     answered.clear();
+    reportApproved = false;
     const resumedReport = await waitForOperation(
       "チーム: 停止したOpenCodeへsendした依頼が同じ子へ届き報告する",
       async () => {
@@ -627,22 +646,18 @@ export async function prepareTeamScenario({
         const status = await screen.evaluate(
           `(async()=>{const {connection}=await import('/src/connection.ts');const r=await connection.requestHost(connection.getSnapshot().host.publicKey,'terminal.list',{});return r.result.terminals.find(t=>t.id===${JSON.stringify(child.terminalId)})?.cliStatus})()`,
         );
-        if (
-          status?.attention?.kind === "approval" &&
-          !answered.has(status.since)
-        ) {
-          assert.equal(status.attention.tool, opencodeV2 ? "shell" : "bash");
-          assert.match(status.attention.summary ?? "", /iori.*report/u);
-          await typeTerminal(client, "");
-          await observed(client, "Permission required");
-          answered.add(status.since);
-          await screen.key("Enter");
-        }
+        reportApproved =
+          (await answerReportApproval(
+            status,
+            answered,
+            "OPENCODE_RESUMED_REPORT_OK",
+          )) || reportApproved;
         return value;
       },
       (value) => value.children[0].reportFiles.length > reportsBeforeResume,
       childFailure(teamRecords, (children) => children[0]),
     );
+    assert.ok(reportApproved, "再開後の報告のシェルの承認に答える");
     assert.match(
       await readFile(resumedReport.children[0].reportFiles.at(-1), "utf8"),
       /OPENCODE_RESUMED_REPORT_OK/u,

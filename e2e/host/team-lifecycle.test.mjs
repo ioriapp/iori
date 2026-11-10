@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { runHostTest } from "../../verification/host/process.mjs";
 import { actorCommand } from "../../verification/host/scripted-definition.mjs";
@@ -318,4 +319,169 @@ test("失敗した候補の次の候補へ依頼と失敗理由を引き継ぐ",
       next.data.child,
     ]);
     assert.match(JSON.stringify(report), /Completed the work\./u);
+  }));
+
+test("OpenCode V2の再開は保留中の依頼を一つのpromptで渡し貼り付けない", (t) =>
+  runHostTest(t, async ({ client, dataRoot, stage }) => {
+    stage("本物のPTYとhookを使うOpenCode V2の台本を用意する");
+    const script = join(dataRoot, "opencode.mjs");
+    const hook = fileURLToPath(
+      new URL("../../apps/host/src/cli/hook-script.mjs", import.meta.url),
+    );
+    await writeFile(
+      script,
+      `
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+const args = process.argv.slice(2);
+if (args.includes("--version")) {
+  console.log("opencode v2.2.6");
+} else {
+  process.stdin.setRawMode(true);
+  let input = "";
+  process.stdin.on("data", data => {
+    input += data;
+    const check = input.indexOf("CHECK_INPUT");
+    if (check >= 0) {
+      console.log("OPENCODE_INPUT:" + JSON.stringify(input.slice(0, check)));
+      input = "";
+    }
+  });
+  const resume = args.includes("--session");
+  const prompt = args[args.indexOf("--prompt") + 1];
+  const files = resume
+    ? prompt.match(/Open the files (.+?) with your file-reading tool/u)[1].split(" and ")
+    : [];
+  const hook = (event, extra = {}) => execFileSync(process.execPath, [${JSON.stringify(hook)}, event, "-"], {
+    input: JSON.stringify({iori_cli: "opencode", sessionID: "session-child", ...extra}),
+  });
+  hook("session.status", {status: {type: "busy"}});
+  if (!resume) hook("permission.asked", {id: "approval", permission: "bash"});
+  process.stdout.write("\\x1b[?2004h\\x1b[?25h".replaceAll("\\x1b", "\u001b"));
+  console.log((resume ? "OPENCODE_RESUME:" : "OPENCODE_START:") + JSON.stringify({args, bodies: files.map(file => readFileSync(file, "utf8"))}));
+}
+`,
+    );
+    await client.request("cli.definition.save", {
+      definition: JSON.stringify({
+        schema: 1,
+        id: "opencode",
+        name: "OpenCode",
+        command: { shell: `'${process.execPath}' '${script}'` },
+        version: { args: ["--version"] },
+        launch: {
+          initialPrompt: { mode: "argument", args: ["--prompt", "{prompt}"] },
+        },
+        resume: { args: ["--session", "{sessionId}"] },
+      }),
+    });
+    // Keep the usual parent actor; only the worker candidate uses OpenCode.
+    const parentCli = await registerLifecycleCli(client, dataRoot, "parent");
+    const candidate = {
+      id: "opencode-worker",
+      cli: "opencode",
+      model: "",
+      tools: [],
+      minimum: "",
+    };
+    const team = await client.request("teams.create", {
+      definition: {
+        name: "OpenCode resume",
+        description: "",
+        instruction: "",
+        parent: { ...candidate, id: "parent", cli: parentCli },
+        roles: [
+          {
+            id: "worker",
+            name: "Worker",
+            when: "",
+            limit: "",
+            reuse: true,
+            split: false,
+            instruction: "",
+            request: "",
+            report: "",
+            candidates: { high: [], low: [], medium: [candidate] },
+          },
+        ],
+      },
+    });
+    await client.request("teams.settings", {
+      enabled: true,
+      defaultTeam: team.saved.id,
+      limits: {},
+    });
+    const events = await client.events();
+    await events.waitFor((e) => e.type === "snapshot");
+    const { terminal } = await client.request("team.launch", {
+      teamId: team.saved.id,
+      cwd: dataRoot,
+    });
+    const parent = await client.terminal(terminal.id);
+    await parent.output("LIFECYCLE_PARENT_INPUT:");
+    const context = { parent, events };
+    const first = await delegate(context, "first");
+    const child = await childTerminal(client, context, first.child);
+    await child.output("OPENCODE_START:");
+    stage("承認待ちの依頼を残して止める");
+    await actorCommand(parent, "first-message", [
+      "send",
+      first.child,
+      "--kind",
+      "answer",
+      "--body",
+      "First answer.",
+    ]);
+    await actorCommand(parent, "stop", ["stop", first.child]);
+    const pending = await actorCommand(parent, "pending", ["tasks"]);
+    assert.equal(
+      pending.data.children.find((entry) => entry.child === first.child)
+        .pendingMessages,
+      1,
+    );
+    stage("再開の一つのpromptに手引きと履歴と依頼が順に入る");
+    const resumedEvents = await client.events();
+    await resumedEvents.waitFor((e) => e.type === "snapshot");
+    await actorCommand(parent, "resume", [
+      "send",
+      first.child,
+      "--kind",
+      "request",
+      "--body",
+      "Second request.",
+    ]);
+    await resumedEvents.waitFor(
+      (e) =>
+        e.type === "teams.child.updated" &&
+        e.child.id === first.child &&
+        e.child.state === "running",
+    );
+    const terminalId = (
+      await client.request("teams.children", {})
+    ).children.find((entry) => entry.id === first.child).terminalId;
+    const resumedChild = await client.terminal(terminalId);
+    const output = await resumedChild.output("OPENCODE_RESUME:");
+    const resumed = JSON.parse(output.match(/OPENCODE_RESUME:(.+)\r?\n/u)[1]);
+    assert.equal(resumed.args.filter((arg) => arg === "--prompt").length, 1);
+    assert.equal(
+      resumed.args[resumed.args.indexOf("--session") + 1],
+      "session-child",
+    );
+    assert.ok(resumed.args.includes("--standalone"));
+    const prompt = resumed.args[resumed.args.indexOf("--prompt") + 1];
+    assert.match(prompt, /Read .+ and follow its instructions\./u);
+    assert.match(
+      prompt,
+      /The original request and previous parent messages are now available at/u,
+    );
+    assert.deepEqual(resumed.bodies, ["First answer.", "Second request."]);
+    stage("再開時にPTYへ貼り付けず未配送の記録が消える");
+    await resumedChild.input("CHECK_INPUT\r");
+    await resumedChild.output('OPENCODE_INPUT:""');
+    const delivered = await actorCommand(parent, "delivered", ["tasks"]);
+    assert.equal(
+      delivered.data.children.find((entry) => entry.child === first.child)
+        .pendingMessages,
+      undefined,
+    );
   }));

@@ -632,17 +632,18 @@ function ExecutionRow({
         />
         <div className="team-execution-options">
           <div className="team-candidate-effort">
-            {(!model || model.efforts.length > 0) && (
-              <>
-                <span className="team-mobile-cell-label">Effort</span>
-                <ShortSelect
-                  label="Effort"
-                  value={item.effort}
-                  options={effortOptions}
-                  onChange={(effort) => onChange({ effort })}
-                />
-              </>
-            )}
+            {usageCli?.launchEffort !== false &&
+              (!model || model.efforts.length > 0) && (
+                <>
+                  <span className="team-mobile-cell-label">Effort</span>
+                  <ShortSelect
+                    label="Effort"
+                    value={item.effort}
+                    options={effortOptions}
+                    onChange={(effort) => onChange({ effort })}
+                  />
+                </>
+              )}
           </div>
           <div className="team-candidate-permissions">
             <span className="team-mobile-cell-label">{t("Permissions")}</span>

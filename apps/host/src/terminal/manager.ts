@@ -234,12 +234,7 @@ export class TerminalManager {
     return this.#runtime.summary(id);
   }
   canResumeWithInput(id: string) {
-    const saved = this.#store.terminalCli(id);
-    return Boolean(
-      saved?.session &&
-      cliDefinitions.find((d) => d.id === saved.cli.id)
-        ?.resumeWithInputArguments,
-    );
+    return this.#runtime.canResumeWithInput(id);
   }
   #shell() {
     const result = this.#runtime.list();

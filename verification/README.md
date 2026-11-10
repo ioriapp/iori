@@ -60,6 +60,7 @@ Linuxの検証用debの導入・回収は `verification/native/linux-packages.mj
 - `verification/host/process.mjs` の `runHostTest(t, body)`（中で `startHostTest(t)`）が、試験ごとの一時の保存先・HOME・PATH（nodeとshellだけ）・Hostの鍵・port・Clientの鍵で本物のHostを別のプロセスで起動し、`t.after` で接続・Host・Terminalの係・一時のフォルダーを片付ける。返る `client` はClientと同じirohの口で `request`・`events`・`terminal` を送る。Hostの中の関数は差し替えない。
 - CLIは `verification/host/scripted-cli.mjs` の台本のCLIを `scripted-definition.mjs` の `registerScriptedCli` で公開の `cli.definition.save` から登録して使う。台本のCLIはHostが作った本物のPTYで動き、hookは製品の送り口、チームの操作はHostが渡した `iori` で送る。PTYへJSONの行を入れて `actorCommand` で結果を待つ。
 - 待つのはイベントとPTYの出力の到着だけにし、固定の待ち時間で成否を決めない。上限は `--test-timeout` に任せる。`body` に渡る `stage(名前)` で段の名前を付けると、失敗・打ち切りの時にその名前が出る。
+- 止めた子への `send` の成功は再開の受付で、PTY の再起動の完了ではない。再開した子の Terminal を開く前に、`send` の前に作った新しいイベントの購読で、その子の `teams.child.updated` が `state: "running"` になるのを待つ（先に開くと止まった Terminal の画面と終了が届き、`Hostの購読が終了しました` で落ちる。負荷のある CI でだけ起きた）。
 - 検証の道具がTerminalの係を止める・上限を付ける時は、そのsystemdのunitのWorkingDirectoryが検証の保存先の中かを確かめてから行う（`verification/terminal/daemon-process.mjs`）。隔離したPATHのHostは係を直接起動するので、係は試験を流したプロセスのcgroupを継ぐ。cgroupのunitの名前だけで止めると、iori のTerminalの中から流した時に日常のTerminalの係を止める（#317）。
 
 ## main 後の画面E2E
@@ -257,7 +258,7 @@ worktreeの削除は `pnpm e2e:web --only=worktree-removal` で、merge・squash
 
 `pnpm e2e:web --only=child-cli-failure` は、本物のCodex・Claude Code・OpenCodeの子を使えないモデル（OpenCodeは `verification/web/cli-error-fixture.mjs` の再試行しないHTTP 400）でエラーにし、子の行・Board・親への知らせに失敗とCLIの理由が出ること、親の `send` でRunningへ戻ることとHostの不在中の失敗が復元されることを確認する。再入力でRunningへ戻ることと `--continue` で次の候補へ依頼を渡すことは `e2e/host/team-lifecycle.test.mjs` で確認する。
 
-`pnpm e2e:web --only=opencode-delegation` は、親Claude Code（haiku）から、Effortを持つ保存済み候補のOpenCodeへ委譲し、子の報告までを確認する。V1は通常、認証を共有せず偽のResponses APIへ `openai/gpt-6-luna` で接続し（`--real-models` の時だけChatGPTのログインをsymlinkで共有）、V2は認証を共有せず `opencode/deepseek-v4.1-flash-free` を使う。CLIのHOME・データはチームの操作列と同じ専用の保存先を使う。 専用HOMEで `bash` と `external_directory` を `ask` に設定し、自動承認なしの子が製品pluginによって依頼書だけを追加承認なしで読み、報告コマンドの実行承認に答えて完了することを確認する。 停止した子へ親の `send` で追加依頼を送り、同じ会話で再開して報告できることも通す。報告も質問もない初回の応答終了では親への一行と `iori tasks --json` の `no_report` を確かめる（その後の回数と子ごとの宛先はHostの口からのE2E）。 V2では、同じ操作列の中で「＋」からの通常起動、作業中・質問待ちから回答後の完了、HostとTerminalの係の停止後の「再開」も通す。再開は会話に保存されたモデルを使い、起動ごとのモデル指定を付け直さない。
+`pnpm e2e:web --only=opencode-delegation` は、親Claude Code（haiku）から、Effortを持つ保存済み候補のOpenCodeへ委譲し、子の報告までを確認する。V1は通常、認証を共有せず偽のResponses APIへ `openai/gpt-6-luna` で接続し（`--real-models` の時だけChatGPTのログインをsymlinkで共有）、V2は認証を共有せず `opencode/deepseek-v4.1-flash-free` を使う。CLIのHOME・データはチームの操作列と同じ専用の保存先を使う。 専用HOMEで `bash` と `external_directory` を `ask` に設定し、自動承認なしの子が製品pluginによって依頼書だけを追加承認なしで読み、報告の前の `iori` の探索（`iori --help` など）と報告コマンドの実行承認に答えて完了（依頼書のフォルダーの外を求める承認は失敗にする）することを確認する。 停止した子へ親の `send` で追加依頼を送り、同じ会話で再開して報告できることも通す。報告も質問もない初回の応答終了では親への一行と `iori tasks --json` の `no_report` を確かめる（その後の回数と子ごとの宛先はHostの口からのE2E）。 V2では、同じ操作列の中で「＋」からの通常起動、作業中・質問待ちから回答後の完了、HostとTerminalの係の停止後の「再開」も通す。再開は会話に保存されたモデルを使い、起動ごとのモデル指定を付け直さない。
 
 V1（`opencode-ai`）とV2（`@opencode/cli`）を比べる時は、隔離した場所へ入れた版の実行ファイルを指す `opencode` を、そのrunのPATHの先頭へ置く。本人の `opencode` と `~/.config/opencode` は変えない。runのCLI一覧へ実際の版を記録し、V2の通常起動用モデルも専用HOMEだけに設定する。V2のシェル実行の承認はV2の正式名 `shell` で表示する。V2はTerminalごとの `--standalone` で起動し、チーム候補のモデルは `OPENCODE_CONFIG_CONTENT` で渡す。共有設定にV2専用の項目を書かず、V1/V2共通の1つの `iori-status.js` を使う。
 

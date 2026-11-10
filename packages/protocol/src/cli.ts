@@ -101,6 +101,8 @@ export interface CliSummary {
   customIcon?: boolean;
   version?: string;
   supportsUsage?: boolean;
+  /** Whether this CLI accepts an effort setting at launch. */
+  launchEffort?: boolean;
   usage?: CliUsage;
   startupArguments?: string;
   /** Only the CLI list carries where the definition comes from. */

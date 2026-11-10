@@ -4,7 +4,10 @@ import {
 } from "../../e2e/web/readme-shots.mjs";
 import { runReadmeThemes } from "./readme-shots.mjs";
 import { startFakeModel } from "../fake-model/server.mjs";
-import { setRealModels } from "../../e2e/fake-model/marker.mjs";
+import {
+  setFakeMarkerExcludedPrefixes,
+  setRealModels,
+} from "../../e2e/fake-model/marker.mjs";
 import { longApprovalCommand } from "../../e2e/fake-model/cli-status.mjs";
 import {
   basicWebScenarios,
@@ -562,6 +565,11 @@ try {
     // https://code.claude.com/docs/en/interactive-mode#shell-mode-with--prefix
     ...(teamScenario ? { respondToBashCommands: false } : {}),
   });
+  if (
+    only === "opencode-delegation" &&
+    Number(cliHome.versions.opencode?.match(/\bv?(\d+)\./u)?.[1]) >= 2
+  )
+    setFakeMarkerExcludedPrefixes(["opencode-"]);
   if (only === "automation-issue")
     await forgeTokenFixture.issueSetup.configureGit(cliHome.home);
   if (only === "team-notifications") {
@@ -1912,6 +1920,16 @@ input.on('line',async line=>{if(!line.startsWith('DELEGATE'))return;const option
   const redact = (value) =>
     value.replace(/iori:\/\/\S+|[a-zA-Z0-9_-]{64,}/g, "[redacted]");
   await writeFile(join(evidence, "host.log"), redact(hostLog.slice(-65536)));
+  if (
+    only === "opencode-delegation" &&
+    Number(cliHome?.versions.opencode?.match(/\bv?(\d+)\./u)?.[1]) >= 2 &&
+    process.env.XDG_DATA_HOME
+  ) {
+    const { saveOpenCodeLog } = await import("./terminal-failure.mjs");
+    await saveOpenCodeLog(process.env.XDG_DATA_HOME, evidence).catch(() => {
+      result.openCodeLogCaptureFailed = true;
+    });
+  }
   if (page) {
     const { saveOpenTerminalTails } = await import("./terminal-failure.mjs");
     await saveOpenTerminalTails(

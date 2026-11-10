@@ -1016,6 +1016,9 @@ function parseCliSummary(value: unknown): CliSummary {
     ...(typeof input.supportsUsage === "boolean"
       ? { supportsUsage: input.supportsUsage }
       : {}),
+    ...(typeof input.launchEffort === "boolean"
+      ? { launchEffort: input.launchEffort }
+      : {}),
     ...(usage ? { usage } : {}),
     ...(typeof input.startupArguments === "string"
       ? { startupArguments: input.startupArguments }

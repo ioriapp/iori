@@ -2322,7 +2322,7 @@ export class TeamManager {
     const instructions = await readFile(child.instructionFile!, "utf8");
     if (this.#closed || child.state !== "waiting") return;
     const pending = [...(child.pendingMessageFiles ?? [])];
-    const inputAsArgument = this.terminals.canResumeWithInput(
+    const inputAsArgument = await this.terminals.canResumeWithInput(
       child.terminalId!,
     );
     let historyLocation = "";

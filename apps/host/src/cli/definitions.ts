@@ -90,6 +90,8 @@ export interface CliDefinition extends CliSummary {
   session?: (
     payload: import("./hooks.ts").HookPayload,
   ) => import("@iori/protocol").CliSession | undefined;
+  /** Resume a team with its instructions and pending input in the launch prompt. */
+  resumeWithTeamPrompt?: (version?: string) => boolean;
   resumeWithInputArguments?: (
     session: import("@iori/protocol").CliSession,
     initial: string,
@@ -328,6 +330,7 @@ function codedDefinition(
     id: file.id,
     name: file.name,
     command: file.command,
+    launchEffort: !!file.launch.effort,
     ...(file.shell ? { commandLine: true as const } : {}),
     ...(file.aliases.length ? { aliases: file.aliases } : {}),
     ...(file.icon ? { icon: file.icon } : {}),
@@ -384,6 +387,22 @@ function codedDefinition(
   const definition: CliDefinition = {
     ...built,
     ...rest,
+    ...(code.modelCatalog
+      ? {
+          modelCatalog: async (shell, command, signal) => {
+            const result = await code.modelCatalog!(shell, command, signal);
+            const options = Object.keys(file.launch.permissions);
+            return result.permissions.length || !options.length
+              ? result
+              : {
+                  ...result,
+                  permissions: [
+                    { key: "permission", label: "Permissions", options },
+                  ],
+                };
+          },
+        }
+      : {}),
     ...(teamArguments
       ? {
           teamArguments: (launch) =>
@@ -395,7 +414,19 @@ function codedDefinition(
   return definition;
 }
 
-const codes: CliCode[] = [claude, codex, pi, opencode, cursor, antigravity];
+const codes: CliCode[] = [
+  claude,
+  { ...codex, launchEffort: true },
+  pi,
+  opencode,
+  cursor,
+  antigravity,
+  {
+    id: "muse-code",
+    modelCatalog: async (shell, command, signal) =>
+      (await import("./muse-code/models.ts")).models(shell, command, signal),
+  },
+];
 // Bundled definitions in the order of the CLI list. Each folder holds its
 // definition.json and, for an official CLI, the code layered over it.
 const bundledIds = [
