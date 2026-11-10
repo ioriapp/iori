@@ -1,0 +1,121 @@
+{
+  "schema": 1,
+  "id": "muse-code",
+  "name": "Muse Code",
+  "command": "muse",
+  "icon": { "light": "meta.svg" },
+  "version": { "args": ["--version"] },
+  "launch": {
+    "model": ["--model", "{model}"],
+    "effort": ["--reasoning-effort", "{effort}"],
+    "permissions": {
+      "on-request": ["--approval-mode", "on-request"],
+      "untrusted": ["--approval-mode", "untrusted"],
+      "never": ["--approval-mode", "never"],
+      "yolo": ["--yolo"]
+    },
+    "initialPrompt": { "mode": "argument", "args": ["{prompt}"] },
+    "managedArguments": [
+      { "names": ["--model"] },
+      { "names": ["--reasoning-effort", "--effort"] },
+      {
+        "names": ["--approval-mode"],
+        "alsoRemove": [{ "names": ["--yolo"], "arity": "none" }]
+      },
+      {
+        "names": ["--yolo"],
+        "arity": "none",
+        "alsoRemove": [{ "names": ["--approval-mode"] }]
+      }
+    ]
+  },
+  "resume": { "args": ["resume", "{sessionId}"] },
+  "usage": { "script": "usage.mjs" },
+  "hooks": {
+    "format": "claude-settings",
+    "file": {
+      "env": "XDG_CONFIG_HOME",
+      "default": "~/.config",
+      "path": "muse/iori-hooks.json"
+    },
+    "own": true,
+    "link": {
+      "file": {
+        "env": "XDG_CONFIG_HOME",
+        "default": "~/.config",
+        "path": "muse/settings.json"
+      },
+      "base": {
+        "schema_version": 1
+      },
+      "set": {
+        "managed_hooks_path": "{file}",
+        "managed_hooks_env_vars": ["IORI_CLI_HOOK_URL"]
+      }
+    },
+    "sessionId": "session_id",
+    "transcript": "transcript_path",
+    "toolId": "tool_use_id",
+    "rules": [
+      {
+        "event": "SessionStart",
+        "when": {
+          "source": "compact"
+        },
+        "ignore": true
+      },
+      {
+        "event": "SessionStart",
+        "state": "idle"
+      },
+      {
+        "event": "UserPromptSubmit",
+        "state": "active"
+      },
+      {
+        "event": "PreToolUse",
+        "state": "active",
+        "tool": "tool_name"
+      },
+      {
+        "event": "PostToolUse",
+        "toolFinished": true
+      },
+      {
+        "event": "PostToolUseFailure",
+        "toolFinished": true
+      },
+      {
+        "event": "PermissionRequest",
+        "state": "waiting",
+        "attention": "approval",
+        "tool": "tool_name"
+      },
+      {
+        "event": "Stop",
+        "when": {
+          "stop_hook_active": true
+        },
+        "ignore": true
+      },
+      {
+        "event": "Stop",
+        "state": "done",
+        "response": "last_assistant_message"
+      },
+      {
+        "event": "StopFailure",
+        "state": "done",
+        "outcome": "failure",
+        "failure": ["error_details", "error"]
+      },
+      {
+        "event": "SessionEnd",
+        "state": "stopped"
+      }
+    ]
+  },
+  "tokens": {
+    "script": "tokens.mjs"
+  }
+}

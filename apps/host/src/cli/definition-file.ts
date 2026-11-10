@@ -36,6 +36,11 @@ export interface DefinitionFileHooks {
   syntax: HookSyntax;
   /** iori's own file: what it holds besides iori's items (`base`). */
   own?: Record<string, unknown>;
+  link?: {
+    file: DefinitionPath;
+    base: Record<string, unknown>;
+    set: Record<string, unknown>;
+  };
   /** The keys from the top of the file to the table or array. */
   at: string[];
   /** The item of one event, with `{event}` and `{command}` to fill. */
@@ -391,6 +396,21 @@ function hooks(value: unknown): DefinitionHooks | undefined {
   const file = path(input.file, "hooks.file");
   const own = input.own !== undefined && flag(input.own, "hooks.own");
   const base = input.base === undefined ? {} : fields(input.base, "hooks.base");
+  let link: DefinitionFileHooks["link"];
+  if (input.link !== undefined) {
+    if (!own) fail({ kind: "values", field: "hooks.own", values: ["true"] });
+    const value = fields(input.link, "hooks.link");
+    const set = fields(value.set, "hooks.link.set");
+    for (const key of Object.keys(set))
+      if (!key || key.includes("."))
+        fail({ kind: "type", field: "hooks.link.set", type: "object" });
+    link = {
+      file: path(value.file, "hooks.link.file"),
+      base:
+        value.base === undefined ? {} : fields(value.base, "hooks.link.base"),
+      set,
+    };
+  }
   const entry =
     format === "claude-settings"
       ? undefined
@@ -401,6 +421,7 @@ function hooks(value: unknown): DefinitionHooks | undefined {
     format,
     file,
     ...(own ? { own: base } : {}),
+    ...(link ? { link } : {}),
     at: format === "claude-settings" ? ["hooks"] : keys(input.at, "hooks.at"),
     ...(entry ? { entry } : {}),
     ...optionalName("sessionId"),

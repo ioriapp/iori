@@ -343,3 +343,86 @@ test("プラグインの定義削除ではioriが置いたファイルだけ消�
     await client.request("cli.definition.remove", { cliId: "foreign-cli" });
     assert.equal(await readFile(foreign, "utf8"), "user plugin\n");
   }));
+
+// A linked hook must preserve the CLI's settings and remove only iori's keys.
+for (const existing of ["missing", "user", "conflict"]) {
+  test(`専用hooksのlinkは設定を保って取り付け・削除する: ${existing}`, (t) =>
+    runHostTest(t, async ({ client, dataRoot, stage }) => {
+      const settings = join(dataRoot, "settings.json");
+      const own = join(dataRoot, "iori-hooks.json");
+      const actor = join(dataRoot, "linked-cli.mjs");
+      await writeFile(
+        actor,
+        'console.log("LINK_READY"); process.stdin.resume();\n',
+      );
+      const original =
+        existing === "conflict"
+          ? { schema_version: 1, managed_hooks_path: "user-hooks.json" }
+          : { schema_version: 1, theme: "dark" };
+      if (existing !== "missing")
+        await writeFile(settings, JSON.stringify(original));
+      const value = {
+        ...definition("linked-cli"),
+        command: { shell: `'${process.execPath}' '${actor}'` },
+        hooks: {
+          format: "claude-settings",
+          file: own,
+          own: true,
+          link: {
+            file: settings,
+            base: { schema_version: 1 },
+            set: {
+              managed_hooks_path: "{file}",
+              managed_hooks_env_vars: ["IORI_CLI_HOOK_URL"],
+            },
+          },
+          rules: [{ event: "Stop", state: "done" }],
+        },
+      };
+      stage("設定ファイルを確認して定義のCLIを起動する");
+      const checked = await client.request("cli.definition.check", {
+        definition: JSON.stringify(value),
+      });
+      assert.deepEqual(checked.summary.settings, [own, settings]);
+      await client.request("cli.definition.save", {
+        definition: JSON.stringify(value),
+      });
+      const { terminal } = await client.request("cli.launch", {
+        cliId: value.id,
+        cwd: dataRoot,
+      });
+      await (await client.terminal(terminal.id)).output("LINK_READY");
+      const installed = JSON.parse(await readFile(settings, "utf8"));
+      if (existing === "conflict") {
+        assert.equal(
+          await readFile(settings, "utf8"),
+          JSON.stringify(original),
+        );
+        await assert.rejects(readFile(own), { code: "ENOENT" });
+      } else {
+        assert.deepEqual(installed, {
+          ...(existing === "missing" ? { schema_version: 1 } : original),
+          managed_hooks_path: own,
+          managed_hooks_env_vars: ["IORI_CLI_HOOK_URL"],
+        });
+        assert.ok(JSON.parse(await readFile(own, "utf8")).hooks.Stop);
+        if (existing === "user") {
+          // A user's edit after installation must survive cleanup too.
+          installed.managed_hooks_env_vars = ["USER_HOOK_ENV"];
+          await writeFile(settings, JSON.stringify(installed));
+        }
+      }
+      stage("定義を削除し、利用者の設定だけを残す");
+      await client.request("cli.definition.remove", { cliId: value.id });
+      await assert.rejects(readFile(own), { code: "ENOENT" });
+      if (existing === "missing")
+        await assert.rejects(readFile(settings), { code: "ENOENT" });
+      else
+        assert.deepEqual(JSON.parse(await readFile(settings, "utf8")), {
+          ...original,
+          ...(existing === "user"
+            ? { managed_hooks_env_vars: ["USER_HOOK_ENV"] }
+            : {}),
+        });
+    }));
+}

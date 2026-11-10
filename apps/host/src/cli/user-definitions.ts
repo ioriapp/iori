@@ -3,6 +3,7 @@ import type { CliDefinitionSummary, CliSimpleDefinition } from "@iori/protocol";
 import type { ShellDefinition } from "../terminal/platform.ts";
 import {
   attachedFiles,
+  definitionPath,
   type DefinitionFile,
   type DefinitionScript,
 } from "./definition-file.ts";
@@ -127,7 +128,12 @@ export function definitionEffects(
         : []),
     ],
     settings:
-      hooksPath && hooks && hooks.format !== "plugin-file" ? [hooksPath] : [],
+      hooksPath && hooks && hooks.format !== "plugin-file"
+        ? [
+            hooksPath,
+            ...(hooks.link ? [definitionPath(hooks.link.file, home)] : []),
+          ]
+        : [],
     files: hooksPath && hooks?.format === "plugin-file" ? [hooksPath] : [],
     missingFiles,
   };

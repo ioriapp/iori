@@ -289,6 +289,23 @@ export function WorktreeCreator({
       >
         <DialogContent
           className="folder-dialog worktree-create-dialog dialog-full-screen"
+          onKeyDown={(event) => {
+            if (
+              git &&
+              event.key === "Enter" &&
+              (event.ctrlKey || event.metaKey) &&
+              !event.defaultPrevented &&
+              !event.nativeEvent.isComposing &&
+              !loading &&
+              !busy &&
+              choice &&
+              options &&
+              !(creationId && pressed !== "create")
+            ) {
+              event.preventDefault();
+              void start(false);
+            }
+          }}
           onOpenAutoFocus={(event) => {
             if (git && nameInput.current && !nameInput.current.disabled) {
               event.preventDefault();
@@ -325,6 +342,9 @@ export function WorktreeCreator({
                   onKeyDown={(event) => {
                     if (
                       event.key === "Enter" &&
+                      !event.ctrlKey &&
+                      !event.metaKey &&
+                      !event.defaultPrevented &&
                       !event.nativeEvent.isComposing &&
                       !loading &&
                       !busy &&

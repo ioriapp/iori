@@ -302,6 +302,8 @@ export async function prepareTeamScenario({
       await record("V2はHost再起動後の再開で同じ会話・モデルを続ける");
       await typeTerminal(client, "");
       await screen.key("Control+C");
+      // The resumed CLI runs in a shell, so its tab stays after exit.
+      await screen.click('button[data-iori-tab-kind="start"]');
     }
   }
   if (workflow === "team-child-tabs") {

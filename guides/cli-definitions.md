@@ -120,6 +120,21 @@ Use this when the CLI stores hooks under `hooks`, with an array of command hooks
 }
 ```
 
+### Point settings to an iori-only hooks file
+
+With `own: true`, use `link` when the CLI reads an iori-only hooks file through a setting in another JSON file. `file` uses the same path notation as `hooks.file`. If that settings file is missing, iori creates it from `base` (an empty object by default). `set` contains top-level keys and JSON values; dots in keys are not allowed. `{file}` in a value becomes the absolute OS path of `hooks.file`. Existing equal values stay; missing keys are added. If any existing value differs, iori changes neither file and leaves response states unobserved. Both paths appear under **Settings files to change**. For Muse Code, add this inside `hooks`, alongside `own: true` and its iori-only `file`:
+
+```json
+"link": {
+  "file": { "env": "XDG_CONFIG_HOME", "default": "~/.config", "path": "muse/settings.json" },
+  "base": { "schema_version": 1 },
+  "set": {
+    "managed_hooks_path": "{file}",
+    "managed_hooks_env_vars": ["IORI_CLI_HOOK_URL"]
+  }
+}
+```
+
 ### `events`: arrays grouped by event name
 
 Use this when each event has its own array but its location or command entry differs from the Claude-style form. This VT Code example adds entries under `hooks.lifecycle.<event>` in TOML:
@@ -318,6 +333,8 @@ Instead of `script`, either feature can use `command` with `args`, whose first e
 When you delete a definition through **AI Agents**, iori removes the hooks and plugin files it recorded as having installed for that definition. Editing a definition or reverting to a bundled one also removes its old entries if their destination changes. Removing the Host removes its recorded additions too.
 
 Other hooks, CLI settings, conversations, and running Terminals are preserved. For an iori-only settings file, iori removes the whole file only if it still contains just iori's content; otherwise it removes its own entries. It does not overwrite an existing plugin file of the same name that it did not install. Use the app's delete or revert action to clean up the settings as well as the definition folder.
+
+For `link`, iori removes a recorded key only while its value still matches what iori wrote. It deletes the settings file only if iori created it and only `base` remains; your other settings are kept.
 
 ## Before adding someone else's definition
 

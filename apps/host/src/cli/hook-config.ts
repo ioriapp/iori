@@ -44,7 +44,7 @@ export async function readConfig(
   }
 }
 /** Follow dotfile symlinks, including a link whose target has not been created. */
-async function targetPath(path: string): Promise<string> {
+export async function targetPath(path: string): Promise<string> {
   try {
     return await realpath(path);
   } catch (error) {

@@ -2,16 +2,19 @@ import { hostHookItems, otherHostUses } from "./hook-hosts.ts";
 import { createHash } from "node:crypto";
 import { mkdir, readFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import {
   editHookFile,
   readConfig,
   removeOwnHookFile,
+  targetPath,
   writeOwnHookFile,
   writeText,
 } from "./hook-config.ts";
 import { removeHookFile } from "./hook-files.ts";
 import {
   hookSyntax,
+  ownHookFile,
   type HookPlace,
   type HookSyntax,
 } from "./hook-documents.ts";
@@ -45,8 +48,40 @@ export const writtenPath = (root: string) =>
  * `copy`: the hash of a plugin file that this Host placed. */
 type Written = Record<
   string,
-  { file: string; own?: Record<string, unknown>; copy?: { sha256: string } }
+  {
+    file: string;
+    own?: Record<string, unknown>;
+    copy?: { sha256: string };
+    link?: HookLink & { created: boolean };
+  }
 >;
+interface HookLink {
+  file: string;
+  base: Record<string, unknown>;
+  set: Record<string, unknown>;
+}
+/** Resolve the settings that point to iori's own hooks file. */
+export function hooksLink(
+  hooks: DefinitionHooks,
+  home: string,
+): HookLink | undefined {
+  if (hooks.format === "plugin-file" || !hooks.link) return undefined;
+  const file = definitionPath(hooks.file, home);
+  const fill = (value: unknown): unknown => {
+    if (typeof value === "string") return value.replaceAll("{file}", file);
+    if (Array.isArray(value)) return value.map(fill);
+    if (value && typeof value === "object")
+      return Object.fromEntries(
+        Object.entries(value).map(([key, item]) => [key, fill(item)]),
+      );
+    return value;
+  };
+  return {
+    file: definitionPath(hooks.link.file, home),
+    base: hooks.link.base,
+    set: fill(hooks.link.set) as Record<string, unknown>,
+  };
+}
 const digest = (content: string) =>
   createHash("sha256").update(content).digest("hex");
 const copyName = (file: string) => file.split(/[\\/]/u).at(-1)!;
@@ -102,6 +137,7 @@ export interface HookTarget {
   namesEvent: boolean;
   /** iori's own file: what it holds besides iori's items. */
   own?: Record<string, unknown>;
+  link?: HookLink;
 }
 /** Claude Code's settings: `hooks.<event>[].hooks[]`, as Claude Code,
  * Codex, Qoder and CodeBuddy read them. */
@@ -154,6 +190,7 @@ export function definitionTarget(
       : claudeSettings,
     namesEvent: hooks.format !== "claude-settings",
     ...(hooks.own ? { own: hooks.own } : {}),
+    ...(hooks.link ? { link: hooksLink(hooks, home) } : {}),
   };
 }
 
@@ -182,6 +219,30 @@ async function removeFrom(
   }
   const syntax = hookSyntax(entry.file);
   if (!syntax) return;
+  if (
+    entry.link &&
+    !(record && (await otherHostUses(dirname(record), undefined, entry.file)))
+  ) {
+    const content = await readText(entry.link.file);
+    if (content !== undefined) {
+      const value = await readConfig(entry.link.file);
+      let changed = false;
+      for (const [key, expected] of Object.entries(entry.link.set)) {
+        if (
+          Object.hasOwn(value, key) &&
+          isDeepStrictEqual(value[key], expected)
+        ) {
+          delete value[key];
+          changed = true;
+        }
+      }
+      if (entry.link.created && isDeepStrictEqual(value, entry.link.base)) {
+        await removeHookFile(await targetPath(entry.link.file));
+        await removeHookFile(entry.link.file + ".iori-created");
+      } else if (changed)
+        await writeText(entry.link.file, JSON.stringify(value, null, 2) + "\n");
+    }
+  }
   if (entry.own)
     await removeOwnHookFile(entry.file, syntax, id, entry.own, record);
   else await editHookFile(entry.file, syntax, id, undefined, [], record);
@@ -247,12 +308,46 @@ export function writeHooks(
     // A write that is never recorded could never be removed, so a definition
     // writes only with a record, and records first.
     if (recorded && !record) return;
+    const link = target.link;
+    const linkText = link ? await readText(link.file) : undefined;
+    const linkValue = link ? await readConfig(link.file) : undefined;
+    if (
+      link &&
+      linkValue &&
+      Object.entries(link.set).some(
+        ([key, value]) =>
+          Object.hasOwn(linkValue, key) &&
+          !isDeepStrictEqual(linkValue[key], value),
+      )
+    )
+      return;
+    if (link && target.own) {
+      const content = await readText(target.file);
+      if (
+        content !== undefined &&
+        !ownHookFile(content, target.syntax, ctx.id, target.own)
+      )
+        return;
+    }
     if (recorded && record) {
       const written = await readWritten(record);
       const previous = written[ctx.id];
       const next = {
         file: target.file,
         ...(target.own ? { own: target.own } : {}),
+        ...(link
+          ? {
+              link: {
+                ...link,
+                created:
+                  linkText === undefined ||
+                  (await readText(link.file + ".iori-created")) !== undefined ||
+                  !!(
+                    previous?.link?.file === link.file && previous.link.created
+                  ),
+              },
+            }
+          : {}),
       };
       if (JSON.stringify(previous) !== JSON.stringify(next)) {
         written[ctx.id] = next;
@@ -283,6 +378,25 @@ export function writeHooks(
         items,
         record,
       );
+    if (link) {
+      // Read again: replacing an earlier installation may have removed keys.
+      const missing = (await readText(link.file)) === undefined;
+      const value = missing ? { ...link.base } : await readConfig(link.file);
+      if (
+        missing ||
+        Object.entries(link.set).some(
+          ([key, expected]) =>
+            !Object.hasOwn(value, key) ||
+            !isDeepStrictEqual(value[key], expected),
+        )
+      ) {
+        if (missing) await writeText(link.file + ".iori-created", "\n");
+        await writeText(
+          link.file,
+          JSON.stringify({ ...value, ...link.set }, null, 2) + "\n",
+        );
+      }
+    }
   });
 }
 /** Remove the hooks that `remove` selects in the record at `path`. */

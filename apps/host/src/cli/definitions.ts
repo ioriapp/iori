@@ -32,6 +32,7 @@ import {
   definitionHooks,
   hookSession,
   hooksTarget,
+  hooksLink,
   pluginArguments,
   removeWrittenHooks,
   writtenPath,
@@ -414,6 +415,7 @@ const bundledIds = [
   "hermes",
   "amp",
   "omp",
+  "muse-code",
 ];
 const bundled = bundledIds.map((id) => {
   const url = new URL(`./${id}/definition.json`, import.meta.url);
@@ -765,7 +767,15 @@ export function loadCliDefinitions(root: string): Promise<void> {
         hooksTarget(hooks, home, id) !== written.file ||
         JSON.stringify(
           hooks.format === "plugin-file" ? undefined : hooks.own,
-        ) !== JSON.stringify(written.own)
+        ) !== JSON.stringify(written.own) ||
+        JSON.stringify(hooksLink(hooks, home)) !==
+          JSON.stringify(
+            written.link && {
+              file: written.link.file,
+              base: written.link.base,
+              set: written.link.set,
+            },
+          )
       );
     }).catch(() => {
       console.error("iori-host cli-definition-hooks-not-removed");

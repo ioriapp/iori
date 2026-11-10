@@ -10,7 +10,7 @@ Gitリポジトリはworktreeで扱う。リポジトリを開くと、そのwor
 
 ## worktreeを作る
 
-リポジトリの「＋」（worktreeを作る）を押すと、PCではダイアログ、スマホでは全画面の作成画面が開く。名前（任意）、ベースブランチ（既定 `origin/main`）、CLI・Team、最初の指示（任意）を選び、「作成」でworktreeを作って選び、そのAgentへ進む。`origin/main` がない時は、`origin/HEAD` が指すブランチ、それも無ければmain worktreeの今のブランチを既定にする。起点には子のブランチも選べる。「この場所で（worktreeを作成しない）」ではmain worktreeで始める。最初の指示は、始めたCLI（チームなら親）へ最初の入力として送り、空なら何も送らない。送り方は[Automationsの指示](automations.md#実行)と同じにする。Issueから開いた時の値は[Issueから始める](forge.md#issueから始める)に従う。
+リポジトリの「＋」（worktreeを作る）を押すと、PCではダイアログ、スマホでは全画面の作成画面が開く。名前（任意）、ベースブランチ（既定 `origin/main`）、CLI・Team、最初の指示（任意）を選び、「作成」でworktreeを作って選び、そのAgentへ進む。名前の欄のEnter、ダイアログのどこからでもCtrl+Enter（macOSはCmd+Enter）でも「作成」と同じにする。`origin/main` がない時は、`origin/HEAD` が指すブランチ、それも無ければmain worktreeの今のブランチを既定にする。起点には子のブランチも選べる。「この場所で（worktreeを作成しない）」ではmain worktreeで始める。最初の指示は、始めたCLI（チームなら親）へ最初の入力として送り、空なら何も送らない。送り方は[Automationsの指示](automations.md#実行)と同じにする。Issueから開いた時の値は[Issueから始める](forge.md#issueから始める)に従う。
 
 CLI・チームはタブ追加と同じ一つの選択にし、CLIの群の下にチームの群を置く。CLIは[AIエージェント](agents-and-teams.md#aiエージェント)の一覧と同じ順に並べ、そのHostで最後に使ったものを初めから選んでおく。チーム機能がオンなら既定のチームを選んでおき、各チームには親CLIを添える。チームを選ぶとその設定の親CLIで始まり、CLIを選ぶとチームなしで始まる。Gitでないフォルダーの「＋」はタブ追加と同じ一覧を開き、そのフォルダーでCLI・チームを始める。
 

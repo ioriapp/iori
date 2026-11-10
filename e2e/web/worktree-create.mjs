@@ -372,7 +372,10 @@ export async function worktreeCreate({
     };
   })()`);
   try {
-    await screen.click('[data-iori-action="worktree-create"]');
+    await screen.evaluate(
+      `document.querySelector('[data-iori-field="worktree-instruction"]').focus()`,
+    );
+    await screen.key("Control+Enter");
     const teamPath = `${repository}-team-tabs`;
     await screen.wait(
       `button[data-iori-worktree-path=${JSON.stringify(teamPath)}]`,
