@@ -8,6 +8,9 @@ import { pngBytes } from "../../verification/reading/png.mjs";
 import { openSidebar } from "../connection/scenario.mjs";
 import { groupAction, selectWorktree } from "../workspace/scenario.mjs";
 
+// The menu's rows in order: each choice's path, and "separator" for a divider.
+const menuRows = `Array.from(document.querySelectorAll('[data-slot="dropdown-menu-content"] [data-iori-worktree-choice], [data-slot="dropdown-menu-content"] [data-slot="dropdown-menu-separator"]'),row=>row.getAttribute('data-iori-worktree-choice') ?? 'separator')`;
+
 export async function readingWorktrees({
   client,
   screen,
@@ -62,13 +65,11 @@ export async function readingWorktrees({
     await screen.wait(
       `[data-iori-worktree-choice=${JSON.stringify(worktree)}]`,
     );
-    const choices = await screen.evaluate(
-      "Array.from(document.querySelectorAll('[data-iori-worktree-choice]'),row=>row.getAttribute('data-iori-worktree-choice')).sort()",
-    );
+    const choices = await screen.evaluate(menuRows);
     assert.deepEqual(
       choices,
-      [worktree].sort(),
-      `${kind}の候補は表示中の親だけで、兄弟worktreeを含まない`,
+      [repository, "separator", worktree],
+      `${kind}の候補は元の作業ツリー・区切り線・表示中の親の順で、兄弟worktreeを含まない`,
     );
     const fits = await screen.evaluate(`(()=>{
       const menu=document.querySelector('[data-slot="dropdown-menu-content"]');
@@ -104,7 +105,40 @@ export async function readingWorktrees({
       await client.browser.viewport({ width: 1440, height: 1000 });
       await screen.click(`[data-iori-field="${kind}-worktree"]`);
     }
-    await screen.key("Escape");
+    if (kind === "files") {
+      // The original working tree is first; choosing it shows its own files.
+      await screen.click(
+        `[data-iori-worktree-choice=${JSON.stringify(repository)}]`,
+      );
+      await screen.wait(
+        `[data-iori-field="files-worktree"][title=${JSON.stringify(repository)}]`,
+      );
+      assert.equal(
+        (await screen.text('[data-iori-field="files-worktree"]')).trim(),
+        "main",
+      );
+      await screen.click('[data-iori-file="sample.txt"]');
+      await waitFor(async () =>
+        (await screen.text('[data-iori-view="files"] .reading-body')).includes(
+          "変更前の行",
+        ),
+      );
+      if (process.env.IORI_READING_CAPTURE === "1")
+        await shot("pc-files-worktree-primary-selected");
+      await screen.click(`[data-iori-field="files-worktree"]`);
+      await screen.click(
+        `[data-iori-worktree-choice=${JSON.stringify(worktree)}]`,
+      );
+      await screen.wait(
+        `[data-iori-field="files-worktree"][title=${JSON.stringify(worktree)}]`,
+      );
+      await screen.click('[data-iori-file="sample.txt"]');
+      await waitFor(async () =>
+        (await screen.text('[data-iori-view="files"] .reading-body')).includes(
+          "ブラウザーからファイルを読む",
+        ),
+      );
+    } else await screen.key("Escape");
     assert.equal(
       await current(),
       worktree,
@@ -148,13 +182,11 @@ export async function readingWorktrees({
     await screen.wait(
       `[data-iori-worktree-choice=${JSON.stringify(worktree)}]`,
     );
-    const choices = await screen.evaluate(
-      "Array.from(document.querySelectorAll('[data-iori-worktree-choice]'),row=>row.getAttribute('data-iori-worktree-choice')).sort()",
-    );
+    const choices = await screen.evaluate(menuRows);
     assert.deepEqual(
       choices,
-      [worktree].sort(),
-      `スマホの${kind}の候補は表示中の親だけで、兄弟worktreeを含まない`,
+      [repository, "separator", worktree],
+      `スマホの${kind}の候補は元の作業ツリー・区切り線・表示中の親の順で、兄弟worktreeを含まない`,
     );
     assert.equal(
       await screen.evaluate(
@@ -169,6 +201,36 @@ export async function readingWorktrees({
           `document.documentElement.classList.toggle('dark', ${theme === "dark"})`,
         );
         await shot(`mobile-${kind}-worktree-menu-${theme}`);
+      }
+      if (kind === "files") {
+        await screen.tap(
+          `[data-iori-worktree-choice=${JSON.stringify(repository)}]`,
+        );
+        // A narrow View shows the open file instead of the list.
+        await waitFor(async () =>
+          (
+            await screen.text('[data-iori-view="files"] .reading-body')
+          ).includes("変更前の行"),
+        );
+        if (!(await screen.visible('[data-iori-field="files-worktree"]'))) {
+          if (await screen.visible('[data-iori-part="mobile-location"]'))
+            await screen.key("Alt+ArrowLeft");
+          else await screen.click(back);
+        }
+        await screen.wait(
+          `[data-iori-field="files-worktree"][title=${JSON.stringify(repository)}]`,
+        );
+        await shot("mobile-files-worktree-primary-selected");
+        await screen.tap(`[data-iori-field="files-worktree"]`);
+        await screen.tap(
+          `[data-iori-worktree-choice=${JSON.stringify(worktree)}]`,
+        );
+        await waitFor(async () =>
+          (
+            await screen.text('[data-iori-view="files"] .reading-body')
+          ).includes("ブラウザーからファイルを読む"),
+        );
+        continue;
       }
     }
     await screen.key("Escape");
@@ -223,6 +285,34 @@ export async function readingWorktrees({
     record,
   });
   if (process.env.IORI_READING_CAPTURE === "1") {
+    // The original working tree itself is shown: it is listed once.
+    for (const narrow of [false, true]) {
+      if (narrow) await mobile({ width: 390, height: 844 });
+      await selectWorktree(screen, repository, narrow);
+      if (narrow) await openSidebar(screen);
+      await openWorkspaceView(screen, "files");
+      if (
+        narrow &&
+        !(await screen.visible('[data-iori-field="files-worktree"]'))
+      ) {
+        if (await screen.visible('[data-iori-part="mobile-location"]'))
+          await screen.key("Alt+ArrowLeft");
+        else
+          await screen.click(
+            '[data-iori-view="files"]:not([hidden]) [data-iori-action="reading-back"]',
+          );
+      }
+      await screen.click('[data-iori-field="files-worktree"]');
+      await screen.wait(
+        `[data-iori-worktree-choice=${JSON.stringify(repository)}]`,
+      );
+      await shot(
+        `${narrow ? "mobile" : "pc"}-files-worktree-menu-primary-shown`,
+      );
+      await screen.key("Escape");
+    }
+    await desktop();
+    await selectWorktree(screen, worktree, false);
     // The open file goes away. Files keeps showing what it read; once the
     // page loads again, nothing is left to show but the read error.
     await openWorkspaceView(screen, "files");
@@ -390,8 +480,15 @@ async function wideMarkdown({
     await selectWorktree(screen, worktree, true);
     await openSidebar(screen);
     await openWorkspaceView(screen, "files");
-    if (!(await screen.visible(`${scroller} table`)))
-      await screen.click('[data-iori-file="wide-table.md"]');
+    const row = '[data-iori-file="wide-table.md"]';
+    // The restored file or the list, whichever the narrow View shows.
+    await waitFor(
+      async () =>
+        (await screen.visible(`${scroller} table`)) ||
+        (await screen.visible(row)),
+      Boolean,
+    );
+    if (!(await screen.visible(`${scroller} table`))) await screen.click(row);
     await screen.wait(`${scroller} table`);
     await themes("mobile-files-markdown-wide");
     await desktop();

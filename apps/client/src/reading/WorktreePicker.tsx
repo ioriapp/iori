@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import { worktreeOrder } from "@iori/protocol";
 import { ChevronDown, GitBranch } from "lucide-react";
 import { MiddleEllipsis } from "../MiddleEllipsis";
@@ -7,6 +8,7 @@ import {
   DropdownMenuContent,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "../components/ui/dropdown-menu";
 
@@ -26,6 +28,8 @@ export function WorktreePicker({
   onSelect?: (path: string) => void;
   field: string;
 }) {
+  const sorted = [...worktrees].sort(worktreeOrder);
+  const separated = sorted.length > 1 && sorted.some((w) => w.primary);
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -43,22 +47,24 @@ export function WorktreePicker({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start">
         <DropdownMenuRadioGroup value={root} onValueChange={onSelect}>
-          {[...worktrees].sort(worktreeOrder).map((worktree) => (
-            <DropdownMenuRadioItem
-              key={worktree.path}
-              value={worktree.path}
-              title={`${worktree.label}\n${worktree.path}`}
-              data-iori-worktree-choice={worktree.path}
-              className="reading-worktree-choice"
-            >
-              <span className="reading-worktree-choice-name">
-                <span aria-hidden="true">{worktree.label}</span>
-                <MiddleEllipsis
-                  text={worktree.label}
-                  className="reading-worktree-choice-fitted"
-                />
-              </span>
-            </DropdownMenuRadioItem>
+          {sorted.map((worktree) => (
+            <Fragment key={worktree.path}>
+              <DropdownMenuRadioItem
+                value={worktree.path}
+                title={`${worktree.label}\n${worktree.path}`}
+                data-iori-worktree-choice={worktree.path}
+                className="reading-worktree-choice"
+              >
+                <span className="reading-worktree-choice-name">
+                  <span aria-hidden="true">{worktree.label}</span>
+                  <MiddleEllipsis
+                    text={worktree.label}
+                    className="reading-worktree-choice-fitted"
+                  />
+                </span>
+              </DropdownMenuRadioItem>
+              {separated && worktree.primary ? <DropdownMenuSeparator /> : null}
+            </Fragment>
           ))}
         </DropdownMenuRadioGroup>
       </DropdownMenuContent>

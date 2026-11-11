@@ -26,6 +26,7 @@ import {
   checkChildWorktreeRemoval,
   worktreeChanges,
 } from "./teams/worktrees.ts";
+import { removeRemainingWorktreeFolder } from "./worktree-residual.ts";
 
 interface Preview {
   items: WorktreeRemovalItem[];
@@ -473,6 +474,17 @@ export class WorktreeRemover {
           error =
             removal.stderr().trim() ||
             "Git refused removal. Check whether the worktree is locked or files are open, then retry.";
+        } else {
+          // Delete files Git left (or a surviving process recreated) at
+          // this verified worktree path, as with a child's worktree.
+          try {
+            await removeRemainingWorktreeFolder(item.path);
+          } catch (reason) {
+            error =
+              reason instanceof Error
+                ? reason.message
+                : `Could not delete the remaining worktree folder: ${item.path}`;
+          }
         }
         if (!(await exists(item.path))) {
           if (deleteBranch && item.branch) {

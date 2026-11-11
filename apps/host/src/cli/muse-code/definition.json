@@ -107,7 +107,7 @@
         "event": "StopFailure",
         "state": "done",
         "outcome": "failure",
-        "failure": ["error_details", "error"]
+        "failure": ["last_assistant_message", "error_details", "error"]
       },
       {
         "event": "SessionEnd",

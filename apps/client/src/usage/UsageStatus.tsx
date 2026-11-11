@@ -249,7 +249,7 @@ function UsagePopup({
   refreshing: string[];
   onRefresh: (names: string[]) => Promise<void>;
   onEnter?: () => void;
-  onLeave?: () => void;
+  onLeave?: (related: EventTarget | null) => void;
 }) {
   const isAll = all || mobile || clis.length > 1;
   const bodyLimit = maxHeight - (isAll ? 48 : 0);
@@ -314,7 +314,7 @@ function UsagePopup({
       sideOffset={10}
       style={{ maxHeight }}
       onPointerEnter={onEnter}
-      onPointerLeave={onLeave}
+      onPointerLeave={(event) => onLeave?.(event.relatedTarget)}
       onOpenAutoFocus={(event) => {
         restoreFocus.current = takeFocus;
         event.preventDefault();
@@ -553,8 +553,15 @@ export function UsageStatus({
       onRefresh={(ids) => refresh(ids, isAll || mobile)}
       maxHeight={popupHeight}
       onEnter={cancelHover}
-      onLeave={() => {
-        if (!pinned) close();
+      onLeave={(related) => {
+        if (
+          !pinned &&
+          !(
+            related instanceof Element &&
+            related.closest(".usage-item, .usage-more")
+          )
+        )
+          close();
       }}
     />
   );

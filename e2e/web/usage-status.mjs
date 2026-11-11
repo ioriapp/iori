@@ -55,6 +55,53 @@ export async function usageStatusScenario({
   await screen.click(item);
   assert.match(await screen.text(popup), /5h.*75% left/su);
   await screen.key("Escape");
+  // 項目の上端にカーソルを置いたままでは、開いたポップオーバーが閉じない。
+  // クリックで閉じた直後のホバー抑止は、カーソルが一度項目から出ると解ける。
+  const center = await screen.evaluate(
+    `(()=>{const e=document.querySelector('${item}');const r=e.getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2};})()`,
+  );
+  await client.browser.call("Input.dispatchMouseEvent", {
+    type: "mouseMoved",
+    ...center,
+  });
+  await client.browser.call("Input.dispatchMouseEvent", {
+    type: "mouseMoved",
+    x: 10,
+    y: 10,
+  });
+  await screen.evaluate(
+    `(()=>{const e=document.querySelector('${item}');window.__usageExpandedChanges=[];new MutationObserver(()=>window.__usageExpandedChanges.push(e.getAttribute('aria-expanded'))).observe(e,{attributes:true,attributeFilter:['aria-expanded']});return true;})()`,
+  );
+  const topEdge = await screen.evaluate(
+    `(()=>{const e=document.querySelector('${item}');const r=e.getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+1};})()`,
+  );
+  await client.browser.call("Input.dispatchMouseEvent", {
+    type: "mouseMoved",
+    ...topEdge,
+  });
+  await screen.wait(popup);
+  await waitFor(
+    async () => await screen.evaluate(`window.__usageExpandedChanges`),
+    (changes) => changes.includes("true"),
+  );
+  const observeUntil = Date.now() + 2500;
+  while (Date.now() < observeUntil) {
+    const changes = await screen.evaluate(`window.__usageExpandedChanges`);
+    const openedAt = changes.indexOf("true");
+    assert.equal(
+      openedAt !== -1 && changes.slice(openedAt + 1).includes("false"),
+      false,
+      `ポップオーバーが開いた後に閉じました: ${JSON.stringify(changes)}`,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  assert.equal(await screen.visible(popup), true);
+  await client.browser.call("Input.dispatchMouseEvent", {
+    type: "mouseMoved",
+    x: 10,
+    y: 10,
+  });
+  await waitFor(async () => !(await screen.visible(popup)));
   await mobile({ width: 400, height: 900 });
   await screen.click(".usage-mobile-trigger");
   await screen.wait(popup);

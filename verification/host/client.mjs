@@ -238,9 +238,15 @@ export async function connectClient(dataRoot) {
           stream.write(
             Buffer.from(encodeFrame({ kind: "terminal.input", data })),
           ),
+        // A RegExp waits for the whole match, e.g. a line through its newline.
         output: async (text) =>
-          (await terminal.waitFor(({ output }) => output.includes(text)))
-            .output,
+          (
+            await terminal.waitFor(({ output }) =>
+              text instanceof RegExp
+                ? text.test(output)
+                : output.includes(text),
+            )
+          ).output,
       };
     },
     async close() {

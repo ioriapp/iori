@@ -6,6 +6,7 @@ import { realpath, readFile, lstat } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import { collectGit } from "../git-process.ts";
 import { discoverRepository } from "../git-reading.ts";
+import { removeRemainingWorktreeFolder } from "../worktree-residual.ts";
 
 export function childWorktreeSlug(title: string): string {
   return worktreeTitleSlug(title) || "worker";
@@ -153,6 +154,10 @@ export async function removeChildWorktree(
     "--",
     child,
   ]);
+  // Git may leave (or a surviving process may recreate) files such as
+  // ignored output after removing the worktree. Delete what remains at
+  // the verified child path; a failure surfaces as a failed removal.
+  await removeRemainingWorktreeFolder(child);
 }
 export async function worktreeChanges(
   cwd: string,

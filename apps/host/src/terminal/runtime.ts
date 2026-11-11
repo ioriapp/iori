@@ -559,7 +559,7 @@ export class TerminalRuntime {
           (await shellCommand(saved.command, args, shell, {
             commandLine: true,
           })),
-        !options.role ? launch?.env : undefined,
+        launch?.env,
       );
       if (teamPrompt && launch) {
         options.initialDelivered?.();
@@ -982,7 +982,14 @@ export class TerminalRuntime {
         }
         runtime.record.cwd =
           this.#store.terminalWorktree(id) ?? runtime.record.cwd;
-        await this.#spawn(runtime, shell, command);
+        await this.#spawn(
+          runtime,
+          shell,
+          command,
+          action === "skip"
+            ? await this.#launchEnvironment(runtime, shell)
+            : undefined,
+        );
         this.#store.putTerminalSummary(runtime.record);
         const result = { terminal: this.#summary(runtime.record) };
         this.#store.saveTerminalOperationResult(context, result);
@@ -1844,6 +1851,34 @@ export class TerminalRuntime {
     );
   }
 
+  async #launchEnvironment(
+    runtime: RuntimeTerminal,
+    shell: ShellDefinition,
+  ): Promise<Record<string, string> | undefined> {
+    const saved = this.#store.terminalCli(runtime.record.id);
+    const cliId = runtime.cli?.id ?? saved?.cli.id;
+    if (!cliId) return undefined;
+    const launch = await this.#clis.launch(
+      cliId,
+      shell,
+      runtime.teamOptions?.team,
+      {
+        cwd: runtime.record.cwd,
+        ...(runtime.teamOptions || !saved?.candidate
+          ? {}
+          : {
+              execution: {
+                candidate: saved.candidate,
+                teamFilesDirectory: (
+                  await this.#commandRoute(runtime.record.id, cliId)
+                ).IORI_TEAM_FILES_DIRECTORY,
+              },
+            }),
+      },
+    );
+    return launch?.env;
+  }
+
   async #registerCliHooks(runtime: RuntimeTerminal): Promise<void> {
     if (runtime.hooks?.observe && !runtime.hookObserver) {
       runtime.hookObserver = runtime.hooks.observe((state) => {
@@ -2224,7 +2259,12 @@ export class TerminalRuntime {
             runtime.record.cwd =
               this.#store.terminalWorktree(runtime.record.id) ??
               runtime.record.cwd;
-            await this.#spawn(runtime, shell, command);
+            await this.#spawn(
+              runtime,
+              shell,
+              command,
+              await this.#launchEnvironment(runtime, shell),
+            );
           } else {
             runtime.setup = {
               ...runtime.setup,

@@ -7,13 +7,19 @@ const quote = (word) => `'${word.replaceAll("'", "'\\''")}'`;
 export async function registerScriptedCli(
   client,
   dataRoot,
-  { noReady = false, resumable = false } = {},
+  {
+    id: requestedId,
+    noReady = false,
+    resumable = false,
+    observeEnvironment = false,
+  } = {},
 ) {
-  const id = noReady ? "scripted-no-ready" : "scripted-parent";
+  const id = requestedId ?? (noReady ? "scripted-no-ready" : "scripted-parent");
   const command = [
     process.execPath,
     fileURLToPath(new URL("./scripted-cli.mjs", import.meta.url)),
     ...(noReady ? ["--no-ready"] : []),
+    ...(observeEnvironment ? ["--observe-environment"] : []),
   ]
     .map(quote)
     .join(" ");

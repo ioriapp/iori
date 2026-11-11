@@ -480,7 +480,7 @@ if (args.includes("--version")) {
       await client.request("teams.children", {})
     ).children.find((entry) => entry.id === first.child).terminalId;
     const resumedChild = await client.terminal(terminalId);
-    const output = await resumedChild.output("OPENCODE_RESUME:");
+    const output = await resumedChild.output(/OPENCODE_RESUME:.+\r?\n/u);
     const resumed = JSON.parse(output.match(/OPENCODE_RESUME:(.+)\r?\n/u)[1]);
     assert.equal(resumed.args.filter((arg) => arg === "--prompt").length, 1);
     assert.equal(

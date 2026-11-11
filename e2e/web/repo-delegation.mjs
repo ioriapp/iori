@@ -12,7 +12,7 @@ import {
 import assert from "node:assert/strict";
 import { readFile, access } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
-import { relative, basename } from "node:path";
+import { basename, dirname, join, relative } from "node:path";
 import { waitFor } from "../../verification/ui.mjs";
 
 export async function repoDelegationScenario({
@@ -187,19 +187,34 @@ export async function repoDelegationScenario({
       ),
     (value) => value === label,
   );
-  const siblingWorktree = execFileSync(
+  // The candidates are the repository's original working tree, the shown
+  // parent and its children; a sibling worktree of the parent is not.
+  const siblingWorktree = join(dirname(worktree), "repo-delegation-sibling");
+  execFileSync(
+    "git",
+    [
+      "-C",
+      worktree,
+      "worktree",
+      "add",
+      "-b",
+      "iori/repo-delegation-sibling",
+      siblingWorktree,
+    ],
+    { encoding: "utf8" },
+  );
+  const primaryWorktree = execFileSync(
     "git",
     ["-C", worktree, "worktree", "list", "--porcelain"],
     { encoding: "utf8" },
   )
     .split("\n")
-    .find(
-      (line) =>
-        line.startsWith("worktree ") &&
-        line.slice("worktree ".length) !== worktree,
-    )
+    .find((line) => line.startsWith("worktree "))
     ?.slice("worktree ".length);
-  assert.ok(siblingWorktree, "同じrepositoryの兄弟worktreeがある");
+  assert.ok(
+    primaryWorktree && primaryWorktree !== worktree,
+    "表示中の親は元の作業ツリーでない",
+  );
   const assertReadingChoices = async (kind) => {
     await screen.click(`[data-iori-field="${kind}-worktree"]`);
     await screen.wait(
@@ -213,8 +228,13 @@ export async function repoDelegationScenario({
     );
     assert.deepEqual(
       choices,
-      [child.cwd, worktree, ...additionalChildWorktrees].sort(),
-      `${kind}の候補は表示中の親とその子だけ`,
+      [
+        primaryWorktree,
+        child.cwd,
+        worktree,
+        ...additionalChildWorktrees,
+      ].sort(),
+      `${kind}の候補は元の作業ツリーと表示中の親とその子だけ`,
     );
     assert.equal(
       await screen.visible(

@@ -16,11 +16,22 @@ async function responseTurn(child, turn) {
   return output;
 }
 
-async function launchChild(client, dataRoot, body = "Do the work.") {
+async function launchChild(
+  client,
+  dataRoot,
+  body = "Do the work.",
+  { muse = false } = {},
+) {
   const parentCli = await registerScriptedCli(client, dataRoot, {
     noReady: true,
   });
-  const cli = await registerResponseCli(client, dataRoot);
+  const cli = muse
+    ? await registerScriptedCli(client, dataRoot, {
+        id: "muse-code",
+        resumable: true,
+        observeEnvironment: true,
+      })
+    : await registerResponseCli(client, dataRoot);
   const candidate = { id: "candidate", cli, model: "", tools: [], minimum: "" };
   const team = await client.request("teams.create", {
     definition: {
@@ -79,8 +90,11 @@ async function launchChild(client, dataRoot, body = "Do the work.") {
       event.child.terminalId,
   );
   const child = await client.terminal(started.child.terminalId);
-  await child.output("RESPONSE_READY");
-  await responseTurn(child, 1);
+  if (muse) await child.output("ACTOR_READY");
+  else {
+    await child.output("RESPONSE_READY");
+    await responseTurn(child, 1);
+  }
   return {
     parent,
     child,
@@ -90,6 +104,44 @@ async function launchChild(client, dataRoot, body = "Do the work.") {
     terminalId: started.child.terminalId,
   };
 }
+
+test("子の再開でもCLI定義の起動時の環境変数を渡す", (t) =>
+  runHostTest(t, async ({ client, dataRoot, stage }) => {
+    const { parent, child, childId, terminalId, events } = await launchChild(
+      client,
+      dataRoot,
+      "Do the work.",
+      { muse: true },
+    );
+    assert.match(
+      await child.output("ACTOR_LAUNCH_ENV:"),
+      /ACTOR_LAUNCH_ENV:present/u,
+    );
+    stage("子を停止して同じ会話を再開する");
+    await actorCommand(parent, "stop", ["stop", childId]);
+    await events.waitFor(
+      (event) =>
+        event.type === "teams.child.updated" &&
+        event.child.id === childId &&
+        event.child.state === "stopped",
+    );
+    await actorCommand(parent, "resume", [
+      "send",
+      childId,
+      "--kind",
+      "request",
+      "--body",
+      "Continue after stopping.",
+    ]);
+    const { output } = await client.terminalUntil(
+      terminalId,
+      ({ output }) => (output.match(/ACTOR_LAUNCH_ENV:/gu) ?? []).length >= 2,
+    );
+    assert.equal(
+      [...output.matchAll(/ACTOR_LAUNCH_ENV:(present|missing)/gu)].at(-1)?.[1],
+      "present",
+    );
+  }));
 
 test("子の報告が親に通知され、親が本文を読める", (t) =>
   runHostTest(t, async ({ client, dataRoot, stage }) => {
@@ -279,7 +331,7 @@ test("子を停止しても親は操作でき、sendで同じ会話を再開し�
       client,
       dataRoot,
     );
-    const initial = await child.output("RESPONSE_SESSION:");
+    const initial = await child.output(/RESPONSE_SESSION:[^\r\n]+\r?\n/u);
     const session = initial.match(/RESPONSE_SESSION:([^\r\n]+)/u)[1];
     const notice = "is idle without a report or question";
     await parent.output(notice);

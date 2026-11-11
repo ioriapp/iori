@@ -49,6 +49,14 @@ if (process.argv.includes("--version") || process.argv.includes("--help")) {
   if (!noReady) await hook("SessionStart", payload);
   console.log(noReady ? "NO_READY_SCREEN" : "ACTOR_READY");
   console.log(`ACTOR_START:${startupId}`);
+  if (process.argv.includes("--observe-environment")) {
+    console.log(
+      `ACTOR_LAUNCH_ENV:${process.env.IORI_CLI_HOOK_ADAPTER ? "present" : "missing"}`,
+    );
+    console.log(
+      `ACTOR_TEAM_FILES_DIRECTORY:${process.env.IORI_TEAM_FILES_DIRECTORY ?? ""}`,
+    );
+  }
   console.log(`ACTOR_SHELL_STATE:${process.env.IORI_TEST_SHELL_STATE ?? ""}`);
   const instructionIndex = process.argv.indexOf("--instruction");
   if (instructionIndex !== -1)

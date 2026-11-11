@@ -2568,6 +2568,13 @@ function WorkspaceFrameInner({
           : (ownWorktree?.branch ?? child.branch ?? basename(childPath)),
       });
     }
+    const primary = own.find((worktree) => worktree.primary);
+    if (primary)
+      choices.set(hostPathKey(primary.path), {
+        path: primary.path,
+        primary: true,
+        label: primary.branch ?? basename(primary.path),
+      });
     return [...choices.values()];
   }, [targetFolder, selectedTarget, childDisplay]);
   const selectReadingWorktree = useCallback(

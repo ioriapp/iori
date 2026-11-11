@@ -4,7 +4,7 @@ import { worktreeSetup, worktreeOptions } from "../worktree-creation.ts";
 import type { WorktreeSetup } from "../store.ts";
 import { randomUUID } from "node:crypto";
 import { appendFileSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import {
   belowUsageMinimum,
@@ -60,7 +60,11 @@ import {
   removeChildWorktree,
   worktreeChanges,
 } from "./worktrees.ts";
-import { recordWorktreeAccepted } from "../worktree-state.ts";
+import {
+  recordWorktreeAccepted,
+  worktreeDirectory,
+} from "../worktree-state.ts";
+import { stopWatchingPath } from "../directory-watch.ts";
 
 const ok = (text: string, data?: unknown): CommandResult => ({
   ok: true,
@@ -1676,11 +1680,29 @@ export class TeamManager {
         child.stoppedBy = "parent";
         this.#dispose(child.id);
         this.#saveChild(child);
-        await removeChildWorktree(
-          child.repository?.mainPath ?? conversation.cwd,
-          child.cwd,
-          command.discard,
+        // As with sidebar removal, stop watching this child's worktree
+        // folder (and its Git folder) before Git deletes it. Only this
+        // child's watches are stopped.
+        const finishWatches: Array<(restore: boolean) => void> = [];
+        finishWatches.push(await stopWatchingPath(child.cwd));
+        finishWatches.push(
+          await stopWatchingPath(await worktreeDirectory(child.cwd)),
         );
+        try {
+          await removeChildWorktree(
+            child.repository?.mainPath ?? conversation.cwd,
+            child.cwd,
+            command.discard,
+          );
+        } catch (error) {
+          const remains = await lstat(child.cwd).then(
+            () => true,
+            () => false,
+          );
+          for (const finish of finishWatches) finish(remains);
+          throw error;
+        }
+        for (const finish of finishWatches) finish(false);
         child.worktreeRemoved = true;
       }
       if (child.terminalId)

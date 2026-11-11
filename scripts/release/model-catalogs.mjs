@@ -1,7 +1,14 @@
 import { createSocket } from "node:dgram";
 import { createServer } from "node:net";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import {
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { cliDefinitions } from "../../apps/host/src/cli/definitions.ts";
 import { connectClient } from "../../verification/host/client.mjs";
@@ -43,7 +50,14 @@ export async function checkModelCatalogs(
   try {
     const cliEnvironment = verificationHostEnvironment(env);
     // Host data is isolated, while the CLI's normal HOME and configuration
-    // remain visible. XDG_DATA_HOME is also the Host's data root.
+    // remain visible. XDG_DATA_HOME is also the Host's data root, so link the
+    // user's other data folders into it: a CLI such as Muse Code lists models
+    // only from the catalog it keeps there. The cleanup's rm removes the links
+    // without following them.
+    const userData = env.XDG_DATA_HOME || path.join(homedir(), ".local/share");
+    for (const entry of await readdir(userData).catch(() => []))
+      if (entry !== "iori-host")
+        await symlink(path.join(userData, entry), path.join(dataRoot, entry));
     host = await startWebHost(distribution, {
       dataRoot,
       port: await availablePort(),
