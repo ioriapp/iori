@@ -28,7 +28,7 @@ Hostの「連携」（英語の表示はIntegrations）では、GitHubの `gh` �
 
 各項目の操作と確認は[接続](connection.md)、[Hostの導入と更新](host-install-update.md)、[Terminal](terminal.md)を参照する。
 
-Windowsでは「この PC」の「一般」に「ウィンドウを閉じたら終了する」を置く。切っている時は、窓を閉じるとClientを通知領域へ隠して動かし続ける。LinuxとAndroidには置かない（Linuxは窓を閉じるとClientを終了する）。Client更新の入口は「この PC」の「一般」に置く。更新を見つけた時のインジケーターは、設定を開く入口と「一般」の項目に表示する。Hostの更新のインジケーターは[ClientからのHostの更新](host-update.md#更新先と知らせ)に従う。動作は[Clientの自己更新](client-update.md)に従う。
+Windowsでは「この PC」の「一般」に「ウィンドウを閉じたら終了する」を置く。切っている時は、ウィンドウを閉じるとClientを通知領域へ隠して動かし続ける。LinuxとAndroidには置かない（Linuxはウィンドウを閉じるとClientを終了する）。Client更新の入口は「この PC」の「一般」に置く。更新を見つけた時のインジケーターは、設定を開く入口と「一般」の項目に表示する。Hostの更新のインジケーターは[ClientからのHostの更新](host-update.md#更新先と知らせ)に従う。動作は[Clientの自己更新](client-update.md)に従う。
 
 初期化・撤去・保存データ削除などの確認では、削除・停止されるものと残るものを短い文で表示し、ファイル名の一覧は出さない。
 

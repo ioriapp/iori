@@ -7,6 +7,7 @@ fi
 pnpm install --frozen-lockfile --prefer-offline
 if [[ "${1:-}" == "--docs-only" ]]; then
   node scripts/run-bounded-check.mjs pnpm format:check
+  node scripts/run-bounded-check.mjs node scripts/wording/check.mjs
   node scripts/run-bounded-check.mjs pnpm check:docs
   git diff --check HEAD
   exit 0
@@ -18,6 +19,7 @@ node scripts/run-bounded-check.mjs pnpm --filter @iori/host build:native
 node scripts/run-bounded-check.mjs node scripts/terminal-daemon-compatibility.mjs
 node scripts/run-bounded-check.mjs pnpm test
 node scripts/run-bounded-check.mjs pnpm format:check
+node scripts/run-bounded-check.mjs node scripts/wording/check.mjs
 node scripts/run-bounded-check.mjs pnpm check:docs
 node scripts/run-bounded-check.mjs pnpm --filter @iori/client build
 node scripts/run-bounded-check.mjs cargo fmt --manifest-path Cargo.toml --all --check

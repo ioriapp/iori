@@ -13,11 +13,19 @@ if (process.versions.node !== requiredNode)
   throw new Error(
     `Node ${requiredNode}で配布物を作ってください（現在: ${process.versions.node}）`,
   );
-const { output, version, git, command } = await import("./common.mjs");
+const { output, version, git, command, releaseSource } =
+  await import("./common.mjs");
 const { writeUpdater } = await import("./updater.mjs");
 const { writeManifest } = await import("./manifest.mjs");
-const { acceptance, reportFirstFailures, releaseScenarios, androidAcceptance } =
-  await import("./acceptance.mjs");
+const {
+  acceptance,
+  reportFirstFailures,
+  releaseScenarios,
+  androidAcceptance,
+  previousAndroidRelease,
+} = await import("./acceptance.mjs");
+const { acceptanceScope, scopedScenarios } =
+  await import("./acceptance-scope.mjs");
 await command(process.execPath, [
   "scripts/publish/check-forbidden.mjs",
   "--head",
@@ -29,12 +37,53 @@ await command(process.execPath, [
   JSON.parse(await readFile("release-version.json", "utf8")).version,
   "--dry-run",
 ]);
-// Reject unknown names before creating or removing any build output.
-const scenarios = releaseScenarios(process.argv.slice(2));
+// Select from the published release's original commit, not its public snapshot.
+const args = process.argv.slice(2);
+const explicitScenarios = releaseScenarios(args);
+const commit = git("rev-parse", "HEAD");
+let scope;
+if (!explicitScenarios || args.includes("--full")) {
+  const previous = await previousAndroidRelease();
+  let files = [];
+  let daemonChanged = false;
+  if (previous) {
+    const response = await fetch(
+      `${releaseSource}/download/${encodeURIComponent(previous.tag_name)}/release.json`,
+    );
+    if (!response.ok)
+      throw new Error(`前の Release 情報の取得に失敗: HTTP ${response.status}`);
+    const { commit: previousCommit } = await response.json();
+    const record = "apps/host/terminal-daemon-compatibility.json";
+    const before = JSON.parse(git("show", `${previousCommit}:${record}`));
+    const after = JSON.parse(git("show", `${commit}:${record}`));
+    daemonChanged = before.sha256 !== after.sha256;
+    files = git(
+      "diff",
+      "--no-renames",
+      "--name-only",
+      "-z",
+      previousCommit,
+      commit,
+    )
+      .split("\0")
+      .filter(Boolean);
+  }
+  scope = acceptanceScope(files, daemonChanged);
+  if (args.includes("--full") && scope.type !== "full")
+    throw new Error(
+      "変更に全体の受入が必要な境界がないため --full は指定できません",
+    );
+  console.log(
+    `[release] acceptance=${scope.type}${scope.reasons ? `: ${scope.reasons.join("、")}` : ""}`,
+  );
+}
+const scenarios = args.includes("--full")
+  ? undefined
+  : (explicitScenarios ??
+    (scope.type === "scoped" ? scopedScenarios : undefined));
 let androidDevice;
 for (const name of ["release.json", "release.json.sig"])
   await rm(path.join(output, name), { force: true });
-const commit = git("rev-parse", "HEAD");
 const builds = path.join(root, ".local/release-build");
 await mkdir(builds, { recursive: true });
 await mkdir(output, { recursive: true });
@@ -165,7 +214,9 @@ try {
   if (failure) throw failure.reason;
   await timed("updater", () => writeUpdater());
   const acceptanceResult = {
-    ...(scenarios ? { type: "scoped", scenarios } : { type: "full" }),
+    ...(scenarios
+      ? { type: "scoped", scenarios }
+      : { type: "full", reasons: scope.reasons }),
     ...(androidDevice ? { android: androidDevice } : {}),
   };
   await timed("manifest", () => writeManifest(commit, acceptanceResult));

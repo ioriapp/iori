@@ -146,7 +146,7 @@ iori は、世界中の AI コーディング CLI を使えるようにしたい
 | `launch.model`・`effort`  | チームの役割から付けるモデル・Effort の引数                                                                                                                                                                                                                                                                                                                       |
 | `launch.permissions`      | 許可の選択肢。名前は CLI 自身のモードの名前（例: `yolo`、`plan`）にし、値はその時に付ける引数                                                                                                                                                                                                                                                                     |
 | `launch.initialPrompt`    | 最初の指示の渡し方。`argument`（TUI を開いたまま引数で渡す）か `paste`（起動後に貼る）。`paste` は、その CLI が入力欄で bracketed paste を有効にすると確かめた時だけ書く。書いていない定義は、名前とコマンドから作った定義と同じく、入力欄が bracketed paste を有効にした時に最初の指示を貼る                                                                     |
-| `launch.instructionFile`  | 指示のファイルを渡す引数（例: `["--append-system-prompt-file", "{instructionFile}"]`）。無い CLI では、最初の指示として「`{instructionFile}` を読んで従う」の一文を渡す（今の OpenCode と同じ）                                                                                                                                                                   |
+| `launch.instructionFile`  | 指示のファイルを渡す引数（例: `["--append-system-prompt-file", "{instructionFile}"]`）。無い CLI では、最初の指示として「`{instructionFile}` を読んで従う」の一文を渡し、チームの子では続けて依頼のファイルを開く文を同じ1行に並べる（#335。コードで指示を渡す CLI（Codex）は除く）                                                                               |
 | `launch.directories`      | チームのフォルダーを CLI に許す引数（`{directory}`）。ioriのコマンドの通信フォルダーと配送用のコピーのフォルダーが別の時（Linux）は、それぞれについて繰り返して付ける。無い CLI では、CLI 自身の許可に任せる                                                                                                                                                      |
 | `launch.managedArguments` | ユーザーの起動引数から削除する、役割の項目と重なる引数（`names`、値を取らない `arity: "none"`・続く値を全て取る `"many"`、`-c` の設定の `keys`（末尾の `.*` はその名前で始まる全ての設定）、同じ意味の別の引数 `alsoRemove`） チームでない起動では `arity: "many"` の引数は削除しない（役割が決める値が無いため）。                                               |
 | `resume`                  | 会話の再開の引数。会話 ID は hooks か受け口から受け取る                                                                                                                                                                                                                                                                                                           |
@@ -206,7 +206,7 @@ hooks を持つ CLI は、CLI の設定へ iori の hook のコマンドを書�
   }
   ```
 
-- **書き換え方**: 書式を保つ方法で、iori の項目だけを追加・削除する。ユーザーのコメント・並び・他の項目は変えず、ファイルの中で変わるのは iori の項目の部分だけにする。印を付けた区画を文字として足す方法は採らない（ユーザーが `[hooks.lifecycle]` や `hooks:` を既に書いていると、同じ鍵が二重になる）。
+- **書き換え方**: 書式を保つ方法で、iori の項目だけを追加・削除する。ユーザーのコメント・並び・他の項目は変えず、ファイルの中で変わるのは iori の項目の部分だけにする。マーカーを付けた区画を文字として足す方法は採らない（ユーザーが `[hooks.lifecycle]` や `hooks:` を既に書いていると、同じ鍵が二重になる）。
   - YAML: `yaml` で解析して置き場所の位置を求め、iori の項目の行だけを元の文字列へ差し込む・切り取る。字下げはその場所の行に合わせる。流れの形（`{ }`・`[ ]`）の中には足さず、そこにある iori の項目も削除せずに失敗にする（同じ行のユーザーの項目を壊さないため）。`yaml` の Document を文字列に戻す方法は、ユーザーのコメントの字下げや空白まで変えるので採らない。
   - TOML: `@decimalturn/toml-patch` で書き換える。配列の表（`[[hooks]]`）の iori の項目を削除する時は、解析した位置で、その要素の区画と要素の中の区画を、それぞれ見出しの行から最後の鍵の行まで切り取る。要素の中の区画は、配列の次の要素までにある、鍵が配列の鍵で始まる区画である（TOML の決まり。例: `[[hooks]]` の後の `[hooks.x]`、VT Code の `[[hooks.lifecycle.stop]]` の後の `[[hooks.lifecycle.stop.hooks]]`）。最後の鍵の後のコメント・空行と、ほかの区画は残す（`toml-patch` は最後の鍵の後のコメントを区画と一緒に削除するため）。鍵（`at` の最初）がまだ無い時だけ、解析で無いことを確かめてから、`TOML.stringify` で作った区画を最後の行の後（末尾の空行の前）へ足す。`toml-patch` が文書に配列の表（`[[hooks]]`）を足せないためである。最後に改行の無いファイルや CRLF のファイルでも、元の部分のバイト列は変えない。
   - JSON: 2スペースの字下げで書く。
@@ -275,7 +275,7 @@ hooks を持つ CLI は、CLI の設定へ iori の hook のコマンドを書�
 - **動かす場所**: Host が同梱する Node.js で、Host とは別のプロセスとして動かす。Windows と Linux で同じファイルが動き、jq などの追加のコマンドを要しない。
 - **入出力**: 入力は stdin の JSON、出力は stdout の JSON とする。読めなかった時は何も返さず、iori は値を出さない（推測で補わない）。
   - トークン量の入力は `{ "sessionId": "…", "transcript": "…", "cwd": "…" }`（無い値は省く）。出力は `{ "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "reasoning": 0 }`（`input`・`output` は必須、ほかは CLI が記録している時だけ）。
-  - 利用枠の入力は `{}`。出力は `{ "windows": [{ "remaining": 0, "minutes": 0, "resetsAt": 0, "name": "…", "modelPatterns": ["…"] }] }`。項目は今の `CliUsage` と同じで、`remaining` は残り（0〜100）、`minutes` は窓の長さ（分）、`resetsAt` は回復時刻（ミリ秒、無ければ省略）、`name` と `modelPatterns` は対象を分ける時の表示用（省略できる）。読み込めた窓が無い時は、iori は利用枠を出さない。
+  - 利用枠の入力は `{}`。出力は `{ "windows": [{ "remaining": 0, "minutes": 0, "resetsAt": 0, "name": "…", "modelPatterns": ["…"] }] }`。項目は今の `CliUsage` と同じで、`remaining` は残り（0〜100）、`minutes` は利用枠の長さ（分）、`resetsAt` は回復時刻（ミリ秒、無ければ省略）、`name` と `modelPatterns` は対象を分ける時の表示用（省略できる）。読み込めた利用枠が無い時は、iori は利用枠を出さない。
 - **定義での書き方**: `"tokens": { "script": "tokens.mjs" }` か `"tokens": { "command": { "args": ["…"] } }`（利用枠も同じ）。`command` はスクリプトの代わりで、入出力の約束はスクリプトと同じである。`args` は 1 語ずつ引用して実行し、シェル の展開は動かさない。依存するものは、その定義を書いた人の責任とする。`"unavailable": true` を書くと、その機能が無いことを示す。
 - **ファイルの場所**: スクリプトと部品の参照元は、その定義のフォルダーの中だけにする。`..` や絶対パスで外を指す定義は読み込まない。
 - **環境変数**: スクリプトとコマンドは、本人のログインシェルの環境で起動する。Windows ではシステムとユーザーのレジストリの環境変数から組み立てる。Host の環境変数は引き継がず、iori の秘密値（デバイスの鍵・Forge の トークン・チームの秘密値）を渡さない。
@@ -311,7 +311,7 @@ hooks を持つ CLI は、CLI の設定へ iori の hook のコマンドを書�
 - 次の処理は、正式対応のコードに残す。
   - 利用枠: Codex の app-server、Claude Code の `/usage` の文
   - トークン量: Claude Code・Codex・Pi の会話ファイルの読み取り
-  - 失敗の理由: Codex の会話ファイルの見張り
+  - 失敗の理由: Codex の会話ファイルの監視
   - 起動: バージョンや OS に依る引数（Codex の共有 server を使わない起動、Windows だけのフォルダーの許可、Codex の read-only の permission profile）、Codex の `-c` の値の引用、Claude Code の `--allowedTools` の組み立て、チームの環境変数、通信フォルダー
   - hooks: 書き込み先と出来事の対応の全て（道具の中身の表示、道具の名前による質問待ち、出来事ごとの返事、Claude Code の Esc で待ちを解く処理、直前の状態に依る判断、Codex の hook の信頼の記録、バージョンによる hooks の可否を含む）
   - モデル・Effort・許可を構造で返す候補の取得
@@ -321,7 +321,7 @@ hooks を持つ CLI は、CLI の設定へ iori の hook のコマンドを書�
 
 ## 同梱の定義の個別の事情
 
-- **Muse Code**（Meta、`muse`。#328）: user hooks・project hooks・plugin の hooks には親の環境変数が渡らない（`HOME`・`PATH` など決まった変数と `MUSE_SESSION_ID` だけ）。環境変数を渡せる managed hooks を `hooks.link` で使う。`MUSE_SESSION_ID` と `MUSE_THREAD_ID` が両方あり異なる背景の subagent の hook は、主の会話の状態と再開 ID に入れない。`~/.config/muse/settings.json` は `"schema_version": 1` が必須で、無いと Muse の全コマンドが起動しない。利用枠は `muse usage --json`（モデルを呼ばない。窓の長さは出力に無く、公式の説明から5時間と週）、トークン量は会話の記録（`~/.local/share/muse/sessions/…/session.jsonl`）の provider の量をバックグラウンドの処理も含めて足す（TUI の `/usage` の合計と同じ）。シェルの道具は OS のサンドボックスで動き、作業ディレクトリの外へ書けず、作業ディレクトリの中の `.git` も読み取り専用なので、サンドボックスありのチームの子は `iori report` と commit ができない見込み（未確認）。サブスクは学習へのデータ利用（Contributor mode）が初期値で有効。
+- **Muse Code**（Meta、`muse`。#328）: user hooks・project hooks・plugin の hooks には親の環境変数が渡らない（`HOME`・`PATH` など決まった変数と `MUSE_SESSION_ID` だけ）。環境変数を渡せる managed hooks を `hooks.link` で使う。`MUSE_SESSION_ID` と `MUSE_THREAD_ID` が両方あり異なる背景の subagent の hook は、主の会話の状態と再開 ID に入れない。`~/.config/muse/settings.json` は `"schema_version": 1` が必須で、無いと Muse の全コマンドが起動しない。利用枠は `muse serve` の MSP（`usage/read`・`usage/changed`・`usage/refresh`。`usage/refresh` は `initialize` で `experimentalApi` を宣言した時だけ使える。サーバーに値が無い間（今の5hの利用枠でまだ使っていない時は `server_sent_no_usage`）は `usage/read`・`usage/refresh` の応答に `usage` が無く、iori は refresh の後に `usage/read` で読み直す）で読み、使えないバージョンでは `muse usage --json`（モデルを呼ばない。利用枠の長さは出力に無く、公式の説明から5hと7d）、トークン量は会話の記録（`~/.local/share/muse/sessions/…/session.jsonl`）の provider の量をバックグラウンドの処理も含めて足す（TUI の `/usage` の合計と同じ）。シェルの道具は OS のサンドボックスで動き、作業ディレクトリの外へ書けず、作業ディレクトリの中の `.git` も読み取り専用なので、サンドボックスありのチームの子は `iori report` と commit ができない見込み（未確認）。サブスクは学習へのデータ利用（Contributor mode）が初期値で有効。
 
 ## 今後
 

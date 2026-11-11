@@ -21,7 +21,7 @@ Piはツール（ファイルの編集やコマンドの実行）を実行前に
 
 Piはチームの親としても選べる。親も役割内でモデル・思考レベル・使えるツールを子と同じ規則で選べる。委譲・報告・質問には[Linked Agent](linked-agents.md)の共通コマンドを使う。
 
-## 受入条件
+## 受け入れ条件
 
 Windows / Android Client × Windows / Linux Host の4組合せで、実際のPiを使って確かめる。
 

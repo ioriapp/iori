@@ -3,6 +3,7 @@ import { definitionPictures } from "./cli-definition-capture.mjs";
 import { openSidebar, mobileSidebarTarget } from "../connection/scenario.mjs";
 import assert from "node:assert/strict";
 import { waitFor } from "../../verification/ui.mjs";
+import { firstCliModel, modelItem } from "../../verification/web/models.mjs";
 import {
   returnToWorktree,
   saveStartupArguments,
@@ -20,6 +21,9 @@ export async function teamsScenario({
   mobile,
 }) {
   const screen = client.screen;
+  const claudeModel = await firstCliModel(screen, "claude");
+  const codexModel = await firstCliModel(screen, "codex");
+  const piModel = await firstCliModel(screen, "pi");
   const pictures = definitionPictures({ client, shot });
   const captureViews = process.env.IORI_TEAMS_CAPTURE_VIEWS?.split(",");
   const capture = async (name) => {
@@ -218,15 +222,13 @@ export async function teamsScenario({
   );
   assert.equal(Boolean(teamId), true);
   await worker();
-  for (const [query, cli, model] of [
-    ["claude sonnet", "claude", "sonnet"],
-    ["codex gpt-6.1-terra", "codex", "gpt-6.1-terra"],
+  for (const [name, cli, model] of [
+    ["Claude Code", "claude", claudeModel],
+    ["Codex", "codex", codexModel],
   ]) {
     await screen.click(inTeam(action("candidate-add")));
-    await screen.input(".model-picker input", query);
-    await screen.click(
-      `[cmdk-item][data-cli="${cli}"][data-iori-model="${model}"]`,
-    );
+    await screen.input(".model-picker input", `${name} ${model.name}`);
+    await screen.click(modelItem(cli, model));
   }
   await screen.click(action("team-save"));
   await version(2);
@@ -365,8 +367,8 @@ export async function teamsScenario({
   await waitFor(
     candidateModels,
     (values) =>
-      values.some((value) => value === "claude:sonnet") &&
-      values.some((value) => value === "codex:gpt-6.1-terra"),
+      values.some((value) => value === `claude:${claudeModel.name}`) &&
+      values.some((value) => value === `codex:${codexModel.name}`),
   );
   // Wait for the catalog's display label, then keep IDs for reorder comparisons.
   await waitFor(
@@ -374,28 +376,24 @@ export async function teamsScenario({
       screen.text(
         inTeam('[data-iori-action="candidate-model"][data-iori-cli="claude"]'),
       ),
-    (text) => /Claude Code\s*›\s*Sonnet/u.test(text),
+    (text) => text.includes(claudeModel.label || claudeModel.name),
   );
   await waitFor(
     () =>
       screen.text(
         inTeam('[data-iori-action="candidate-model"][data-iori-cli="codex"]'),
       ),
-    (text) => /Codex\s*›\s*GPT/u.test(text),
+    (text) => text.includes(codexModel.label || codexModel.name),
   );
   await themes("worker-candidates");
   const original = await candidateModels();
   await screen.click(inTeam(action("candidate-add")));
   await screen.wait(".model-picker input");
   await themes("add-candidate");
-  await screen.input(".model-picker input", "Pi openai gpt-6-luna");
-  await screen.wait(
-    '[cmdk-item][data-cli="pi"][data-iori-model="openai/gpt-6-luna"]',
-  );
+  await screen.input(".model-picker input", `Pi ${piModel.name}`);
+  await screen.wait(modelItem("pi", piModel));
   await themes("model-picker-search");
-  await screen.click(
-    '[cmdk-item][data-cli="pi"][data-iori-model="openai/gpt-6-luna"]',
-  );
+  await screen.click(modelItem("pi", piModel));
   await waitFor(
     candidateModels,
     (values) => values.length === original.length + 1,
@@ -529,10 +527,8 @@ export async function teamsScenario({
   const piRow = inTeam('[data-iori-cli-row="pi"]');
   await screen.click(`${piRow} .team-add-limit`);
   await themes("ai-agents-limit-picker");
-  await screen.input(".model-picker input", "gpt-6-luna");
-  await screen.wait(
-    '[cmdk-item][data-cli="pi"][data-iori-model="openai/gpt-6-luna"][data-selected="true"]',
-  );
+  await screen.input(".model-picker input", piModel.name);
+  await screen.wait(`${modelItem("pi", piModel)}[data-selected="true"]`);
   // Observe real save requests while the picker handles Enter; forward every request unchanged.
   await screen.evaluate(`(async()=>{
     const {connection}=await import('/src/connection.ts');
@@ -794,7 +790,7 @@ export async function teamsScenario({
   );
   await capture("mobile-worker-basic-dark");
   await waitFor(candidateModels, (values) =>
-    values.some((value) => value === "claude:sonnet"),
+    values.some((value) => value === `claude:${claudeModel.name}`),
   );
   await capture("mobile-worker-candidates-dark");
   await screen.click(inTeam(action("candidate-add")));
@@ -1103,10 +1099,8 @@ export async function teamsScenario({
   await screen.click(
     inTeam('.team-parent-execution [data-iori-action="candidate-model"]'),
   );
-  await screen.input(".model-picker input", "codex gpt-6.1-terra");
-  await screen.click(
-    '[cmdk-item][data-cli="codex"][data-iori-model="gpt-6.1-terra"]',
-  );
+  await screen.input(".model-picker input", `Codex ${codexModel.name}`);
+  await screen.click(modelItem("codex", codexModel));
   await screen.click(action("team-save"));
   await version(2);
   await returnToWorktree(screen);

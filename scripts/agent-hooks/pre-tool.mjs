@@ -3,8 +3,13 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { targets, unresolved } from "./policy.mjs";
-import { hasCiEvidence, isDocsOnly, readCiEvidence } from "../ci-evidence.mjs";
+import { targets, unresolved, waitsOnCommandLine } from "./policy.mjs";
+import {
+  hasCiEvidence,
+  hasPublicationCiEvidence,
+  isDocsOnly,
+  readCiEvidence,
+} from "../ci-evidence.mjs";
 
 async function readInput() {
   let data = "";
@@ -34,7 +39,17 @@ try {
     typeof input.cwd !== "string"
   )
     process.exit(0);
+  if (waitsOnCommandLine(input.tool_input.command)) {
+    deny(
+      "pgrep -f / pkill -f を待ちの条件に使っています。シェルのコマンド行の文字列にも一致して待ちが終わりません。起動したプロセスの PID（$!）を wait か kill -0 で待ってください。",
+    );
+    process.exit(0);
+  }
   const target = targets(input.tool_input.command);
+  if (target.fullWithoutReason) {
+    deny("--full には --reason で理由を指定してください。");
+    process.exit(0);
+  }
   if (!target.pushes.length && !target.release && !target.notes.length)
     process.exit(0);
   const cwd = input.cwd;
@@ -142,9 +157,56 @@ try {
           } catch {
             // An unknown base is not a documentation-only change.
           }
+          let releaseEvidence = false;
+          if (!headMayChange) {
+            try {
+              const parents = execFileSync(
+                "git",
+                ["show", "-s", "--format=%P", sha],
+                {
+                  cwd,
+                  encoding: "utf8",
+                  stdio: ["ignore", "pipe", "ignore"],
+                },
+              )
+                .trim()
+                .split(" ")
+                .filter(Boolean);
+              const files =
+                parents.length === 1
+                  ? execFileSync(
+                      "git",
+                      [
+                        "diff",
+                        "--no-renames",
+                        "--name-only",
+                        "-z",
+                        parents[0],
+                        sha,
+                      ],
+                      {
+                        cwd,
+                        encoding: "utf8",
+                        stdio: ["ignore", "pipe", "ignore"],
+                      },
+                    )
+                      .split("\0")
+                      .filter(Boolean)
+                  : [];
+              releaseEvidence = hasPublicationCiEvidence(
+                sha,
+                parents,
+                files,
+                runs,
+              );
+            } catch {
+              // An unknown parent cannot supply evidence.
+            }
+          }
           return (
             !docsChainCovered &&
-            !hasCiEvidence(sha, runs, docsOnly, headMayChange)
+            !hasCiEvidence(sha, runs, docsOnly, headMayChange) &&
+            !releaseEvidence
           );
         },
       );

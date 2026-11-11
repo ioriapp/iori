@@ -32,7 +32,7 @@ Windows ClientはReleaseから前のインストーラーを入れ直して戻�
 
 - **アイコン**: 藍の地に斜めの帯3本のアイコンへ、公開の前に替える。
 - **ライセンス**: MIT。同梱するNodeのruntime・フォント（OFL）・caniuse-lite（CC-BY）などの第三者のライセンス表示を配布物とリポジトリに置く。
-- **配布の経路と更新のチャンネル**: 公開の後は、Releaseを公開用のGitHubリポジトリだけに置き、ForgejoのReleaseはやめる。開発はForgejoのまま。Windowsのインストーラー、LinuxのClient、AndroidのAPK、Hostを置く。開発バージョンは細かい直しごとにpre-releaseとして出す。安定バージョンは、確かめた開発バージョンのReleaseのpre-releaseの印を削除して出し、作り直さない。ClientとHostの更新は、既定では安定バージョンだけを対象にし、Clientの設定「開発バージョンを受け取る」でpre-releaseも対象にする。配布物は作成機で作って署名し、GitHubのCIに秘密を置かない。
+- **配布の経路と更新のチャンネル**: 公開の後は、Releaseを公開用のGitHubリポジトリだけに置き、ForgejoのReleaseはやめる。開発はForgejoのまま。Windowsのインストーラー、LinuxのClient、AndroidのAPK、Hostを置く。開発バージョンは細かい直しごとにpre-releaseとして出す。安定バージョンは、確かめた開発バージョンのReleaseのpre-releaseの指定を削除して出し、作り直さない。ClientとHostの更新は、既定では安定バージョンだけを対象にし、Clientの設定「開発バージョンを受け取る」でpre-releaseも対象にする。配布物は作成機で作って署名し、GitHubのCIに秘密を置かない。
 - **バージョンの間の互換**: 公開の後は、最後の安定バージョンの保存データ・設定・デバイスの登録を、後のバージョンがそのまま引き継ぐ。安定バージョンの間の開発バージョンだけで使った一時的な形は、引き継がなくてよい。
 - **公開用のREADME**: 英語を主にし、日本語版（`README.ja.md`）を並べる。何ができるか、入れ方、接続方法（LAN・VPNか、自分で立てたRelay）、WindowsのSmartScreenの警告の進み方を書く。個人の開発で対応を約束しないことも書く。
 - **報告の窓口**: 使う人からの報告はGitHubのIssueで受ける。脆弱性は `SECURITY.md` とGitHubの非公開の報告（private vulnerability reporting）で受ける。
@@ -40,6 +40,6 @@ Windows ClientはReleaseから前のインストーラーを入れ直して戻�
 - **AppImageのソース**: buildで同梱ライブラリとruntimeのソースを集め、公開時にGitHubの `appimage-sources` Releaseと、必要に応じて番号を付けた後続のReleaseへ自動で追加する。これらはpre-releaseとする。
 - **Linuxの「このPC」**: Clientから既存の `install.sh` を呼んで導入する（SSH導入と同じく、ClientがRelease情報の署名を確かめる）。
 - **Android**: ReleaseのAPKを直接配る（ObtainiumでGitHubのReleaseを追える）。Google Playは個人アカウントのテスト要件（12人×14日）があるので公開の後に回す。
-- **Androidの実機受入**: 安定バージョンにするバージョンは、実機の段を通したものに限る。実機の段を飛ばした開発バージョンは、安定バージョンにしない。デバイスに接続できない・画面がロックされている時に実機の段を飛ばせるのは、開発バージョン（pre-release）だけである。
+- **Androidの実機の受け入れ**: 安定バージョンにするバージョンは、実機の段を通したものに限る。実機の段を飛ばした開発バージョンは、安定バージョンにしない。デバイスに接続できない・画面がロックされている時に実機の段を飛ばせるのは、開発バージョン（pre-release）だけである。
 - **Windowsのコード署名**: 初回の公開は署名なしで出し、READMEにSmartScreenの警告の進み方を書く。公開用リポジトリができたらSignPath Foundation（OSS向けの無償の署名）へ申し込む。
 - **他のOS**: macOS・iOSは公開の後。Apple Developer Programの登録と、日単位で借りるMacの実行環境の準備ができてから、集中してbuildと試験をする。

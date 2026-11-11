@@ -123,6 +123,7 @@ const result = {
   node: { version: process.version, executable: process.execPath },
 };
 let hostLog = "";
+let selectedAutomationModels;
 let phaseStart = { at: new Date().toISOString(), time: performance.now() };
 function recordPhase(name, details = {}) {
   const now = performance.now();
@@ -1000,7 +1001,7 @@ input.on('line',async line=>{if(!line.startsWith('DELEGATE'))return;const option
       "(await import('/src/native-platform-web.ts')).listen",
     );
   };
-  await (
+  selectedAutomationModels = await (
     only === "host-update-mark"
       ? hostUpdateMark
       : only === "host-invitation-switch"
@@ -2059,9 +2060,37 @@ input.on('line',async line=>{if(!line.startsWith('DELEGATE'))return;const option
                       : []);
         for (const cli of usedClis) {
           const records = result.cliRecords[cli];
+          if (
+            ["automations", "automation-issue", "automation-webhook"].includes(
+              only,
+            )
+          ) {
+            const selected = selectedAutomationModels[cli];
+            if (cli === "claude") {
+              assert.ok(
+                records.models.length > 0 &&
+                  records.models.every(
+                    (model) =>
+                      selected === "default" ||
+                      model === selected ||
+                      model.startsWith(`claude-${selected}-`) ||
+                      model.startsWith(`${selected}-`),
+                  ),
+              );
+            } else {
+              const expected = new Set([selected]);
+              if (only === "automations") expected.add("gpt-6-luna");
+              assert.deepEqual(
+                [...records.models].sort(),
+                [...expected].sort(),
+              );
+            }
+            continue;
+          }
           if (cli === "claude")
             assert.equal(
-              records.models.length > 0 &&
+              (records.models.length > 0 ||
+                ["team-board", "team-records"].includes(only)) &&
                 records.models.every(
                   (model) =>
                     (only === "readme-shots"

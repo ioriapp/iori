@@ -44,4 +44,4 @@ iori Client は WSL を自動では用意しません。Windows 11（22H2 以降
    Register-ScheduledTask -TaskName 'iori Host (WSL)' -Action $action -Trigger $trigger -Principal $principal -Settings $settings
    ```
 
-`Ubuntu` は使っているディストリビューションの名前に置き換えてください。`wsl --shutdown` は WSL の中で動いているものをすべて止めます。サインインの時、Host が起動する間はターミナルの窓が表示されます。
+`Ubuntu` は使っているディストリビューションの名前に置き換えてください。`wsl --shutdown` は WSL の中で動いているものをすべて止めます。サインインの時、Host が起動する間はターミナルのウィンドウが表示されます。

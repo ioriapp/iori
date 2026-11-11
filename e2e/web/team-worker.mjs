@@ -9,7 +9,10 @@ export async function prepareTeamWorker(
   options,
   { report = false, plan = false } = {},
 ) {
-  const context = await prepareTeamScenario(options);
+  const context = await prepareTeamScenario({
+    ...options,
+    reportImmediately: report,
+  });
   const { parentCommand, teamRecords, teamDelivery, client } = context;
   let planTask;
   if (plan) {

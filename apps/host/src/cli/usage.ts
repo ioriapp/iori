@@ -6,6 +6,7 @@ export type UsageMonitor = (
   signal: AbortSignal,
   changed: (usage: CliUsage | undefined) => void,
   registerRefresh: (refresh: (() => void | Promise<void>) | undefined) => void,
+  dataRoot?: string,
 ) => Promise<void>;
 
 /** One-shot providers refresh on demand and at the next returned reset only. */

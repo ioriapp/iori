@@ -23,4 +23,4 @@ Hostを再起動・更新しても、作業中のエージェントとTerminal�
 
 ## 確かめること
 
-- 自動の受入に、Linux Host・Windows Hostそれぞれで、PTYで動くCLIとTerminalの処理を続けたままHostを再起動し、Clientが同じTerminalに再接続して出力の続きを受け、hooksの知らせと `iori` コマンドが届くことを通すシナリオを入れる。
+- 自動の受け入れに、Linux Host・Windows Hostそれぞれで、PTYで動くCLIとTerminalの処理を続けたままHostを再起動し、Clientが同じTerminalに再接続して出力の続きを受け、hooksの知らせと `iori` コマンドが届くことを通すシナリオを入れる。

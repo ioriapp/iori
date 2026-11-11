@@ -54,7 +54,7 @@ iori ask --body TEXT
 
 Hostは[チーム](teams.md#子の割り当て)の規則で候補を割り当て、そのCLIをモデル・Effort・許可を付けてPTYで起動し、依頼を渡す。割り当てを待つ委譲は取り消さず、条件が変わったら進める。
 
-画面への入力で最初の依頼を渡す時は、CLIのSessionStartのhookがある時はその通知を待ち、無い時はブラケットペーストのモードが有効になった時に送る。どちらの準備の印も出さないCLIには、最初の出力の後で出力が落ち着いた時にも送れる。定義で `launch.initialPrompt.mode=paste` を指定したCLIは、ブラケットペーストの印を待つ。準備を待つ時間で子を失敗にはしない。
+画面への入力で最初の依頼を渡す時は、CLIのSessionStartのhookがある時はその通知を待ち、無い時はブラケットペーストのモードが有効になった時に送る。どちらの準備も示さないCLIには、最初の出力の後で出力が落ち着いた時にも送れる。定義で `launch.initialPrompt.mode=paste` を指定したCLIは、ブラケットペーストのモードが有効になるのを待つ。準備を待つ時間で子を失敗にはしない。
 
 作業場所は親が `delegate` で選ぶ。`new` はHostが親のリポジトリに新しいworktreeとブランチを作り、`parent` は親と同じworktree、既存のworktreeは名前で指す。`--repo` を付けると、親と別のリポジトリ（同じHostのGitリポジトリ）に子を置ける（[別のリポジトリに子を置く](worktrees.md#別のリポジトリに子を置く)）。作ったworktreeは[worktreeとフォルダー](worktrees.md)の規則で表示し、`finish` で削除する時の条件も同じ文書に従う。役割に場所の欄は置かない。WindowsのCodexには、チームの有無にかかわらず、そのセッションのコマンド通信フォルダーを公式の `--add-dir` で渡す。本人の設定がread-onlyの場合や、選んだpermission profileの書き込み範囲が分からない場合は渡さない。チームの候補やAutomationでCodexの `read-only` を選んだ時は、`:read-only` に通信フォルダーへの書き込みだけを足したpermission profileを使い、`iori` のコマンドを承認なしで使えるようにする。Windowsのunelevated sandboxではread-onlyを使い、通信フォルダーは追加しない。許可を「指定なし」時と「＋」から始めた会話は本人のCodex設定を使う。通信フォルダーを渡さない場合、`iori` の実行にはCLIの承認が要り、承認を求めない設定では使えない。Windowsのelevated sandboxで本人の設定がread-onlyの時は、依頼書の読み取りにも承認が要り、承認を求めない設定では依頼書を読めない。unelevatedでは依頼書を読める。Claude Codeのチームの親と子には、ioriのコマンドとチームのファイルのフォルダーだけを許す起動オプションを付ける。
 

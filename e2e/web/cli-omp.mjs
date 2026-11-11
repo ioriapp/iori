@@ -9,6 +9,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { stripVTControlCharacters } from "node:util";
 import { waitFor } from "../../verification/ui.mjs";
+import { firstCliModel } from "../../verification/web/models.mjs";
 import { openWorkspaceView } from "../../verification/workspace/interaction.mjs";
 import { pressCliKey, submitToCli } from "../cli-screen/input.mjs";
 import { focusTerminal, waitForCliState } from "../cli-screen/scenario.mjs";
@@ -164,23 +165,9 @@ export async function cliOmpScenario({
       feature,
     );
   // 7. `omp models --json` is a JSON list whose selector is the model argument.
-  const catalog = await screen.evaluate(
-    `(async()=>{
-      const {connection}=await import('/src/connection.ts');
-      const result=await connection.requestHost(connection.getSnapshot().host.publicKey,'cli.models',{cliId:'omp'});
-      return result.ok?result.result:null;
-    })()`,
-  );
-  assert.ok(
-    catalog?.models?.some((entry) => entry.name === model),
-    JSON.stringify({
-      count: catalog?.models?.length,
-      error: catalog?.error,
-      detail: catalog?.errorDetail?.slice(0, 200),
-    }),
-  );
+  const catalogModel = await firstCliModel(screen, "omp");
   await record(
-    `同梱のompがAIエージェントの一覧に出て、対応状況が応答・Attention・トークン量・再開で利用可能、モデルの候補に ${model} が載る`,
+    `同梱のompがAIエージェントの一覧に出て、対応状況が応答・Attention・トークン量・再開で利用可能、モデルの候補に ${catalogModel.name} が載る`,
   );
 
   await returnToWorktree(screen);

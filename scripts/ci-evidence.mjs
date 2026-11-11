@@ -20,6 +20,16 @@ export function hasCiEvidence(
   );
 }
 
+export function hasPublicationCiEvidence(commit, parents, files, runs) {
+  return (
+    hasCiEvidence(commit, runs) ||
+    (parents.length === 1 &&
+      files.length === 1 &&
+      files[0] === "release-version.json" &&
+      hasCiEvidence(parents[0], runs))
+  );
+}
+
 export function isDocsOnly(
   ancestor,
   files,

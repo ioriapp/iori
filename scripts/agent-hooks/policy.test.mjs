@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { targets, unresolved } from "./policy.mjs";
-import { hasCiEvidence, isDocsOnly } from "../ci-evidence.mjs";
+import { targets, unresolved, waitsOnCommandLine } from "./policy.mjs";
+import {
+  hasCiEvidence,
+  hasPublicationCiEvidence,
+  isDocsOnly,
+} from "../ci-evidence.mjs";
 
 test("連結されたコマンドの push・Release・本文を判定する", () => {
   assert.deepEqual(
@@ -139,5 +143,104 @@ test("heredoc の本文にある push はコマンドとして数えない", () 
   assert.deepEqual(
     targets("cat > file <<'EOF'\ngit push origin HEAD:main\nEOF").pushes,
     [],
+  );
+});
+
+test("pgrep -f を待ちの条件にしたコマンドを見つけ、PID の待ちは通す", () => {
+  assert.equal(
+    waitsOnCommandLine(
+      'node build.mjs & while pgrep -f "[s]cripts/release/build.mjs" >/dev/null; do sleep 4; done',
+    ),
+    true,
+  );
+  assert.equal(
+    waitsOnCommandLine(
+      'until ! pgrep -af "[b]ackground-e2e.mjs"; do sleep 30; done',
+    ),
+    true,
+  );
+  assert.equal(
+    waitsOnCommandLine(
+      "node build.mjs & B=$!; while kill -0 $B 2>/dev/null; do sleep 3; done",
+    ),
+    false,
+  );
+  assert.equal(
+    waitsOnCommandLine('pgrep -af "[b]ackground-e2e.mjs" | wc -l'),
+    false,
+  );
+});
+
+test("Release の --full に理由がない場合を判定する", () => {
+  assert.equal(
+    targets("node scripts/release/build.mjs --full").fullWithoutReason,
+    true,
+  );
+  assert.equal(
+    targets('node scripts/release/build.mjs --full --reason="境界の変更"')
+      .fullWithoutReason,
+    undefined,
+  );
+  assert.equal(
+    targets('node scripts/release/build.mjs --full --reason ""')
+      .fullWithoutReason,
+    true,
+  );
+  assert.equal(
+    targets('node scripts/release/build.mjs --full "$option"')
+      .fullWithoutReason,
+    true,
+  );
+});
+
+test("版番号だけを変えた commit は親の通常 CI の証拠を使う", () => {
+  const parent = {
+    sha: "parent",
+    dirty: "",
+    timing: { exit: 0 },
+    mode: "full",
+  };
+  const files = ["release-version.json"];
+  assert.equal(
+    hasPublicationCiEvidence("release", ["parent"], files, [parent]),
+    true,
+  );
+  assert.equal(
+    hasPublicationCiEvidence(
+      "release",
+      ["parent"],
+      [...files, "apps/host/src/host.ts"],
+      [parent],
+    ),
+    false,
+  );
+  assert.equal(
+    hasPublicationCiEvidence("release", ["parent"], [], [parent]),
+    false,
+  );
+  assert.equal(
+    hasPublicationCiEvidence("release", ["parent", "other"], files, [parent]),
+    false,
+  );
+  assert.equal(
+    hasPublicationCiEvidence("release", ["parent"], files, [
+      { ...parent, mode: "docs-only" },
+    ]),
+    false,
+  );
+  assert.equal(
+    hasPublicationCiEvidence("release", ["parent"], files, [
+      { ...parent, dirty: " M file" },
+    ]),
+    false,
+  );
+  assert.equal(
+    hasPublicationCiEvidence(
+      "release",
+      ["parent"],
+      ["other"],
+      [{ ...parent, sha: "release" }],
+    ),
+    true,
   );
 });

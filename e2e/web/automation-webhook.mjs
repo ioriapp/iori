@@ -2,6 +2,7 @@ import { fakeMarker } from "../fake-model/marker.mjs";
 import assert from "node:assert/strict";
 import { createServer } from "node:net";
 import { waitFor } from "../../verification/ui.mjs";
+import { firstCliModel, modelItem } from "../../verification/web/models.mjs";
 import {
   waitForOperation,
   cliFailure,
@@ -25,6 +26,7 @@ export async function automationWebhookScenario({
   assistantReply,
 }) {
   const screen = client.screen;
+  const codexModel = await firstCliModel(screen, "codex");
   const request = (method, params = {}) =>
     screen.evaluate(
       `(async()=>{const {connection}=await import('/src/connection.ts');const response=await connection.requestHost(connection.getSnapshot().host.publicKey,${JSON.stringify(method)},${JSON.stringify(params)});if(!response?.ok)throw new Error('Automation request failed');return response.result;})()`,
@@ -104,8 +106,8 @@ export async function automationWebhookScenario({
   );
   await screen.input(field("folder"), worktree);
   await screen.click(`${view} ${action("candidate-model")}`);
-  await screen.input(".model-picker input", "Codex gpt-6-luna");
-  await screen.wait('[cmdk-item][data-cli="codex"][data-selected="true"]');
+  await screen.input(".model-picker input", `Codex ${codexModel.name}`);
+  await screen.wait(`${modelItem("codex", codexModel)}[data-selected="true"]`);
   await screen.key("Enter");
   await capture("off", scrollWebhook);
   await screen.click(field("webhook"));
@@ -285,4 +287,5 @@ export async function automationWebhookScenario({
   await record(
     "token再生成の確認、有効の切替と受信範囲の保存、ポートの理由と開き直した後の表示、削除を確認",
   );
+  return { codex: codexModel.name };
 }

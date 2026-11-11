@@ -8,6 +8,7 @@ import { DatabaseSync } from "node:sqlite";
 import { readFile } from "node:fs/promises";
 import { automationDateTime } from "../../packages/protocol/src/automation-time.ts";
 import { waitFor } from "../../verification/ui.mjs";
+import { firstCliModel, modelItem } from "../../verification/web/models.mjs";
 import {
   closedRow,
   observe,
@@ -48,6 +49,8 @@ export async function automationsScenario({
   ptyDimensions,
 }) {
   const screen = client.screen;
+  const claudeModel = await firstCliModel(screen, "claude");
+  const codexModel = await firstCliModel(screen, "codex");
   // API calls prepare the team fixture and clean up our CLI processes only.
   const request = async (method, params = {}) =>
     screen.evaluate(
@@ -128,7 +131,7 @@ export async function automationsScenario({
     '7と5を足した答えを数字だけで返してください。\n引用符は"そのまま"、タブも\tそのまま扱ってください。ツールは指示のファイルを読む時だけ使ってください。' +
     fakeMarker("automations");
   const create = async (name, cli = "codex") => {
-    const claude = cli === "claude";
+    const model = cli === "claude" ? claudeModel : codexModel;
     await screen.click(action("automation-new"));
     await screen.input(field("name"), name);
     await screen.input(field("instruction"), prompt);
@@ -136,13 +139,13 @@ export async function automationsScenario({
     await screen.click(`${view} ${action("candidate-model")}`);
     await screen.input(
       ".model-picker input",
-      claude ? "Claude Code Haiku 4.5" : "Codex gpt-6-luna",
+      `${cli === "claude" ? "Claude Code" : "Codex"} ${model.name}`,
     );
-    await screen.wait(`[cmdk-item][data-cli="${cli}"][data-selected="true"]`);
+    await screen.wait(`${modelItem(cli, model)}[data-selected="true"]`);
     await screen.key("Enter");
     await waitFor(
       () => screen.text(`${view} ${action("candidate-model")}`),
-      (value) => (claude ? /Haiku/iu : /Luna/iu).test(value),
+      (value) => value.includes(model.label || model.name),
       undefined,
       "Enterで選んだモデルを下書きに表示",
     );
@@ -247,9 +250,10 @@ export async function automationsScenario({
   await pickFolder();
   const manual = await save("Manual automation");
   await open(manual.id);
-  assert.match(
-    await screen.text(`${view} ${action("candidate-model")}`),
-    /Haiku/iu,
+  assert.ok(
+    (await screen.text(`${view} ${action("candidate-model")}`)).includes(
+      claudeModel.label || claudeModel.name,
+    ),
   );
   await record(
     "モデル検索でEnterを押しても保存せず、選んだモデルが未保存の下書きと保存後に残る",
@@ -491,4 +495,5 @@ export async function automationsScenario({
   await screen.click(
     `button[data-iori-worktree-path=${JSON.stringify(worktree)}]`,
   );
+  return { codex: codexModel.name, claude: claudeModel.name };
 }

@@ -56,6 +56,7 @@ export async function prepareTeamScenario({
   secondRepository,
   activityOnly = false,
   opencodeOnly = false,
+  reportImmediately = false,
 }) {
   const screen = client.screen;
   let opencodeV2 = false;
@@ -118,7 +119,9 @@ export async function prepareTeamScenario({
         limit: "1",
         reuse: true,
         split: true,
-        instruction: `${readyForStart} After START ask through iori, then finish your response with a final answer. Read the next answer file and report through iori. Finish every turn with a final answer. Never use agent-collaboration tools or tools to wait, and never run waiting commands, sleep or loops. Do not change files.`,
+        instruction: reportImmediately
+          ? "Read each parent request file and follow its instructions for the current turn. Do not modify files or ask questions."
+          : `${readyForStart} After START ask through iori, then finish your response with a final answer. Read the next answer file and report through iori. Finish every turn with a final answer. Never use agent-collaboration tools or tools to wait, and never run waiting commands, sleep or loops. Do not change files.`,
         request: "Follow the parent request.",
         report: "Result; changes; verification.",
         // The parent model chooses the difficulty; give each level the same

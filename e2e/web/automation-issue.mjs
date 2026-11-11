@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { waitFor, waitForOperation } from "../../verification/ui.mjs";
+import { firstCliModel, modelItem } from "../../verification/web/models.mjs";
 import { cliFailure } from "../../verification/web/operation.mjs";
 import { openFolder } from "../workspace/scenario.mjs";
 import { openSettingsSection, openSidebar } from "../connection/scenario.mjs";
@@ -24,6 +25,7 @@ export async function automationIssueScenario({
   fakeModelRequests,
 }) {
   const screen = client.screen;
+  const codexModel = await firstCliModel(screen, "codex");
   const { issueSetup: issues } = fixture;
   // The fixture decides the Issue number; the scripted command uses it and the
   // request must carry iori's instruction for that Issue.
@@ -93,8 +95,8 @@ export async function automationIssueScenario({
       fakeMarker("automation-issue"),
   );
   await screen.click(`${view} ${action("candidate-model")}`);
-  await screen.input(".model-picker input", "Codex gpt-6-luna");
-  await screen.wait('[cmdk-item][data-cli="codex"][data-selected="true"]');
+  await screen.input(".model-picker input", `Codex ${codexModel.name}`);
+  await screen.wait(`${modelItem("codex", codexModel)}[data-selected="true"]`);
   await screen.key("Enter");
   await screen.click(`${view} .team-permission-summary`);
   for (const [label, value] of [
@@ -269,4 +271,5 @@ export async function automationIssueScenario({
     "Forgejoが停止するとIssueの理由と再試行を示し、復帰後の再試行で消える",
   );
   await request("terminal.close", { terminalId: a.terminalId, confirm: true });
+  return { codex: codexModel.name };
 }

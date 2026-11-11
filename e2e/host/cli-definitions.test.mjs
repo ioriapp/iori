@@ -501,3 +501,135 @@ test("利用枠の再取得は時刻と値を送り、連続した依頼をま�
     await client.request("cli.usage.refresh", { cliId: id });
     assert.equal(Number(await readFile(counter, "utf8")), before + 1);
   }));
+
+test("Museの利用枠は再取得後も表示され、読み直した値に更新される", (t) =>
+  runHostTest(t, async ({ client, dataRoot, stage }) => {
+    await writeFile(
+      join(dataRoot, "bin", "muse"),
+      `#!/usr/bin/env node
+import { createInterface } from "node:readline";
+if (process.argv[2] === "--version") {
+  console.log("1.4.15");
+} else if (process.argv[2] === "serve") {
+  let reads = 0;
+  for await (const line of createInterface({ input: process.stdin })) {
+    const request = JSON.parse(line);
+    if (request.id === undefined) continue;
+    let result = {};
+    if (request.method === "usage/read")
+      result = { usage: { window: { usedPercent: ++reads * 15 } } };
+    if (request.method === "usage/refresh")
+      result = { subscriptionActive: true, tierName: "Muse Code Power Usage" };
+    console.log(JSON.stringify({ jsonrpc: "2.0", id: request.id, result }));
+  }
+}
+`,
+      { mode: 0o755 },
+    );
+    const events = await client.events();
+    await events.waitFor((event) => event.type === "snapshot");
+    stage("Museの最初の利用枠を読む");
+    await client.request("cli.list", {});
+    await events.waitFor(
+      (event) =>
+        event.type === "cli.usage" &&
+        event.cliId === "muse-code" &&
+        event.usage?.windows[0].remaining === 85,
+    );
+    stage("再取得後の利用枠が一覧と出来事に届く");
+    await client.request("cli.usage.refresh", { cliId: "muse-code" });
+    const list = await client.request("cli.list", {});
+    const usage = list.clis.find((cli) => cli.id === "muse-code").usage;
+    assert.equal(usage?.windows[0].remaining, 70);
+    const event = await events.waitFor(
+      (entry) =>
+        entry.type === "cli.usage" &&
+        entry.cliId === "muse-code" &&
+        entry.usage?.windows[0].remaining === 70,
+    );
+    assert.deepEqual(usage, event.usage);
+  }));
+
+test("Museの値がなくなっても週の利用枠は再起動後まで残り、サブスク終了で消える", (t) =>
+  runHostTest(t, async ({ client, dataRoot, restart, stage }) => {
+    const state = join(dataRoot, "muse-state");
+    await writeFile(state, "usage");
+    await writeFile(
+      join(dataRoot, "bin", "muse"),
+      `#!/usr/bin/env node
+import { readFileSync } from "node:fs";
+import { createInterface } from "node:readline";
+if (process.argv[2] === "--version") console.log("1.4.15");
+else if (process.argv[2] === "serve") {
+  for await (const line of createInterface({ input: process.stdin })) {
+    const request = JSON.parse(line);
+    if (request.id === undefined) continue;
+    const state = readFileSync(${JSON.stringify(state)}, "utf8");
+    let result = {};
+    if (request.method === "usage/read" && state === "usage") result = { usage: { observedAtMs: 123456789, window: { usedPercent: 25, resetsAtMs: Date.now() + 3600000, windowDurationMins: 300 }, weekly: { usedPercent: 17, resetsAtMs: Date.now() + 86400000 } } };
+    if (request.method === "usage/refresh") result = { subscriptionActive: state !== "none" };
+    console.log(JSON.stringify({ jsonrpc: "2.0", id: request.id, result }));
+  }
+}
+`,
+      { mode: 0o755 },
+    );
+    const events = await client.events();
+    await events.waitFor((event) => event.type === "snapshot");
+    stage("最初の利用枠を保存する");
+    await client.request("cli.list", {});
+    await events.waitFor(
+      (event) =>
+        event.type === "cli.usage" &&
+        event.cliId === "muse-code" &&
+        event.usage?.windows[1]?.remaining === 83,
+    );
+    await writeFile(state, "empty");
+    stage("値がない再取得後も週の値を出す");
+    await client.request("cli.usage.refresh", { cliId: "muse-code" });
+    let list = await client.request("cli.list", {});
+    let usage = list.clis.find((cli) => cli.id === "muse-code").usage;
+    assert.equal(usage.windows[0].remaining, 100);
+    assert.equal(usage.windows[1].remaining, 83);
+    assert.equal(usage.observedAt, 123456789);
+    assert.equal(
+      JSON.parse(
+        await readFile(
+          join(dataRoot, "iori-host", "cli-usage", "muse-code.json"),
+          "utf8",
+        ),
+      ).weekly.usedPercent,
+      17,
+    );
+    stage("再起動後も保存した週の値を出す");
+    let next = await restart();
+    stage("再起動後に利用枠を読み出す");
+    let nextEvents = await next.events();
+    await nextEvents.waitFor((event) => event.type === "snapshot");
+    await next.request("cli.list", {});
+    const restored = await nextEvents.waitFor(
+      (event) =>
+        event.type === "cli.usage" &&
+        event.cliId === "muse-code" &&
+        event.usage?.windows[1]?.remaining === 83,
+    );
+    assert.equal(restored.usage.windows[0].remaining, 100);
+    assert.equal(restored.usage.observedAt, 123456789);
+    stage("サブスクでなくなったら表示を消す");
+    await writeFile(state, "none");
+    next = await restart();
+    nextEvents = await next.events();
+    await nextEvents.waitFor((event) => event.type === "snapshot");
+    await next.request("cli.list", {});
+    await nextEvents.waitFor(
+      (event) =>
+        event.type === "cli.usage" &&
+        event.cliId === "muse-code" &&
+        !event.usage,
+    );
+    list = await next.request("cli.list", {});
+    assert.equal(
+      list.clis.find((cli) => cli.id === "muse-code").usage,
+      undefined,
+    );
+  }));

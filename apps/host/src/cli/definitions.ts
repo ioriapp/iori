@@ -453,13 +453,21 @@ const codes: CliCode[] = [
     }),
     modelCatalog: async (shell, command, signal) =>
       (await import("./muse-code/models.ts")).models(shell, command, signal),
-    usageMonitor: async (shell, command, signal, changed, registerRefresh) =>
+    usageMonitor: async (
+      shell,
+      command,
+      signal,
+      changed,
+      registerRefresh,
+      dataRoot,
+    ) =>
       (await import("./muse-code/usage.ts")).monitorUsage(
         shell,
         command,
         signal,
         changed,
         registerRefresh,
+        dataRoot,
       ),
   },
 ];

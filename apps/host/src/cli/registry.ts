@@ -250,7 +250,11 @@ export class CliRegistry {
               command,
               AbortSignal.any([controller.signal, this.#controller.signal]),
               (usage) => {
-                if (usage) usage = { ...usage, observedAt: Date.now() };
+                if (usage)
+                  usage = {
+                    ...usage,
+                    observedAt: usage.observedAt ?? Date.now(),
+                  };
                 if (usage) this.usage.set(definition.id, usage);
                 else this.usage.delete(definition.id);
                 this.#publish({
@@ -264,6 +268,7 @@ export class CliRegistry {
                 if (refresh) this.#usageRefresh.set(definition.id, refresh);
                 else this.#usageRefresh.delete(definition.id);
               },
+              this.#definitionsRoot,
             )
             .catch(() => {})
             .finally(() => {
