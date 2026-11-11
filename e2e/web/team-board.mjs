@@ -56,7 +56,7 @@ export async function teamBoardScenario(options) {
   );
   assert.match(
     await screen.text(".agent-quota"),
-    /Codex \d+(?:\.\d+)?[mhd] \d+% · resets \d+[mhd]/iu,
+    /Codex \d+(?:\.\d+)?[mhd] \d+% used · resets \d+[mhd]/iu,
   );
   assert.ok(
     (await screen.text(".board-agent-row .agent-main")).includes(

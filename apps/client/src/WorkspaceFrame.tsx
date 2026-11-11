@@ -1,3 +1,4 @@
+import { UsageStatus } from "./usage/UsageStatus.tsx";
 import {
   pruneLayout,
   type LayoutSlot,
@@ -301,9 +302,20 @@ function StatusBar({
   showConnection,
   disconnectedSeconds,
   staleNote,
-}: Pick<
+  language,
+  clisRevision,
+  usageHost,
+  defaultShellChange,
+}: { usageHost: string } & Pick<
   Props,
-  "state" | "t" | "showConnection" | "disconnectedSeconds" | "staleNote"
+  | "state"
+  | "t"
+  | "showConnection"
+  | "disconnectedSeconds"
+  | "staleNote"
+  | "language"
+  | "clisRevision"
+  | "defaultShellChange"
 >) {
   const reconnecting =
     !state.connected && !state.revoked && disconnectedSeconds >= 5;
@@ -334,6 +346,13 @@ function StatusBar({
         </span>
       )}
       {showConnection && staleNote && <span>{staleNote}</span>}
+      <UsageStatus
+        key={usageHost}
+        hostKey={usageHost}
+        connected={state.connectedHosts.includes(usageHost)}
+        revision={`${clisRevision}:${defaultShellChange?.revision ?? 0}:${state.connectedHosts.join(",")}`}
+        language={language}
+      />
     </div>
   );
 }
@@ -375,7 +394,8 @@ function WorkspaceFrameInner({
   onInputPreferences,
   defaultShellChange,
   onMaintenanceClisReader,
-}: Props) {
+  onUsageHostChange,
+}: Props & { onUsageHostChange: (hostKey: string) => void }) {
   const { isMobile, openMobile, setOpenMobile } = useSidebar();
   const [teamsHost, setTeamsHost] = useState<HostInfo>();
   const [openedTeams, setOpenedTeams] = useState<HostInfo[]>([]);
@@ -1518,6 +1538,12 @@ function WorkspaceFrameInner({
   };
 
   const currentHostKey = selectedTarget?.host.publicKey ?? "";
+  const usageHostKey =
+    teamsHost?.publicKey || currentHostKey || state.host?.publicKey || "";
+  useEffect(
+    () => onUsageHostChange(usageHostKey),
+    [usageHostKey, onUsageHostChange],
+  );
   const terminalList = terminalLists[currentHostKey];
   const {
     pickers: cliList,
@@ -4100,6 +4126,7 @@ function SidebarResize({
 }
 
 export function WorkspaceFrame(props: Props) {
+  const [usageHost, setUsageHost] = useState(props.state.host?.publicKey ?? "");
   return (
     <TooltipProvider>
       <div className="workspace-app" data-iori-view="workspace">
@@ -4111,7 +4138,7 @@ export function WorkspaceFrame(props: Props) {
             } as CSSProperties
           }
         >
-          <WorkspaceFrameInner {...props} />
+          <WorkspaceFrameInner {...props} onUsageHostChange={setUsageHost} />
         </SidebarProvider>
         <StatusBar
           state={props.state}
@@ -4119,6 +4146,10 @@ export function WorkspaceFrame(props: Props) {
           showConnection={props.showConnection}
           disconnectedSeconds={props.disconnectedSeconds}
           staleNote={props.staleNote}
+          language={props.language}
+          clisRevision={props.clisRevision}
+          usageHost={usageHost}
+          defaultShellChange={props.defaultShellChange}
         />
       </div>
     </TooltipProvider>

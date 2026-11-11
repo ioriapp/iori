@@ -190,7 +190,7 @@ export async function cliOmpScenario({
   const id = await openOmp();
   await waitForCliState(client, id, ["idle"]);
   await shot("omp-first-launch");
-  await record("1回目の起動からompの状態の印が出る");
+  await record("1回目の起動からompの状態のインジケーターが出る");
 
   // 2. A turn: the bridge sends active, then done, through the common shape.
   // The Client tells the Host when the open Terminal has been seen, and the

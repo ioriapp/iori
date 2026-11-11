@@ -1,4 +1,5 @@
 export type CliUsage = {
+  observedAt?: number;
   windows: {
     remaining: number;
     minutes: number;
@@ -53,7 +54,15 @@ export function parseCliUsage(value: unknown): CliUsage | undefined {
         : {}),
     });
   }
-  return windows.length ? { windows } : undefined;
+  return windows.length
+    ? {
+        windows,
+        ...(typeof input.observedAt === "number" &&
+        Number.isFinite(input.observedAt)
+          ? { observedAt: input.observedAt }
+          : {}),
+      }
+    : undefined;
 }
 export function usageAppliesToModel(
   window: CliUsage["windows"][number],
@@ -120,6 +129,7 @@ export interface CliSummary {
   simple?: import("./cli-definitions.ts").CliSimpleDefinition;
 }
 export interface CliListResult {
+  orderable?: true;
   clis: (CliSummary & { hidden: boolean })[];
   shell?: string;
   lastUsedId?: string;

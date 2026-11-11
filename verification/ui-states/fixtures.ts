@@ -1,4 +1,8 @@
 import type {
+  CliListResult,
+  BoardData,
+} from "../../packages/protocol/src/index.ts";
+import type {
   SshEvent,
   SshMachine,
   SshPrompt,
@@ -154,7 +158,8 @@ export type Fixture = {
     | "initialization"
     | "integrations"
     | "terminal-font"
-    | "child-states";
+    | "child-states"
+    | "usage";
   initial: Record<string, Record<string, unknown>>;
   machine?: SshMachine;
   events: SshEvent[];
@@ -180,6 +185,7 @@ export const terminalFontNames = [
 ];
 
 export function fixture(id: string): Fixture {
+  if (id.startsWith("usage-")) return usageFixture(id);
   if (id === "child-states")
     return {
       kind: "child-states",
@@ -910,4 +916,126 @@ function comparisonNotes(id: string): string[] {
     "高さ: Aは700px、Bは580px、狭い窓は844pxの見本の値と実測値を下に示す。設定だけの状態と知らせには対象のダイアログが無い。",
   );
   return notes;
+}
+
+export function usageSnapshot(id: string): CliListResult {
+  const state = Number(id.split("-").at(-1));
+  const now = Date.now();
+  const entries = Object.entries(clis);
+  const codex = entries.find(([, cli]) => cli.name === "Codex")!;
+  const ordered = [codex, ...entries.filter(([key]) => key !== codex[0])];
+  const agents = id.includes("-agents-");
+  const count = agents
+    ? 7
+    : state === 11
+      ? 0
+      : [1, 6, 7, 8, 9, 15, 22, 23, 25].includes(state)
+        ? 1
+        : [3, 4, 5, 14, 24].includes(state)
+          ? 7
+          : 3;
+  return {
+    clis: ordered.slice(0, count).map(([id, cli], index) => ({
+      ...cli,
+      icon: {
+        light: cli.icon.light,
+        ...(cli.icon.dark ? { dark: cli.icon.dark } : {}),
+      },
+      id,
+      hidden: false,
+      usage:
+        agents && index % 2 === 1
+          ? undefined
+          : {
+              observedAt: now - index * 33 * 60000,
+              windows: [
+                {
+                  minutes: state === 15 ? 10080 : 300,
+                  remaining: [8, 9, 25].includes(state) ? 17 : 78,
+                  resetsAt: now + 87 * 60000,
+                  ...(state === 15
+                    ? { name: "gpt-6.1-sol Preview Model Groups" }
+                    : state === 7
+                      ? { name: "gpt-6.1-sol" }
+                      : {}),
+                },
+                {
+                  minutes: 10080,
+                  remaining: [8, 9].includes(state) ? 0 : 42,
+                  resetsAt: now + 4680 * 60000,
+                },
+                ...(agents
+                  ? [
+                      {
+                        name: "gpt-6.1-sol",
+                        minutes: 1440,
+                        remaining: 64,
+                        resetsAt: now + 720 * 60000,
+                      },
+                      {
+                        name: "gpt-6.1-sol",
+                        minutes: 43200,
+                        remaining: 35,
+                        resetsAt: now + 14400 * 60000,
+                      },
+                    ]
+                  : []),
+              ],
+            },
+    })),
+  };
+}
+function usageFixture(id: string): Fixture {
+  const state = Number(id.split("-").at(-1));
+  const list = usageSnapshot(id);
+  const first = list.clis[0]?.id;
+  const open = [5, 14, 24].includes(state)
+    ? "all"
+    : [6, 7, 8, 9, 12, 15, 22, 23].includes(state)
+      ? first
+      : null;
+  const board: BoardData = {
+    defaultConversation: "usage-conversation",
+    conversations: [
+      {
+        id: "usage-conversation",
+        terminalId: "usage-parent",
+        teamId: "usage-team",
+        createdAt: Date.now(),
+      },
+    ],
+    agents: list.clis.map((cli, index) => ({
+      id: cli.id,
+      createdAt: Date.now(),
+      conversation: "usage-conversation",
+      parentTerminalId: "usage-parent",
+      parentCwd: "/home/user",
+      teamId: "usage-team",
+      roleId: "usage-role",
+      title: works[index][1],
+      task: works[index][1],
+      cli,
+      state: "reported",
+      revisions: 0,
+    })),
+    roles: [],
+    usage: list.clis.map((cli) => ({
+      cli: cli.id,
+      name: cli.name,
+      usage: cli.usage!,
+    })),
+  };
+  return {
+    kind: "usage",
+    events: [],
+    notes: [],
+    initial: {
+      UsageStatus: {
+        opened: open,
+        pinned: open !== null,
+        refreshing: state === 23 ? [first] : [],
+      },
+      Board: { data: board, section: "agents" },
+    },
+  };
 }

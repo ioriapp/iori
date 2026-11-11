@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { chmod, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { runHostTest } from "../../verification/host/process.mjs";
 import {
   actorCommand,
@@ -162,13 +164,13 @@ test("再利用しない子を作り直して候補なしになれば親へ知�
     assert.equal(output.split(notice).length - 1, 1);
   }));
 
-test("HostとTerminalの係の再起動で未起動の委譲は再起動による停止になる", (t) =>
+test("HostとTerminalデーモンの再起動で未起動の委譲は再起動による停止になる", (t) =>
   runHostTest(t, async ({ client, dataRoot, restart, stage }) => {
     stage("使える候補がない子を委譲する");
     const context = await setup(client, dataRoot);
     const waiting = await delegate(context.parent, "waiting", "Waiting");
     assert.equal(waiting.data.waiting, "candidates");
-    stage("検証専用のTerminalの係とHostを再起動する");
+    stage("検証専用のTerminalデーモンとHostを再起動する");
     const { stopTerminalDaemon } =
       await import("../../verification/terminal/daemon-process.mjs");
     const { join } = await import("node:path");
@@ -182,4 +184,45 @@ test("HostとTerminalの係の再起動で未起動の委譲は再起動によ�
     );
     assert.equal(child.state, "stopped");
     assert.equal(child.stoppedBy, "host_restart");
+  }));
+
+test("OpenCode 2の候補のEffortを子の起動設定へ渡す", (t) =>
+  runHostTest(t, async ({ client, dataRoot, stage }) => {
+    stage("台本のOpenCode 2と候補を用意する");
+    const executable = join(dataRoot, "bin", "opencode");
+    await writeFile(
+      executable,
+      '#!/usr/bin/env node\nif (process.argv.includes("--version")) console.log("opencode v2.2.6"); else { console.log("OPENCODE_CONFIG:" + process.env.OPENCODE_CONFIG_CONTENT); process.stdin.resume(); }\n',
+    );
+    await chmod(executable, 0o755);
+    const context = await setup(client, dataRoot);
+    const active = structuredClone(context.definition);
+    active.roles[0].candidates.medium = [
+      {
+        ...context.worker,
+        cli: "opencode",
+        model: "openai/gpt-5.2",
+        effort: "low",
+      },
+    ];
+    await client.request("teams.save", {
+      teamId: context.teamId,
+      definition: active,
+    });
+    stage("委譲した子に指定したモデルとEffortが届く");
+    const result = await delegate(context.parent, "opencode", "OpenCode");
+    const started = await context.events.waitFor(
+      (event) =>
+        event.type === "teams.child.updated" &&
+        event.child.id === result.data.child &&
+        event.child.terminalId,
+    );
+    const child = await client.terminal(started.child.terminalId);
+    const { output } = await child.waitFor(({ output }) =>
+      /OPENCODE_CONFIG:(\{[^\r\n]+\})/u.test(output),
+    );
+    const config = JSON.parse(
+      output.match(/OPENCODE_CONFIG:(\{[^\r\n]+\})/u)[1],
+    );
+    assert.equal(config.model, "openai/gpt-5.2#low");
   }));

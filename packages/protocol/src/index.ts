@@ -299,6 +299,8 @@ export type RequestMethod =
   | "host.info"
   | "host.relay.set"
   | "cli.list"
+  | "cli.usage.refresh"
+  | "cli.order.set"
   | "cli.hidden.set"
   | "cli.arguments.set"
   | "cli.launch"
@@ -450,6 +452,8 @@ export interface RequestParamsByMethod
   "host.info": Record<string, never>;
   "host.relay.set": { relay?: RelaySettings };
   "cli.list": { refreshUsage?: boolean };
+  "cli.usage.refresh": { cliId?: string };
+  "cli.order.set": { order: string[] };
   "cli.hidden.set": { cliId: string; hidden: boolean };
   "cli.arguments.set": { cliId: string; arguments: string };
   /** `instruction`: the first input, sent as a file the CLI reads (worktrees.md). */
@@ -529,6 +533,8 @@ export interface ResultByMethod
   "host.info": HostInfo;
   "host.relay.set": { relay?: RelaySettings };
   "cli.list": CliListResult;
+  "cli.usage.refresh": {};
+  "cli.order.set": { order: string[] };
   "cli.hidden.set": { cliId: string; hidden: boolean };
   "cli.arguments.set": { cliId: string; arguments: string };
   "cli.launch": TerminalCreatedResult;
@@ -607,8 +613,15 @@ export type Event =
   | { type: "teams.children.removed"; ids: string[] }
   | { type: "teams.children"; children: import("./teams.ts").ChildSummary[] }
   | { type: "teams.child.updated"; child: import("./teams.ts").ChildSummary }
+  | { type: "cli.order.changed"; order: string[] }
   | { type: "cli.usage"; cliId: string; usage?: import("./cli.ts").CliUsage }
-  | { type: "cli.version"; shell: string; cliId: string; version: string }
+  | {
+      type: "cli.version";
+      shell: string;
+      cliId: string;
+      version: string;
+      launchEffort?: boolean;
+    }
   | {
       type: "snapshot";
       host: HostInfo;
@@ -1166,6 +1179,7 @@ function parseCliListResult(value: unknown): CliListResult {
   if (!Array.isArray(input.clis)) return fail("clis must be an array");
   return {
     ...(typeof input.shell === "string" ? { shell: input.shell } : {}),
+    ...(input.orderable === true ? { orderable: true as const } : {}),
     clis: readableItems(parseCliSummary, input.clis).map((cli) => ({
       ...cli,
       hidden: cli.hidden === true,
@@ -1926,6 +1940,14 @@ export const resultSchemas: {
   "host.uninstall": { parse: parseMaintenanceStatus },
   "host.maintenance.status": { parse: parseMaintenanceLookup },
   "cli.list": { parse: parseCliListResult },
+  "cli.usage.refresh": { parse: () => ({}) },
+  "cli.order.set": {
+    parse: (value: unknown) => {
+      const order = record(value).order;
+      if (!Array.isArray(order)) return fail("order must be an array");
+      return { order: order.map((id) => string(id, "id")) };
+    },
+  },
   ...cliDefinitionResultSchemas,
   "cli.hidden.set": {
     parse: (value: unknown) => ({
@@ -2141,6 +2163,24 @@ export function parseRequest(value: unknown): Request {
           params.refreshUsage === undefined
             ? {}
             : { refreshUsage: boolean(params.refreshUsage, "refreshUsage") },
+      };
+    case "cli.usage.refresh":
+      return {
+        kind: "request",
+        operationId,
+        method: input.method,
+        params:
+          params.cliId === undefined
+            ? {}
+            : { cliId: nonEmptyString(params.cliId, "cliId") },
+      };
+    case "cli.order.set":
+      if (!Array.isArray(params.order)) return fail("order must be an array");
+      return {
+        kind: "request",
+        operationId,
+        method: input.method,
+        params: { order: params.order.map((id) => string(id, "id")) },
       };
     case "cli.hidden.set":
       return {
@@ -2499,6 +2539,12 @@ function parseEvent(value: unknown): Event | undefined {
         type: "teams.child.updated",
         child: parseChildSummary(input.child),
       };
+    case "cli.order.changed":
+      if (!Array.isArray(input.order)) return fail("order must be an array");
+      return {
+        type: "cli.order.changed",
+        order: input.order.map((id) => string(id, "id")),
+      };
     case "cli.usage": {
       const usage = parseCliUsage(input.usage);
       return {
@@ -2513,6 +2559,9 @@ function parseEvent(value: unknown): Event | undefined {
         shell: nonEmptyString(input.shell, "shell"),
         cliId: nonEmptyString(input.cliId, "cliId"),
         version: nonEmptyString(input.version, "version"),
+        ...(typeof input.launchEffort === "boolean"
+          ? { launchEffort: input.launchEffort }
+          : {}),
       };
     case "snapshot": {
       if (!Array.isArray(input.devices))

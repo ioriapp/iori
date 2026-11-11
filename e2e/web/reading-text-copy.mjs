@@ -275,7 +275,7 @@ export async function readingTextCopy({
   await screen.key("Control+a");
   await copy(lines.join("\n"));
   await record(
-    "Gitの追加行の一部と差分全体をコピーし、行番号と追加の印を含めない",
+    "Gitの追加行の一部と差分全体をコピーし、行番号と追加の記号を含めない",
   );
 
   await writeFile(

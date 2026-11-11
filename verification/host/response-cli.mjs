@@ -65,7 +65,7 @@ if (process.argv.includes("--version") || process.argv.includes("--help")) {
       continue;
     }
     const match = line.match(
-      /Open the file (.+?) with your file-reading tool/u,
+      /[Oo]pen the file (.+?) with your file-reading tool/u,
     );
     const body = match ? await readFile(match[1], "utf8") : line;
     if (match) console.log(`RESPONSE_BODY:${JSON.stringify(body)}`);

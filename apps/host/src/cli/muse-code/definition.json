@@ -50,7 +50,7 @@
       },
       "set": {
         "managed_hooks_path": "{file}",
-        "managed_hooks_env_vars": ["IORI_CLI_HOOK_URL"]
+        "managed_hooks_env_vars": ["IORI_CLI_HOOK_URL", "IORI_CLI_HOOK_ADAPTER"]
       }
     },
     "sessionId": "session_id",

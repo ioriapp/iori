@@ -18,8 +18,11 @@ test(
   { skip: process.platform === "win32" },
   async () => {
     const home = await mkdtemp(join(tmpdir(), "iori-definition-hooks-"));
-    const original = process.env.HOME;
+    const names = ["HOME", "XDG_CONFIG_HOME", "PI_CODING_AGENT_DIR"];
+    const original = names.map((name) => process.env[name]);
     process.env.HOME = home;
+    process.env.XDG_CONFIG_HOME = join(home, ".config");
+    process.env.PI_CODING_AGENT_DIR = join(home, ".pi", "agent");
     try {
       const settings = join(home, "settings.json");
       await writeFile(settings, JSON.stringify({ theme: "dark" }));
@@ -62,8 +65,10 @@ test(
       await loadCliDefinitions(join(home, "second-host"));
       assert.equal(await readFile(settings, "utf8"), installed);
     } finally {
-      if (original === undefined) delete process.env.HOME;
-      else process.env.HOME = original;
+      names.forEach((name, index) => {
+        if (original[index] === undefined) delete process.env[name];
+        else process.env[name] = original[index];
+      });
       await rm(home, { recursive: true, force: true });
     }
   },
@@ -76,8 +81,11 @@ test(
   { skip: process.platform === "win32" },
   async () => {
     const home = await mkdtemp(join(tmpdir(), "iori-shared-hooks-"));
-    const original = process.env.HOME;
+    const names = ["HOME", "XDG_CONFIG_HOME", "PI_CODING_AGENT_DIR"];
+    const original = names.map((name) => process.env[name]);
     process.env.HOME = home;
+    process.env.XDG_CONFIG_HOME = join(home, ".config");
+    process.env.PI_CODING_AGENT_DIR = join(home, ".pi", "agent");
     try {
       const { removeCliHooks } = await import("./hook-install.ts");
       const { removeUserDefinition } = await import("./definitions.ts");
@@ -192,8 +200,10 @@ test(
       await removeCliHooks(shell, first);
       await assert.rejects(readFile(script), { code: "ENOENT" });
     } finally {
-      if (original === undefined) delete process.env.HOME;
-      else process.env.HOME = original;
+      names.forEach((name, index) => {
+        if (original[index] === undefined) delete process.env[name];
+        else process.env[name] = original[index];
+      });
       await rm(home, { recursive: true, force: true });
     }
   },

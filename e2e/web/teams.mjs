@@ -220,7 +220,7 @@ export async function teamsScenario({
   await worker();
   for (const [query, cli, model] of [
     ["claude sonnet", "claude", "sonnet"],
-    ["codex gpt-6.1-sol", "codex", "gpt-6.1-sol"],
+    ["codex gpt-6.1-terra", "codex", "gpt-6.1-terra"],
   ]) {
     await screen.click(inTeam(action("candidate-add")));
     await screen.input(".model-picker input", query);
@@ -310,7 +310,7 @@ export async function teamsScenario({
   await worker();
   await screen.click(inTeam(action("teams-agents")));
   await cliMenuAction(screen, "claude", "cli-hidden-set");
-  await screen.wait('.team-agents-page [data-iori-view="hidden-items"]');
+  await screen.reveal('.team-agents-page [data-iori-view="hidden-items"]');
   await worker();
   const limit = inTeam(".team-basic-settings .team-limit-stepper");
   await step(limit, 1, "1");
@@ -366,7 +366,7 @@ export async function teamsScenario({
     candidateModels,
     (values) =>
       values.some((value) => value === "claude:sonnet") &&
-      values.some((value) => value === "codex:gpt-6.1-sol"),
+      values.some((value) => value === "codex:gpt-6.1-terra"),
   );
   // Wait for the catalog's display label, then keep IDs for reorder comparisons.
   await waitFor(
@@ -1103,9 +1103,9 @@ export async function teamsScenario({
   await screen.click(
     inTeam('.team-parent-execution [data-iori-action="candidate-model"]'),
   );
-  await screen.input(".model-picker input", "codex gpt-6.1-sol");
+  await screen.input(".model-picker input", "codex gpt-6.1-terra");
   await screen.click(
-    '[cmdk-item][data-cli="codex"][data-iori-model="gpt-6.1-sol"]',
+    '[cmdk-item][data-cli="codex"][data-iori-model="gpt-6.1-terra"]',
   );
   await screen.click(action("team-save"));
   await version(2);
@@ -1132,11 +1132,18 @@ export async function teamsScenario({
       ),
     Boolean,
   );
+  const openCodeVersion = await screen.evaluate(
+    `(async()=>{const {connection}=await import('/src/connection.ts');const r=await connection.requestHost(connection.getSnapshot().host.publicKey,'cli.list',{});return r.result.clis.find(c=>c.id==='opencode')?.version;})()`,
+  );
+  const openCodeV2 =
+    Number(openCodeVersion?.match(/(?:^|\s)v?(\d+)\./u)?.[1]) >= 2;
   assert.equal(
     await screen.evaluate(
       `document.querySelectorAll('${surface} .team-candidate-row .team-candidate-effort button').length`,
     ),
-    0,
+    openCodeV2 ? 1 : 0,
   );
-  await record("保存済みの一覧に無いOpenCodeモデルにはEffortの操作を出さない");
+  await record(
+    "保存済みの一覧に無いOpenCodeモデルのEffort操作は対応する版だけに出す",
+  );
 }

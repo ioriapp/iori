@@ -139,7 +139,9 @@ export async function cliLauncherScenario({
     await screen.wait(
       `[data-iori-terminal-row="${id}"] [aria-label="待機中"], [data-iori-terminal-row="${id}"] [aria-label="Idle"]`,
     );
-    await record("そのHostで初めて開くPiの最初の会話から状態の印が出る");
+    await record(
+      "そのHostで初めて開くPiの最初の会話から状態のインジケーターが出る",
+    );
   }
   await icons('[data-iori-tab-cli="pi"]');
   await icons('[data-iori-row-cli="pi"]');

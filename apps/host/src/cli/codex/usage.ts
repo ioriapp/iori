@@ -43,9 +43,10 @@ export const monitorUsage: UsageMonitor = async (
   registerRefresh,
 ) => {
   let nextId = 2;
-  let pending = false;
+  let pending: Promise<void> | undefined;
+  let resolvePending: (() => void) | undefined;
   let resetTimer: NodeJS.Timeout | undefined;
-  let refresh = () => {};
+  let refresh: () => void | Promise<void> = () => {};
   const update = (value: unknown) => {
     const usage = readUsage(value);
     if (resetTimer) clearTimeout(resetTimer);
@@ -83,25 +84,31 @@ export const monitorUsage: UsageMonitor = async (
           }
           send({ method: "initialized", params: {} });
           refresh = () => {
-            if (pending) return;
-            pending = true;
+            if (pending) return pending;
+            pending = new Promise<void>((resolve) => {
+              resolvePending = resolve;
+            });
             send({
               id: nextId++,
               method: "account/rateLimits/read",
               params: {},
             });
+            return pending;
           };
           registerRefresh(refresh);
           refresh();
         } else if (typeof value.id === "number") {
-          pending = false;
           update(value.error ? undefined : value.result);
+          resolvePending?.();
+          resolvePending = undefined;
+          pending = undefined;
         } else if (value.method === "account/rateLimits/updated")
           update(value.params);
         else if (value.method === "account/updated") refresh();
       },
     );
   } finally {
+    resolvePending?.();
     if (resetTimer) clearTimeout(resetTimer);
     changed(undefined);
     registerRefresh(undefined);

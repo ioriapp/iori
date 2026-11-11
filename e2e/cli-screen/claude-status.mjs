@@ -142,7 +142,7 @@ export async function claudeStatusScenario({
     `[data-iori-terminal-row="${retry}"] [aria-label="待機中"], [data-iori-terminal-row="${retry}"] [aria-label="Idle"]`,
   );
   await record(
-    "取り付けの失敗後も、再試行した最初のClaude Codeの会話から状態の印が出る",
+    "取り付けの失敗後も、再試行した最初のClaude Codeの会話から状態のインジケーターが出る",
   );
   await finishCli(client, retry, "claude");
   const id = await openClaude(client);

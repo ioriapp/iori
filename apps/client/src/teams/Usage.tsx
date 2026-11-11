@@ -1,3 +1,5 @@
+import "../usage/usage-line.css";
+import { useUsagePreferences } from "../usage/preferences.tsx";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { usageAppliesToModel, type CliUsage } from "@iori/protocol";
 import { formatUsage } from "../usage-format.ts";
@@ -19,6 +21,7 @@ export function Usage({
   model?: string;
   compact?: boolean;
 }) {
+  const { display } = useUsagePreferences();
   const [now, setNow] = useState(Date.now);
   const [open, setOpen] = useState(false);
   useEffect(() => {
@@ -30,76 +33,73 @@ export function Usage({
   // A single narrow line drops whole windows from the end, never digits.
   useLayoutEffect(() => {
     const element = line.current;
-    if (compact || !element) return;
+    if (!element || !usage?.windows.length) return;
     const fit = () => {
       const items = [
-        ...element.querySelectorAll<HTMLElement>(
-          ":scope > [data-iori-usage-window]",
-        ),
+        ...element.querySelectorAll<HTMLElement>("[data-iori-usage-window]"),
       ];
       const more = element.querySelector<HTMLElement>(
-        ":scope > [data-iori-usage-more]",
-      );
-      if (!more || !items.length) return;
-      const show = (count: number) => {
-        for (const [index, item] of items.entries())
-          item.hidden = index >= count;
-        more.textContent = `+${items.length - count}`;
-        more.hidden = count === items.length;
-      };
-      show(items.length);
-      if (getComputedStyle(element).whiteSpace !== "nowrap") return;
-      const left = element.getBoundingClientRect().left;
-      const fits = (item: HTMLElement) =>
-        item.getBoundingClientRect().right - left <= element.clientWidth;
-      if (fits(items.at(-1)!)) return;
-      let count = items.length - 1;
-      for (; count > 1; count--) {
-        show(count);
-        if (fits(more)) return;
+        "[data-iori-usage-more]",
+      )!;
+      element.removeAttribute("data-short");
+      items.forEach((item) => (item.hidden = false));
+      more.hidden = true;
+      if (element.scrollWidth <= element.clientWidth) return;
+      element.setAttribute("data-short", "");
+      if (element.scrollWidth <= element.clientWidth) return;
+      for (let visible = items.length - 1; visible >= 0; visible--) {
+        items.forEach((item, index) => (item.hidden = index >= visible));
+        more.hidden = false;
+        more.textContent = `+${items.length - visible}`;
+        if (element.scrollWidth <= element.clientWidth) break;
       }
-      show(count);
     };
     fit();
     const observer = new ResizeObserver(fit);
     observer.observe(element);
+    void document.fonts.ready.then(fit);
     return () => observer.disconnect();
-  }, [compact, usage, now, model, name]);
-  if (!usage) return null;
+  }, [compact, usage, now, model, name, display]);
+  if (!usage?.windows.length) return null;
   const windows = usage.windows
     .filter(
       (window) => model === undefined || usageAppliesToModel(window, model),
     )
-    .map((window, index) => {
+    .map((window) => {
       const minutes =
         window.resetsAt === undefined
           ? undefined
           : Math.max(0, Math.ceil((window.resetsAt - now) / 60000));
-      const prefix = `${index === 0 && name ? `${name} ` : ""}${window.name ? `${window.name} ` : ""}`;
+      const prefix = `${window.name ? `${window.name} ` : ""}`;
       return {
         full:
           prefix +
-          formatUsage(window.minutes, Math.round(window.remaining), minutes),
+          formatUsage(window.minutes, window.remaining, minutes, display),
         short:
-          prefix + formatUsage(window.minutes, Math.round(window.remaining)),
+          prefix +
+          formatUsage(window.minutes, window.remaining, undefined, display),
       };
     });
+  if (!windows.length) return null;
   const content = windows.map((window, index) => (
     <span key={index} data-iori-usage-window>
-      <span className="team-usage-full">{window.full}</span>
-      <span className="team-usage-short" aria-hidden={compact || undefined}>
-        {window.short}
-      </span>
+      {index > 0 && "　"}
+      <span className="usage-line-full">{window.full}</span>
+      <span className="usage-line-short">{window.short}</span>
     </span>
   ));
   if (!compact)
     return (
       <div
-        className="team-usage"
+        className="team-usage usage-line"
         data-iori-usage={cliId}
         ref={line}
-        title={windows.map((window) => window.full).join(" · ")}
+        title={
+          (name ? name + " " : "") +
+          windows.map((window) => window.full).join("　")
+        }
       >
+        {name && <span>{name} </span>}
         {content}
         <span data-iori-usage-more hidden />
       </div>
@@ -108,11 +108,15 @@ export function Usage({
     <Tooltip open={open} onOpenChange={setOpen}>
       <TooltipTrigger asChild>
         <div
-          className="team-usage team-usage-compact"
+          className="team-usage team-usage-compact usage-line"
+          ref={line}
           data-iori-usage={cliId}
           role="button"
           tabIndex={0}
-          aria-label={windows.map((window) => window.full).join(" · ")}
+          aria-label={
+            (name ? name + " " : "") +
+            windows.map((window) => window.full).join("　")
+          }
           onClick={() => setOpen(true)}
           onKeyDown={(event) => {
             if (event.key === "Enter" || event.key === " ") {
@@ -121,11 +125,16 @@ export function Usage({
             }
           }}
         >
+          {name && <span>{name} </span>}
           {content}
+          <span data-iori-usage-more hidden />
         </div>
       </TooltipTrigger>
       <TooltipContent>
-        <span>{windows.map((window) => window.full).join(" · ")}</span>
+        <span>
+          {(name ? name + " " : "") +
+            windows.map((window) => window.full).join("　")}
+        </span>
       </TooltipContent>
     </Tooltip>
   );

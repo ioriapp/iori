@@ -117,7 +117,10 @@ export function TeamsScreen({
     },
     [host.publicKey],
   );
-  const cliIds = list.clis.map((cli) => cli.id).join("\0");
+  const cliIds = list.clis
+    .map((cli) => cli.id)
+    .sort()
+    .join("\0");
   useEffect(() => {
     setCatalogs((current) =>
       Object.fromEntries(
@@ -190,6 +193,7 @@ export function TeamsScreen({
               cliListError={cliListError}
               onRetryClis={() => void reload()}
               allClis={all.clis}
+              orderable={all.orderable}
               failedDefinitions={all.failed ?? []}
             />
           </TeamContext.Provider>

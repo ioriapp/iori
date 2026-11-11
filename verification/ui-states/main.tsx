@@ -1,3 +1,10 @@
+import { UsageStatus } from "../../apps/client/src/usage/UsageStatus.tsx";
+import { UsagePreferences } from "../../apps/client/src/usage/preferences.tsx";
+import { AgentsPage } from "../../apps/client/src/teams/AgentsPage.tsx";
+import { TeamContext } from "../../apps/client/src/teams/context.tsx";
+import "../../apps/client/src/teams/team-editor.css";
+import { Board } from "../../apps/client/src/teams/Board.tsx";
+import { StatusDot } from "../../apps/client/src/components/StatusDot.tsx";
 import {
   SettingsDialog as ProductSettings,
   type Preferences,
@@ -65,7 +72,7 @@ import {
 import { Connecting } from "../../apps/client/src/components/flow/Notice.tsx";
 import { allStates } from "virtual:ui-state-catalog";
 import { current, stateId } from "./runtime.ts";
-import { clis, deviceName, host } from "./fixtures.ts";
+import { clis, deviceName, host, usageSnapshot } from "./fixtures.ts";
 import "./preview.css";
 import "../../apps/client/src/app.css";
 import "../../apps/client/src/workspace.css";
@@ -73,9 +80,8 @@ import "../../apps/client/src/terminal/terminal.css";
 import "../../apps/client/src/settings.css";
 import "../../apps/client/src/worktree-creator.css";
 
-const t = translator(
-  new URLSearchParams(location.search).get("language") ?? "ja",
-);
+const language = new URLSearchParams(location.search).get("language") ?? "ja";
+const t = translator(language);
 const noop = () => {};
 const asyncNoop = async () => {};
 const actions: UninstallActions = {
@@ -125,7 +131,7 @@ function TerminalFontSettingsPreview() {
     backgroundConnection: false,
     notificationPrompted: true,
     closeToExit: false,
-    language: "ja",
+    language,
     theme: theme,
     fontSize: 16,
     terminalFontSize: 14,
@@ -156,7 +162,7 @@ function TerminalFontSettingsPreview() {
         return true;
       }}
       onRetryPreferences={noop}
-      language="ja"
+      language={language}
       t={t}
       onOpenChange={noop}
       onCloseHandler={noop}
@@ -420,7 +426,85 @@ function ChildStatesPreview() {
     </div>
   );
 }
+function UsagePreview() {
+  const state = Number(stateId.split("-").at(-1));
+  const graph = stateId.includes("-circle-") ? "circle" : "bar";
+  const display =
+    query.get("display") === "remaining" || [8, 25].includes(state)
+      ? "remaining"
+      : "used";
+  const agents = stateId.includes("-agents-");
+  const list = usageSnapshot(stateId);
+  return (
+    <UsagePreferences.Provider value={{ graph, display }}>
+      <TooltipProvider>
+        <div className="workspace-app" style={{ height: "100dvh" }}>
+          <div className="mobile-location">
+            <Terminal size={16} />
+            <span>
+              {agents ? "AI Agents" : state === 20 ? "Board" : "Terminal"}
+            </span>
+          </div>
+          <main style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
+            {agents && (
+              <TeamContext.Provider
+                value={{
+                  t,
+                  language,
+                  clis: list.clis,
+                  catalogs: {},
+                  loadingModels: {},
+                  hostName: host.hostName,
+                  cliNames: {},
+                }}
+              >
+                <AgentsPage
+                  host={host.publicKey}
+                  clis={list.clis}
+                  failed={[]}
+                  listError={false}
+                  onRetryList={noop}
+                  onChanged={asyncNoop}
+                  expanded={{}}
+                  onExpandedChange={noop}
+                  renderSettings={() => null}
+                  renderModelError={() => null}
+                />
+              </TeamContext.Provider>
+            )}
+            {state === 20 && (
+              <Board
+                host={host.publicKey}
+                cwd="/home/user"
+                visible={false}
+                t={t}
+                language={language}
+                onOpenTerminal={noop}
+                onOpenGit={noop}
+                onEditTeam={noop}
+                onViewState={noop}
+              />
+            )}
+          </main>
+          <div className="status-bar">
+            <span>
+              <StatusDot state={state === 10 ? "stopped" : "active"} />
+              {t(state === 10 ? "Reconnecting…" : "Connected")}
+            </span>
+            <UsageStatus
+              hostKey={host.publicKey}
+              connected={false}
+              language={language}
+            />
+          </div>
+          {state === 13 && <TerminalFontSettingsPreview />}
+        </div>
+      </TooltipProvider>
+    </UsagePreferences.Provider>
+  );
+}
 function Frame() {
+  if (current.kind === "usage") return <UsagePreview />;
   if (current.kind === "child-states")
     return (
       <TooltipProvider>

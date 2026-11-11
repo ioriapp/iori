@@ -58,6 +58,10 @@ test("Client checks the shape and numeric ranges of usage windows received from 
   assert.deepEqual(parseCliUsage({ windows: [valid, ...bad] }), {
     windows: [valid],
   });
+  assert.deepEqual(parseCliUsage({ windows: [valid], observedAt: 123 }), {
+    windows: [valid],
+    observedAt: 123,
+  });
   for (const value of [
     {},
     null,

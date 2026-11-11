@@ -13,10 +13,73 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
+import { createServer } from "node:http";
+import { fileURLToPath } from "node:url";
 import { hookInstallContext, removeCliHooks } from "./hook-install.ts";
 import { hooks as antigravity } from "./antigravity/hooks.ts";
 import { hooks as cursor } from "./cursor/hooks.ts";
 import { hooks as claude } from "./claude/hooks.ts";
+import { cliDefinitions } from "./definitions.ts";
+
+test("Muse の背景の subagent の hook は iori へ届かず、主の hook は届く", async () => {
+  const received: string[] = [];
+  const server = createServer((req, res) => {
+    let body = "";
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", () => {
+      received.push(JSON.parse(body).hook_event_name);
+      res.end();
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const address = server.address();
+    assert.ok(address && typeof address !== "string");
+    const environment = cliDefinitions
+      .find((definition) => definition.id === "muse-code")
+      ?.launchEnvironment?.();
+    assert.ok(environment?.IORI_CLI_HOOK_ADAPTER);
+    for (const [event, session, thread] of [
+      ["Stop", "main", "main"],
+      ["PreToolUse", "main", "background"],
+      ["PostToolUse", "main", "background"],
+      ["UserPromptSubmit", "main", "main"],
+      ["StopFailure", undefined, "main"],
+      ["SessionEnd", "main", undefined],
+    ]) {
+      const child = spawn(
+        process.execPath,
+        [fileURLToPath(new URL("./hook-script.mjs", import.meta.url))],
+        {
+          env: {
+            ...process.env,
+            ...environment,
+            IORI_CLI_HOOK_URL: `http://127.0.0.1:${address.port}/`,
+            MUSE_SESSION_ID: session,
+            MUSE_THREAD_ID: thread,
+          },
+          stdio: ["pipe", "ignore", "ignore"],
+        },
+      );
+      const closed = new Promise((resolve, reject) => {
+        child.once("error", reject);
+        child.once("close", resolve);
+      });
+      child.stdin.end(JSON.stringify({ hook_event_name: event }));
+      assert.equal(await closed, 0);
+    }
+    assert.deepEqual(received, [
+      "Stop",
+      "UserPromptSubmit",
+      "StopFailure",
+      "SessionEnd",
+    ]);
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve())),
+    );
+  }
+});
 
 // These CLIs are absent from the E2E environment. Exercise their real installed
 // commands outside iori, with stdin deliberately left open: replies are required

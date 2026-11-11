@@ -31,6 +31,7 @@ import {
 } from "@iori/protocol";
 import type { HostStore, StoreContext } from "../store.ts";
 import { cliDefinitions, withCurrentCliIcon } from "../cli/definitions.ts";
+import type { HookState } from "../cli/hooks.ts";
 import {
   TerminalManager,
   type TeamTerminalOptions,
@@ -38,6 +39,7 @@ import {
 import { collectGit } from "../git-process.ts";
 import { copyDeliveryFile } from "../fs/delivery-file.ts";
 import { chooseCandidate } from "./assignment.ts";
+import { PendingCliStates } from "./pending-cli-states.ts";
 import {
   assignedCandidate,
   launchCandidate,
@@ -85,6 +87,10 @@ export class TeamManager {
   readonly #serials = new Map<string, Promise<void>>();
   #allocation = Promise.resolve();
   #startup = Promise.resolve();
+  #pendingChild?: {
+    child: TeamChild;
+    states: PendingCliStates<HookState>;
+  };
   readonly #starting = new Set<string>();
   // Allocation runs before delegate can report its result to the caller.
   readonly #delegating = new Set<string>();
@@ -221,7 +227,21 @@ export class TeamManager {
         });
     };
     terminals.onCliState = (id, state) => {
-      const childKey = manager.#terminalChildren.get(id)?.id ?? id;
+      const pending = manager.#pendingChild;
+      const registered = manager.#terminalChildren.get(id);
+      // Capture before choosing a serial key: registration changes it to child ID.
+      if (
+        !registered &&
+        pending?.child.state === "waiting" &&
+        manager.terminals.summary(id)?.teamConversation ===
+          pending.child.conversation &&
+        manager.#conversations.get(pending.child.conversation)?.terminalId !==
+          id
+      ) {
+        pending.states.add(id, state);
+        return;
+      }
+      const childKey = registered?.id ?? id;
       return manager
         .#run(async () => {
           const child = manager.#terminalChildren.get(id);
@@ -235,49 +255,7 @@ export class TeamManager {
             }
             return;
           }
-          if (
-            state.state === "active" &&
-            child.state === "failed" &&
-            manager.#cliFailures.has(child.id)
-          ) {
-            child.state = "running";
-            manager.#cliFailures.delete(child.id);
-            delete child.failure;
-            delete child.cliError;
-          }
-          manager.#cliStates.set(child.id, state.state);
-          manager.#saveChild(child);
-          await manager.#measureChild(child);
-          if (state.state === "active" && child.parentResponse === "pending")
-            child.parentResponse = "active";
-          if (
-            ["idle", "done"].includes(state.state) &&
-            !state.backgroundTasks?.length &&
-            state.outcome !== "failure" &&
-            child.state === "running" &&
-            child.parentResponse === "active"
-          ) {
-            child.parentResponse = "unreported";
-            manager.#saveChild(child);
-            await manager.#notice(
-              child,
-              "is idle without a report or question",
-            );
-          }
-          manager.#saveChild(child);
-          if (
-            state.outcome !== "failure" ||
-            !["running", "question"].includes(child.state)
-          )
-            return;
-          const failure =
-            state.failure ?? child.failure ?? "CLI reported a failure.";
-          manager.#cliFailures.add(child.id);
-          child.state = "failed";
-          child.failure = failure;
-          child.cliError = true;
-          manager.#saveChild(child);
-          await manager.#notice(child, "failed");
+          await manager.#applyCliState(child, state);
         }, childKey)
         .catch(() => {
           console.error("Team CLI notification failed");
@@ -322,6 +300,47 @@ export class TeamManager {
     }
     await terminals.activateTeamEvents();
     return manager;
+  }
+  async #applyCliState(child: TeamChild, state: HookState): Promise<void> {
+    if (
+      state.state === "active" &&
+      child.state === "failed" &&
+      this.#cliFailures.has(child.id)
+    ) {
+      child.state = "running";
+      this.#cliFailures.delete(child.id);
+      delete child.failure;
+      delete child.cliError;
+    }
+    this.#cliStates.set(child.id, state.state);
+    this.#saveChild(child);
+    await this.#measureChild(child);
+    if (state.state === "active" && child.parentResponse === "pending")
+      child.parentResponse = "active";
+    if (
+      ["idle", "done"].includes(state.state) &&
+      !state.backgroundTasks?.length &&
+      state.outcome !== "failure" &&
+      child.state === "running" &&
+      child.parentResponse === "active"
+    ) {
+      child.parentResponse = "unreported";
+      this.#saveChild(child);
+      await this.#notice(child, "is idle without a report or question");
+    }
+    this.#saveChild(child);
+    if (
+      state.outcome !== "failure" ||
+      !["running", "question"].includes(child.state)
+    )
+      return;
+    const failure = state.failure ?? child.failure ?? "CLI reported a failure.";
+    this.#cliFailures.add(child.id);
+    child.state = "failed";
+    child.failure = failure;
+    child.cliError = true;
+    this.#saveChild(child);
+    await this.#notice(child, "failed");
   }
   #markLostTerminals() {
     for (const child of this.#children.values()) {
@@ -1260,6 +1279,7 @@ export class TeamManager {
     };
   }
   #dispose(key: string): void {
+    if (this.#pendingChild?.child.id === key) this.#pendingChild.states.clear();
     this.#cliFailures.delete(key);
     const child = this.#children.get(key);
     if (child?.terminalId)
@@ -2105,6 +2125,8 @@ export class TeamManager {
         async (directory) =>
           `Open the file ${await copyDeliveryFile(requestFile, directory)} with your file-reading tool (it is a normal file, not an iori command) and follow the delegated request.`,
       );
+      const pendingStates = new PendingCliStates<HookState>();
+      this.#pendingChild = { child, states: pendingStates };
       const response = await this.terminals.createTerminal(
         {
           clientPublicKey: `team:${child.conversation}`,
@@ -2147,6 +2169,13 @@ export class TeamManager {
         this.store.putTeamTask(task);
       }
       this.#saveChild(child);
+      const states = pendingStates.take(child.terminalId);
+      if (states.length) {
+        // Queue replay before any later observation can use the child ID key.
+        await this.#run(async () => {
+          for (const state of states) await this.#applyCliState(child, state);
+        }, child.id);
+      }
       for (const file of [...(child.pendingMessageFiles ?? [])])
         await this.#deliverMessage(child, file);
     } catch (error) {
@@ -2157,6 +2186,11 @@ export class TeamManager {
       this.#dispose(child.id);
       this.#saveChild(child);
       await this.#notice(child, "failed");
+    } finally {
+      if (this.#pendingChild?.child === child) {
+        this.#pendingChild.states.clear();
+        this.#pendingChild = undefined;
+      }
     }
   }
   #elapsed(child: TeamChild): void {
@@ -2424,6 +2458,7 @@ export class TeamManager {
   async close(): Promise<void> {
     await this.terminals.pauseTeamEvents();
     this.#closed = true;
+    this.#pendingChild?.states.clear();
     await Promise.all(this.#serials.values());
     await this.#allocation;
     await this.#startup;

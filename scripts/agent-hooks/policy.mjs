@@ -40,8 +40,56 @@ export function shellCommands(line) {
   return commands.filter((command) => command.length);
 }
 
+// Heredoc bodies are data, not shell commands.
+function withoutHeredocBodies(line) {
+  const lines = line.split("\n");
+  const result = [];
+  const pending = [];
+  for (const text of lines) {
+    if (pending.length) {
+      const { delimiter, stripTabs } = pending[0];
+      if ((stripTabs ? text.replace(/^\t+/, "") : text) === delimiter)
+        pending.shift();
+      continue;
+    }
+    result.push(text);
+    let quote = "";
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      if (c === "\\" && quote !== "'") {
+        i++;
+        continue;
+      }
+      if (quote) {
+        if (c === quote) quote = "";
+        continue;
+      }
+      if (c === "'" || c === '"' || c === "`") {
+        quote = c;
+        continue;
+      }
+      if (text.startsWith("<<<", i)) {
+        i += 2;
+        continue;
+      }
+      if (!text.startsWith("<<", i)) continue;
+      const match = text
+        .slice(i)
+        .match(/^<<(-)?[ \t]*(?:'([^']*)'|"([^"]*)"|\\?([^\s;&|<>]+))/);
+      if (!match) continue;
+      pending.push({
+        delimiter: match[2] ?? match[3] ?? match[4],
+        stripTabs: !!match[1],
+      });
+      i += match[0].length - 1;
+    }
+  }
+  return result.join("\n");
+}
+
 // Keep separators outside quotes and substitutions, including redirection `2>&1`.
 function segments(line) {
+  line = withoutHeredocBodies(line);
   const parts = [];
   let start = 0;
   let separator = "";
@@ -85,9 +133,9 @@ function segments(line) {
       (c === "&" && line[i - 1] === "<")
     )
       continue;
-    if (";&|".includes(c)) {
+    if (";&|\n".includes(c)) {
       parts.push({ text: line.slice(start, i), separator });
-      separator = line[i + 1] === c && c !== ";" ? c + c : c;
+      separator = line[i + 1] === c && (c === "&" || c === "|") ? c + c : c;
       if (separator.length === 2) i++;
       start = i + 1;
     }
@@ -99,8 +147,14 @@ function segments(line) {
 export function targets(line) {
   const result = { pushes: [], release: false, notes: [] };
   let ciInChain = false;
+  let docsCiInChain = false;
+  let headMayChange = false;
   for (const part of segments(line)) {
-    if (part.separator !== "&&") ciInChain = false;
+    if (part.separator !== "&&") {
+      ciInChain = false;
+      docsCiInChain = false;
+      headMayChange = false;
+    }
     const words = shellCommands(part.text)[0] ?? [];
     let executable = 0;
     while (/^[A-Za-z_][A-Za-z0-9_]*=/.test(words[executable] ?? ""))
@@ -112,8 +166,7 @@ export function targets(line) {
     }
     const isCi =
       words[executable] === "bash" &&
-      /(?:^|\/)scripts\/ci\.sh$/.test(words[executable + 1] ?? "") &&
-      !words.includes("--docs-only");
+      /(?:^|\/)scripts\/ci\.sh$/.test(words[executable + 1] ?? "");
     const git = /(^|\/)git$/.test(words[executable] ?? "") ? executable : -1;
     if (git >= 0) {
       const push = words.indexOf("push", git + 1);
@@ -129,12 +182,22 @@ export function targets(line) {
             (destination === "main" || destination === "refs/heads/main") &&
             source
           ) {
-            result.pushes.push({ source, ciCovered: ciInChain });
+            result.pushes.push({
+              source,
+              ciCovered: ciInChain,
+              ...(headMayChange ? { headMayChange: true } : {}),
+              ...(docsCiInChain && !ciInChain ? { docsCiCovered: true } : {}),
+            });
           } else if (
             destination === undefined &&
             (source === "main" || source === "refs/heads/main")
           ) {
-            result.pushes.push({ source, ciCovered: ciInChain });
+            result.pushes.push({
+              source,
+              ciCovered: ciInChain,
+              ...(headMayChange ? { headMayChange: true } : {}),
+              ...(docsCiInChain && !ciInChain ? { docsCiCovered: true } : {}),
+            });
           }
         }
       }
@@ -146,7 +209,41 @@ export function targets(line) {
       const ref = part.text.match(
         /(?:^|\s)([\w./^~+-]+):(?:refs\/heads\/)?main(?=$|[^\w])/,
       );
-      result.pushes.push({ source: ref?.[1] ?? "HEAD", ciCovered: ciInChain });
+      result.pushes.push({
+        source: ref?.[1] ?? "HEAD",
+        ciCovered: ciInChain,
+        ...(headMayChange ? { headMayChange: true } : {}),
+        ...(docsCiInChain && !ciInChain ? { docsCiCovered: true } : {}),
+      });
+    }
+    if (git >= 0) {
+      let action = git + 1;
+      while ((words[action] ?? "").startsWith("-")) {
+        const option = words[action++];
+        if (
+          [
+            "-C",
+            "-c",
+            "--git-dir",
+            "--work-tree",
+            "--namespace",
+            "--config-env",
+          ].includes(option)
+        )
+          action++;
+      }
+      if (
+        ["commit", "cherry-pick", "merge", "am", "rebase"].includes(
+          words[action],
+        )
+      )
+        headMayChange = true;
+      // ci.sh checked the working tree; commits it brings in after the check
+      // were never checked.
+      if (["cherry-pick", "merge", "am", "rebase"].includes(words[action])) {
+        ciInChain = false;
+        docsCiInChain = false;
+      }
     }
     let script = words.find((word) =>
       /(?:^|\/)scripts\/release\/(?:build|publish|promote|notes)\.mjs$/.test(
@@ -173,7 +270,10 @@ export function targets(line) {
         }
       }
     }
-    if (isCi) ciInChain = true;
+    if (isCi) {
+      if (words.includes("--docs-only")) docsCiInChain = true;
+      else ciInChain = true;
+    }
   }
   return result;
 }
@@ -193,15 +293,5 @@ export function unresolved(latest, quarantine, acknowledged) {
       typeof failure?.scenario === "string" &&
       !Object.hasOwn(quarantine, failure.scenario) &&
       !addressed.includes(failure.scenario),
-  );
-}
-
-export function hasCiEvidence(sha, runs) {
-  return runs.some(
-    (run) =>
-      run.sha.trim() === sha &&
-      run.dirty === "" &&
-      run.timing?.exit === 0 &&
-      run.log.includes("Release npm and Cargo license inventories are current"),
   );
 }

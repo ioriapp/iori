@@ -194,7 +194,7 @@ export async function cliDefinitionPluginScenario({
   );
   assert.equal(
     await screen.text(action("cli-definition-choose-file")),
-    "ファイルを選ぶ",
+    "ファイルを選択",
   );
   await chooseFiles(screen, '[data-iori-field="cli-definition-file"]', [
     {
@@ -337,7 +337,7 @@ export async function cliDefinitionPluginScenario({
     "応答中を経て完了になる",
   );
   await record(
-    "部品が共通の形で送る知らせで、ターミナルの応答中→完了の印が出る",
+    "部品が共通の形で送る知らせで、ターミナルの応答中→完了のインジケーターが出る",
   );
 
   await openAgents(screen);
@@ -352,7 +352,7 @@ export async function cliDefinitionPluginScenario({
   );
   assert.match(
     await screen.text(`[data-iori-usage="${id}"] [data-iori-usage-window]`),
-    /75/u,
+    /25% used/u,
   );
   await record("利用枠のスクリプトの窓がAIエージェントの行に出る");
   await returnToWorktree(screen);

@@ -1,0 +1,25 @@
+/* The approved sample's single usage line, shared by Board, agents and candidates. */
+.team-usage.usage-line {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
+}
+.usage-line [data-iori-usage-more] {
+  margin-inline-start: 0.75rem;
+}
+.usage-line-short,
+.usage-line[data-short] .usage-line-full {
+  display: none;
+}
+.usage-line[data-short] .usage-line-short {
+  display: inline;
+}
+.usage-line [hidden] {
+  display: none;
+}
+.team-usage.usage-line > [data-iori-usage-window] {
+  margin-inline-start: 0;
+}

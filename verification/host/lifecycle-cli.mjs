@@ -59,8 +59,10 @@ if (process.argv.includes("--version") || process.argv.includes("--help")) {
       console.log(`LIFECYCLE_PARENT_INPUT:${line}`);
       continue;
     }
+    if (action === "capture-initial")
+      console.log(`LIFECYCLE_INITIAL:${JSON.stringify(line)}`);
     const match = line.match(
-      /Open the file (.+?) with your file-reading tool/u,
+      /[Oo]pen the file (.+?) with your file-reading tool/u,
     );
     const body = match ? await readFile(match[1], "utf8") : line;
     console.log(`LIFECYCLE_REQUEST:${JSON.stringify(body)}`);

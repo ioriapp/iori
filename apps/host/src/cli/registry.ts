@@ -130,7 +130,34 @@ export class CliRegistry {
 
   readonly usage = new Map<string, import("@iori/protocol").CliUsage>();
   readonly #usageMonitors = new Map<string, AbortController>();
-  readonly #usageRefresh = new Map<string, () => void>();
+  readonly #usageRefresh = new Map<string, () => void | Promise<void>>();
+  readonly #requestedRefresh = new Map<
+    string,
+    { started: number; pending?: Promise<void> }
+  >();
+
+  async requestUsageRefresh(cliId?: string): Promise<void> {
+    const ids = cliId ? [cliId] : [...this.#usageRefresh.keys()];
+    await Promise.all(
+      ids.map(async (id) => {
+        const previous = this.#requestedRefresh.get(id);
+        if (previous?.pending) return previous.pending;
+        if (previous && Date.now() - previous.started < 60_000) return;
+        const refresh = this.#usageRefresh.get(id);
+        if (!refresh) return;
+        const entry: { started: number; pending?: Promise<void> } = {
+          started: Date.now(),
+        };
+        this.#requestedRefresh.set(id, entry);
+        entry.pending = Promise.resolve()
+          .then(refresh)
+          .finally(() => {
+            entry.pending = undefined;
+          });
+        await entry.pending;
+      }),
+    );
+  }
   onUsageChanged?: () => void;
   refreshUsage(cliId?: string): void {
     if (cliId) this.#usageRefresh.get(cliId)?.();
@@ -223,11 +250,7 @@ export class CliRegistry {
               command,
               AbortSignal.any([controller.signal, this.#controller.signal]),
               (usage) => {
-                if (
-                  JSON.stringify(this.usage.get(definition.id)) ===
-                  JSON.stringify(usage)
-                )
-                  return;
+                if (usage) usage = { ...usage, observedAt: Date.now() };
                 if (usage) this.usage.set(definition.id, usage);
                 else this.usage.delete(definition.id);
                 this.#publish({
@@ -265,6 +288,7 @@ export class CliRegistry {
           managedTeamArguments: _managedTeamArguments,
           teamEnvironment: _teamEnvironment,
           launchEnvironment: _launchEnvironment,
+          launchEffortForVersion: _launchEffortForVersion,
           teamInput: _teamInput,
           waitForBracketedPaste: _waitForBracketedPaste,
           waitForInputCursor: _waitForInputCursor,
@@ -278,6 +302,11 @@ export class CliRegistry {
         } = definition;
         return {
           ...summary,
+          ...(definition.launchEffortForVersion
+            ? {
+                launchEffort: definition.launchEffortForVersion(cached.version),
+              }
+            : {}),
           ...edit,
           hidden: this.#store.cliHidden(definition.id),
           support: cliSupport(definition, cached.version),
@@ -297,12 +326,20 @@ export class CliRegistry {
         };
       }),
     );
+    const order = this.#store.cliOrder();
+    const clis = detected.filter((cli) => cli !== undefined);
+    clis.sort((a, b) => {
+      const ai = order.indexOf(a.id);
+      const bi = order.indexOf(b.id);
+      return (ai < 0 ? order.length : ai) - (bi < 0 ? order.length : bi);
+    });
     const failed = failedDefinitions();
     return {
       ok: true,
       result: {
         shell: shell.id,
-        clis: detected.filter((cli) => cli !== undefined),
+        clis,
+        orderable: true,
         ...(this.#store.lastUsedCli()
           ? { lastUsedId: this.#store.lastUsedCli() }
           : {}),
@@ -963,7 +1000,11 @@ export class CliRegistry {
         ? {
             env: {
               ...(execution ? teamEnvironment?.(execution) : {}),
-              ...launchEnvironment?.(version, execution?.candidate.model),
+              ...launchEnvironment?.(
+                version,
+                execution?.candidate.model,
+                execution?.candidate.effort,
+              ),
             },
           }
         : {}),
@@ -1037,6 +1078,9 @@ export class CliRegistry {
             shell: shell.id,
             cliId: id,
             version,
+            ...(definition?.launchEffortForVersion
+              ? { launchEffort: definition.launchEffortForVersion(version) }
+              : {}),
           });
         })
         .catch(() => {

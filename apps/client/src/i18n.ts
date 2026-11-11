@@ -1,5 +1,16 @@
 import { teamJapanese } from "./teams/translations.ts";
 const japanese: Record<string, string> = {
+  "Usage display": "利用枠の表示",
+  "Usage graph": "利用枠のグラフ",
+  Remaining: "残量",
+  Used: "使用量",
+  Bar: "棒グラフ",
+  Circle: "円グラフ",
+  "Choose whether usage limits show the percentage remaining or used.":
+    "利用枠の割合を、残量と使用量のどちらで表示するかを選びます。",
+  "Choose the shape of usage graphs in the status bar and popovers.":
+    "ステータスバーとポップオーバーの利用枠のグラフの形を選びます。",
+
   "Could not check the iori Host version. Try updating from Version in settings.":
     "iori Hostのバージョンを確認できませんでした。設定の「バージョン」から更新をお試しください。",
   "This team has no parent CLI. Edit the team and choose one.":
@@ -340,7 +351,7 @@ const japanese: Record<string, string> = {
   "Could not save settings. Choose it again to retry.":
     "設定を保存できませんでした。項目をもう一度選択してください。",
   "Terminal font": "Terminalのフォント",
-  "Font name": "フォントの名前",
+  "Font name": "フォント名",
   "To use several fonts, separate them with commas. The first font installed on this device is used; if the field is empty or none are installed, the default font is used.":
     "複数を指定するときは、カンマで区切ってください。このデバイスにある最初のフォントを使い、空のときやどれもないときは既定のフォントを使います。",
   "Settings saved": "保存しました",
@@ -734,7 +745,7 @@ const japanese: Record<string, string> = {
   "Special key": "特殊キー",
   "Typed character": "文字を入力",
   Modifiers: "修飾キー",
-  Text: "文字列",
+  Text: "テキスト",
   "Send Enter": "最後にEnterを送信",
   Add: "追加",
   "Enter one key or one text string.":
@@ -758,13 +769,13 @@ const japanese: Record<string, string> = {
   "No shells on this Host": "このHostで使えるシェルはありません。",
   "Discard invitation input?": "入力した招待を破棄しますか？",
   "Your invitation input will be cleared.":
-    "入力した招待の文字列は消去されます。",
+    "入力した招待コードは消去されます。",
   "Keep editing": "編集を続ける",
   Discard: "破棄する",
   "Connect to a Host": "Hostに接続する",
   "Use an invitation from iori-host invite on the Host or Devices → Invite a new device on a registered device.":
     "Hostでiori-host inviteを実行するか、登録済みのデバイスで「デバイス」→「新しいデバイスを招待する」を選んで招待を発行し、下に貼り付けてください。",
-  Invitation: "招待の文字列",
+  Invitation: "招待コード",
   "Enlarge QR code": "QRコードを拡大",
   Continue: "次へ",
   "Scan QR code": "QRコードを読み取る",
@@ -841,7 +852,7 @@ const japanese: Record<string, string> = {
     "新しい招待を取得して、再登録してください。",
   "Register again": "再登録",
   "Check the invitation and paste it again.":
-    "招待の文字列を確認して、もう一度貼り付けてください。",
+    "招待コードを確認して、もう一度貼り付けてください。",
   "This invitation cannot be used. Create a new invitation on the Host.":
     "この招待は使えません。Hostで新しい招待を発行してください。",
   "Could not reach the Host. Retry with this invitation or check that the Host is running.":
@@ -855,9 +866,9 @@ const japanese: Record<string, string> = {
   "The Host could not read this request. Retry.":
     "Hostで操作を処理できませんでした。もう一度お試しください。",
   "Could not read the QR code. Paste the invitation instead.":
-    "QRコードを読み取れませんでした。招待の文字列を貼り付けてください。",
+    "QRコードを読み取れませんでした。招待コードを貼り付けてください。",
   "Could not copy. Select and copy the invitation below.":
-    "コピーできませんでした。下の招待の文字列を選んでコピーしてください。",
+    "コピーできませんでした。下の招待コードを選んでコピーしてください。",
   Retry: "再試行",
   "Retry saving": "保存を再試行",
   Save: "保存",
@@ -965,7 +976,7 @@ const japanese: Record<string, string> = {
   Icon: "アイコン",
   "Choose an image": "画像を選ぶ",
   "Remove {file}": "{file}を削除",
-  "Choose files": "ファイルを選ぶ",
+  "Choose files": "ファイルを選択",
   "Choose one definition JSON file.": "定義のJSONを1つ選んでください。",
   "Choose an SVG or PNG image.": "SVGかPNGの画像を選んでください。",
   "Revert to the bundled icon": "同梱のアイコンに戻す",

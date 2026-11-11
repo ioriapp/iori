@@ -1217,6 +1217,38 @@ export async function startHost(
       case "cli.list":
         response = await terminalManager.listClis(request.params.refreshUsage);
         break;
+      case "cli.usage.refresh":
+        await terminalManager.requestCliUsageRefresh(request.params.cliId);
+        response = { ok: true, result: {} };
+        break;
+      case "cli.order.set": {
+        const context = {
+          clientPublicKey: session.publicKey,
+          operationId: request.operationId,
+        };
+        const previous = store.terminalOperationResult<{ order: string[] }>(
+          context,
+        );
+        if (previous) {
+          response = { ok: true, result: previous };
+          break;
+        }
+        const list = await terminalManager.listClis();
+        if (!list.ok) {
+          response = list;
+          break;
+        }
+        const known = new Set(list.result.clis.map((cli) => cli.id));
+        const order = [
+          ...new Set(request.params.order.filter((id) => known.has(id))),
+        ];
+        store.saveCliOrder(order);
+        const result = { order };
+        store.saveTerminalOperationResult(context, result);
+        events.publish({ type: "cli.order.changed", order });
+        response = { ok: true, result };
+        break;
+      }
       case "cli.definition.file.write":
         response = {
           ok: true,

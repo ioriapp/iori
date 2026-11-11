@@ -169,9 +169,10 @@ export async function prepareTeamScenario({
       "Read each parent request file and follow its instructions for the current turn. Use iori report only when that request asks for a report. Do not modify files or ask questions.";
     for (const candidates of Object.values(definition.roles[0].candidates)) {
       candidates[0].cli = "opencode";
-      candidates[0].model = opencodeV2
-        ? "opencode/deepseek-v4.1-flash-free"
-        : "openai/gpt-6-luna";
+      candidates[0].model =
+        opencodeV2 && !fakeModelRequests
+          ? "opencode/deepseek-v4.1-flash-free"
+          : "openai/gpt-6-luna";
       candidates[0].effort = "high";
     }
   }
@@ -271,10 +272,11 @@ export async function prepareTeamScenario({
         `[data-iori-terminal-id="${id}"][data-iori-stream-state="ready"]`,
       );
       await focusTerminal(client, id);
-      await observed(client, "DeepSeek");
+      await observed(client, fakeModelRequests ? "Fake model" : "DeepSeek");
       await submitToCli(
         client,
-        "Use the question tool to ask whether release notes should be brief or detailed. Wait for my answer. Do not use other tools.",
+        "Use the question tool to ask whether release notes should be brief or detailed. Wait for my answer. Do not use other tools." +
+          fakeMarker("opencode-question"),
       );
       await waitForCliState(client, id, ["active"]);
       await waitForCliState(client, id, ["waiting"]);
@@ -291,10 +293,11 @@ export async function prepareTeamScenario({
         `[data-iori-terminal-id="${id}"] [data-iori-action="cli-resume"]`,
       );
       await focusTerminal(client, id);
-      await observed(client, "DeepSeek");
+      await observed(client, fakeModelRequests ? "Fake model" : "DeepSeek");
       await submitToCli(
         client,
-        "Reply Ready and finish your turn without using tools.",
+        "Reply Ready and finish your turn without using tools." +
+          fakeMarker("opencode-ready"),
       );
       await waitForCliState(client, id, ["active"]);
       await waitForCliState(client, id, ["done", "idle"]);
@@ -584,7 +587,7 @@ export async function prepareTeamScenario({
       "request",
       "--body",
       "Read this request, run iori report --body OPENCODE_REPORT_OK once, then finish this response. Do not modify files or ask questions." +
-        fakeMarker("opencode-report"),
+        fakeMarker(opencodeV2 ? "opencode-v2-report" : "opencode-report"),
     ]);
     const answered = new Set();
     let reportApproved = false;
@@ -616,7 +619,7 @@ export async function prepareTeamScenario({
     );
     await screen.wait('[data-iori-child-state="reported"]');
     await record(
-      `無料OpenCodeは依頼書を外部フォルダー承認なしで読み取り、探索・報告のシェル承認${answered.size}回に答えて完了`,
+      `OpenCodeは依頼書を外部フォルダー承認なしで読み取り、探索・報告のシェル承認${answered.size}回に答えて完了`,
     );
     await waitForCliState(client, child.terminalId, ["idle", "done"]);
     await parentCommand(["stop", child.id]);
@@ -634,7 +637,7 @@ export async function prepareTeamScenario({
       "request",
       "--body",
       "Read this new request file. Report successful verification of resuming this conversation through iori report --body with the text OPENCODE_RESUMED_REPORT_OK, then finish this response. Do not modify files or ask questions." +
-        fakeMarker("opencode-resume"),
+        fakeMarker(opencodeV2 ? "opencode-v2-resume" : "opencode-resume"),
     ]);
     assert.match(resumed.text, /Message queued for resume/u);
     answered.clear();
@@ -715,10 +718,12 @@ export async function prepareTeamScenario({
         screen.evaluate(
           "document.querySelectorAll('.team-candidate-row .team-candidate-effort button').length",
         ),
-      (count) => count === 0,
+      (count) => (opencodeV2 ? count > 0 : count === 0),
     );
-    await shot("opencode-candidate-no-effort");
-    await record("OpenCodeの保存済み候補にEffortの操作が表示されない");
+    await shot("opencode-candidate-effort");
+    await record(
+      "OpenCodeの保存済み候補にEffortの操作を対応する版だけ表示する",
+    );
     return;
   }
   return {

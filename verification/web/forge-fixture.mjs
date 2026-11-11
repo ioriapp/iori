@@ -25,7 +25,13 @@ export async function prepareForgeFixture(root) {
     { stdio: "pipe" },
   );
   const branch = git(repository, "symbolic-ref", "--short", "HEAD");
-  const sha = git(repository, "rev-parse", `refs/remotes/origin/${branch}`);
+  // Keep the tracked branch on a commit with public status, runs, jobs and logs.
+  const sha = "134b0f8b8d4f50080ff824dac497a44136e75354";
+  const failedSha = "6b16c7a5332e996a04c7ccd9c530ecdefe8e2aa2";
+  const noCiSha = "efde2a6e6270f5a84531d27c3963388a42542254";
+  git(repository, "fetch", "--depth=1", "origin", sha, failedSha, noCiSha);
+  git(repository, "update-ref", `refs/heads/${branch}`, sha);
+  git(repository, "update-ref", `refs/remotes/origin/${branch}`, sha);
   git(repository, "config", "push.default", "upstream");
   const longName =
     "feature/sidebar-worktree-name-keeps-the-start-and-the-important-ending";
@@ -54,9 +60,6 @@ export async function prepareForgeFixture(root) {
   );
   // Real CI of older commits on main, followed through local remote-tracking
   // refs that are never pushed: run 161 failed, and the first commit predates CI.
-  const failedSha = "6b16c7a5332e996a04c7ccd9c530ecdefe8e2aa2";
-  const noCiSha = "efde2a6e6270f5a84531d27c3963388a42542254";
-  git(repository, "fetch", "--depth=1", "origin", failedSha, noCiSha);
   git(
     repository,
     "config",
@@ -194,12 +197,13 @@ export async function readForgeExpectation({ origin, sha }) {
   if (!response.ok)
     throw new Error("公開Forgejoのチェックを取得できませんでした");
   const status = await response.json();
-  if (!status.statuses.length)
+  const statuses = status.statuses ?? [];
+  if (!statuses.length)
     throw new Error("公開Forgejoの対象commitにチェックがありません");
-  const failed = status.statuses.find((value) =>
+  const failed = statuses.find((value) =>
     ["failure", "error", "warning"].includes(value.status),
   );
-  const running = status.statuses.find((value) => value.status === "pending");
+  const running = statuses.find((value) => value.status === "pending");
   return { state: failed ? "failed" : running ? "running" : "passed" };
 }
 

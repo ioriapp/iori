@@ -18,7 +18,9 @@ export function useCliList(hostKey: string, revision?: unknown) {
     error: boolean;
   }>({ hostKey, list: { clis: [] }, error: false });
   const request = useRef(0);
-  const versions = useRef(new Map<string, string>());
+  const versions = useRef(
+    new Map<string, { version: string; launchEffort?: boolean }>(),
+  );
   const reload = useCallback(
     async (refreshUsage = false) => {
       const currentRequest = ++request.current;
@@ -41,7 +43,7 @@ export function useCliList(hostKey: string, revision?: unknown) {
                 const version = versions.current.get(
                   `${hostKey}:${response.result.shell}:${cli.id}`,
                 );
-                return version ? { ...cli, version } : cli;
+                return version ? { ...cli, ...version } : cli;
               }),
               ...(lastUsed.current?.hostKey === hostKey
                 ? { lastUsedId: lastUsed.current.id }
@@ -72,6 +74,25 @@ export function useCliList(hostKey: string, revision?: unknown) {
   });
   useEffect(() => {
     const unsubscribe = connection.subscribeHostEvents((eventHost, event) => {
+      if (eventHost === hostKey && event.type === "cli.order.changed") {
+        const positions = new Map(event.order.map((id, index) => [id, index]));
+        setValue((current) =>
+          current.hostKey === hostKey
+            ? {
+                ...current,
+                list: {
+                  ...current.list,
+                  clis: [...current.list.clis].sort(
+                    (a, b) =>
+                      (positions.get(a.id) ?? event.order.length) -
+                      (positions.get(b.id) ?? event.order.length),
+                  ),
+                },
+              }
+            : current,
+        );
+        return;
+      }
       if (eventHost === hostKey && event.type === "cli.usage") {
         setValue((current) =>
           current.hostKey === hostKey
@@ -91,10 +112,12 @@ export function useCliList(hostKey: string, revision?: unknown) {
         return;
       }
       if (eventHost === hostKey && event.type === "cli.version") {
-        versions.current.set(
-          `${hostKey}:${event.shell}:${event.cliId}`,
-          event.version,
-        );
+        versions.current.set(`${hostKey}:${event.shell}:${event.cliId}`, {
+          version: event.version,
+          ...(event.launchEffort === undefined
+            ? {}
+            : { launchEffort: event.launchEffort }),
+        });
         setValue((current) =>
           current.hostKey === hostKey && current.list.shell === event.shell
             ? {
@@ -103,7 +126,13 @@ export function useCliList(hostKey: string, revision?: unknown) {
                   ...current.list,
                   clis: current.list.clis.map((cli) =>
                     cli.id === event.cliId
-                      ? { ...cli, version: event.version }
+                      ? {
+                          ...cli,
+                          version: event.version,
+                          ...(event.launchEffort === undefined
+                            ? {}
+                            : { launchEffort: event.launchEffort }),
+                        }
                       : cli,
                   ),
                 },

@@ -5,7 +5,7 @@ export type UsageMonitor = (
   command: string,
   signal: AbortSignal,
   changed: (usage: CliUsage | undefined) => void,
-  registerRefresh: (refresh: (() => void) | undefined) => void,
+  registerRefresh: (refresh: (() => void | Promise<void>) | undefined) => void,
 ) => Promise<void>;
 
 /** One-shot providers refresh on demand and at the next returned reset only. */
@@ -19,13 +19,16 @@ export function monitorUsageCommand(
 ): UsageMonitor {
   return async (shell, command, signal, changed, registerRefresh) => {
     let pending: Promise<void> | undefined;
-    let requested = false;
+    let queued: Promise<void> | undefined;
     let timer: NodeJS.Timeout | undefined;
-    const refresh = () => {
-      if (signal.aborted) return;
+    const refresh = (): Promise<void> => {
+      if (signal.aborted) return Promise.resolve();
       if (pending) {
-        requested = true;
-        return;
+        queued ??= pending.then(() => {
+          queued = undefined;
+          return refresh();
+        });
+        return queued;
       }
       if (timer) clearTimeout(timer);
       pending = read(shell, command, signal)
@@ -56,11 +59,8 @@ export function monitorUsageCommand(
         })
         .finally(() => {
           pending = undefined;
-          if (requested) {
-            requested = false;
-            refresh();
-          }
         });
+      return pending;
     };
     try {
       registerRefresh(refresh);

@@ -361,7 +361,9 @@ export async function forgeStatusScenario({
     "false",
   );
   await screen.key("Escape");
-  await record("表示の設定でPR・CIの印を消し、Client再読込後も設定を保つ");
+  await record(
+    "表示の設定でPR・CIのアイコンを消し、Client再読込後も設定を保つ",
+  );
   await openWorkspaceSettings(screen, fixture.repository);
   await screen.wait('[data-iori-field="repository-setup-command"]');
   await checkSettingsNavigation(screen, fixture, record);

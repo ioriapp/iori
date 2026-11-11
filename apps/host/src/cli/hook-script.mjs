@@ -29,7 +29,7 @@ try {
   if (cli) payload.iori_cli = cli;
   if (process.env.IORI_CLI_HOOK_ADAPTER) {
     const adapter = await import(process.env.IORI_CLI_HOOK_ADAPTER);
-    await adapter.preparePayload(payload);
+    if ((await adapter.preparePayload(payload)) === false) process.exit(0);
   }
   await new Promise((resolve) => {
     const body = JSON.stringify(payload);

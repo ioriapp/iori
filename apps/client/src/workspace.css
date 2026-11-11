@@ -214,6 +214,7 @@ time {
 
 /* Owner: the status bar uses only the auxiliary typography tier. */
 .status-bar {
+  position: relative;
   height: 22px;
   min-height: 22px;
   display: flex;
@@ -221,13 +222,13 @@ time {
   justify-content: flex-start;
   flex-shrink: 0;
   gap: 12px;
-  padding: 0 8px;
+  padding: 0 2px 0 8px;
   background: var(--sidebar);
   border-top: 1px solid var(--border);
   color: var(--muted-foreground);
   font-size: 0.86rem;
   font-weight: 400;
-  overflow-x: auto;
+  overflow: visible;
   white-space: nowrap;
   scrollbar-width: none;
 }
@@ -477,7 +478,7 @@ time {
   }
   .status-bar {
     font-size: 10px;
-    overflow: hidden;
+    overflow: visible;
   }
   .start-workspace {
     padding: 22px 16px;

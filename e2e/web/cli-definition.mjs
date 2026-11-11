@@ -280,7 +280,7 @@ export async function cliDefinitionScenario({
     );
     assert.equal(
       await screen.text(action("cli-definition-choose-file")),
-      "ファイルを選ぶ",
+      "ファイルを選択",
     );
     await chooseFiles(screen, '[data-iori-field="cli-definition-file"]', [
       { name: "missing.svg", bytes: definitionIconSvg, type: "image/svg+xml" },
@@ -831,7 +831,7 @@ export async function cliDefinitionScenario({
       cliFailure(screen, id),
     );
     await record(
-      "定義のrulesでSessionStart・UserPromptSubmit・Stopを状態へ直し、応答中→完了の印が出る",
+      "定義のrulesでSessionStart・UserPromptSubmit・Stopを状態へ直し、応答中→完了のインジケーターが出る",
     );
 
     await screen.click(`[data-iori-tab-id="terminal:${id}"]`);
@@ -878,7 +878,7 @@ export async function cliDefinitionScenario({
         "再開した要求に前の会話の記憶語が含まれる",
       );
     await record(
-      "Hostの再起動で定義を読み直し、定義のresumeで同じClaude Codeの会話を再開する",
+      "Hostの再起動で定義を再取得、定義のresumeで同じClaude Codeの会話を再開する",
     );
 
     return;

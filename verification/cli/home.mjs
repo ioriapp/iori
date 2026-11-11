@@ -245,13 +245,14 @@ export async function prepareCliHome(
         },
       }),
     );
-  if (opencodeV1 && fakeModelClis.includes("opencode")) {
+  if (fakeModelClis.includes("opencode")) {
     const config = join(home, ".config", "opencode");
     await mkdir(config, { recursive: true });
     await writeFile(
       join(config, "opencode.json"),
       JSON.stringify({
         model: "openai/gpt-6-luna",
+        ...(!opencodeV1 ? { enabled_providers: ["openai"] } : {}),
         small_model: "openai/gpt-6-luna",
         provider: {
           openai: {
@@ -259,6 +260,16 @@ export async function prepareCliHome(
               baseURL: `${fakeModel.baseURL}/v1`,
               apiKey: "verification",
             },
+            ...(!opencodeV1
+              ? {
+                  models: {
+                    "gpt-6-luna": {
+                      name: "Fake model",
+                      limit: { context: 32000, output: 1000 },
+                    },
+                  },
+                }
+              : {}),
           },
         },
       }),

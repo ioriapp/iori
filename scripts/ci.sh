@@ -19,6 +19,16 @@ while (( $# != 0 )); do
   esac
   shift
 done
+# Full runs on one machine share CPU with each other; overlapping them made
+# Host API tests time out (#330). Run them one at a time; a lock that cannot be
+# opened (a restricted sandbox) does not stop the check.
+if [[ -z "$check_args" ]] && command -v flock >/dev/null &&
+  exec {ci_lock}>>/tmp/iori-ci-full.lock 2>/dev/null; then
+  if ! flock -n "$ci_lock"; then
+    printf 'Waiting for another bash scripts/ci.sh on this machine\n' >&2
+    flock "$ci_lock"
+  fi
+fi
 started=$(date +%s)
 node scripts/publish/check-forbidden.mjs --if-configured
 # Concurrent worktrees own separate containers. The exit trap removes only ours.
@@ -26,6 +36,7 @@ evidence_root="${IORI_VERIFICATION_EVIDENCE_ROOT:-$root/.local/evidence}/ci"
 mkdir -p "$evidence_root"
 stage=$(mktemp -d "$root/.local/ci-XXXXXXXX")
 out=$(mktemp -d "$evidence_root/run-XXXXXXXX")
+if [[ -n "$check_args" ]]; then printf "docs-only\n" >"$out/mode.txt"; else printf "full\n" >"$out/mode.txt"; fi
 cid=""
 build_seconds=0
 copy_seconds=0

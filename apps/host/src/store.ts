@@ -1247,6 +1247,21 @@ export class HostStore {
       .run(id, JSON.stringify(cli));
   }
 
+  cliOrder(): string[] {
+    const row = this.#database
+      .prepare("SELECT value FROM terminal_settings WHERE key = ?")
+      .get("cliOrder") as { value: string } | undefined;
+    return row ? JSON.parse(row.value) : [];
+  }
+
+  saveCliOrder(order: string[]): void {
+    this.#database
+      .prepare(
+        "INSERT INTO terminal_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+      )
+      .run("cliOrder", JSON.stringify(order));
+  }
+
   cliHidden(id: string): boolean {
     const row = this.#database
       .prepare("SELECT value FROM terminal_settings WHERE key = ?")

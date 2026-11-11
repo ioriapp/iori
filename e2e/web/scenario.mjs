@@ -62,6 +62,8 @@ import { cliScenario, modelFailureScenario } from "../cli-screen/scenario.mjs";
 import { cliLauncherScenario } from "./cli-launcher.mjs";
 import { cliDefinitionScenario } from "./cli-definition.mjs";
 import { cliDefinitionPluginScenario } from "./cli-definition-plugin.mjs";
+import { usageStatusScenario } from "./usage-status.mjs";
+import { cliOrderScenario } from "./cli-order.mjs";
 import { cliOmpScenario } from "./cli-omp.mjs";
 import { paneActions, paneResize, paneMaximize } from "./panes.mjs";
 import assert from "node:assert/strict";
@@ -134,6 +136,25 @@ export async function webScenario({
   await register(screen, invitation, "開発用Chromium");
   await screen.key("Escape");
   await record("招待で登録");
+  if (only === "usage-status")
+    return usageStatusScenario({
+      client,
+      repository,
+      worktree,
+      hostData,
+      mobile,
+      record,
+    });
+  if (only === "cli-order")
+    return cliOrderScenario({
+      client,
+      repository,
+      worktree,
+      phone,
+      restartHostLosingTerminals,
+      reload,
+      record,
+    });
   if (
     [
       ...teamWebScenarios,

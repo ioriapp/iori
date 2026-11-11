@@ -14,12 +14,16 @@ export async function childRowsRegression({
     screen.evaluate(
       `(async()=>{const {connection}=await import('/src/connection.ts');const result=await connection.requestHost(connection.getSnapshot().host.publicKey,${JSON.stringify(method)},${JSON.stringify(params)});if(!result?.ok)throw new Error(${JSON.stringify(method)}+' failed');return result.result;})()`,
     );
-  const cli = await request("cli.definition.simple", {
-    simple: {
+  const cli = await request("cli.definition.save", {
+    definition: JSON.stringify({
+      schema: 1,
+      id: "child-rows-script",
       name: "Child rows script",
-      command: `${process.execPath} ${fileURLToPath(new URL("./child-rows-cli.mjs", import.meta.url))}`,
-      modelArgument: "",
-    },
+      command: {
+        shell: `${process.execPath} ${fileURLToPath(new URL("./child-rows-cli.mjs", import.meta.url))}`,
+      },
+      launch: { instructionFile: ["--instruction", "{instructionFile}"] },
+    }),
   });
   const candidate = {
     id: "worker-candidate",
@@ -92,6 +96,8 @@ export async function childRowsRegression({
   const child = await waitFor(
     async () => (await children())[0],
     (entry) => Boolean(entry?.terminalId),
+    undefined,
+    "最初の子のTerminalの起動",
   );
   const row = `[data-iori-child-id="${child.id}"]`;
   await screen.wait(row);

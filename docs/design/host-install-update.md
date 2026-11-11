@@ -71,7 +71,7 @@ MobileのClientには導入の選択肢を出さない。既存の招待（Host�
 
 ## 別のマシン（SSH）
 
-- 接続にはユーザーの手元にあるOpenSSHの`ssh`を使う。`~/.ssh/config`、ssh-agent、鍵、known_hosts、踏み台の設定はそのまま効く。
+- 接続にはユーザーの手元にあるOpenSSHの`ssh`を使う。`~/.ssh/config`、ssh-agent、鍵、known_hosts、踏み台の設定はそのまま適用される。
 - `~/.ssh/config`のHostを接続先の候補として表示する。Includeもたどり、ワイルドカード・否定のパターンは候補にしない。手で指定する時は、OpenSSHと同じ `[user@]host` または `ssh://[user@]host[:port]` を使う。`-` で始まる値は指定できない。configは書き換えない。
 - OpenSSHが無い時は「OpenSSH クライアントが見つかりません」と表示し、WindowsではWindowsの設定の「オプション機能」から追加するよう、LinuxではOpenSSH クライアントをインストールしてから試すよう案内する。ioriは昇格して追加しない。
 - 接続先を選ぶとOS・CPU・user・ホームを確認する。Linux x64とWindows x64を対象にし、それ以外のOSやCPUはその事実を表示して導入へ進ませない。Windowsの接続先の既定のシェルはcmdとPowerShellのどちらもありうるので、確認と導入はWindows標準のPowerShellを絶対パスで呼び、命令をエンコードして渡し、シェルの書き方に左右されないようにする。
@@ -95,13 +95,13 @@ MobileのClientには導入の選択肢を出さない。既存の招待（Host�
 
 ## 更新
 
-ClientからのHostの更新は[ClientからのHostの更新](host-update.md)に従う。導入スクリプト（`install.sh`・`install.ps1`）での手作業の更新は、導入と同じ手順で行う。Terminalを持つ係を続けられる更新は、[Hostの再起動・更新をまたいでTerminalを続ける](terminal-daemon.md)に従い、Terminalとエージェントを止めない。
+ClientからのHostの更新は[ClientからのHostの更新](host-update.md)に従う。導入スクリプト（`install.sh`・`install.ps1`）での手作業の更新は、導入と同じ手順で行う。Terminalを持つデーモンを続けられる更新は、[Hostの再起動・更新をまたいでTerminalを続ける](terminal-daemon.md)に従い、Terminalとエージェントを止めない。
 
 ## 撤去
 
 Desktop Clientの設定のHost → バージョンから、選んだHostをアンインストールできる。確認画面とMobileの案内は[設定](settings.md#hostのアンインストール)に従う。どの導入経路でも、登録済みデバイスから通常のioriの接続でHostへ依頼する。
 
-止まる前に、ioriがCLIの設定へ足したhooksだけを削除し、自動起動の登録を解除する。この段で失敗したら削除した設定を戻し、通常の作業を続けられる状態へ戻す。戻せなかった自動起動の登録は、Hostのマシンを再起動した後にHostが自動で起動しないこととして失敗の結果に表示する。CLIの設定のhooksは、次にCLIをioriから起動した時に足し直されるので表示しない。その後、Terminalとエージェントを止めて画面を保存する。Hostが停止する前に撤去に失敗した場合も設定を戻し、停止済みのTerminal係とチームを起動し直す。起動し直せなかった項目は失敗の結果に表示する。各段の結果は更新と同じ操作の記録・照会で返す。Host本体の外で動く短い処理が停止を確かめ、プログラムを削除する。Windowsのログオン時の起動とPATHのioriの項目、Linuxのuser unitとコマンドへのリンク、Terminalを持つ係とその実行資材も削除する。Windowsのファイアウォールの規則とLinuxのlingerは残す。撤去で管理者の確認は出さない。
+止まる前に、ioriがCLIの設定へ足したhooksだけを削除し、自動起動の登録を解除する。この段で失敗したら削除した設定を戻し、通常の作業を続けられる状態へ戻す。戻せなかった自動起動の登録は、Hostのマシンを再起動した後にHostが自動で起動しないこととして失敗の結果に表示する。CLIの設定のhooksは、次にCLIをioriから起動した時に足し直されるので表示しない。その後、Terminalとエージェントを止めて画面を保存する。Hostが停止する前に撤去に失敗した場合も設定を戻し、停止済みのTerminalデーモンとチームを起動し直す。起動し直せなかった項目は失敗の結果に表示する。各段の結果は更新と同じ操作の記録・照会で返す。Host本体の外で動く短い処理が停止を確かめ、プログラムを削除する。Windowsのログオン時の起動とPATHのioriの項目、Linuxのuser unitとコマンドへのリンク、Terminalを持つデーモンとその実行資材も削除する。Windowsのファイアウォールの規則とLinuxのlingerは残す。撤去で管理者の確認は出さない。
 
 「iori Hostの保存データも削除する」を選んだ時だけ、デバイスの登録・Hostの識別情報・ioriの作業記録・Terminalの履歴・Forgejo・Giteaのトークン（[連携](forge.md#連携の設定)）を削除する。更新時の控えの保存データも対象にする。トークンのうち資格情報マネージャー（Windows）・キーリング（Linux）に置いたものは、Hostが止まる前に削除する。削除できなかったサイトは撤去を止めずに、完了の時に結果の画面で表示する（右下の知らせには載せない）。選ばない時は保存データと控えのDBを残す。開発ファイルとCLI本体の会話・設定・認証は削除しない。
 

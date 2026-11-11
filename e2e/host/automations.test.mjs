@@ -38,7 +38,7 @@ function pastSchedule(dataRoot, id, nextAt) {
   }
 }
 
-test("無効な自動化も今すぐ実行でき、複数行の指示の写しをCLIへ渡す", (t) =>
+test("無効な自動化も今すぐ実行でき、複数行の指示のコピーをCLIへ渡す", (t) =>
   runHostTest(t, async ({ client, dataRoot, stage }) => {
     const { automation, definition } = await save(client, dataRoot, {
       enabled: false,
@@ -60,7 +60,7 @@ test("無効な自動化も今すぐ実行でき、複数行の指示の写し�
       !relative(join(hostData, "team-deliveries"), file).startsWith(".."),
     );
     assert.equal(await readFile(file, "utf8"), definition.instruction);
-    stage("Terminalを閉じた後で配送した写しが回収される");
+    stage("Terminalを閉じた後で配送したコピーが回収される");
     const changes = watch(dirname(file));
     const notifications = changes[Symbol.asyncIterator]();
     const pending = notifications.next();

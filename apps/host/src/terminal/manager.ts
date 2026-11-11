@@ -248,6 +248,9 @@ export class TerminalManager {
   cliHelp(command: string) {
     return this.#clis.help(command, this.#shell());
   }
+  requestCliUsageRefresh(cliId?: string) {
+    return this.#clis.requestUsageRefresh(cliId);
+  }
   listClis(refreshUsage = false) {
     return this.#clis.list(this.#shell(), refreshUsage);
   }

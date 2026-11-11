@@ -80,7 +80,9 @@ export interface CliDefinition extends CliSummary {
   launchEnvironment?: (
     version?: string,
     model?: string,
+    effort?: string,
   ) => Record<string, string>;
+  launchEffortForVersion?: (version?: string) => boolean;
   managedTeamArguments?: readonly import("./team-startup-arguments.ts").ManagedTeamArgument[];
   teamArguments?: (launch: TeamLaunch) => readonly string[];
   command: string;
@@ -134,6 +136,8 @@ export interface DefinitionArguments {
  * places the file's arguments among its own, in this CLI's order. */
 export type CliCode = Omit<Partial<CliDefinition>, "teamArguments"> & {
   id: string;
+  /** The code passes team instructions through its own launch options. */
+  deliversInstructions?: boolean;
   teamArguments?: (
     launch: TeamLaunch,
     file: DefinitionArguments,
@@ -146,20 +150,26 @@ export type CliCode = Omit<Partial<CliDefinition>, "teamArguments"> & {
 function firstInstruction(
   { launch: items }: DefinitionFile,
   { initial, instructionFile }: TeamLaunch,
+  deliversInstructions = false,
 ): string | undefined {
-  return items.instructionFile
-    ? initial || undefined
-    : initial || instructionFile
-      ? (initial ?? `Read ${instructionFile} and follow its instructions.`)
-      : undefined;
+  if (items.instructionFile || deliversInstructions)
+    return initial || undefined;
+  if (!instructionFile) return initial || undefined;
+  const instruction = `Read ${instructionFile} and follow its instructions.`;
+  return initial
+    ? initial.startsWith(instruction)
+      ? initial
+      : `${instruction} Then ${initial[0]!.toLowerCase()}${initial.slice(1)}`
+    : instruction;
 }
 function definitionArguments(
   file: DefinitionFile,
   launch: TeamLaunch,
+  deliversInstructions = false,
 ): DefinitionArguments {
   const { launch: items } = file;
   const { candidate: c, instructionFile, teamFilesDirectory } = launch;
-  const prompt = firstInstruction(file, launch);
+  const prompt = firstInstruction(file, launch, deliversInstructions);
   // A single {directory} keeps referring to the writable command mailbox.
   const directory = launch.commandMailboxDirectory || teamFilesDirectory;
   const values = {
@@ -339,7 +349,10 @@ function codedDefinition(
     // enables bracketed paste, as for a CLI added by name and command.
     ...(mode === "argument"
       ? {}
-      : { teamInput: (launch) => firstInstruction(file, launch) }),
+      : {
+          teamInput: (launch) =>
+            firstInstruction(file, launch, code?.deliversInstructions),
+        }),
     ...(mode === "paste" ? { waitForBracketedPaste: true } : {}),
     managedTeamArguments: file.launch.managedArguments,
     ...(!code?.hooks &&
@@ -351,7 +364,10 @@ function codedDefinition(
         }
       : {}),
     teamArguments: (launch) =>
-      inDefinitionOrder(file, definitionArguments(file, launch)),
+      inDefinitionOrder(
+        file,
+        definitionArguments(file, launch, code?.deliversInstructions),
+      ),
     modelCatalog: definitionModels(file),
     ...(file.resume
       ? {
@@ -383,7 +399,12 @@ function codedDefinition(
   }
   // The code of an official CLI stays in use when a user's file replaces
   // its bundled one; only the file's part is replaced.
-  const { teamArguments, unavailable: _unavailable, ...rest } = code;
+  const {
+    teamArguments,
+    unavailable: _unavailable,
+    deliversInstructions: _deliversInstructions,
+    ...rest
+  } = code;
   const definition: CliDefinition = {
     ...built,
     ...rest,
@@ -406,7 +427,10 @@ function codedDefinition(
     ...(teamArguments
       ? {
           teamArguments: (launch) =>
-            teamArguments(launch, definitionArguments(file, launch)),
+            teamArguments(
+              launch,
+              definitionArguments(file, launch, code.deliversInstructions),
+            ),
         }
       : {}),
   };
@@ -423,8 +447,20 @@ const codes: CliCode[] = [
   antigravity,
   {
     id: "muse-code",
+    // Keep the adapter available to running sessions across Host updates.
+    launchEnvironment: () => ({
+      IORI_CLI_HOOK_ADAPTER: `data:text/javascript;base64,${readFileSync(new URL("./muse-code/hook-adapter.mjs", import.meta.url)).toString("base64")}`,
+    }),
     modelCatalog: async (shell, command, signal) =>
       (await import("./muse-code/models.ts")).models(shell, command, signal),
+    usageMonitor: async (shell, command, signal, changed, registerRefresh) =>
+      (await import("./muse-code/usage.ts")).monitorUsage(
+        shell,
+        command,
+        signal,
+        changed,
+        registerRefresh,
+      ),
   },
 ];
 // Bundled definitions in the order of the CLI list. Each folder holds its

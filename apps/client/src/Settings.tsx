@@ -114,6 +114,8 @@ export type Preferences = {
   language: "system" | "en" | "ja";
   theme: "system" | "light" | "dark";
   fontSize: number;
+  usageDisplay?: "remaining" | "used";
+  usageGraph?: "bar" | "circle";
   terminalFontSize: number;
   terminalFontFamily: string;
   showForgeStatus?: boolean;
@@ -1338,7 +1340,9 @@ export function SettingsDialog({
   ) => (
     // FieldRow's own copy/control parts, with the save error left directly in
     // the row where it takes a line of its own.
-    <FieldRow className="v9-settings-row">
+    <FieldRow
+      className={`v9-settings-row${field === "usageDisplay" || field === "usageGraph" ? " usage-display-setting" : ""}`}
+    >
       <div className="field-copy">
         <span>{t(label)}</span>
         {description && <p className="page-description">{t(description)}</p>}
@@ -1804,6 +1808,36 @@ export function SettingsDialog({
                     (value) => onPreferencesChange({ fontSize: Number(value) }),
                     "display-text-size",
                     "fontSize",
+                  )}
+                  {selectRow(
+                    "Usage display",
+                    preferences.usageDisplay ?? "used",
+                    [
+                      ["remaining", "Remaining"],
+                      ["used", "Used"],
+                    ],
+                    (value) =>
+                      onPreferencesChange({
+                        usageDisplay: value as Preferences["usageDisplay"],
+                      }),
+                    "usage-display",
+                    "usageDisplay",
+                    "Choose whether usage limits show the percentage remaining or used.",
+                  )}
+                  {selectRow(
+                    "Usage graph",
+                    preferences.usageGraph ?? "bar",
+                    [
+                      ["bar", "Bar"],
+                      ["circle", "Circle"],
+                    ],
+                    (value) =>
+                      onPreferencesChange({
+                        usageGraph: value as Preferences["usageGraph"],
+                      }),
+                    "usage-graph",
+                    "usageGraph",
+                    "Choose the shape of usage graphs in the status bar and popovers.",
                   )}
                   {selectRow(
                     "Terminal text size",

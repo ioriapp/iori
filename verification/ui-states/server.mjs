@@ -41,6 +41,8 @@ function stateDataPlugin(catalog) {
       "terminal/TerminalPane.tsx",
       "IntegrationsSettings.tsx",
       "Settings.tsx",
+      "usage/UsageStatus.tsx",
+      "teams/Board.tsx",
       "GitSettings.tsx",
       "host-setup/SshSetup.tsx",
       "components/flow/Progress.tsx",
@@ -56,6 +58,12 @@ function stateDataPlugin(catalog) {
     name: "iori-ui-state-data",
     enforce: "pre",
     resolveId(source, importer) {
+      if (
+        importer &&
+        source.endsWith("cli-list.ts") &&
+        importer.includes("/usage/UsageStatus.tsx")
+      )
+        return "\0usage-state-cli-list";
       if (source === "virtual:ui-state-catalog") return "\0ui-state-catalog";
       if (
         adapters.has(source) ||
@@ -68,6 +76,9 @@ function stateDataPlugin(catalog) {
         return resolve(import.meta.dirname, "adapters.ts");
     },
     async load(id) {
+      if (id === "\0usage-state-cli-list")
+        return `import { usageSnapshot } from ${JSON.stringify(resolve(import.meta.dirname, "fixtures.ts"))}; import { stateId } from ${JSON.stringify(resolve(import.meta.dirname, "runtime.ts"))}; const all = usageSnapshot(stateId); export const useCliList = () => ({all});`;
+
       if (id === "\0ui-state-catalog")
         return `export const allStates = ${JSON.stringify(await readCatalog(catalog))};`;
     },
@@ -110,6 +121,7 @@ function stateDataPlugin(catalog) {
             "IntegrationsSettings",
             "GitSettings",
             "TerminalPane",
+            "Board",
           ].includes(module) &&
           ts.isCallExpression(node) &&
           node.expression.getText(file) === "useEffect"

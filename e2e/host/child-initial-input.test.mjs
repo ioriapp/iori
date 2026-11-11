@@ -84,7 +84,11 @@ test("hookもpasteの印もない子のPTYに最初の依頼が一度だけ届�
     const child = await client.terminal(changed.child.terminalId);
     await child.output("NO_READY_SCREEN");
     stage("子のPTYに最初の依頼が届く");
-    await child.output("INITIAL_REQUEST_RECEIVED:Open the file");
+    await child.waitFor(({ output }) =>
+      /INITIAL_REQUEST_RECEIVED:Read .+ and follow its instructions\. Then open the file .+ with your file-reading tool/u.test(
+        output,
+      ),
+    );
     stage("親のPTYから子へ後続の依頼を送る");
     await actorCommand(parentPty, "barrier", [
       "send",

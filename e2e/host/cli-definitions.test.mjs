@@ -426,3 +426,78 @@ for (const existing of ["missing", "user", "conflict"]) {
         });
     }));
 }
+
+test("CLIの並び順は保存され、Hostの再起動後も保たれる", (t) =>
+  runHostTest(t, async ({ client, restart, stage }) => {
+    stage("CLIを登録して並びを保存する");
+    for (const id of ["order-first", "order-second", "order-third"])
+      await client.request("cli.definition.save", {
+        definition: JSON.stringify(definition(id)),
+      });
+    const events = await client.events();
+    await events.waitFor((event) => event.type === "snapshot");
+    const order = ["order-second", "order-first"];
+    assert.deepEqual(
+      await client.request("cli.order.set", { order: [...order, "unknown"] }),
+      { order },
+    );
+    await events.waitFor(
+      (event) =>
+        event.type === "cli.order.changed" &&
+        JSON.stringify(event.order) === JSON.stringify(order),
+    );
+    const check = async (connection) => {
+      const result = await connection.request("cli.list", {});
+      assert.equal(result.orderable, true);
+      assert.deepEqual(
+        result.clis
+          .filter((cli) => cli.id.startsWith("order-"))
+          .map((cli) => cli.id),
+        [...order, "order-third"],
+      );
+    };
+    await check(client);
+    stage("再起動後も並びが保たれる");
+    await check(await restart());
+  }));
+
+test("利用枠の再取得は時刻と値を送り、連続した依頼をまとめる", (t) =>
+  runHostTest(t, async ({ client, dataRoot, stage }) => {
+    const id = "usage-refresh";
+    const folder = join(dataRoot, "iori-host", "cli-definitions", id);
+    const counter = join(dataRoot, "usage-count");
+    await mkdir(folder, { recursive: true });
+    await writeFile(
+      join(folder, "definition.json"),
+      JSON.stringify({ ...definition(id), usage: { script: "usage.mjs" } }),
+    );
+    await writeFile(
+      join(folder, "usage.mjs"),
+      `import { readFileSync, writeFileSync } from "node:fs";\nconst path = ${JSON.stringify(counter)};\nlet count = 0; try { count = Number(readFileSync(path, "utf8")); } catch {}\nwriteFileSync(path, String(++count));\nconsole.log(JSON.stringify({ windows: [{ remaining: count, minutes: 300 }] }));\n`,
+    );
+    const events = await client.events();
+    await events.waitFor((event) => event.type === "snapshot");
+    stage("最初の利用枠を読む");
+    await client.request("cli.list", {});
+    await events.waitFor(
+      (event) =>
+        event.type === "cli.usage" && event.cliId === id && event.usage,
+    );
+    const before = Number(await readFile(counter, "utf8"));
+    stage("再取得を依頼し新しい値と時刻を受け取る");
+    const started = Date.now();
+    await client.request("cli.usage.refresh", { cliId: id });
+    const event = await events.waitFor(
+      (event) =>
+        event.type === "cli.usage" &&
+        event.cliId === id &&
+        event.usage?.windows[0].remaining === before + 1,
+    );
+    assert.ok(
+      event.usage.observedAt >= started && event.usage.observedAt <= Date.now(),
+    );
+    const list = await client.request("cli.list", {});
+    assert.deepEqual(list.clis.find((cli) => cli.id === id).usage, event.usage);
+    await client.request("cli.usage.refresh", { cliId: id });
+    assert.equal(Number(await readFile(counter, "utf8")), before + 1);
+  }));

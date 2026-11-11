@@ -822,6 +822,7 @@ export function TeamEditor({
   cliListError,
   onRetryClis,
   allClis,
+  orderable,
   failedDefinitions,
 }: {
   host: string;
@@ -844,6 +845,7 @@ export function TeamEditor({
   onRetryClis: () => void;
   /** The CLIs with the user's definitions that this Host does not find. */
   allClis: CliSummary[];
+  orderable?: true;
   failedDefinitions: CliDefinitionFailure[];
 }) {
   const { t, language, clis, catalogs, loadingModels, hostName } = useI18n();
@@ -2353,6 +2355,7 @@ export function TeamEditor({
             <AgentsPage
               host={host}
               clis={allClis}
+              orderable={orderable}
               failed={failedDefinitions}
               listError={cliListError}
               onRetryList={onRetryClis}

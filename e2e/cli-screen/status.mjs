@@ -84,7 +84,7 @@ export async function cliStatusScenario({
     await completion.stop();
     assert.equal(answer.response.trim(), "FIRST_DONE");
     await finishCli(client, first);
-    await record("初めて開くCodexも最初の会話から状態の印が出る");
+    await record("初めて開くCodexも最初の会話から状態のインジケーターが出る");
   }
   const id = await open("codex");
   await ready(id);
@@ -312,7 +312,7 @@ export async function cliStatusScenario({
     false,
     "shellへ戻ると印が消える",
   );
-  await record("CLIからshellへ戻ると状態の印を消す");
+  await record("CLIからshellへ戻ると状態のインジケーターを消す");
   if (runningTerminal) {
     const runningRow = `[data-iori-terminal-row="${runningTerminal}"]`;
     await screen.contextMenu(runningRow);

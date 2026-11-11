@@ -1,3 +1,4 @@
+import { UsagePreferences } from "./usage/preferences.tsx";
 import { ClientInitialization } from "./ClientInitialization.tsx";
 import { ConnectedHostUpdates } from "./updates/ConnectedHostUpdates.tsx";
 import { MaintenanceClisContext } from "./updates/HostMaintenanceDetails.tsx";
@@ -25,6 +26,7 @@ import {
 import { startUpdateChecks, useClientUpdate } from "./updates/controller.ts";
 import { UpdateMark } from "./updates/UpdateSettings.tsx";
 import {
+  createElement,
   useCallback,
   useEffect,
   useMemo,
@@ -71,6 +73,8 @@ const defaultPreferences: Preferences = {
   language: "system",
   theme: "system",
   fontSize: 16,
+  usageDisplay: "used",
+  usageGraph: "bar",
   terminalFontSize: 14,
   terminalFontFamily: "",
   terminalRightClick: "menu",
@@ -131,6 +135,8 @@ function readPreferences(value: unknown): Preferences {
     theme: ["system", "light", "dark"].includes(value.theme as string)
       ? (value.theme as Preferences["theme"])
       : defaultPreferences.theme,
+    usageDisplay: value.usageDisplay === "remaining" ? "remaining" : "used",
+    usageGraph: value.usageGraph === "circle" ? "circle" : "bar",
     fontSize: isNumber(value.fontSize)
       ? value.fontSize
       : defaultPreferences.fontSize,
@@ -753,7 +759,14 @@ function AppContent({
   const firstRun = !state.host || (state.revoked && adding);
   const canSetupHost = state.initial?.canSetupHost === true;
 
-  return (
+  return createElement(
+    UsagePreferences.Provider,
+    {
+      value: {
+        display: preferences.usageDisplay ?? "used",
+        graph: preferences.usageGraph ?? "bar",
+      },
+    },
     <div className={`app-root${hasWindowChrome ? " has-window-chrome" : ""}`}>
       <WindowChrome t={t} />
       <NoticeStack t={t} />
@@ -1461,6 +1474,6 @@ function AppContent({
           </Button>
         </div>
       )}
-    </div>
+    </div>,
   );
 }

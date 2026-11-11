@@ -280,7 +280,7 @@ console.log(name.toUpperCase()+'_CONTINUITY_STOPPED');
       (value) => value === "UPDATED_HOST_TITLE",
     );
     await record(
-      "同じ係・PTYを保つ配布物交換でHostだけの新しい題名判定が適用される",
+      "同じデーモン・PTYを保つ配布物交換でHostだけの新しい題名判定が適用される",
     );
   }
   const terminalAfter = await waitFor(
@@ -349,7 +349,7 @@ console.log(name.toUpperCase()+'_CONTINUITY_STOPPED');
   const secondChild = await delegate("Continuity-second");
   assert.notEqual(secondChild.id, firstChild.id);
   await record(
-    "終了した子を残して係を保つHost再起動後も、上限1の同じ役割へ新しい委譲が始まる",
+    "終了した子を残してデーモンを保つHost再起動後も、上限1の同じ役割へ新しい委譲が始まる",
   );
   await exitChild(secondChild);
   await focusTerminal(client, cliId);
@@ -380,7 +380,7 @@ console.log(name.toUpperCase()+'_CONTINUITY_STOPPED');
   await observed(client, "PARENT_RESUMED_OK");
   await waitForCliState(client, cliId, ["idle", "done"]);
   await record(
-    "親のCLI終了後に係を保つHost再起動を行い、会話を再開して新しい応答を受け取る",
+    "親のCLI終了後にデーモンを保つHost再起動を行い、会話を再開して新しい応答を受け取る",
   );
   await screen.click(`[data-iori-tab-id="terminal:${terminalId}"]`);
   await loseTerminalDaemon();
@@ -392,6 +392,6 @@ console.log(name.toUpperCase()+'_CONTINUITY_STOPPED');
     `[data-iori-terminal-id="${cliId}"] [data-iori-state="cli-resume-pending"]`,
   );
   await record(
-    "係が異常終了した場合は同じPTYの継続とせず、履歴と明示的な会話再開を残す",
+    "デーモンが異常終了した場合は同じPTYの継続とせず、履歴と明示的な会話再開を残す",
   );
 }

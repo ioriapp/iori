@@ -29,7 +29,9 @@ export async function clientUpdate({
     await screen.visible('[data-iori-state="update-available"]'),
     false,
   );
-  await record("自動確認で配布元が503でもエラーと更新の印を出さない");
+  await record(
+    "自動確認で配布元が503でもエラーと更新のインジケーターを出さない",
+  );
   await screen.click(action("update-check"));
   await screen.wait('[data-iori-state="update-error"]');
   await record("手動の更新確認で配布元への接続失敗を示す");
@@ -134,7 +136,7 @@ export async function clientUpdate({
   await shot("update-mobile");
   await screen.click(action("settings-close"));
   await desktop();
-  await record("更新確認から入口の印と更新欄をPC・Mobile幅で確認");
+  await record("更新確認から入口のインジケーターと更新欄をPC・Mobile幅で確認");
 }
 
 // The bridge substitutes the Client's OS installer only; both Hosts use the

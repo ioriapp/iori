@@ -5,6 +5,8 @@ export const teamJapanese: Record<string, string> = {
   Hidden: "非表示",
   "Could not change picker visibility. Retry.":
     "選択肢の表示を変更できませんでした。もう一度お試しください。",
+  "Could not change the order. Retry.":
+    "並び順を変更できませんでした。もう一度お試しください。",
   "CLI actions": "CLIの操作",
   "Choose folder": "フォルダーを選択",
   "Use this folder": "このフォルダーを使う",

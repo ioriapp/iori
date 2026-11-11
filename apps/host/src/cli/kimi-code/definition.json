@@ -4,6 +4,13 @@
   "name": "Kimi Code",
   "command": "kimi",
   "version": { "args": ["--version"] },
+  "models": {
+    "candidates": [
+      "kimi-code/k3",
+      "kimi-code/kimi-for-coding",
+      "kimi-code/kimi-for-coding-highspeed"
+    ]
+  },
   "launch": {
     "model": ["--model", "{model}"],
     "permissions": {

@@ -2,16 +2,17 @@ import type { ModelAdapter } from "../models.ts";
 import { modelCommand, plainModels } from "../models.ts";
 export const isV2 = (version?: string) =>
   Number(version?.match(/(?:^|\s)v?(\d+)\./u)?.[1]) >= 2;
-/** The TUI has no variant launch option; users select it inside OpenCode. */
 export const models: ModelAdapter = async (shell, command, signal) => {
   const version = await modelCommand(shell, command + " --version", signal);
   const output = await modelCommand(
     shell,
-    command + (isV2(version) ? " models --standalone" : " models"),
+    command + (isV2(version) ? " api --standalone model.list" : " models"),
     signal,
   );
   return {
-    models: plainModels(output).map((name) => ({ name, efforts: [] })),
+    models: isV2(version)
+      ? parseV2Models(output)
+      : plainModels(output).map((name) => ({ name, efforts: [] })),
     permissions: [
       {
         key: "permission",
@@ -21,3 +22,17 @@ export const models: ModelAdapter = async (shell, command, signal) => {
     ],
   };
 };
+
+export function parseV2Models(output: string) {
+  const parsed = JSON.parse(output) as {
+    data: Array<{
+      id: string;
+      providerID: string;
+      variants: Array<{ id: string }>;
+    }>;
+  };
+  return parsed.data.map((model) => ({
+    name: `${model.providerID}/${model.id}`,
+    efforts: model.variants.map((variant) => variant.id),
+  }));
+}

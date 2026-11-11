@@ -12,17 +12,18 @@ export const code: CliCode = {
   waitForBracketedPaste: true,
   waitForInputCursor: true,
   modelCatalog: models,
+  launchEffortForVersion: isV2,
   resumeWithTeamPrompt: isV2,
   launchArguments: (version) => (isV2(version) ? ["--standalone"] : []),
   teamArguments: (launch, file) => [
     ...file.permission,
     ...(isV2(launch.version) ? [] : file.model),
-    ...file.effort,
+    ...(isV2(launch.version) ? [] : file.effort),
     ...file.instructionFile,
     ...file.directories,
     ...file.prompt,
   ],
-  launchEnvironment: (version, model): Record<string, string> => {
+  launchEnvironment: (version, model, effort): Record<string, string> => {
     if (!isV2(version) || !model) return {};
     try {
       const config: unknown = JSON.parse(
@@ -31,7 +32,10 @@ export const code: CliCode = {
       if (!config || typeof config !== "object" || Array.isArray(config))
         return {};
       return {
-        OPENCODE_CONFIG_CONTENT: JSON.stringify({ ...config, model }),
+        OPENCODE_CONFIG_CONTENT: JSON.stringify({
+          ...config,
+          model: effort ? `${model}#${effort}` : model,
+        }),
       };
     } catch {
       return {};

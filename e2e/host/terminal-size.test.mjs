@@ -104,7 +104,7 @@ test("新しいTerminalは実行中のTerminalで最も広いPC寸法から始�
     }
   }));
 
-test("HostとTerminalの係の再起動後も保存した最も広いPC寸法から始まる", (t) =>
+test("HostとTerminalデーモンの再起動後も保存した最も広いPC寸法から始まる", (t) =>
   runHostTest(t, async ({ client, dataRoot, restart, stage }) => {
     const sizes = await connectClient(dataRoot);
     try {
@@ -115,7 +115,7 @@ test("HostとTerminalの係の再起動後も保存した最も広いPC寸法か
     } finally {
       await sizes.close();
     }
-    stage("Hostと検証専用のTerminalの係を再起動する");
+    stage("Hostと検証専用のTerminalデーモンを再起動する");
     const reconnected = await restart({
       whileStopped: () => stopTerminalDaemon(join(dataRoot, "iori-host")),
     });

@@ -112,7 +112,7 @@ export async function forgeCiScenario({
     current.browserUrl,
   );
   await record(
-    "CIの印でCIのタブが開き、実APIと同じ実行とjobが並び、ブラウザーで開く先が実APIに一致",
+    "CIのアイコンでCIのタブが開き、実APIと同じ実行とjobが並び、ブラウザーで開く先が実APIに一致",
     { sha: fixture.sha, runs: current.runs.map((run) => run.id) },
   );
 

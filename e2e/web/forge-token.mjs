@@ -200,7 +200,7 @@ export async function forgeTokenScenario({
     false,
   );
   await record(
-    "tokenを登録すると、非公開のリポジトリのPRとCIの印が出て、CIの印のCIのタブとIssuesのタブもそのtokenで読め、サイトで消したIssueは詳細でそのIssueが見つからないことを示す",
+    "tokenを登録すると、非公開のリポジトリのPRとCIのアイコンが出て、CIのアイコンのCIのタブとIssuesのタブもそのtokenで読め、サイトで消したIssueは詳細でそのIssueが見つからないことを示す",
   );
 
   // The site revokes the token; the next read after a push shows it.
@@ -262,7 +262,7 @@ export async function forgeTokenScenario({
   );
   await screen.wait(issuesPane);
   await record(
-    "Issuesの読めない理由は、tokenを替えると読み直しを押さずに消える",
+    "Issuesの読めない理由は、tokenを替えると再読み込みを押さずに消える",
   );
   await openIntegrations();
 
@@ -400,7 +400,9 @@ export async function forgeTokenScenario({
     "tokenを登録した後のCIの読み直し",
   );
   await screen.wait(`${ci} [data-iori-state="ci-none"]`);
-  await record("CIの読めない理由は、tokenを登録すると読み直しを押さずに消える");
+  await record(
+    "CIの読めない理由は、tokenを登録すると再読み込みを押さずに消える",
+  );
   await openIntegrations();
 
   // A repository the site does not have leads to the workspace's settings.

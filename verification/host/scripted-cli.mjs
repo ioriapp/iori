@@ -56,7 +56,24 @@ if (process.argv.includes("--version") || process.argv.includes("--help")) {
       `ACTOR_INSTRUCTIONS:${startupId}:${JSON.stringify(await readFile(process.argv[instructionIndex + 1], "utf8"))}`,
     );
   let requests = 0;
-  for await (const line of lines) {
+  function handlePrompt(line) {
+    if (!noReady) {
+      // Like a real CLI accepting a prompt: the Host writes the text and the
+      // Enter separately, so tests wait for this before typing their own lines.
+      console.log(`ACTOR_PROMPT:${startupId}`);
+    } else if (line.startsWith("[iori] Parent ")) {
+      console.log(`INITIAL_INPUT_COUNT=${requests}`);
+    } else {
+      requests++;
+      console.log(`INITIAL_REQUEST_RECEIVED:${line}`);
+    }
+  }
+  for await (let line of lines) {
+    const commandStart = line.indexOf('{"id":');
+    if (commandStart > 0) {
+      handlePrompt(line.slice(0, commandStart));
+      line = line.slice(commandStart);
+    }
     if (line.startsWith("{")) {
       const step = JSON.parse(line);
       if (step.hook) {
@@ -72,17 +89,8 @@ if (process.argv.includes("--version") || process.argv.includes("--help")) {
           `ACTOR_RESULT:${step.id}:${JSON.stringify(JSON.parse(stdout))}`,
         );
       }
-    } else if (!noReady) {
-      // Like a real CLI accepting a prompt: the Host writes the text and the
-      // Enter separately, so tests wait for this before typing their own lines.
-      console.log(`ACTOR_PROMPT:${startupId}`);
     } else {
-      if (line.startsWith("[iori] Parent "))
-        console.log(`INITIAL_INPUT_COUNT=${requests}`);
-      else {
-        requests++;
-        console.log(`INITIAL_REQUEST_RECEIVED:${line}`);
-      }
+      handlePrompt(line);
     }
   }
 }

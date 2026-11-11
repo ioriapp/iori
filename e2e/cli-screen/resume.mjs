@@ -109,5 +109,7 @@ export async function cliResumeScenario({
   );
   await observed(client, "WINDOWS_RESUME_SHELL_READY");
   await shot("cli-resume-shell");
-  await record("CLI終了後は再開の1行とCLIの印が消え、同じshellで続ける");
+  await record(
+    "CLI終了後は再開の1行とCLIのインジケーターが消え、同じshellで続ける",
+  );
 }

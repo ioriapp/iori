@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { hasCiEvidence, targets, unresolved } from "./policy.mjs";
+import { targets, unresolved } from "./policy.mjs";
+import { hasCiEvidence, isDocsOnly } from "../ci-evidence.mjs";
 
 test("連結されたコマンドの push・Release・本文を判定する", () => {
   assert.deepEqual(
@@ -47,11 +48,24 @@ test("実際の連結行で CI から push まで && のみの時に証拠確認
       [{ source: "HEAD", ciCovered: false }],
     );
   }
-  assert.equal(
-    targets("bash scripts/ci.sh --docs-only && git push origin HEAD:main")
-      .pushes[0].ciCovered,
-    false,
+  assert.deepEqual(
+    targets(
+      "bash scripts/ci.sh --docs-only > log 2>&1 && git push origin HEAD:main",
+    ).pushes,
+    [{ source: "HEAD", ciCovered: false, docsCiCovered: true }],
   );
+  assert.equal(
+    targets(
+      "bash scripts/ci.sh --docs-only && git commit -am x && git push origin HEAD:main",
+    ).pushes[0].headMayChange,
+    true,
+  );
+  for (const ci of ["bash scripts/ci.sh", "bash scripts/ci.sh --docs-only"])
+    assert.deepEqual(
+      targets(`${ci} && git cherry-pick abc && git push origin HEAD:main`)
+        .pushes,
+      [{ source: "HEAD", ciCovered: false, headMayChange: true }],
+    );
   assert.deepEqual(targets('git push origin "$branch":main').pushes, [
     { source: "HEAD", ciCovered: false },
   ]);
@@ -92,21 +106,38 @@ test("失敗のうち隔離または修正記録がある操作列を除く", ()
   );
 });
 
-test("対象 commit のきれいな作業ツリーで成功した通常 CI だけを数える", () => {
-  const full = {
-    sha: "abc\n",
-    dirty: "",
-    timing: { exit: 0 },
-    log: "Release npm and Cargo license inventories are current\n",
-  };
+test("対象 commit の証拠と送る差分から必要な CI の形を判定する", () => {
+  const full = { sha: "abc\n", dirty: "", timing: { exit: 0 }, mode: "full\n" };
+  const docs = { ...full, mode: "docs-only\n" };
   assert.equal(hasCiEvidence("abc", [full]), true);
   assert.equal(hasCiEvidence("def", [full]), false);
+  assert.equal(hasCiEvidence("abc", [docs]), false);
+  assert.equal(hasCiEvidence("abc", [docs], true), true);
+  assert.equal(hasCiEvidence("abc", [full], true), true);
+  assert.equal(hasCiEvidence("abc", [full, docs], true, true), false);
   assert.equal(
-    hasCiEvidence("abc", [
-      { ...full, dirty: " M file\n" },
-      { ...full, timing: { exit: 1 } },
-      { ...full, log: "format:check\ncheck:docs\n" },
-    ]),
+    hasCiEvidence(
+      "abc",
+      [
+        { ...full, dirty: " M file\n" },
+        { ...full, timing: { exit: 1 } },
+        { ...full, mode: undefined },
+      ],
+      true,
+    ),
     false,
+  );
+  assert.equal(isDocsOnly(true, ["README.md", "docs/product.md"]), true);
+  assert.equal(isDocsOnly(true, ["README.md", "scripts/ci.sh"]), false);
+  assert.equal(isDocsOnly(true, ["README.md"], ["scripts/ci.sh"]), false);
+  assert.equal(isDocsOnly(true, ["README.md"], [], ["scripts/ci.sh"]), false);
+  assert.equal(isDocsOnly(false, ["README.md"]), false);
+  assert.equal(isDocsOnly(true, []), false);
+});
+
+test("heredoc の本文にある push はコマンドとして数えない", () => {
+  assert.deepEqual(
+    targets("cat > file <<'EOF'\ngit push origin HEAD:main\nEOF").pushes,
+    [],
   );
 });

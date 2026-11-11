@@ -6,13 +6,21 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from "../components/ui/dropdown-menu.tsx";
-import { Fragment, useEffect, useRef, useState } from "react";
+import {
+  createContext,
+  Fragment,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import type { ReactNode } from "react";
 import {
   ChevronDown,
   ChevronRight,
   CircleAlert,
   ExternalLink,
+  GripVertical,
   Plus,
   MoreHorizontal,
   Upload,
@@ -28,6 +36,21 @@ import {
   type CliSimpleDefinition,
   type CliSummary,
 } from "@iori/protocol";
+import {
+  DndContext,
+  PointerSensor,
+  KeyboardSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  useSortable,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
 import source from "../../../../release-source.txt?raw";
 import { connection } from "../connection.ts";
 import { native } from "../native.ts";
@@ -677,9 +700,88 @@ function IconField({
   );
 }
 
+const AgentReorderContext = createContext<ReactNode>(null);
+function AgentReorderGrip() {
+  return useContext(AgentReorderContext);
+}
+
+function SortableAgentRow({
+  cli,
+  orderable,
+  open,
+  onOpenChange,
+  onMove,
+  children,
+}: {
+  cli: CliSummary;
+  orderable?: true;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onMove: (step: number) => void;
+  children: ReactNode;
+}) {
+  const { t } = useI18n();
+  const enabled = !!orderable && !cli.hidden;
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: cli.id, disabled: !enabled });
+  return (
+    <Collapsible
+      ref={setNodeRef}
+      data-iori-cli-row={cli.id}
+      data-iori-cli-source={cli.source}
+      id={`team-agent-${cli.id}`}
+      open={open}
+      onOpenChange={onOpenChange}
+      className={isDragging ? "team-candidate-dragging" : undefined}
+      style={{
+        transform: transform
+          ? `translate3d(${transform.x}px,${transform.y}px,0) scaleX(${transform.scaleX}) scaleY(${transform.scaleY})`
+          : undefined,
+        transition,
+      }}
+    >
+      <AgentReorderContext.Provider
+        value={
+          enabled && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="team-candidate-grip"
+              data-iori-action="cli-reorder"
+              {...attributes}
+              {...listeners}
+              aria-label={`${t("Drag to reorder")} ${cli.name}`}
+              onKeyDown={(event) => {
+                if (
+                  !isDragging &&
+                  (event.key === "ArrowUp" || event.key === "ArrowDown")
+                ) {
+                  event.preventDefault();
+                  onMove(event.key === "ArrowUp" ? -1 : 1);
+                } else listeners?.onKeyDown?.(event);
+              }}
+            >
+              <GripVertical size={14} />
+            </Button>
+          )
+        }
+      >
+        {children}
+      </AgentReorderContext.Provider>
+    </Collapsible>
+  );
+}
+
 export function AgentsPage({
   host,
   clis,
+  orderable,
   failed,
   listError,
   onRetryList,
@@ -693,6 +795,7 @@ export function AgentsPage({
   host: string;
   /** The Host's CLIs with the user's definitions it does not find. */
   clis: CliSummary[];
+  orderable?: true;
   failed: CliDefinitionFailure[];
   listError: boolean;
   onRetryList: () => void;
@@ -704,7 +807,7 @@ export function AgentsPage({
   renderSettings: (cli: CliSummary) => ReactNode;
   renderModelError: (cli: CliSummary) => ReactNode;
 }) {
-  const { t, catalogs } = useI18n();
+  const { t } = useI18n();
   const [adding, setAdding] = useState<Adding | null>(null);
   const [editing, setEditing] = useState<Editing | null>(null);
   const [confirm, setConfirm] = useState<Confirm | null>(null);
@@ -714,6 +817,30 @@ export function AgentsPage({
   const [busy, setBusy] = useState<
     "add" | "save" | "confirm" | "remove" | undefined
   >();
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
+  );
+  const visible = clis.filter((cli) => !cli.hidden);
+  const reorder = async (from: number, to: number) => {
+    if (!orderable || from < 0 || to < 0 || to >= visible.length || from === to)
+      return;
+    const ordered = arrayMove(visible, from, to);
+    let index = 0;
+    const order = clis.map((cli) =>
+      cli.hidden ? cli.id : ordered[index++]!.id,
+    );
+    // The Host event commits the new order for this Client and every other one.
+    // Until then the saved order stays intact, including after a failed request.
+    const response = await request(() =>
+      connection.requestHost(host, "cli.order.set", { order }),
+    );
+    setListMessage(
+      "error" in response ? t("Could not change the order. Retry.") : "",
+    );
+  };
   const helps = useRef(new Map<string, Promise<string | undefined>>());
   const uploads = useRef<string[]>([]);
   const discardUploads = () => {
@@ -1189,15 +1316,19 @@ export function AgentsPage({
     const edit = editing?.id === cli.id ? editing : null;
     const user = cli.source === "user" || cli.source === "override";
     return (
-      <Collapsible
-        data-iori-cli-row={cli.id}
-        data-iori-cli-source={cli.source}
-        id={`team-agent-${cli.id}`}
+      <SortableAgentRow
         key={cli.id}
+        cli={cli}
+        orderable={orderable}
         open={open}
         onOpenChange={(yes) => onExpandedChange(cli.id, yes)}
+        onMove={(step) => {
+          const from = visible.findIndex((item) => item.id === cli.id);
+          void reorder(from, from + step);
+        }}
       >
         <div className="team-agent-top">
+          <AgentReorderGrip />
           <CollapsibleTrigger asChild>
             <Button variant="ghost" className="team-agent-toggle">
               {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
@@ -1223,12 +1354,10 @@ export function AgentsPage({
                   >
                     {t("Not found on this Host")}
                   </div>
-                ) : cli.usage ||
-                  !cli.supportsUsage ||
-                  catalogs[cli.id]?.error ? (
+                ) : cli.usage?.windows.length ? (
                   <Usage cliId={cli.id} usage={cli.usage} />
                 ) : (
-                  <div className="team-usage" aria-hidden="true">
+                  <div className="team-usage usage-line" aria-hidden="true">
                     {" "}
                   </div>
                 )}
@@ -1354,7 +1483,7 @@ export function AgentsPage({
             )}
           </div>
         </CollapsibleContent>
-      </Collapsible>
+      </SortableAgentRow>
     );
   };
 
@@ -1544,7 +1673,24 @@ export function AgentsPage({
       )}
       {listMessage && <p role="alert">{listMessage}</p>}
       <SettingsSection className="team-agent-list" title="CLI">
-        {clis.filter((cli) => !cli.hidden).map(cliRow)}
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={({ active, over }) => {
+            if (over && active.id !== over.id)
+              void reorder(
+                visible.findIndex((cli) => cli.id === active.id),
+                visible.findIndex((cli) => cli.id === over.id),
+              );
+          }}
+        >
+          <SortableContext
+            items={visible.map((cli) => cli.id)}
+            strategy={verticalListSortingStrategy}
+          >
+            {visible.map(cliRow)}
+          </SortableContext>
+        </DndContext>
         {failed.map(failedRow)}
         {clis.some((cli) => cli.hidden) && (
           <HiddenItems>

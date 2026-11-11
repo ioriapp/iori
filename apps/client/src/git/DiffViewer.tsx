@@ -135,7 +135,7 @@ export function DiffViewer({
   const actions: MenuAction[] = onFileHistory
     ? [
         {
-          label: ja ? "ファイルの履歴" : "File history",
+          label: ja ? "ファイル履歴" : "File history",
           icon: <History />,
           action: "file-history",
           run: onFileHistory,
@@ -170,8 +170,8 @@ export function DiffViewer({
             variant="ghost"
             size="icon-sm"
             data-iori-action="git-file-history"
-            aria-label={ja ? "ファイルの履歴" : "File history"}
-            title={ja ? "ファイルの履歴" : "File history"}
+            aria-label={ja ? "ファイル履歴" : "File history"}
+            title={ja ? "ファイル履歴" : "File history"}
             onClick={onFileHistory}
           >
             <History />

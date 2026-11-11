@@ -45,13 +45,13 @@ async function readyStartup(pty, previous) {
     .find((startup) => startup !== previous);
 }
 
-test("係と繋ぎ直した後も親をチームの指示とコマンドで再開できる", (t) =>
+test("デーモンと繋ぎ直した後も親をチームの指示とコマンドで再開できる", (t) =>
   runHostTest(t, async ({ client, dataRoot, stage }) => {
     stage("チームの親からiori tasksを実行する");
     const parent = await launchParent(client, dataRoot);
     const events = await client.events();
     await events.waitFor((event) => event.type === "snapshot");
-    stage("検証専用の係を停止してHostの繋ぎ直しを待つ");
+    stage("検証専用のデーモンを停止してHostの繋ぎ直しを待つ");
     await stopTerminalDaemon(join(dataRoot, "iori-host"));
     await events.waitFor(
       (event) =>
@@ -79,7 +79,7 @@ test("繋ぎ直し後のシェルが残っていてもHost再起動後に親を�
     const parent = await launchParent(client, dataRoot);
     const events = await client.events();
     await events.waitFor((event) => event.type === "snapshot");
-    stage("検証専用の係を停止してHostの繋ぎ直しを待つ");
+    stage("検証専用のデーモンを停止してHostの繋ぎ直しを待つ");
     await stopTerminalDaemon(join(dataRoot, "iori-host"));
     await events.waitFor(
       (event) =>
@@ -113,7 +113,7 @@ test("チームの経路が同じなら親の再開で既存シェルの状態�
     const parent = await launchParent(client, dataRoot);
     const events = await client.events();
     await events.waitFor((event) => event.type === "snapshot");
-    stage("検証専用の係を停止してHostの繋ぎ直しを待つ");
+    stage("検証専用のデーモンを停止してHostの繋ぎ直しを待つ");
     await stopTerminalDaemon(join(dataRoot, "iori-host"));
     await events.waitFor(
       (event) =>

@@ -8,7 +8,6 @@ import {
   mkdtemp,
   mkdir,
   readFile,
-  readdir,
   rm,
   writeFile,
 } from "node:fs/promises";
@@ -53,12 +52,24 @@ test(
       actor,
       `import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
-import {access,writeFile,rename} from 'node:fs/promises';
+import {access,readFile,readdir,writeFile,rename} from 'node:fs/promises';
 import {setTimeout as delay} from 'node:timers/promises';
 const root=${JSON.stringify(root)};
 const save=async(file,data)=>{await writeFile(root+'/'+file+'.tmp',data);await rename(root+'/'+file+'.tmp',root+'/'+file);};
 const wait=async file=>{for(;;){try{await access(root+'/'+file);return;}catch(e){if(e.code!=='ENOENT')throw e;await delay(10);}}};
-if(process.argv.includes('--version')) { await writeFile(root+'/version-started',''); await wait('release'); console.log('1.0.0'); process.exit(); }
+if(process.argv.includes('--version')) {
+ await wait('delegated');
+ const child=JSON.parse(await readFile(root+'/delegated','utf8')).data.child;
+ const directory=root+'/team-files/'+child;
+ let copied;
+ while(!copied) {
+  const file=(await readdir(directory)).find(name=>name.startsWith('delegation-'));
+  if(file && (await readFile(directory+'/'+file,'utf8')).includes('original request')) copied=file;
+  else await delay(10);
+ }
+ await save('child-started',copied);
+ await wait('release'); console.log('1.0.0'); process.exit();
+}
 if(process.argv[2]==='parent') {
  const run=promisify(execFile), cli=process.env.IORI_COMMAND_BIN+'/iori';
  const delegated=JSON.parse((await run(cli,['delegate','--role','Worker','--difficulty','low','--title','Task','--worktree','parent','--body','original request','--json'])).stdout);
@@ -159,18 +170,10 @@ process.stdin.resume(); setInterval(()=>{},1000);
       const delegated = JSON.parse(
         await readWhenPresent(join(root, "delegated")),
       );
-      await readWhenPresent(join(root, "version-started"));
+      const copied = await readWhenPresent(join(root, "child-started"));
       const child = store
         .teamChildren()
         .find((item) => item.id === delegated.data.child)!;
-      // The child's copy of the request is written alongside its start, so
-      // wait for it instead of reading the folder once.
-      let copied: string | undefined;
-      while (!copied) {
-        const files = await readdir(dirname(child.requestFile));
-        copied = files.find((file) => file.startsWith("delegation-"));
-        if (!copied) await delay(10);
-      }
       assert.match(
         await readFile(join(dirname(child.requestFile), copied), "utf8"),
         /original request/u,
@@ -191,7 +194,7 @@ process.stdin.resume(); setInterval(()=>{},1000);
       assert.match(initial, /delegation-/u);
       assert.doesNotMatch(initial, /extra message/u);
       const initialFile = initial.match(
-        /Open the file (.+?) with your file-reading tool/u,
+        /Read .+ and follow its instructions\. Then open the file (.+?) with your file-reading tool/u,
       )?.[1];
       assert.ok(initialFile);
       const initialRequest = await readFile(initialFile, "utf8");

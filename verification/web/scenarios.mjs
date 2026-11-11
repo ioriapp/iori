@@ -1,6 +1,8 @@
 // The former default web run is split at user workflows. Each selection starts
 // with its own invitation, folder and (when needed) real Terminal.
 export const basicWebScenarios = {
+  "usage-status": { clis: [], modelClis: [] },
+  "cli-order": { clis: [], modelClis: [] },
   "client-host-update": { clis: [], modelClis: [] },
   "host-invitation-switch": { clis: [], modelClis: [] },
   "host-update-mark": { clis: [], modelClis: [] },
@@ -109,6 +111,8 @@ export const fullScenarioOrder = [
 // Names accepted by verification/web/run.mjs --only and e2e/web/scenario.mjs.
 export const scenarioNames = new Set([
   ...fullScenarioOrder,
+  "usage-status",
+  "cli-order",
   "repo-delegation",
   "host-forget",
   "terminal-size-ownership",

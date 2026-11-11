@@ -4,10 +4,7 @@ import {
 } from "../../e2e/web/readme-shots.mjs";
 import { runReadmeThemes } from "./readme-shots.mjs";
 import { startFakeModel } from "../fake-model/server.mjs";
-import {
-  setFakeMarkerExcludedPrefixes,
-  setRealModels,
-} from "../../e2e/fake-model/marker.mjs";
+import { setRealModels } from "../../e2e/fake-model/marker.mjs";
 import { longApprovalCommand } from "../../e2e/fake-model/cli-status.mjs";
 import {
   basicWebScenarios,
@@ -18,6 +15,7 @@ import {
 import { hostInvitationSwitch } from "./host-invitation-switch.mjs";
 import { hostUpdateMark } from "./host-update-mark.mjs";
 import { prepareCliErrorFixture } from "./cli-error-fixture.mjs";
+import { prepareUsageFixture } from "./usage-fixture.mjs";
 import { teamCommand } from "./team-command.mjs";
 import { prepareForgeFixture } from "./forge-fixture.mjs";
 import { startDisposableForgejo } from "../forge/forgejo-container.mjs";
@@ -421,6 +419,8 @@ try {
   }
   executablePath = join(browserRoot, basename(executablePath));
   const dataRoot = join(runRoot, "host-data");
+  if (["usage-status", "cli-order"].includes(only))
+    await prepareUsageFixture(dataRoot);
   // No daily data/49171, no SSH/ADB. Only this run's directories/process handles.
   process.env.XDG_DATA_HOME = dataRoot;
   process.env.IORI_HOST_PORT = String(await hostPort());
@@ -565,11 +565,6 @@ try {
     // https://code.claude.com/docs/en/interactive-mode#shell-mode-with--prefix
     ...(teamScenario ? { respondToBashCommands: false } : {}),
   });
-  if (
-    only === "opencode-delegation" &&
-    Number(cliHome.versions.opencode?.match(/\bv?(\d+)\./u)?.[1]) >= 2
-  )
-    setFakeMarkerExcludedPrefixes(["opencode-"]);
   if (only === "automation-issue")
     await forgeTokenFixture.issueSetup.configureGit(cliHome.home);
   if (only === "team-notifications") {
@@ -644,7 +639,8 @@ process.stdin.resume();
           ),
         ),
         permission: { bash: "ask", external_directory: "ask" },
-        ...(Number(cliHome.versions.opencode?.match(/\bv?(\d+)\./u)?.[1]) >= 2
+        ...(result.realModels &&
+        Number(cliHome.versions.opencode?.match(/\bv?(\d+)\./u)?.[1]) >= 2
           ? { model: "opencode/deepseek-v4.1-flash-free" }
           : {}),
       }),
@@ -1896,7 +1892,7 @@ input.on('line',async line=>{if(!line.startsWith('DELEGATE'))return;const option
       await page.screenshot({ path: join(evidence, `${name}.png`) });
     },
   });
-  recordPhase("操作列の終了");
+  recordPhase("シナリオの終了");
   assert.deepEqual(diagnostics, [], "ブラウザーのconsoleと未処理例外");
   result.passed = true;
 } catch (error) {

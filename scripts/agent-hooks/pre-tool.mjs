@@ -1,9 +1,10 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { readFile, readdir } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { hasCiEvidence, targets, unresolved } from "./policy.mjs";
+import { targets, unresolved } from "./policy.mjs";
+import { hasCiEvidence, isDocsOnly, readCiEvidence } from "../ci-evidence.mjs";
 
 async function readInput() {
   let data = "";
@@ -75,36 +76,79 @@ try {
           encoding: "utf8",
           stdio: ["ignore", "pipe", "ignore"],
         }).trim();
-      const shas = unchecked.map(({ source }) => {
-        try {
-          return resolve(source);
-        } catch {
-          return resolve("HEAD");
-        }
-      });
-      const evidenceDir = path.join(root, ".local/evidence/ci");
-      let dirs;
-      try {
-        dirs = await readdir(evidenceDir);
-      } catch (error) {
-        if (error.code === "ENOENT") dirs = [];
-        else throw error;
-      }
-      const runs = [];
-      for (const dir of dirs.filter((name) => name.startsWith("run-"))) {
-        try {
-          const base = path.join(evidenceDir, dir);
-          runs.push({
-            sha: await readFile(path.join(base, "source-sha.txt"), "utf8"),
-            dirty: await readFile(path.join(base, "source-dirty.txt"), "utf8"),
-            timing: await json(path.join(base, "timing.json")),
-            log: await readFile(path.join(base, "container.log"), "utf8"),
-          });
-        } catch {
-          /* Incomplete runs are not evidence. */
-        }
-      }
-      if (shas.some((sha) => !hasCiEvidence(sha, runs))) {
+      const runs = await readCiEvidence(root);
+      const missing = unchecked.some(
+        ({ source, docsCiCovered, headMayChange }) => {
+          let sha;
+          try {
+            sha = resolve(source);
+          } catch {
+            sha = resolve("HEAD");
+          }
+          let docsOnly = false;
+          let docsChainCovered = false;
+          try {
+            execFileSync(
+              "git",
+              ["merge-base", "--is-ancestor", "origin/main", sha],
+              {
+                cwd,
+                stdio: "ignore",
+              },
+            );
+            const diff = execFileSync(
+              "git",
+              ["diff", "--no-renames", "--name-only", "-z", "origin/main", sha],
+              {
+                cwd,
+                encoding: "utf8",
+                stdio: ["ignore", "pipe", "ignore"],
+              },
+            );
+            const files = diff.split("\0").filter(Boolean);
+            docsOnly = isDocsOnly(true, files);
+            if (docsCiCovered) {
+              const workingDiff = execFileSync(
+                "git",
+                ["diff", "--no-renames", "--name-only", "-z", "origin/main"],
+                { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+              );
+              const stagedDiff = execFileSync(
+                "git",
+                [
+                  "diff",
+                  "--cached",
+                  "--no-renames",
+                  "--name-only",
+                  "-z",
+                  "origin/main",
+                ],
+                { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+              );
+              const untracked = execFileSync(
+                "git",
+                ["ls-files", "--others", "--exclude-standard", "-z"],
+                { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+              );
+              docsChainCovered = isDocsOnly(
+                true,
+                files,
+                [...workingDiff.split("\0"), ...untracked.split("\0")].filter(
+                  Boolean,
+                ),
+                stagedDiff.split("\0").filter(Boolean),
+              );
+            }
+          } catch {
+            // An unknown base is not a documentation-only change.
+          }
+          return (
+            !docsChainCovered &&
+            !hasCiEvidence(sha, runs, docsOnly, headMayChange)
+          );
+        },
+      );
+      if (missing) {
         deny(
           "送る commit の成功した ci.sh の証拠がありません。作業ツリーをきれいにして bash scripts/ci.sh を実行してください。",
         );

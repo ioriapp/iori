@@ -414,6 +414,6 @@ export async function filesReading({
   }
   await record("削除されたファイルは古い本文を消し、再読み込みを示す");
   await record(
-    "PC・WQHD・スマホの各テーマでFilesの本文とタブメニューを撮影し、スマホの長押しで閉じる",
+    "PC・WQHD・スマホの各テーマでFilesの本文とタブメニューをスクリーンショットを撮り、スマホの長押しで閉じる",
   );
 }

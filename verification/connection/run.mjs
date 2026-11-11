@@ -354,7 +354,7 @@ try {
     }
     await openSettingsSection(win.screen, "open-devices");
     await win.screen.wait('[data-iori-state="new-device"]');
-    await record(os, "この端末・新しい端末の印");
+    await record(os, "この端末・新しい端末のインジケーター");
     await safeShot(win, os + "-windows-devices");
     await safeShot(android, os + "-android-connected-devices");
     await revoke(win.screen, an);

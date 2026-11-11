@@ -122,7 +122,7 @@ test("会話IDのないCLIは再開で元のコマンドを起動する", (t) =>
       /ACTOR_READY:([a-f0-9-]+)\r?\n/u.test(output),
     );
     const firstStart = output.match(/ACTOR_READY:([a-f0-9-]+)\r?\n/u)[1];
-    stage("専用のTerminalの係を停止し、再開を選ぶ");
+    stage("専用のTerminalデーモンを停止し、再開を選ぶ");
     await stopTerminalDaemon(join(dataRoot, "iori-host"));
     await events.waitFor(
       (event) =>
@@ -140,7 +140,7 @@ test("会話IDのないCLIは再開で元のコマンドを起動する", (t) =>
     );
   }));
 
-test("Hostの再起動と係の停止後も再開待ちの画面に最後の出力が残る", (t) =>
+test("Hostの再起動とデーモンの停止後も再開待ちの画面に最後の出力が残る", (t) =>
   runHostTest(t, async ({ client, dataRoot, restart, stage }) => {
     stage("CLIが表示した画面を確認する");
     const cliId = await registerExitCli(client, dataRoot);
@@ -155,7 +155,7 @@ test("Hostの再起動と係の停止後も再開待ちの画面に最後の出�
       /SCREEN_SAVED:([a-f0-9-]+)\r?\n/u.test(output),
     );
     const marker = output.match(/SCREEN_SAVED:([a-f0-9-]+)\r?\n/u)[0].trim();
-    stage("Hostを再起動し、専用のTerminalの係を停止する");
+    stage("Hostを再起動し、専用のTerminalデーモンを停止する");
     const restarted = await restart();
     const restartedEvents = await restarted.events();
     await restartedEvents.waitFor((event) => event.type === "snapshot");
@@ -173,7 +173,7 @@ test("Hostの再起動と係の停止後も再開待ちの画面に最後の出�
 
 test("再開待ちのCLIを閉じるとTerminalの一覧から消える", (t) =>
   runHostTest(t, async ({ client, dataRoot, stage }) => {
-    stage("CLIを開き、専用のTerminalの係を停止する");
+    stage("CLIを開き、専用のTerminalデーモンを停止する");
     const cliId = await registerExitCli(client, dataRoot);
     const events = await client.events();
     await events.waitFor((event) => event.type === "snapshot");
@@ -233,7 +233,7 @@ test("会話IDを持つCLIは再開で同じ会話IDを受け取る", (t) =>
     });
     const first = await client.terminal(created.id);
     await first.output("START:session-one");
-    stage("専用のTerminalの係の停止後にCLIを再開する");
+    stage("専用のTerminalデーモンの停止後にCLIを再開する");
     await stopTerminalDaemon(join(dataRoot, "iori-host"));
     await events.waitFor(
       (event) =>
@@ -282,7 +282,7 @@ test("保存した起動引数をCLIの新規起動と再開に渡す", (t) =>
     const firstStart = output.match(
       /ARGS:([a-f0-9-]+):\["--model","two words"\]\r?\n/u,
     )[1];
-    stage("専用のTerminalの係を停止し、再開する");
+    stage("専用のTerminalデーモンを停止し、再開する");
     await stopTerminalDaemon(join(dataRoot, "iori-host"));
     await events.waitFor(
       (event) =>

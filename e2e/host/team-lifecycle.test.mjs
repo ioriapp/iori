@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
@@ -87,6 +87,26 @@ async function childTerminal(client, context, id) {
   );
   return client.terminal(event.child.terminalId);
 }
+
+test("指示ファイルの引数の無い CLI の子は、最初の文で指示ファイルと依頼を受け取る", (t) =>
+  runHostTest(t, async ({ client, dataRoot, stage }) => {
+    const context = await setup(client, dataRoot, ["capture-initial"]);
+    stage("指示ファイルの引数が無いCLIへ委譲する");
+    const task = await delegate(context, "initial", "Do the delegated work.");
+    const child = await childTerminal(client, context, task.child);
+    const { output } = await child.waitFor(({ output }) =>
+      /LIFECYCLE_INITIAL:("[^\r\n]+")\r?\n/u.test(output),
+    );
+    const initial = JSON.parse(
+      output.match(/LIFECYCLE_INITIAL:("[^\r\n]+")\r?\n/u)[1],
+    );
+    const match = initial.match(
+      /^Read (.+) and follow its instructions\. Then open the file (.+) with your file-reading tool \(it is a normal file, not an iori command\) and follow the delegated request\.$/u,
+    );
+    assert.ok(match, `子の最初の文: ${initial}`);
+    assert.match(await readFile(match[1], "utf8"), /iori report/u);
+    assert.match(await readFile(match[2], "utf8"), /Do the delegated work\./u);
+  }));
 
 test("親が終了すると上限待ちを取り消し、動いている子は続く", (t) =>
   runHostTest(t, async ({ client, dataRoot, stage }) => {

@@ -10,12 +10,12 @@
 | `apps/host/native/`                    | Hostからirohを呼ぶNode addon                            |
 | `crates/iori-iroh-config/`             | HostとClientのiroh endpoint設定                         |
 | `apps/host/src/main.ts`                | Hostの起動と終了。Node.js 24がTypeScriptを直接実行する  |
-| `apps/client/src/`                     | Reactの登録・端末管理と見本v9の色・書体                 |
+| `apps/client/src/`                     | Reactの登録・端末管理とモックアップv9の色・書体         |
 | `apps/client/src-tauri/`               | Tauriのnative入口とAndroidプロジェクト                  |
 | `scripts/eslint-plugin-iori/`          | 作りの原則を守るESLint規則と純粋な試験                  |
 | `scripts/`                             | 検査とCIの道具                                          |
 | [verification](verification/README.md) | 実機と本物のCLIによる検証                               |
-| `e2e/`                                 | ioriの画面を通すCLI・Terminal・接続の操作列             |
+| `e2e/`                                 | ioriの画面を通すCLI・Terminal・接続のシナリオ           |
 
 Orca（[stablyai/orca](https://github.com/stablyai/orca)、MIT）の実装は流用してよい。コピーしたファイルには元の著作権表示と許諾文を残し、同梱物・依存のライセンスはそのファイルごとに確かめる。
 
@@ -25,18 +25,18 @@ Orca（[stablyai/orca](https://github.com/stablyai/orca)、MIT）の実装は流
 
 確かめは、故障する境界ごとに最も安く確かめられる場所へ置く。入口は次のとおり。
 
-| 確かめ                                               | 入口                                                                                                 | 流す時                                                                                   |
-| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| 型・lint・整形・純粋関数・Host の口からの E2E        | `bash scripts/ci.sh`（Host の口の書き方は [verification](verification/README.md#hostの口からのe2e)） | main へ載せる前（関門はこれだけ）                                                        |
-| 画面の E2E（ブラウザー・本物の CLI・偽のモデル API） | `node scripts/run-bounded-check.mjs node verification/web/run.mjs --only=<操作列>`                   | 変えた画面の分を作者が1〜2本。全部は main の後に裏で自動（`scripts/background-e2e.mjs`） |
-| CLI の実物との照合                                   | `--real-models`                                                                                      | CLI を上げた時、iori がモデルへ渡す指示を変えた時                                        |
-| 負荷の試験                                           | 下記                                                                                                 | 性能に関わる変更の時と Release の前                                                      |
+| 確かめ                                               | 入口                                                                                               | 流す時                                                                                   |
+| ---------------------------------------------------- | -------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| 型・lint・整形・純粋関数・Host API の E2E            | `bash scripts/ci.sh`（Host API の書き方は [verification](verification/README.md#host-api-の-e2e)） | main へ載せる前（必須チェックはこれだけ）                                                |
+| 画面の E2E（ブラウザー・本物の CLI・偽のモデル API） | `node scripts/run-bounded-check.mjs node verification/web/run.mjs --only=<シナリオ>`               | 変えた画面の分を作者が1〜2本。全部は main の後に裏で自動（`scripts/background-e2e.mjs`） |
+| CLI の実物との照合                                   | `--real-models`                                                                                    | CLI を上げた時、iori がモデルへ渡す指示を変えた時                                        |
+| 負荷の試験                                           | 下記                                                                                               | 性能に関わる変更の時と Release の前                                                      |
 
-Release の受入は、配布物でしか確かめられない境界（導入・更新・Terminal の係の入れ替え・接続）の少数だけを流す。同じ版で流し直して通る失敗は揺れとして Issue に記録し、公開を止めない。
+Release の受入は、配布物でしか確かめられない境界（導入・更新・Terminal のデーモンの入れ替え・接続）の少数だけを流す。同じ版で流し直して通る失敗は揺れとして Issue に記録し、公開を止めない。
 
 読み取りの負荷試験は `node scripts/run-bounded-check.mjs node verification/reading/load.mjs` で流す。専用のブラウザー・本物のHost・通信を使い、1分間、監視の開始・初回の全体更新・停止を繰り返し、その開始と重なる間にFilesの一覧・ファイル情報とGitの状態を並行して要求する。監視の失敗も試験の失敗とし、監視開始と重なった要求の応答を測る。応答の最大値が500ms未満かを判定し、件数・p50・p99・最大値を通常のWeb E2Eと同じ証拠先へ残す。性能に関わる変更時とRelease前に、他の受入やビルドと重ねず単独で流す。通常のE2EとCIからは呼ばない。準備は[ブラウザーの画面E2E](verification/README.md#ブラウザーの画面e2e)と同じ。
 
-画面のE2Eは本物のCLIの接続先を、試験の中で立てる偽のモデルAPI（`verification/fake-model/`）へ向け、台本どおりの応答（文・道具の呼び出し）を返させて流す。CLI本体・Host・画面・hookは本物のまま使い、モデルの沈黙・利用枠・応答の揺れで落ちないようにする。偽にする操作列とCLIは `verification/web/fake-model-scenarios.mjs` で宣言し、宣言の無いものは安い実モデルで流す。CLIの実物との照合は同じ操作列を `--real-models` で実モデルに流し、偽のAPIの前提（要求の経路・応答のeventの種類・hookの並び）が変わっていないかを確かめ、変わっていれば台本を直す。記録を再生する試験は補助で、本物のCLIを通した受入の代わりにしない。 Releaseの受入は `verification/fake-model/verified.json` とCLIの版・指示ファイルを比べ、変更に関係する操作列を実モデルでも自動で流す。成功後に証拠先へ出た更新案を確認し、`verified.json` に反映して版の変更と一緒にcommitする。
+画面のE2Eは本物のCLIの接続先を、試験の中で立てる偽のモデルAPI（`verification/fake-model/`）へ向け、台本どおりの応答（文・道具の呼び出し）を返させて流す。CLI本体・Host・画面・hookは本物のまま使い、モデルの沈黙・利用枠・応答の揺れで落ちないようにする。偽にするシナリオとCLIは `verification/web/fake-model-scenarios.mjs` で宣言し、宣言の無いものは安い実モデルで流す。CLIの実物との照合は同じシナリオを `--real-models` で実モデルに流し、偽のAPIの前提（要求の経路・応答のeventの種類・hookの並び）が変わっていないかを確かめ、変わっていれば台本を直す。記録を再生する試験は補助で、本物のCLIを通した受入の代わりにしない。 Releaseの受入は `verification/fake-model/verified.json` とCLIの版・指示ファイルを比べ、変更に関係するシナリオを実モデルでも自動で流す。成功後に証拠先へ出た更新案を確認し、`verified.json` に反映して版の変更と一緒にcommitする。
 
 Linuxで資源の上限付きの検査は `node scripts/run-bounded-check.mjs <command> [args...]` を入口にする。メモリ上限の枠の中ではそのまま時間制限を付けて実行し、枠の外ではsystemdのscopeで制限して実行する。制限を外さない。`node --test` を直接呼ぶ時は `--test-timeout` を指定する。
 
@@ -75,7 +75,7 @@ pnpm --filter @iori/host invite
 
 bridgeのWebSocketは127.0.0.1だけで待ち受ける。irohのUDP endpointは製品Clientと同じ設定でbindし、別machineの検証Hostにも通常の招待で接続する。鍵と画面の保存を `.local/web-client/` に持つ（`IORI_WEB_CLIENT_DATA` で変更可）。製品のDPAPI/Keystoreによる保護とは異なり、開発用の鍵・SQLiteを本人限定のdirectory/fileに保存する。製品Clientの保存先や鍵を指定しない。clipboard・リンクを開く・前面状態はChromiumのAPIを使い、QR読取は使えない。開発ブラウザーではAlt+←でAndroidと同じ戻る処理を呼ぶ。`IORI_WEB_PORT` で画面serverのportを変更できる。
 
-画面の変更ごとの操作確認は `pnpm e2e:web --only=<操作列>`。専用Host・bridge・画面server・既存Chromiumを起動し、選んだ操作列を通して後始末する。登録と配置・Terminal・CLIの状態・再開とFiles/Gitなど、内容のまとまりごとに1つずつ流す。各runは既定の4GiBで実行する。準備と結果の場所は[ブラウザーの画面E2E](verification/README.md#ブラウザーの画面e2e)を参照する。Windows/Androidの実機E2EやIME確認の代わりにはしない。
+画面の変更ごとの操作確認は `pnpm e2e:web --only=<シナリオ>`。専用Host・bridge・画面server・既存Chromiumを起動し、選んだシナリオを通して後始末する。登録と配置・Terminal・CLIの状態・再開とFiles/Gitなど、内容のまとまりごとに1つずつ流す。各runは既定の4GiBで実行する。準備と結果の場所は[ブラウザーの画面E2E](verification/README.md#ブラウザーの画面e2e)を参照する。Windows/Androidの実機E2EやIME確認の代わりにはしない。
 
 READMEの画像は `node scripts/run-bounded-check.mjs node verification/web/run.mjs --only=readme-shots` でダーク・ライトのPNGと実動画からのGIFを `docs/images/` に撮り直す（ffmpegと `~/.config/iori/publish.json` の公開禁止の値が必要）。
 
@@ -87,18 +87,18 @@ Clientのnative開発には[Tauriの前提条件](https://v2.tauri.app/start/pre
 pnpm tauri android build --debug --apk --target aarch64
 ```
 
-| コマンド                                                                                            | 検査                                                         |
-| --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
-| `pnpm check`                                                                                        | Host・Client・E2Eの型                                        |
-| `pnpm lint`                                                                                         | ESLint・作りの原則・型の抜け道・説明のない抑制               |
-| `pnpm test`                                                                                         | Host・Clientと検査規則の `node --test`。各試験の上限は1分    |
-| `pnpm e2e:web --only=<操作列>`                                                                      | 開発ClientとLinux Hostで画面の操作列（実機の代用にはしない） |
-| `pnpm format:check`                                                                                 | Prettier                                                     |
-| `pnpm check:docs`                                                                                   | 文書リンクと検査器の自己試験                                 |
-| `cargo fmt --all --check`                                                                           | 共有通信crate・Host addonのRust整形                          |
-| `cargo clippy --workspace --all-targets --locked -- -D warnings`                                    | 共有通信crate・Host addonのRust静的検査                      |
-| `cargo fmt --manifest-path apps/client/src-tauri/Cargo.toml --all --check`                          | ClientとpluginのRust整形                                     |
-| `cargo clippy --manifest-path apps/client/src-tauri/Cargo.toml --workspace --locked -- -D warnings` | 実行OS向けのClient/pluginのRust静的検査                      |
+| コマンド                                                                                            | 検査                                                           |
+| --------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `pnpm check`                                                                                        | Host・Client・E2Eの型                                          |
+| `pnpm lint`                                                                                         | ESLint・作りの原則・型の抜け道・説明のない抑制                 |
+| `pnpm test`                                                                                         | Host・Clientと検査規則の `node --test`。各試験の上限は1分      |
+| `pnpm e2e:web --only=<シナリオ>`                                                                    | 開発ClientとLinux Hostで画面のシナリオ（実機の代用にはしない） |
+| `pnpm format:check`                                                                                 | Prettier                                                       |
+| `pnpm check:docs`                                                                                   | 文書リンクと検査器の自己試験                                   |
+| `cargo fmt --all --check`                                                                           | 共有通信crate・Host addonのRust整形                            |
+| `cargo clippy --workspace --all-targets --locked -- -D warnings`                                    | 共有通信crate・Host addonのRust静的検査                        |
+| `cargo fmt --manifest-path apps/client/src-tauri/Cargo.toml --all --check`                          | ClientとpluginのRust整形                                       |
+| `cargo clippy --manifest-path apps/client/src-tauri/Cargo.toml --workspace --locked -- -D warnings` | 実行OS向けのClient/pluginのRust静的検査                        |
 
 Linux上のClient用clippyはAndroid向けのコードを検査しない。Android向けのRust・Kotlinの型の検査は `verification/connection/build-android.mjs` のAPK buildで行う。
 
@@ -125,7 +125,7 @@ git diff --check
 node scripts/run-bounded-check.mjs bash scripts/ci.sh
 ```
 
-Dockerが必要。imageを作り直す時は `bash scripts/ci.sh --rebuild-image` を使う。`.forgejo/workflows/ci.yml`も同じ入口を使う。pushの変更がMarkdownだけの時は `--docs-only` で整形・文書のリンク・空白だけを検査する。CI imageはLinux用Tauri依存・Rust・pnpmを含み、Dockerfileとtoolchainから決まるtag・labelで再利用する。pnpm store、Cargo registry、Cargo targetは名前付きvolumeを使う。
+Dockerが必要。imageを作り直す時は `bash scripts/ci.sh --rebuild-image` を使う。pushの変更がMarkdownだけの時は `--docs-only` で整形・文書のリンク・空白だけを検査する。同じ機械の通常の `ci.sh` は1本ずつ流れ、後から始めた方は前の実行が終わるまで待つ（重なると Host API の試験が負荷で時間切れになるため）。CI imageはLinux用Tauri依存・Rust・pnpmを含み、Dockerfileとtoolchainから決まるtag・labelで再利用する。pnpm store、Cargo registry、Cargo targetは名前付きvolumeを使う。
 CIの前にCargo targetへworktreeの絶対パスを記録し、消えたworktreeの保存先と、印がなく2日以上使われていない保存先を片付ける。今のworktreeと実行中のCIの保存先は残す。
 
 ソースを `docker create` → `docker cp` → `docker start` で渡し、型・lint・全試験・format・文書・Clientのfrontend build・Rust fmt/clippyを流す。linked worktreeにも対応する。Gitのobjects・refs・indexはコピーするが、認証・config・hooksはコピーしない。実行のログと所要時間は `.local/evidence/ci/` に保存する。温まった状態で全体5分以内を目標にする。
@@ -150,25 +150,25 @@ CIの前にCargo targetへworktreeの絶対パスを記録し、消えたworktre
 
 実機の検証は、次の段で必要な分だけ流す。追い修正のたびに通しを流し直さない。
 
-| 時                                                                            | 流すもの                                                                                                  |
-| ----------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| 変更ごと                                                                      | CIと、変えた所だけを確かめる手早い道具。画面は `pnpm e2e:web --only=<操作列>`（開発用ClientとLinux Host） |
-| native境界（通信・プロセス・保存・OS統合・Windows/Androidのnative）を変えた時 | 変更が及ぶ組合せを1つ、実機で                                                                             |
-| 単位を受け入れる時                                                            | 変更が及ぶ組合せの通しを1回（最大4組合せ）                                                                |
+| 時                                                                            | 流すもの                                                                                                    |
+| ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| 変更ごと                                                                      | CIと、変えた所だけを確かめる手早い道具。画面は `pnpm e2e:web --only=<シナリオ>`（開発用ClientとLinux Host） |
+| native境界（通信・プロセス・保存・OS統合・Windows/Androidのnative）を変えた時 | 変更が及ぶ組合せを1つ、実機で                                                                               |
+| 単位を受け入れる時                                                            | 変更が及ぶ組合せの通しを1回（最大4組合せ）                                                                  |
 
-画面の操作列（`e2e/web/scenario.mjs`）へ段を足す・順を変える時は、変更が及ぶ名前付きの操作列を通す。各操作列は招待・フォルダー・Terminalなどの前提を自分でそろえる。Host再起動前後の会話や、PC・スマホ間の同じTerminalなど、続きが必要な確認は同じ操作列へ残す。基本の操作列の一覧は[ブラウザーの画面E2E](verification/README.md#ブラウザーの画面e2e)を参照する。
+画面のシナリオ（`e2e/web/scenario.mjs`）へ段を足す・順を変える時は、変更が及ぶ名前付きのシナリオを通す。各シナリオは招待・フォルダー・Terminalなどの前提を自分でそろえる。Host再起動前後の会話や、PC・スマホ間の同じTerminalなど、続きが必要な確認は同じシナリオへ残す。基本のシナリオの一覧は[ブラウザーの画面E2E](verification/README.md#ブラウザーの画面e2e)を参照する。
 
 ## 保存形式の変更
 
-一般公開までは、製品のコードは現在の保存形式だけを読み書きする。古い形式を読む分岐、版ずれの吸収、起動時の自動移行は入れない。古いHost・Clientの版を考慮した処理（新しい要求を持たない版で操作を押せなくする判定、「先に更新してください」の案内など）も入れない。古い版で操作した時は既存の失敗の表示のままでよい。一回きりのデータ整理は、実データを読み取りで調べて対象の有無を確かめ、写しへ適用した結果で確かめる。そのためだけの合成状態の試験は足さない。
+一般公開までは、製品のコードは現在の保存形式だけを読み書きする。古い形式を読む分岐、版ずれの吸収、起動時の自動移行は入れない。古いHost・Clientの版を考慮した処理（新しい要求を持たない版で操作を押せなくする判定、「先に更新してください」の案内など）も入れない。古い版で操作した時は既存の失敗の表示のままでよい。一回きりのデータ整理は、実データを読み取りで調べて対象の有無を確かめ、コピーへ適用した結果で確かめる。そのためだけの合成状態の試験は足さない。
 
-## Terminalの係の互換性
+## Terminalのデーモンの互換性
 
-`node scripts/terminal-daemon-compatibility.mjs` は配布物をbuildし、係とioriコマンドの入口から変換後JSの実行時importをたどって、複写するJS・依存の資材を `apps/host/terminal-daemon-compatibility.json` のhashと照合する。先に `pnpm --filter @iori/host build:native` を行う。CIも同じ順で検査する。配布script自体・HostだけのCLI定義・チーム処理・irohは範囲に含めない。
+`node scripts/terminal-daemon-compatibility.mjs` は配布物をbuildし、デーモンとioriコマンドの入口から変換後JSの実行時importをたどって、複写するJS・依存の資材を `apps/host/terminal-daemon-compatibility.json` のhashと照合する。先に `pnpm --filter @iori/host build:native` を行う。CIも同じ順で検査する。配布script自体・HostだけのCLI定義・チーム処理・irohは範囲に含めない。
 
-nativeとNode本体のbytesはOS・build機械で変わるため、例外として入力で確認する。Windows権限用addonのソース・Cargoの該当する依存のlock・toolchain・workspaceの言語設定、node-ptyを含む係の依存の固定版とpatch、Nodeの固定版を対象にする。OS別のbuild結果の記録は持たない。
+nativeとNode本体のbytesはOS・build機械で変わるため、例外として入力で確認する。Windows権限用addonのソース・Cargoの該当する依存のlock・toolchain・workspaceの言語設定、node-ptyを含むデーモンの依存の固定版とpatch、Nodeの固定版を対象にする。OS別のbuild結果の記録は持たない。
 
-係に読み込まれる実装を変えたら `apps/host/src/terminal/daemon/protocol.ts` の `DAEMON_PROTOCOL` を上げ、`node scripts/terminal-daemon-compatibility.mjs --update` で記録を更新する。同じ版の記録の上書きはしない。係の版を上げる更新は、動作中のTerminalとAgentを止めて既存の再開経路へ戻すため、変更を係へ入れる必要があるか先に確かめる。検査は直前のcommit（`HEAD^`）の記録とも比べるので、別々のbranchで同じ版へ上げた変更を取り込む時は、各commitから `protocol.ts` と記録の変更を外し、mainの記録へ戻してから最後の1つのcommitで版を上げて `--update` する。 `DAEMON_PROTOCOL` を上げた版を公開する前に、Windows Hostで公開済みの前の版から作った版への更新を `verification/updates/host-windows.mjs` の `--previous-zip`・`--target-zip`（[verification](verification/README.md)）で1回通す。Linux Hostでも `verification/updates/host-linux.mjs` の `--previous-archive`・`--target-archive`・`--running-clis` で同じ更新を1回通す。更新の時に止めるのは前の版の係のコードなので、新しい係の修正だけでは更新時の停止は防げない。
+デーモンに読み込まれる実装を変えたら `apps/host/src/terminal/daemon/protocol.ts` の `DAEMON_PROTOCOL` を上げ、`node scripts/terminal-daemon-compatibility.mjs --update` で記録を更新する。同じ版の記録の上書きはしない。デーモンの版を上げる更新は、動作中のTerminalとAgentを止めて既存の再開経路へ戻すため、変更をデーモンへ入れる必要があるか先に確かめる。検査は直前のcommit（`HEAD^`）の記録とも比べるので、別々のbranchで同じ版へ上げた変更を取り込む時は、各commitから `protocol.ts` と記録の変更を外し、mainの記録へ戻してから最後の1つのcommitで版を上げて `--update` する。 `DAEMON_PROTOCOL` を上げた版を公開する前に、Windows Hostで公開済みの前の版から作った版への更新を `verification/updates/host-windows.mjs` の `--previous-zip`・`--target-zip`（[verification](verification/README.md)）で1回通す。Linux Hostでも `verification/updates/host-linux.mjs` の `--previous-archive`・`--target-archive`・`--running-clis` で同じ更新を1回通す。更新の時に止めるのは前の版のデーモンのコードなので、新しいデーモンの修正だけでは更新時の停止は防げない。
 
 ## Provider CLIと試験データ
 
@@ -179,14 +179,14 @@ nativeとNode本体のbytesはOS・build機械で変わるため、例外とし�
 
 ## UI検証の優先順位と打ち切り
 
-目的は利用者が必要な機能を使えるようにすることであり、撮影・計測の成功や証拠の総消化ではない。検証の時間・token・課金は開発の費用として扱う。
+目的は利用者が必要な機能を使えるようにすることであり、スクリーンショットの取得・計測の成功や証拠の総消化ではない。検証の時間・token・課金は開発の費用として扱う。
 
 1. **必須を先に絞る。** データ保護、認可・通信の正しさ、結果不明入力の非再送、大容量保存の安全性、UIの型・静的検査と変更部分の局所テストを優先する。設定画面のちらつきや送信不能など、普通の操作を妨げる報告は本質的な不具合として直す。未確認の細かな動的挙動と同列にしない。
 2. **既存結果を再利用する。** 変更が影響する代表経路だけを追加確認し、同じ保存・切替・回収試験を毎回やり直さない。共通機能のnative境界はWindows/Androidを考慮するが、全状態・全障害の組合せを両方で消化する条件にはしない。
 3. **追加検査の判断価値を明示する。** 開始前に「何を確認すると実装修正・安全判断が変わるか」「最小の操作」「成功/失敗/未確認での終了方法」を決める。単に画像や細かな座標記録を増やすだけなら実装・配布を止めない。
-4. **撮影・観測器の失敗を製品修正に混ぜない。** 一度取り逃した画面のために同じ実機操作・障害注入・有料入力を繰り返さない。まず短い無故障のlocal検査で観測器を切り分ける。未確認を合格と書かない。
+4. **スクリーンショットの取得・観測器の失敗を製品修正に混ぜない。** 一度取り逃した画面のために同じ実機操作・障害注入・有料入力を繰り返さない。まず短い無故障のlocal検査で観測器を切り分ける。未確認を合格と書かない。
 5. **長時間化の前に止めて再判断する。** 同じ観測失敗、計測器の拡張、条件追加が続く場合、その検証を中断して必須性・残費用・代替手段を見直す。高コストな追加検証が本当に必要なら、理由・利用者への影響・見込みを説明して判断を求める。時間枠超過を理由に実行拒否する新ツールは導入しない。
-6. **後続評価を開発の停止条件にしない。** 実機確認の完了を配布の条件にせず、日常利用で見つかった不具合を優先して直す。 機能が揃った後でしか意味のない試験は、その段階へ回す。既知不具合や採用仕様の実装漏れはAgentが先に直し、手動確認へ丸投げしない。単体テスト成功・細部の未確認だけを根拠に、完成や日常利用開始を宣言しない。画面は単独の部品の撮影だけで受け入れず、実際に置かれる画面の中でPCとMobileの代表的な幅を操作して、はみ出し・改行・崩れを親Agentが確かめる。
+6. **後続評価を開発の停止条件にしない。** 実機確認の完了を配布の条件にせず、日常利用で見つかった不具合を優先して直す。 機能が揃った後でしか意味のない試験は、その段階へ回す。既知不具合や採用仕様の実装漏れはAgentが先に直し、手動確認へ丸投げしない。単体テスト成功・細部の未確認だけを根拠に、完成や日常利用開始を宣言しない。画面は単独の部品のスクリーンショットだけで受け入れず、実際に置かれる画面の中でPCとMobileの代表的な幅を操作して、はみ出し・改行・崩れを親Agentが確かめる。
 
 画面を手動で確認できる時は、buildと確認点の短い一覧を用意し、手動確認を第一候補にする。Agentの実機自動操作は確認する人が不在の時、または安全面で証拠を残す必要がある確認に使う。検証と配布は同じcommit・同じ成果物を使い、確認した成果物をそのまま配布する。
 

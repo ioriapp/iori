@@ -305,6 +305,17 @@ export async function acceptance(
     );
     await mkdir(host);
     await command("tar", ["-xzf", archive, "-C", host]);
+    await command(
+      process.execPath,
+      [
+        "scripts/run-bounded-check.mjs",
+        process.execPath,
+        "scripts/release/model-catalogs.mjs",
+        host,
+        path.join(executionEvidence, "model-catalogs.json"),
+      ],
+      { cwd, env },
+    );
     const pending = [...(scenarios ?? fullScenarioOrder)];
     const groups = Array.from(
       { length: Math.min(pending.length, acceptanceConcurrency) },

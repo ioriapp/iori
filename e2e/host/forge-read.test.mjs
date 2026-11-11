@@ -349,7 +349,7 @@ test("iori issue listの既定30件とlimitと全ラベルの条件をCLIから�
     );
   }));
 
-test("Forgeの監視はpush先のPRとCIの印を接続中のClientへ知らせる", (t) =>
+test("Forgeの監視はpush先のPRとCIのアイコンを接続中のClientへ知らせる", (t) =>
   runHostTest(t, async ({ client, dataRoot }) => {
     const forge = await forgeFixture(t, dataRoot);
     forge.state.pull = true;
@@ -374,7 +374,7 @@ test("Forgeの監視はpush先のPRとCIの印を接続中のClientへ知らせ�
     );
   }));
 
-test("CIがないコミットでもForgeの監視でPRの印を知らせる", (t) =>
+test("CIがないコミットでもForgeの監視でPRのアイコンを知らせる", (t) =>
   runHostTest(t, async ({ client, dataRoot }) => {
     const forge = await forgeFixture(t, dataRoot);
     forge.state.pull = true;
@@ -396,7 +396,7 @@ test("CIがないコミットでもForgeの監視でPRの印を知らせる", (t
     assert.equal(event.status.checks, undefined);
   }));
 
-test("push先がないブランチにはForgeの印を出さない", (t) =>
+test("push先がないブランチにはForgeのアイコンを出さない", (t) =>
   runHostTest(t, async ({ client, dataRoot }) => {
     const forge = await forgeFixture(t, dataRoot);
     const initial = await client.events();

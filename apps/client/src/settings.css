@@ -1050,3 +1050,8 @@
   justify-content: flex-end;
   gap: var(--space-2);
 }
+
+/* Approved usage setting rows keep the selector beside the explanatory copy. */
+.usage-display-setting .field-copy {
+  flex: 1 1 260px;
+}

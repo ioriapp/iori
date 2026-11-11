@@ -4,17 +4,17 @@ import { join } from "node:path";
 import test from "node:test";
 import { runHostTest } from "../../verification/host/process.mjs";
 
-test("Hostの停止で残った起動指示の写しは再起動時に片付く", (t) =>
+test("Hostの停止で残った起動指示のコピーは再起動時に片付く", (t) =>
   runHostTest(t, async ({ dataRoot, restart, stage }) => {
     const directory = join(dataRoot, "iori-host", "launch-instructions");
-    stage("Hostの停止中に前回の起動指示の写しが残る");
+    stage("Hostの停止中に前回の起動指示のコピーが残る");
     await restart({
       whileStopped: async () => {
         await mkdir(directory, { recursive: true });
         await writeFile(join(directory, "leftover.md"), "private instruction");
       },
     });
-    stage("再起動後に写しが残っていない");
+    stage("再起動後にコピーが残っていない");
     assert.deepEqual(
       await readdir(directory).catch((error) => {
         if (error.code === "ENOENT") return [];

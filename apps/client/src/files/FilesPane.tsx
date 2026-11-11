@@ -444,7 +444,7 @@ function FilesWorkspace({
     ...(onFileHistory && current
       ? [
           {
-            label: ja ? "ファイルの履歴" : "File history",
+            label: ja ? "ファイル履歴" : "File history",
             icon: <History />,
             action: "file-history",
             run: () => onFileHistory(current.absolutePath),
@@ -599,8 +599,8 @@ function FilesWorkspace({
           variant="ghost"
           size="icon-sm"
           data-iori-action="file-history"
-          aria-label={ja ? "ファイルの履歴" : "File history"}
-          title={ja ? "ファイルの履歴" : "File history"}
+          aria-label={ja ? "ファイル履歴" : "File history"}
+          title={ja ? "ファイル履歴" : "File history"}
           onClick={() => onFileHistory(current.absolutePath)}
         >
           <History />
