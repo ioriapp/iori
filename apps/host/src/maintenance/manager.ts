@@ -1,6 +1,14 @@
 import { writeFileAtomic } from "../fs/atomic-write.ts";
 import { createHash, randomUUID } from "node:crypto";
-import { cp, mkdir, mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
+import {
+  cp,
+  link,
+  mkdir,
+  mkdtemp,
+  readFile,
+  writeFile,
+  rm,
+} from "node:fs/promises";
 import { watch, type FSWatcher } from "node:fs";
 import { join, dirname } from "node:path";
 import {
@@ -543,10 +551,18 @@ export class MaintenanceManager {
       ])
         await cp(join(service.bundle, name), join(work, name));
       stage = "prepare";
-      await cp(
-        process.execPath,
-        join(work, process.platform === "win32" ? "node.exe" : "node"),
+      const nodePath = join(
+        work,
+        process.platform === "win32" ? "node.exe" : "node",
       );
+      if (process.platform === "win32") await cp(process.execPath, nodePath);
+      else
+        // A linked runtime is never opened for writing, so an exec cannot
+        // fail with ETXTBSY; the link also survives replacing the bundle.
+        // Filesystems without hard links keep the previous copy.
+        await link(process.execPath, nodePath).catch(() =>
+          cp(process.execPath, nodePath),
+        );
       const installing = await this.#save(file, {
         ...status,
         phase: "installing",

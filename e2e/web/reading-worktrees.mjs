@@ -302,20 +302,61 @@ export async function readingWorktrees({
             '[data-iori-view="files"]:not([hidden]) [data-iori-action="reading-back"]',
           );
       }
-      await screen.click('[data-iori-field="files-worktree"]');
       await screen.wait(
-        `[data-iori-worktree-choice=${JSON.stringify(repository)}]`,
+        `[data-iori-field="files-worktree"][title=${JSON.stringify(repository)}]`,
       );
-      await shot(
-        `${narrow ? "mobile" : "pc"}-files-worktree-menu-primary-shown`,
+      const singlePicker = await screen.evaluate(
+        `(()=>{const e=document.querySelector('[data-iori-field="files-worktree"]');return e?{tag:e.tagName,tabIndex:e.tabIndex,title:e.getAttribute('title'),icons:e.querySelectorAll('svg').length}:null})()`,
       );
-      await screen.key("Escape");
+      assert.equal(
+        singlePicker?.tag,
+        "SPAN",
+        "元の作業ツリーだけの時はボタンにしない",
+      );
+      assert.equal(
+        singlePicker?.tabIndex,
+        -1,
+        "候補が1件だけの切替はキーボードのフォーカスの順に入れない",
+      );
+      assert.equal(
+        singlePicker?.title,
+        repository,
+        "候補が1件だけでも全体のパスをツールチップで出す",
+      );
+      assert.equal(
+        singlePicker?.icons,
+        1,
+        "候補が1件だけの時はブランチのアイコンだけを出す",
+      );
+      await screen.click('[data-iori-field="files-worktree"]');
+      assert.equal(
+        await screen.evaluate(
+          "document.querySelectorAll('[data-iori-worktree-choice]').length",
+        ),
+        0,
+        "候補が1件だけの時は押しても一覧を開かない",
+      );
+      for (const theme of ["light", "dark"]) {
+        await screen.evaluate(
+          `document.documentElement.classList.toggle('dark', ${theme === "dark"})`,
+        );
+        await shot(
+          `${narrow ? "mobile" : "pc"}-files-worktree-primary-shown-${theme}`,
+        );
+      }
     }
     await desktop();
     await selectWorktree(screen, worktree, false);
     // The open file goes away. Files keeps showing what it read; once the
     // page loads again, nothing is left to show but the read error.
     await openWorkspaceView(screen, "files");
+    assert.equal(
+      await screen.evaluate(
+        `document.querySelector('[data-iori-field="files-worktree"]')?.tagName`,
+      ),
+      "BUTTON",
+      "候補が2件に増えたら押せる切替に戻る",
+    );
     await rm(join(worktree, "sample.txt"));
     const failure = '[data-iori-view="files"]:not([hidden]) [role="alert"]';
     const themes = async (name) => {

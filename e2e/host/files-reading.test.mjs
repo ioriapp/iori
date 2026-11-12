@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
   chmod,
@@ -47,6 +48,70 @@ test("フォルダー一覧と本文をClientの通信から読める", (t) =>
     assert.deepEqual(
       result.lines.map(({ text }) => text),
       ["一行目", "二行目"],
+    );
+  }));
+
+test("一覧とファイル名の絞り込みに.gitなどを出さず、直接指せば読める", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    const root = await folder(dataRoot);
+    await symlink(
+      execFileSync("which", ["git"], { encoding: "utf8" }).trim(),
+      join(dataRoot, "bin", "git"),
+    );
+    execFileSync("git", ["-C", root, "init", "-q", "-b", "main"]);
+    await writeFile(join(root, ".git", "direct.txt"), "git内部\n");
+    await writeFile(join(root, ".DS_Store"), "ds\n");
+    await mkdir(join(root, "sub"));
+    await writeFile(join(root, "sub", "Thumbs.db"), "thumb\n");
+    await writeFile(join(root, "sub", "visible.txt"), "見える\n");
+    const listing = await client.request("files.list", {
+      root,
+      path: "",
+      start: 0,
+      count: 20,
+    });
+    assert.deepEqual(
+      listing.entries.map(({ name }) => name),
+      ["sub"],
+    );
+    const subListing = await client.request("files.list", {
+      root,
+      path: "sub",
+      start: 0,
+      count: 20,
+    });
+    assert.deepEqual(
+      subListing.entries.map(({ name }) => name),
+      ["visible.txt"],
+    );
+    for (const query of ["direct", "DS_Store", "Thumbs"]) {
+      const found = await client.request("files.find", {
+        root,
+        query,
+        start: 0,
+        count: 20,
+      });
+      assert.deepEqual(found.entries, []);
+    }
+    const foundVisible = await client.request("files.find", {
+      root,
+      query: "visible",
+      start: 0,
+      count: 20,
+    });
+    assert.deepEqual(
+      foundVisible.entries.map(({ path }) => path),
+      ["sub/visible.txt"],
+    );
+    const direct = await client.request("files.read", {
+      root,
+      path: ".git/direct.txt",
+      offset: 0,
+      length: 128,
+    });
+    assert.equal(
+      Buffer.from(direct.bytesBase64, "base64").toString(),
+      "git内部\n",
     );
   }));
 

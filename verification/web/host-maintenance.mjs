@@ -277,7 +277,9 @@ export async function hostMaintenancePreview({
     await screen.click(`[data-iori-tab-id="terminal:${terminalId}"]`);
     await typeTerminal(
       client,
-      `node -e 'process.title="fake run --secret=x"; require("fs").writeFileSync("maintenance-fake.pid", String(process.pid)); console.log("TITLE_"+"READY"); setTimeout(()=>{},6e5)'; printf 'TITLE_%s\\n' DONE\r`,
+      // A shim such as Volta's runs node as a child, so the foreground process
+      // would keep the shim's name; start the real runtime directly.
+      `${JSON.stringify(process.execPath)} -e 'process.title="fake run --secret=x"; require("fs").writeFileSync("maintenance-fake.pid", String(process.pid)); console.log("TITLE_"+"READY"); setTimeout(()=>{},6e5)'; printf 'TITLE_%s\\n' DONE\r`,
     );
     await observed(client, "TITLE_READY");
     await requestClose(client, terminalId);

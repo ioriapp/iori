@@ -30,6 +30,18 @@ export function WorktreePicker({
 }) {
   const sorted = [...worktrees].sort(worktreeOrder);
   const separated = sorted.length > 1 && sorted.some((w) => w.primary);
+  if (sorted.length < 2) {
+    return (
+      <span
+        className="reading-worktree reading-worktree-static"
+        title={root}
+        data-iori-field={field}
+      >
+        <GitBranch />
+        <span className="reading-truncate">{label}</span>
+      </span>
+    );
+  }
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>

@@ -46,7 +46,11 @@ html[data-input-modality="pointer"]
   [data-slot="context-menu-item"],
   [data-slot="context-menu-checkbox-item"],
   [data-slot="context-menu-radio-item"],
-  [data-slot="context-menu-sub-trigger"] {
+  [data-slot="context-menu-sub-trigger"],
+  [data-slot="dropdown-menu-item"],
+  [data-slot="dropdown-menu-checkbox-item"],
+  [data-slot="dropdown-menu-radio-item"],
+  [data-slot="dropdown-menu-sub-trigger"] {
     min-height: 44px;
   }
 }

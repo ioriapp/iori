@@ -85,17 +85,38 @@ export async function forgeCiScenario({
   const current = await readCiExpectation(fixture, fixture.sha);
   await screen.click(ciMark(fixture.repository));
   await screen.wait(loaded(fixture.repository));
+  const singlePicker = await screen.evaluate(
+    `(()=>{const e=document.querySelector('[data-iori-field="ci-worktree"]');return e?{tag:e.tagName,tabIndex:e.tabIndex,title:e.getAttribute('title'),icons:e.querySelectorAll('svg').length}:null})()`,
+  );
+  assert.equal(
+    singlePicker?.tag,
+    "SPAN",
+    "CIの候補が表示中の親だけの時はボタンにしない",
+  );
+  assert.equal(
+    singlePicker?.tabIndex,
+    -1,
+    "候補が1件だけの切替はキーボードのフォーカスの順に入れない",
+  );
+  assert.equal(
+    singlePicker?.title,
+    fixture.repository,
+    "候補が1件だけでも全体のパスをツールチップで出す",
+  );
+  assert.equal(
+    singlePicker?.icons,
+    1,
+    "候補が1件だけの時はブランチのアイコンだけを出す",
+  );
   await screen.click('[data-iori-field="ci-worktree"]');
-  const choices = await screen.evaluate(
-    "Array.from(document.querySelectorAll('[data-iori-worktree-choice]'),row=>row.getAttribute('data-iori-worktree-choice')).sort()",
+  assert.equal(
+    await screen.evaluate(
+      "document.querySelectorAll('[data-iori-worktree-choice]').length",
+    ),
+    0,
+    "候補が1件だけの時は押しても一覧を開かない",
   );
-  assert.deepEqual(
-    choices,
-    [fixture.repository].sort(),
-    "CIの候補も表示中の親だけで、兄弟worktreeを含まない",
-  );
-  await themes(screen, shot, "pc-ci-worktree-menu");
-  await screen.key("Escape");
+  await themes(screen, shot, "pc-ci-worktree-single");
   for (const run of current.runs) {
     const runRow = `${pane(fixture.repository)} [data-iori-ci-run="${run.id}"]`;
     await screen.wait(runRow);

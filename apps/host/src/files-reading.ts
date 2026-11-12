@@ -72,6 +72,24 @@ const collator = new Intl.Collator(undefined, {
   sensitivity: "base",
 });
 
+/** Names hidden from listings and name search, matching VS Code's `files.exclude` defaults. */
+const EXCLUDED_NAMES = new Set([
+  ".git",
+  ".svn",
+  ".hg",
+  ".jj",
+  ".DS_Store",
+  "Thumbs.db",
+]);
+
+function isExcludedName(name: string): boolean {
+  return EXCLUDED_NAMES.has(name);
+}
+
+function isExcludedPath(path: string): boolean {
+  return path.split("/").some((part) => isExcludedName(part));
+}
+
 export const MIME_BY_EXTENSION: Record<string, string> = {
   ".avif": "image/avif",
   ".bmp": "image/bmp",
@@ -344,7 +362,9 @@ async function listDirectory(
     names = await Promise.all(
       dirents
         .filter(
-          (dirent) => !fileUploadTemporaries.has(join(canonical, dirent.name)),
+          (dirent) =>
+            !isExcludedName(dirent.name) &&
+            !fileUploadTemporaries.has(join(canonical, dirent.name)),
         )
         .map(async (dirent) => ({
           name: dirent.name,
@@ -458,6 +478,7 @@ async function* walkedFiles(root: Root, signal?: Signal) {
         throwIfAborted(signal);
         const path = parent ? `${parent}/${dirent.name}` : dirent.name;
         if (fileUploadTemporaries.has(join(root.real, path))) continue;
+        if (isExcludedName(dirent.name)) continue;
         if (dirent.isDirectory()) queue.push(path);
         else yield path;
       }
@@ -497,6 +518,7 @@ async function findFiles(
   let hasMore = false;
   try {
     for await (const path of source) {
+      if (isExcludedPath(path)) continue;
       const name = path.slice(path.lastIndexOf("/") + 1);
       if (!name.toLocaleLowerCase().includes(wanted)) continue;
       if (matched++ < start) continue;

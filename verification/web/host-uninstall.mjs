@@ -108,6 +108,38 @@ export async function hostUninstallScenario({
   const root = join(dataRoot, "iori-host");
   const dialog = '[data-iori-view="host-maintenance-confirmation"]';
   const notice = '[data-iori-view="host-notice"]';
+  const closeAction = '[data-iori-action="host-maintenance-close"]';
+  // The uninstall can finish while its progress is on screen. Read the
+  // current state and press Close in one evaluation, so a result that
+  // arrived first is verified where it is shown instead of being
+  // dismissed unseen while waiting for the notice that will not come.
+  const closeProgress = () =>
+    screen.evaluate(`(() => {
+      const dialogEl = document.querySelector('${dialog}');
+      if (!dialogEl) return 'absent';
+      if (dialogEl.querySelector('.host-notice.is-error')) return 'failure';
+      if (dialogEl.querySelector('.host-uninstall-result'))
+        return dialogEl.querySelector('.host-notice.is-warning')
+          ? 'result-warning'
+          : 'result';
+      const close = dialogEl.querySelector('${closeAction}');
+      if (!close) return 'absent';
+      close.click();
+      return 'closed';
+    })()`);
+  async function verifyDetailDialog() {
+    const text = await screen.text(dialog);
+    assert.match(
+      text,
+      /Deleted iori Host and its saved data|iori Hostをアンインストールし、保存データを削除しました/u,
+    );
+    const instruction = text.search(
+      /Could not delete the tokens|次のサイトのトークンを削除できませんでした/u,
+    );
+    const site = text.indexOf("https://forgejo.example.invalid");
+    const revoke = text.search(/Revoke each token|各サイトでトークンを無効/u);
+    assert.ok(instruction >= 0 && site > instruction && revoke > instruction);
+  }
   async function settings() {
     await openSettingsSection(screen, "open-host-version");
   }
@@ -167,63 +199,74 @@ export async function hostUninstallScenario({
     await shot(
       deleteData ? "delete-data-B3-uninstall" : "keep-data-B3-uninstall",
     );
-    await screen.click('[data-iori-action="host-maintenance-close"]');
-    await waitFor(
-      () => screen.visible(dialog),
-      (visible) => !visible,
-    );
-    await closeSettingsIfOpen(screen);
-    // Completion is observed in the Client before checking the actual files.
-    await screen.wait(notice);
-    assert.equal(
-      await screen.visible('[data-iori-view="host-version"]'),
-      false,
-    );
-    if (deleteData) {
-      assert.match(
-        await screen.text(notice),
-        /Some items need your attention|確認が必要な項目があります/u,
-      );
-      assert.equal(
-        await screen.visible('[data-iori-action="host-notice-close"]'),
-        false,
-      );
-      await pictures("B9-closed-warning");
-      await screen.click('[data-iori-action="host-notice-details"]');
-      await screen.wait(dialog);
-      const text = await screen.text(dialog);
-      assert.match(
-        text,
-        /Deleted iori Host and its saved data|iori Hostをアンインストールし、保存データを削除しました/u,
-      );
-      const instruction = text.search(
-        /Could not delete the tokens|次のサイトのトークンを削除できませんでした/u,
-      );
-      const site = text.indexOf("https://forgejo.example.invalid");
-      const revoke = text.search(/Revoke each token|各サイトでトークンを無効/u);
-      assert.ok(instruction >= 0 && site > instruction && revoke > instruction);
-      await pictures("B9-detail-warning");
-      await screen.click('[data-iori-action="host-maintenance-close"]');
-    } else {
-      assert.match(
-        await screen.text(notice),
-        /Uninstalled iori Host|iori Hostをアンインストールしました/u,
-      );
-      assert.equal(
-        await screen.visible('[data-iori-action="host-notice-details"]'),
-        false,
-      );
-      await pictures("B5-last");
+    const outcome = await closeProgress();
+    if (outcome === "result-warning" || outcome === "failure") {
+      // The result reached the screen before Close was pressed. Verify
+      // it there; closing it now dismisses it without a notice.
+      if (outcome === "failure" || !deleteData) {
+        assert.match(
+          await screen.text(dialog),
+          deleteData
+            ? /Deleted iori Host and its saved data|iori Hostをアンインストールし、保存データを削除しました/u
+            : /Uninstalled iori Host|iori Hostをアンインストールしました/u,
+        );
+      } else {
+        await verifyDetailDialog();
+        await pictures("B9-detail-warning");
+      }
+      await screen.click(closeAction);
       await waitFor(
-        () => screen.visible(notice),
+        () => screen.visible(dialog),
         (visible) => !visible,
       );
-      record(
-        "normal-notice-auto-dismissed",
-        await screen.evaluate(`({
+    } else {
+      await waitFor(
+        () => screen.visible(dialog),
+        (visible) => !visible,
+      );
+      await closeSettingsIfOpen(screen);
+      // Completion is observed in the Client before checking the actual files.
+      await screen.wait(notice);
+      assert.equal(
+        await screen.visible('[data-iori-view="host-version"]'),
+        false,
+      );
+      if (deleteData) {
+        assert.match(
+          await screen.text(notice),
+          /Some items need your attention|確認が必要な項目があります/u,
+        );
+        assert.equal(
+          await screen.visible('[data-iori-action="host-notice-close"]'),
+          false,
+        );
+        await pictures("B9-closed-warning");
+        await screen.click('[data-iori-action="host-notice-details"]');
+        await screen.wait(dialog);
+        await verifyDetailDialog();
+        await pictures("B9-detail-warning");
+        await screen.click(closeAction);
+      } else {
+        assert.match(
+          await screen.text(notice),
+          /Uninstalled iori Host|iori Hostをアンインストールしました/u,
+        );
+        assert.equal(
+          await screen.visible('[data-iori-action="host-notice-details"]'),
+          false,
+        );
+        await pictures("B5-last");
+        await waitFor(
+          () => screen.visible(notice),
+          (visible) => !visible,
+        );
+        record(
+          "normal-notice-auto-dismissed",
+          await screen.evaluate(`({
         durationMilliseconds: window.uninstallNoticeTimes.closed - window.uninstallNoticeTimes.shown,
       })`),
-      );
+        );
+      }
     }
     await waitFor(
       () => present(fixture.bundle),
@@ -344,14 +387,28 @@ export async function hostUninstallScenario({
     );
     await screen.click('[data-iori-action="host-maintenance-confirm"]');
     await screen.wait('[data-iori-view="host-progress"]');
-    await screen.click('[data-iori-action="host-maintenance-close"]');
-    await screen.wait(notice);
-    assert.match(
-      await screen.text(notice),
-      /Could not uninstall iori Host|iori Hostをアンインストールできませんでした/u,
-    );
-    await closeSettingsIfOpen(screen);
-    await screen.click('[data-iori-action="host-notice-close"]');
+    const outcome = await closeProgress();
+    if (outcome === "failure") {
+      // The failure reached the screen before Close was pressed.
+      // Verify it there; the notice is not shown again after closing.
+      assert.match(
+        await screen.text(dialog),
+        /Could not uninstall iori Host|iori Hostをアンインストールできませんでした/u,
+      );
+      await screen.click(closeAction);
+      await waitFor(
+        () => screen.visible(dialog),
+        (visible) => !visible,
+      );
+    } else {
+      await screen.wait(notice);
+      assert.match(
+        await screen.text(notice),
+        /Could not uninstall iori Host|iori Hostをアンインストールできませんでした/u,
+      );
+      await closeSettingsIfOpen(screen);
+      await screen.click('[data-iori-action="host-notice-close"]');
+    }
   } finally {
     await rm(blockedHook, { recursive: true, force: true });
   }

@@ -239,6 +239,8 @@ try {
         [
           "--rule",
           "preset-smarthr",
+          "--format",
+          "json",
           "--stdin",
           "--stdin-filename",
           "release-notes.md",
@@ -249,13 +251,34 @@ try {
           encoding: "utf8",
         },
       );
-      if (
-        !result.error &&
-        result.status === 1 &&
-        (result.stdout || result.stderr)
-      ) {
+      // The glossary (docs/design/wording.md) adopts these words from the
+      // reference products, as the screen wording check does.
+      const glossary = [
+        "PC => パソコン",
+        "フォルダー => フォルダ",
+        "ウィンドウ => 画面",
+        "既に",
+        "初めて",
+        "後で",
+      ];
+      const problems =
+        !result.error && result.status === 1
+          ? JSON.parse(result.stdout || "[]")
+              .flatMap((file) => file.messages)
+              .filter(
+                ({ message }) =>
+                  !glossary.some((word) => message.includes(word)),
+              )
+          : [];
+      if (problems.length) {
+        const lines = japanese.split("\n");
         deny(
-          `Release 本文の日本語を修正してください。\n${result.stdout}${result.stderr}`,
+          `Release 本文の日本語を修正してください。\n${problems
+            .map(
+              ({ line, message }) =>
+                `${line}: ${(lines[line - 1] ?? "").trim()}: ${message.split("\n")[0]}`,
+            )
+            .join("\n")}`,
         );
         process.exit(0);
       }
