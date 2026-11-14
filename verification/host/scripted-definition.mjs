@@ -13,6 +13,7 @@ export async function registerScriptedCli(
     resumable = false,
     observeEnvironment = false,
     waiting = false,
+    capturePrompts = false,
   } = {},
 ) {
   const id = requestedId ?? (noReady ? "scripted-no-ready" : "scripted-parent");
@@ -20,6 +21,7 @@ export async function registerScriptedCli(
     process.execPath,
     fileURLToPath(new URL("./scripted-cli.mjs", import.meta.url)),
     ...(noReady ? ["--no-ready"] : []),
+    ...(capturePrompts ? ["--capture-prompts"] : []),
     ...(observeEnvironment ? ["--observe-environment"] : []),
   ]
     .map(quote)

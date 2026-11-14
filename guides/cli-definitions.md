@@ -237,7 +237,7 @@ A bridge plugin sends JSON by HTTP POST to the URL in `IORI_CLI_HOOK_URL`. Do no
 }
 ```
 
-Use the definition's `id` for `iori_cli`; messages naming a different CLI are ignored. The states have the same meanings as in `rules`. Optional fields are `sessionId`, `transcript` (transcript path), `response`, `model`, `attention` (such as `{ "kind": "approval", "tool": "shell" }`), `outcome: "failure"` with `failure` text, and `tokens`. Use only fields the CLI actually supplies. Unknown fields are ignored. Tokens are cumulative for the conversation, not just the last response; a `tokens` script takes precedence over plugin counts.
+Use the definition's `id` for `iori_cli`; messages naming a different CLI are ignored. The states have the same meanings as in `rules`. Optional fields are `sessionId`, `transcript` (transcript path), `response`, `model`, `attention` (such as `{ "kind": "approval", "tool": "shell", "input": { "command": "…" } }`; `input` is optional, and iori shows only its command, path, or question text as the summary), `outcome: "failure"` with `failure` text, and `tokens`. Use only fields the CLI actually supplies. Unknown fields are ignored. Tokens are cumulative for the conversation, not just the last response; a `tokens` script takes precedence over plugin counts.
 
 ## Read Tokens and Usage with scripts
 

@@ -46,6 +46,8 @@ cleanup() {
   trap - EXIT
   if [[ -n "$cid" ]]; then
     docker logs "$cid" >"$out/container.log" 2>&1 || true
+    mkdir -p "$root/.local/evidence/ui"
+    docker cp "$cid:/work/.local/evidence/ui/." "$root/.local/evidence/ui/" 2>/dev/null || true
     docker rm -f "$cid" >/dev/null
   fi
   rm -rf "$stage"
@@ -60,12 +62,14 @@ trap 'exit 143' TERM INT HUP
 node_ver=$(sed -n 's/.*"node": ">=\([0-9][0-9]*\).*".*/\1/p' package.json)
 pnpm_ver=$(sed -n 's/.*"packageManager": "pnpm@\([^"]*\)".*/\1/p' package.json)
 rust_ver=$(sed -n 's/^channel = "\([^"]*\)"/\1/p' rust-toolchain.toml)
-image_key=$(cat scripts/ci.Dockerfile rust-toolchain.toml | sha256sum | cut -c1-16)
+playwright_ver=$(node --input-type=module -e 'import p from "./package.json" with {type:"json"}; console.log(p.devDependencies["@playwright/test"])')
+# The image holds the browser of this Playwright version; other package.json edits keep it.
+image_key=$({ cat scripts/ci.Dockerfile rust-toolchain.toml; printf '%s\n' "$playwright_ver"; } | sha256sum | cut -c1-16)
 tag="iori-ci:node${node_ver}-pnpm${pnpm_ver}-${image_key}"
 mkdir -p "$stage/context" "$stage/src"
 cp scripts/ci.Dockerfile "$stage/context/Dockerfile"
 timeout --kill-after=20s 900 docker build "${image_cache_args[@]}" --build-arg "NODE_VERSION=$node_ver" \
-  --build-arg "PNPM_VERSION=$pnpm_ver" --build-arg "RUST_VERSION=$rust_ver" \
+  --build-arg "PNPM_VERSION=$pnpm_ver" --build-arg "RUST_VERSION=$rust_ver" --build-arg "PLAYWRIGHT_VERSION=$playwright_ver" \
   -t "$tag" "$stage/context"
 build_seconds=$(( $(date +%s) - started ))
 copy_started=$(date +%s)

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { waitFor } from "../ui.mjs";
@@ -209,6 +209,22 @@ export async function runReleaseScenario({
     pid: currentDaemon.pid,
     version: currentDaemon.version,
   };
+  if (plan.canContinue) {
+    assert.equal(currentDaemon.pid, daemon.pid);
+    const continued = await client.open(terminal.terminal.id);
+    await waitFor(() => continued.snapshot);
+    if (!runningClis) {
+      const before = await stat(join(root, "pulse.json"));
+      await waitFor(
+        async () =>
+          (await stat(join(root, "pulse.json"))).mtimeMs > before.mtimeMs,
+      );
+      assert.equal(
+        JSON.parse(await readFile(join(root, "pulse.json"), "utf8")).pid,
+        result.activeProcess.pid,
+      );
+    }
+  }
   const { DAEMON_PROTOCOL } = await import(
     pathToFileURL(join(fixture.bundle, "src/terminal/daemon/protocol.js")).href
   );

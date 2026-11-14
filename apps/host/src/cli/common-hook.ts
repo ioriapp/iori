@@ -2,6 +2,7 @@ import { notificationText } from "@iori/protocol";
 import type { CliSession, TokenUsage } from "@iori/protocol";
 import { tokenUsage } from "./definition-script.ts";
 import type { HookPayload, HookState } from "./hooks.ts";
+import { attention as attentionState } from "./hooks.ts";
 
 /** The JSON that a CLI's own plugin sends to the hook URL
  * (docs/design/cli-definitions.md「iori に知らせる共通の形」). The values come
@@ -52,10 +53,7 @@ export function readCommonHook(payload: HookPayload): CommonHook | undefined {
         state,
         ...(kind
           ? {
-              attention: {
-                kind,
-                ...(tool ? { tool: notificationText(tool) } : {}),
-              },
+              attention: attentionState(kind, tool, attention.input).attention,
             }
           : {}),
         ...(payload.outcome === "failure"

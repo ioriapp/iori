@@ -11,6 +11,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { stopCliProcesses } from "../cli/home.mjs";
 import { verificationHostEnvironment } from "../cli/environment.mjs";
 import { stopTerminalDaemon } from "../terminal/daemon-process.mjs";
 import { connectClient } from "./client.mjs";
@@ -42,24 +43,31 @@ async function availablePort() {
 }
 
 /** A port can be taken between choosing and binding it; choose again then. */
-async function launch(isolatedEnvironment, distribution) {
+async function launch(isolatedEnvironment, distribution, onStderr) {
   for (let attempt = 1; ; attempt++) {
     try {
-      return await launchOnce(isolatedEnvironment, distribution);
+      return await launchOnce(isolatedEnvironment, distribution, onStderr);
     } catch (error) {
       if (!error.beforeReady || attempt === 3) throw error;
     }
   }
 }
 
-async function launchOnce(isolatedEnvironment, distribution) {
-  const port = await availablePort();
+async function launchOnce(isolatedEnvironment, distribution, onStderr) {
+  const port =
+    Number(isolatedEnvironment.IORI_HOST_PORT) || (await availablePort());
   const environment = verificationHostEnvironment();
   delete environment.CLAUDE_CODE_OAUTH_TOKEN;
   delete environment.IORI_HOST_PORT;
   const child = fork(
     import.meta.filename,
-    ["--host", ...(distribution ? ["--distribution", distribution] : [])],
+    [
+      "--host",
+      ...(distribution ? ["--distribution", distribution] : []),
+      ...(isolatedEnvironment.IORI_UI_SERVICE_BUNDLE
+        ? ["--service-bundle", isolatedEnvironment.IORI_UI_SERVICE_BUNDLE]
+        : []),
+    ],
     {
       stdio: ["ignore", "ignore", "pipe", "ipc"],
       env: {
@@ -72,6 +80,7 @@ async function launchOnce(isolatedEnvironment, distribution) {
   let stderr = "";
   child.stderr.on("data", (chunk) => {
     stderr = (stderr + chunk).slice(-4096);
+    onStderr?.(chunk.toString());
   });
   const exited = new Promise((resolve, reject) => {
     child.once("error", reject);
@@ -117,7 +126,14 @@ async function launchOnce(isolatedEnvironment, distribution) {
 /** Each test owns its Host, identity, client and daemon, including on failure. */
 export async function startHostTest(
   t,
-  { maintenance = false, distribution } = {},
+  {
+    maintenance = false,
+    distribution,
+    serviceBundle,
+    environment = {},
+    prepareEnvironment,
+    onStderr,
+  } = {},
 ) {
   await recoverStaleVerificationRuns();
   const dataRoot = await mkdtemp(join(tmpdir(), "iori-host-e2e-"));
@@ -136,6 +152,8 @@ export async function startHostTest(
           await stopTerminalDaemon(join(dataRoot, "iori-host"));
         }
       }
+      if (process.platform === "linux")
+        await stopCliProcesses(join(dataRoot, "cli-home"));
       await rm(dataRoot, { recursive: true, force: true });
     } catch (error) {
       t.diagnostic("失敗時の段: 専用の接続・Host・Terminal・保存先を片付ける");
@@ -143,9 +161,15 @@ export async function startHostTest(
     }
   });
   t.after(cleanup);
-  const isolatedEnvironment = await prepareHostEnvironment(dataRoot);
+  const isolatedEnvironment = {
+    ...(await prepareHostEnvironment(dataRoot)),
+    ...environment,
+    ...(await prepareEnvironment?.(dataRoot)),
+    IORI_HOST_PORT: String(await availablePort()),
+  };
+  if (serviceBundle) isolatedEnvironment.IORI_UI_SERVICE_BUNDLE = serviceBundle;
   if (maintenance) isolatedEnvironment.IORI_E2E_MAINTENANCE = "1";
-  host = await launch(isolatedEnvironment, distribution);
+  host = await launch(isolatedEnvironment, distribution, onStderr);
   const identity = maintenance
     ? loadNativeAddon().generateIdentity()
     : undefined;
@@ -155,9 +179,24 @@ export async function startHostTest(
     clients.add(client);
     return client;
   };
+  let currentClient = await connect();
   return {
     dataRoot,
-    client: await connect(),
+    get client() {
+      return currentClient;
+    },
+    async stop({ stopDaemon = false } = {}) {
+      await Promise.all([...clients].map((client) => client.close()));
+      clients.clear();
+      await host?.close();
+      host = undefined;
+      if (stopDaemon) await stopTerminalDaemon(join(dataRoot, "iori-host"));
+    },
+    async start() {
+      host = await launch(isolatedEnvironment, distribution, onStderr);
+      currentClient = await connect();
+      return currentClient;
+    },
     async restart({
       whileStopped,
       interrupt = false,
@@ -168,8 +207,9 @@ export async function startHostTest(
       await host.close({ interrupt });
       await whileStopped?.();
       distribution = nextDistribution;
-      host = await launch(isolatedEnvironment, distribution);
-      return connect();
+      host = await launch(isolatedEnvironment, distribution, onStderr);
+      currentClient = await connect();
+      return currentClient;
     },
   };
 }
@@ -203,13 +243,27 @@ if (process.argv.includes("--host")) {
   const os = process.env.IORI_E2E_MAINTENANCE
     ? await import("../../scripts/release/update-linux.mjs")
     : undefined;
-  const service = os && {
-    bundle: process.cwd(),
-    unit: "iori-e2e.service",
-    restart: () => os.restart("iori-e2e.service"),
-    launchUpdate: os.launchUpdate,
-    ...(await import("../../scripts/release/uninstall-linux.mjs")),
-  };
+  const serviceIndex = process.argv.indexOf("--service-bundle");
+  const serviceBundle =
+    serviceIndex === -1 ? undefined : process.argv[serviceIndex + 1];
+  const service = serviceBundle
+    ? {
+        bundle: serviceBundle,
+        unit: "iori-ui-fixture.service",
+        restart() {
+          throw new Error("No OS installer in the UI fixture");
+        },
+        launchUpdate() {
+          throw new Error("No OS installer in the UI fixture");
+        },
+      }
+    : os && {
+        bundle: process.cwd(),
+        unit: "iori-e2e.service",
+        restart: () => os.restart("iori-e2e.service"),
+        launchUpdate: os.launchUpdate,
+        ...(await import("../../scripts/release/uninstall-linux.mjs")),
+      };
   const distributionIndex = process.argv.indexOf("--distribution");
   const { startHost: start } = await import(
     distributionIndex === -1
@@ -219,7 +273,9 @@ if (process.argv.includes("--host")) {
   const host = await start(
     undefined,
     service,
-    distributionIndex === -1 ? undefined : process.argv[distributionIndex + 1],
+    distributionIndex === -1
+      ? serviceBundle
+      : process.argv[distributionIndex + 1],
   );
   await host.maintenanceReady();
   const close = registerCleanup(() => host.close());

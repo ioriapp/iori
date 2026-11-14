@@ -20,12 +20,10 @@ const { writeManifest } = await import("./manifest.mjs");
 const {
   acceptance,
   reportFirstFailures,
-  releaseScenarios,
+  acceptanceScenarios,
   androidAcceptance,
   previousAndroidRelease,
 } = await import("./acceptance.mjs");
-const { acceptanceScope, scopedScenarios } =
-  await import("./acceptance-scope.mjs");
 await command(process.execPath, [
   "scripts/publish/check-forbidden.mjs",
   "--head",
@@ -37,50 +35,35 @@ await command(process.execPath, [
   JSON.parse(await readFile("release-version.json", "utf8")).version,
   "--dry-run",
 ]);
-// Select from the published release's original commit, not its public snapshot.
-const args = process.argv.slice(2);
-const explicitScenarios = releaseScenarios(args);
 const commit = git("rev-parse", "HEAD");
-let scope;
-if (!explicitScenarios || args.includes("--full")) {
-  const previous = await previousAndroidRelease();
-  let files = [];
-  let daemonChanged = false;
-  if (previous) {
-    const response = await fetch(
-      `${releaseSource}/download/${encodeURIComponent(previous.tag_name)}/release.json`,
-    );
-    if (!response.ok)
-      throw new Error(`前の Release 情報の取得に失敗: HTTP ${response.status}`);
-    const { commit: previousCommit } = await response.json();
-    const record = "apps/host/terminal-daemon-compatibility.json";
-    const before = JSON.parse(git("show", `${previousCommit}:${record}`));
-    const after = JSON.parse(git("show", `${commit}:${record}`));
-    daemonChanged = before.sha256 !== after.sha256;
-    files = git(
-      "diff",
-      "--no-renames",
-      "--name-only",
-      "-z",
-      previousCommit,
-      commit,
-    )
-      .split("\0")
-      .filter(Boolean);
-  }
-  scope = acceptanceScope(files, daemonChanged);
-  if (args.includes("--full") && scope.type !== "full")
-    throw new Error(
-      "変更に全体の受入が必要な境界がないため --full は指定できません",
-    );
-  console.log(
-    `[release] acceptance=${scope.type}${scope.reasons ? `: ${scope.reasons.join("、")}` : ""}`,
+const previous = await previousAndroidRelease();
+if (previous) {
+  const response = await fetch(
+    `${releaseSource}/download/${encodeURIComponent(previous.tag_name)}/release.json`,
   );
+  if (!response.ok)
+    throw new Error(`前の Release 情報の取得に失敗: HTTP ${response.status}`);
+  const { commit: previousCommit } = await response.json();
+  const { instructionFiles } = JSON.parse(
+    await readFile("verification/fake-model/verified.json", "utf8"),
+  );
+  const changed = git(
+    "diff",
+    "--no-renames",
+    "--name-only",
+    "-z",
+    previousCommit,
+    commit,
+    "--",
+    ...instructionFiles,
+  )
+    .split("\0")
+    .filter(Boolean);
+  if (changed.length)
+    console.log(
+      `[release] モデルへ渡す指示のファイルが前の公開版から変わっています（${changed.join("、")}）。Claude の本物のモデルでの照合を Release と別に実行してください（\`node scripts/cli-compat.mjs --only=claude --real-model\`）`,
+    );
 }
-const scenarios = args.includes("--full")
-  ? undefined
-  : (explicitScenarios ??
-    (scope.type === "scoped" ? scopedScenarios : undefined));
 let androidDevice;
 for (const name of ["release.json", "release.json.sig"])
   await rm(path.join(output, name), { force: true });
@@ -197,7 +180,6 @@ try {
           path.join(output, "iori-host-linux-x64.tar.gz"),
           env,
           firstFailures,
-          scenarios,
         );
       if (platform === "android")
         await timed("acceptance/android", async () => {
@@ -214,9 +196,8 @@ try {
   if (failure) throw failure.reason;
   await timed("updater", () => writeUpdater());
   const acceptanceResult = {
-    ...(scenarios
-      ? { type: "scoped", scenarios }
-      : { type: "full", reasons: scope.reasons }),
+    type: "scoped",
+    scenarios: acceptanceScenarios,
     ...(androidDevice ? { android: androidDevice } : {}),
   };
   await timed("manifest", () => writeManifest(commit, acceptanceResult));

@@ -27,16 +27,14 @@ export class AndroidDeviceUnavailableError extends Error {
 // through Android accessibility, using the same launcher as a user.
 export async function acceptAndroidRelease({
   apk,
-  loadPreviousApk,
   packageName,
   appLabel,
   evidence,
-  upgradeOnly = false,
 }) {
   await mkdir(evidence, { recursive: true });
   const result = {
     apk,
-    scope: upgradeOnly ? "upgrade" : "fresh-and-upgrade",
+    scope: "fresh",
     passed: false,
     steps: [],
     cleanupErrors: [],
@@ -64,24 +62,10 @@ export async function acceptAndroidRelease({
       throw new Error(
         `検証端末に ${packageName} が既にあります。この受入が導入したアプリではないため、上書き・削除せず停止します。`,
       );
-    const previousApk = await loadPreviousApk();
-    result.previousApk = previousApk;
-    if (!previousApk) {
-      const message = "前の公開版がないため上書きの確認を飛ばしました";
-      console.log(`[release] ${message}`);
-      result.steps.push(message);
-    }
     owned = true;
-    for (const stage of previousApk
-      ? upgradeOnly
-        ? ["upgrade"]
-        : ["fresh", "upgrade"]
-      : ["fresh"]) {
+    {
+      const stage = "fresh";
       result.stage = stage;
-      if (stage === "upgrade") {
-        result.cleanup = cleanupFolders({ androidPackage: packageName });
-        adb(["install", previousApk]);
-      }
       adb(["install", "-r", apk]);
       const since = adb(["shell", "date", "+'%m-%d %H:%M:%S.000'"]);
       const crash = () => {

@@ -247,7 +247,7 @@ hooks を持つ CLI は、CLI の設定へ iori の hook のコマンドを書�
   "sessionId": "…",
   "transcript": "…",
   "response": "…",
-  "attention": { "kind": "approval", "tool": "…" },
+  "attention": { "kind": "approval", "tool": "…", "input": { "command": "…" } },
   "outcome": "failure",
   "failure": "…",
   "tokens": {
@@ -264,6 +264,7 @@ hooks を持つ CLI は、CLI の設定へ iori の hook のコマンドを書�
 - `iori_cli` は、その部品を配る定義の `id`。Terminal は、自分の CLI の `id` と違う知らせを捨てる（上の「他の CLI の hook からの知らせ」と同じ）。`iori_cli` の無い知らせは、その Terminal の CLI の知らせとして受ける。
 
 - `state` の値と意味は、今の CLI の状態（`active`・`waiting`・`done`・`stopped`・`idle`）と同じにする。
+- `attention.input` は、承認・質問の対象の入力（CLI が道具へ渡す値）で、省略できる。iori は、その中のコマンド・パス・質問の文だけを要約に使い、秘密を伏せて長さを切り詰める。ほかの値は表示も保存もしない。
 - `tokens` は、その会話の累計。部品が CLI からトークン量を受け取れる時だけ付ける（omp は受け取れ、Amp は受け取れない）。届かなかった知らせがあっても、次の知らせの累計で正しい値に戻る。定義に `tokens` のスクリプトがある CLI では、スクリプトの値を使う。
 - 知らない項目は読み捨てる。項目を足すことはあっても、既存の項目の意味は変えない。外の人が作る部品が使う約束なので、ここは互換を保つ。
 

@@ -88,7 +88,7 @@ export async function ownVerificationDirectory(directory) {
   });
 }
 
-export async function recoverVerificationDirectory(directory) {
+export async function recoverVerificationDirectory(directory, beforeRemove) {
   let owner;
   try {
     owner = JSON.parse(await readFile(join(directory, ownerFile), "utf8"));
@@ -101,6 +101,7 @@ export async function recoverVerificationDirectory(directory) {
     return false;
   if (process.platform === "linux") await stopVerificationUnitsUnder(directory);
   for (const root of owner.daemonRoots ?? []) await stopTerminalDaemon(root);
+  await beforeRemove?.(directory);
   await rm(directory, { recursive: true, force: true });
   return true;
 }

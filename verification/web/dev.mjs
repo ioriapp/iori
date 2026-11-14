@@ -6,7 +6,7 @@ import { startBridge } from "./bridge.mjs";
 const root = resolve(import.meta.dirname, "../..");
 const requireClient = createRequire(resolve(root, "apps/client/package.json"));
 
-async function createWebServer(port) {
+export async function createWebServer(port, bridgeUrl = '""') {
   const { createServer } = await import(
     pathToFileURL(requireClient.resolve("vite"))
   );
@@ -14,7 +14,7 @@ async function createWebServer(port) {
     root: resolve(root, "apps/client"),
     configFile: resolve(root, "apps/client/vite.config.ts"),
     mode: "web",
-    define: { __IORI_WEB_BRIDGE_URL__: '""' },
+    define: { __IORI_WEB_BRIDGE_URL__: bridgeUrl },
     server: { host: "127.0.0.1", port, strictPort: true },
   });
 }

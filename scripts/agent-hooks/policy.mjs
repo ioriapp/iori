@@ -261,28 +261,6 @@ export function targets(line) {
         /(^|\/)(?:node|nodejs)$/.test(words[executable] ?? ""))
     ) {
       if (!script.endsWith("/notes.mjs")) result.release = true;
-      if (script.endsWith("/build.mjs")) result.build = true;
-      if (script.endsWith("/build.mjs") && !words.length) {
-        if (
-          /(?:^|\s)--full(?=\s|$)/u.test(part.text) &&
-          !/(?:^|\s)--reason(?:=\S+|\s+\S+)/u.test(part.text)
-        )
-          result.fullWithoutReason = true;
-      } else if (script.endsWith("/build.mjs")) {
-        const buildArgs = words.slice(words.indexOf(script) + 1);
-        const reasonIndex = buildArgs.indexOf("--reason");
-        const reason =
-          reasonIndex >= 0
-            ? buildArgs[reasonIndex + 1]
-            : buildArgs
-                .find((word) => word.startsWith("--reason="))
-                ?.slice("--reason=".length);
-        if (
-          buildArgs.includes("--full") &&
-          (!reason?.trim() || reason.startsWith("--"))
-        )
-          result.fullWithoutReason = true;
-      }
       if (!script.endsWith("/build.mjs")) {
         const index = words.indexOf("--notes");
         if (index >= 0 && words[index + 1]) result.notes.push(words[index + 1]);
@@ -298,32 +276,6 @@ export function targets(line) {
     }
   }
   return result;
-}
-
-// Changes that cannot alter what the screen E2E checks: documents and the
-// version file of a Release commit.
-export function screenE2eCovers(files) {
-  return files.every(
-    (file) => file.endsWith(".md") || file === "release-version.json",
-  );
-}
-
-export function unresolved(latest, quarantine, acknowledged) {
-  if (!Array.isArray(latest?.failed) || typeof latest.sha !== "string")
-    return [];
-  const record = acknowledged?.[latest.sha];
-  const addressed =
-    typeof record?.fix === "string" &&
-    record.fix.trim() &&
-    Array.isArray(record.scenarios)
-      ? record.scenarios
-      : [];
-  return latest.failed.filter(
-    (failure) =>
-      typeof failure?.scenario === "string" &&
-      !Object.hasOwn(quarantine, failure.scenario) &&
-      !addressed.includes(failure.scenario),
-  );
 }
 
 // A wait on `pgrep -f`/`pkill -f` also matches the shell that runs the wait

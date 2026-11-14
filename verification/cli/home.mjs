@@ -7,13 +7,14 @@ import {
   symlink,
   rename,
   open,
+  realpath,
 } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { spawnSync } from "node:child_process";
+import { setTimeout } from "node:timers/promises";
 import assert from "node:assert/strict";
 import { trustHooks } from "../../apps/host/src/cli/codex/hook-trust.ts";
-import { waitFor } from "../ui.mjs";
 import { verificationHostEnvironment } from "./environment.mjs";
 import { readClaudeToken, setClaudeToken } from "./claude-token.mjs";
 
@@ -38,17 +39,18 @@ export async function stopCliProcesses(home) {
       if (!["ENOENT", "ESRCH", "EACCES"].includes(error.code)) throw error;
     }
   }
-  await waitFor(async () => {
-    for (const pid of pids) {
+  for (const pid of pids) {
+    for (;;) {
       try {
         const status = await readFile(`/proc/${pid}/status`, "utf8");
-        if (!/^State:\s+Z/m.test(status)) return false;
+        if (/^State:\s+Z/m.test(status)) break;
       } catch (error) {
         if (!["ENOENT", "ESRCH"].includes(error.code)) throw error;
+        break;
       }
+      await setTimeout(200);
     }
-    return true;
-  });
+  }
 }
 
 /** Separate CLI home, with explicit low-cost model choices only in verification.
@@ -63,6 +65,8 @@ export async function prepareCliHome(
     fakeModel,
     fakeModelClis = [],
     fakeModelCodexAccount = false,
+    isolatedAuth = false,
+    claudeVerificationToken = false,
     teamCommands = false,
     respondToBashCommands,
     claudeTheme,
@@ -100,6 +104,18 @@ export async function prepareCliHome(
       env: {
         ...verificationHostEnvironment(),
         HOME: home,
+        ...(isolatedAuth
+          ? {
+              CODEX_HOME: join(home, ".codex"),
+              CLAUDE_CONFIG_DIR: join(home, ".claude"),
+              XDG_DATA_HOME: join(home, ".local/share"),
+              XDG_STATE_HOME: join(home, ".local/state"),
+              XDG_CACHE_HOME: join(home, ".cache"),
+              PI_CODING_AGENT_DIR: undefined,
+              PI_CODING_AGENT_SESSION_DIR: undefined,
+              XDG_CONFIG_HOME: join(home, ".config"),
+            }
+          : {}),
         XDG_CONFIG_HOME: join(home, ".config"),
         VOLTA_HOME: process.env.VOLTA_HOME ?? join(original, ".volta"),
       },
@@ -119,7 +135,7 @@ export async function prepareCliHome(
   // Opening for read/write checks that permission without reading or changing
   // credential bytes, before any Host/browser/model work starts. Claude Code's
   // file is not opened: it runs on the verification token instead.
-  for (const cli of clis) {
+  for (const cli of isolatedAuth ? [] : clis) {
     if (
       fakeModelClis.includes(cli) &&
       !(cli === "codex" && fakeModelCodexAccount)
@@ -144,21 +160,23 @@ export async function prepareCliHome(
       );
     }
   }
-  for (const path of [
-    ...(fakeModelClis.includes("codex") && !fakeModelCodexAccount
-      ? []
-      : [".codex/auth.json"]),
-    ...(fakeModelClis.includes("pi") ? [] : [".pi/agent/auth.json"]),
-    ...(clis.includes("omp") && !fakeModelClis.includes("omp")
-      ? [".omp/agent/agent.db"]
-      : []),
-  ]) {
+  for (const path of isolatedAuth
+    ? []
+    : [
+        ...(fakeModelClis.includes("codex") && !fakeModelCodexAccount
+          ? []
+          : [".codex/auth.json"]),
+        ...(fakeModelClis.includes("pi") ? [] : [".pi/agent/auth.json"]),
+        ...(clis.includes("omp") && !fakeModelClis.includes("omp")
+          ? [".omp/agent/agent.db"]
+          : []),
+      ]) {
     const source = join(original, path);
     const target = join(home, path);
     await mkdir(join(target, ".."), { recursive: true });
     await symlink(source, target);
   }
-  if (opencodeV1 && !fakeModelClis.includes("opencode")) {
+  if (!isolatedAuth && opencodeV1 && !fakeModelClis.includes("opencode")) {
     const target = join(process.env.XDG_DATA_HOME, "opencode/auth.json");
     await mkdir(join(target, ".."), { recursive: true });
     await symlink(join(original, ".local/share/opencode/auth.json"), target);
@@ -167,8 +185,15 @@ export async function prepareCliHome(
   await mkdir(join(home, ".claude"));
   // The Owner's own file is never opened for Claude: the token keeps this
   // home's CLI from writing a refresh token the Owner's login cannot use.
-  if (clis.includes("claude") && !fakeModelClis.includes("claude"))
-    setClaudeToken(await readClaudeToken());
+  if (
+    (!isolatedAuth || claudeVerificationToken) &&
+    clis.includes("claude") &&
+    !fakeModelClis.includes("claude")
+  )
+    setClaudeToken(
+      await readClaudeToken(),
+      isolatedAuth ? environment : process.env,
+    );
   const claudeSettings = {
     ...(claudeTheme ? { theme: claudeTheme } : {}),
     model: "claude-haiku-4-5",
@@ -229,6 +254,19 @@ export async function prepareCliHome(
     'prefix_rule(pattern=["node"], decision="prompt")\n',
   );
   await mkdir(piAgentDirectory(home), { recursive: true });
+  if (clis.includes("pi") && trustedFolders.length)
+    // Pi 1.4 stores canonical project paths in its agent-directory trust.json.
+    // https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/security.md#how-pi-chooses-a-trust-decision
+    await writeFile(
+      join(piAgentDirectory(home), "trust.json"),
+      JSON.stringify(
+        Object.fromEntries(
+          await Promise.all(
+            trustedFolders.map(async (path) => [await realpath(path), true]),
+          ),
+        ),
+      ),
+    );
   if (fakeModelClis.includes("pi"))
     await writeFile(
       join(piAgentDirectory(home), "models.json"),
@@ -313,7 +351,7 @@ export async function prepareCliHome(
       const models = `providers:\n  openai-codex:\n    baseUrl: ${fakeModel.baseURL}/v1\n    api: openai-responses\n    apiKey: verification\n    models:\n      - id: gpt-6-luna\n        api: openai-responses\n        reasoning: false\n        input: [text, image]\n`;
       await writeFile(join(home, ".omp/agent/models.yml"), models);
       await writeFile(join(profile, "models.yml"), models);
-    } else {
+    } else if (!isolatedAuth) {
       await symlink(
         join(original, ".omp/agent/agent.db"),
         join(profile, "agent.db"),
@@ -355,6 +393,20 @@ export async function prepareCliHome(
       env: {
         ...verificationHostEnvironment(),
         HOME: home,
+        ...(isolatedAuth
+          ? {
+              CODEX_HOME: join(home, ".codex"),
+              CLAUDE_CONFIG_DIR: join(home, ".claude"),
+              XDG_DATA_HOME: join(home, ".local/share"),
+              XDG_STATE_HOME: join(home, ".local/state"),
+              XDG_CACHE_HOME: join(home, ".cache"),
+              PI_CODING_AGENT_DIR:
+                command === "pi" ? piAgentDirectory(home) : undefined,
+              PI_CODING_AGENT_SESSION_DIR:
+                command === "pi" ? join(home, ".pi/sessions") : undefined,
+              XDG_CONFIG_HOME: join(home, ".config"),
+            }
+          : {}),
         VOLTA_HOME: process.env.VOLTA_HOME ?? join(original, ".volta"),
       },
     });

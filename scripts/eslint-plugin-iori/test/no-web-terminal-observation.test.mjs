@@ -7,11 +7,11 @@ ruleTester.run("no-web-terminal-observation", rule, {
     { filename, code: "element.__e2eTerminal=terminal;" },
     { filename, code: 'screen.evaluate("window.__TAURI_INTERNALS__.invoke");' },
     {
-      filename: "/repo/e2e/web/terminal-preferences.mjs",
+      filename: "/repo/e2e/web/agents-navigation.mjs",
       code: 'screen.evaluate("element.__e2eTerminal.onData(listener)");',
     },
     {
-      filename: "/repo/verification/web/run.mjs",
+      filename: "/repo/verification/web/bridge.mjs",
       code: "element.__e2eTerminal.onData(listener);",
     },
   ],

@@ -211,7 +211,7 @@ if (
   ).trim();
   if (process.versions.node.split(".")[0] !== expectedNode.split(".")[0]) {
     process.stderr.write(
-      `Node ${expectedNode} で起動してください（今は ${process.version}、${process.execPath}）。pnpm を通さず、Node ${expectedNode} の node で直接起動します。例: node scripts/run-bounded-check.mjs node verification/web/run.mjs --only=<名前>\n`,
+      `Node ${expectedNode} で起動してください（今は ${process.version}、${process.execPath}）。pnpm を通さず、Node ${expectedNode} の node で直接起動します。例: node scripts/run-bounded-check.mjs node node_modules/@playwright/test/cli.js test --config=e2e/ui/playwright.config.ts\n`,
     );
     process.exit(USAGE_ERROR);
   }

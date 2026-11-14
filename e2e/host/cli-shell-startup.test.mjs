@@ -392,6 +392,49 @@ test("CLIのhookに応じて応答中と完了を知らせる", (t) =>
     );
   }));
 
+test("承認待ちのhookから秘密を伏せた要約を知らせる", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    const actor = fileURLToPath(
+      new URL("../../verification/host/scripted-cli.mjs", import.meta.url),
+    );
+    await client.request("cli.definition.save", {
+      definition: JSON.stringify({
+        schema: 1,
+        id: "claude",
+        name: "Claude Code",
+        command: { shell: `'${process.execPath}' '${actor}'` },
+      }),
+    });
+    const events = await client.events();
+    await events.waitFor((event) => event.type === "snapshot");
+    const { terminal: created } = await client.request("cli.launch", {
+      cliId: "claude",
+      cwd: dataRoot,
+    });
+    const terminal = await client.terminal(created.id);
+    await terminal.output("ACTOR_READY");
+    const command = `echo token=private-value ${"long ".repeat(1500)}`;
+    await terminal.input(
+      JSON.stringify({
+        id: "approval",
+        hook: "PermissionRequest",
+        payload: { tool_name: "Bash", tool_input: { command } },
+      }) + "\r",
+    );
+    const event = await events.waitFor(
+      (item) =>
+        item.type === "terminal.updated" &&
+        item.terminal.id === created.id &&
+        item.terminal.cliStatus?.state === "waiting",
+    );
+    const attention = event.terminal.cliStatus.attention;
+    assert.equal(attention.kind, "approval");
+    assert.equal(attention.tool, "Bash");
+    assert.match(attention.summary, /token=\[redacted\]/u);
+    assert.doesNotMatch(attention.summary, /private-value/u);
+    assert.ok(attention.summary.length < command.length);
+  }));
+
 test("dashと同じ実体の既定shellでCLIを開き、終了後に同じshellを使う", (t) =>
   runHostTest(t, async ({ client, dataRoot, stage }) => {
     stage("dashと同じ実体のshellを既定にする");

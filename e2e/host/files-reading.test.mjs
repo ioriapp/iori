@@ -20,6 +20,33 @@ async function folder(dataRoot) {
   return root;
 }
 
+test("Terminalの相対パスと絶対パスを解決し、存在しないファイルを区別する", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    const root = await folder(dataRoot);
+    await mkdir(join(root, "src"));
+    const path = join(root, "src", "sample.ts");
+    await writeFile(path, "first\nsecond\n");
+    const { results } = await client.request("files.resolve", {
+      root,
+      paths: ["src/sample.ts", path, "src/missing.ts"],
+    });
+    assert.deepEqual(
+      results.map((result) => result.found),
+      [true, true, false],
+    );
+    for (const result of results.slice(0, 2)) {
+      assert.equal(result.absolutePath, path);
+      const lines = await client.request("files.lineRange", {
+        root: result.root,
+        path: result.path,
+        startLine: 2,
+        lineCount: 1,
+        byteLimit: 4096,
+      });
+      assert.equal(lines.lines[0].text, "second");
+    }
+  }));
+
 test("フォルダー一覧と本文をClientの通信から読める", (t) =>
   runHostTest(t, async ({ client, dataRoot }) => {
     const root = await folder(dataRoot);

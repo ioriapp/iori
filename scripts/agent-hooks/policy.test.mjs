@@ -1,11 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import {
-  screenE2eCovers,
-  targets,
-  unresolved,
-  waitsOnCommandLine,
-} from "./policy.mjs";
+import { targets, waitsOnCommandLine } from "./policy.mjs";
 import {
   hasCiEvidence,
   hasPublicationCiEvidence,
@@ -84,37 +79,6 @@ test("実際の連結行で CI から push まで && のみの時に証拠確認
   );
 });
 
-test("失敗のうち隔離または修正記録がある操作列を除く", () => {
-  const latest = {
-    sha: "abc",
-    passed: 80,
-    failed: [
-      { scenario: "first", evidence: "/tmp/evidence", error: "error" },
-      { scenario: "second" },
-      { scenario: "third" },
-    ],
-    flaky: [],
-    evidence: "/tmp/evidence",
-    quarantined: [],
-    total: 83,
-    finishedAt: "2026-11-10",
-  };
-  assert.deepEqual(
-    unresolved(
-      latest,
-      { first: "#1" },
-      { abc: { scenarios: ["second"], fix: "#2" } },
-    ).map((failure) => failure.scenario),
-    ["third"],
-  );
-  assert.deepEqual(
-    unresolved(latest, {}, { abc: { scenarios: ["first"], fix: "" } }).map(
-      (failure) => failure.scenario,
-    ),
-    ["first", "second", "third"],
-  );
-});
-
 test("対象 commit の証拠と送る差分から必要な CI の形を判定する", () => {
   const full = { sha: "abc\n", dirty: "", timing: { exit: 0 }, mode: "full\n" };
   const docs = { ...full, mode: "docs-only\n" };
@@ -176,28 +140,6 @@ test("pgrep -f を待ちの条件にしたコマンドを見つけ、PID の待�
   );
 });
 
-test("Release の --full に理由がない場合を判定する", () => {
-  assert.equal(
-    targets("node scripts/release/build.mjs --full").fullWithoutReason,
-    true,
-  );
-  assert.equal(
-    targets('node scripts/release/build.mjs --full --reason="境界の変更"')
-      .fullWithoutReason,
-    undefined,
-  );
-  assert.equal(
-    targets('node scripts/release/build.mjs --full --reason ""')
-      .fullWithoutReason,
-    true,
-  );
-  assert.equal(
-    targets('node scripts/release/build.mjs --full "$option"')
-      .fullWithoutReason,
-    true,
-  );
-});
-
 test("版番号だけを変えた commit は親の通常 CI の証拠を使う", () => {
   const parent = {
     sha: "parent",
@@ -247,22 +189,5 @@ test("版番号だけを変えた commit は親の通常 CI の証拠を使う",
       [{ ...parent, sha: "release" }],
     ),
     true,
-  );
-});
-
-test("全画面 E2E の後の変更が文書とバージョンのファイルだけなら Release を作成できる", () => {
-  assert.equal(screenE2eCovers([]), true);
-  assert.equal(
-    screenE2eCovers(["docs/product.md", "release-version.json"]),
-    true,
-  );
-  assert.equal(
-    screenE2eCovers(["README.md", "apps/client/src/App.tsx"]),
-    false,
-  );
-  assert.equal(targets("node scripts/release/build.mjs").build, true);
-  assert.equal(
-    targets("node scripts/release/publish.mjs --notes n.md").build,
-    undefined,
   );
 });

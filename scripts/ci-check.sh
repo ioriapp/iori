@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-if grep -RFn --include="*.mjs" "[fake-model:" e2e verification | grep -v -e "^e2e/fake-model/marker.mjs:" -e "^verification/fake-model/server.mjs:"; then
+if grep -RFn --include="*.mjs" "[fake-model:" e2e verification | grep -v -e "^e2e/fake-model/marker.mjs:" -e "^verification/fake-model/server.mjs:" -e "^e2e/cli/fixture.mjs:"; then
   echo "偽モデルの印はfakeMarker helperを使ってください。" >&2
   exit 1
 fi
@@ -18,6 +18,7 @@ node scripts/run-bounded-check.mjs pnpm lint
 node scripts/run-bounded-check.mjs pnpm --filter @iori/host build:native
 node scripts/run-bounded-check.mjs node scripts/terminal-daemon-compatibility.mjs
 node scripts/run-bounded-check.mjs pnpm test
+node scripts/run-bounded-check.mjs node node_modules/@playwright/test/cli.js test --config=e2e/ui/playwright.config.ts
 node scripts/run-bounded-check.mjs pnpm format:check
 node scripts/run-bounded-check.mjs node scripts/wording/check.mjs
 node scripts/run-bounded-check.mjs pnpm check:docs

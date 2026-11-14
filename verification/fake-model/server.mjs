@@ -50,7 +50,7 @@ function selectStep(history, scripts, format, tools) {
           userText,
         );
       const readDelivery =
-        /(?:^|\n)Read (.+?) and follow its instructions\.(?: Then read (.+?) and follow its instructions\.)?(?:$|\n)/mu.exec(
+        /(?:^|\n)Read (.+?) and follow its instructions\.(?: Then read (.+?) and follow its instructions\.| Then open the file (.+?) with your file-reading tool \(it is a normal file, not an iori command\) and follow the delegated request\.)?(?:$|\n)/mu.exec(
           userText,
         );
       if (delivery || readDelivery) {

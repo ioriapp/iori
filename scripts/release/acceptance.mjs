@@ -1,35 +1,25 @@
-import {
-  fullScenarioOrder,
-  releaseScenarios,
-  scenarioNames,
-} from "../../verification/web/scenarios.mjs";
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { execFileSync, spawnSync } from "node:child_process";
-import { fakeModelScenarios } from "../../verification/web/fake-model-scenarios.mjs";
 import { command, root, version, releaseSource } from "./common.mjs";
 import { lockEntry } from "../../verification/native/locks.mjs";
 import {
   acceptAndroidRelease,
   AndroidDeviceUnavailableError,
 } from "../../verification/native/android-release.mjs";
-import {
-  runWebScenario,
-  WebRunCleanupError,
-} from "../../verification/web/runner.mjs";
-import { createSourceCopy } from "../../verification/native/source.mjs";
 import semver from "semver";
 
-// Full and scoped acceptance share a queue.
-const acceptanceConcurrency = 4;
-
-export { scenarioNames, releaseScenarios };
+export const acceptanceScenarios = [
+  "terminal-daemon-upgrade",
+  "host-update",
+  "ui-smoke",
+  "host-uninstall",
+];
 
 export function reportFirstFailures(firstFailures) {
   if (!firstFailures.length) return;
-  console.log("分類が要る1回目の失敗（公開前に製品の不具合か確認）:");
-  for (const { group, scenario, evidence } of firstFailures)
-    console.log(`  ${group}/${scenario}: ${evidence}`);
+  console.log("[release] 揺れ（同じ配布物での再実行に成功）:");
+  for (const { scenario, evidence } of firstFailures)
+    console.log(`  ${scenario}: ${evidence}`);
 }
 
 export async function androidAcceptance(cwd, apk, env = process.env) {
@@ -128,11 +118,6 @@ async function androidAcceptanceEntry(args) {
       "utf8",
     ),
   );
-  const option = args.indexOf("--previous-apk");
-  let previousApk = option < 0 ? undefined : path.resolve(args[option + 1]);
-  const temporary = await mkdtemp(
-    path.join(root, ".local/acceptance-android-"),
-  );
   const allowUnavailableDevice = args.includes("--allow-unavailable-device");
   let device;
   try {
@@ -142,25 +127,6 @@ async function androidAcceptanceEntry(args) {
         packageName: config.identifier,
         appLabel: config.productName,
         evidence,
-        upgradeOnly: args.includes("--upgrade-only"),
-        loadPreviousApk: async () => {
-          if (previousApk) return previousApk;
-          const previous = await previousAndroidRelease();
-          if (!previous) return undefined;
-          const download = await fetch(
-            `${releaseSource}/download/${encodeURIComponent(previous.tag_name)}/iori-android-arm64.apk`,
-          );
-          if (!download.ok)
-            throw new Error(
-              `前の Release の APK の取得に失敗: HTTP ${download.status}`,
-            );
-          previousApk = path.join(temporary, "previous.apk");
-          await writeFile(
-            previousApk,
-            Buffer.from(await download.arrayBuffer()),
-          );
-          return previousApk;
-        },
       });
       device = { device: "verified" };
     } catch (error) {
@@ -175,7 +141,6 @@ async function androidAcceptanceEntry(args) {
       );
     }
   } finally {
-    await rm(temporary, { recursive: true, force: true });
     if (device && process.env.IORI_ANDROID_ACCEPTANCE_RESULT)
       await writeFile(
         process.env.IORI_ANDROID_ACCEPTANCE_RESULT,
@@ -189,108 +154,8 @@ export async function acceptance(
   archive,
   env = process.env,
   firstFailures = [],
-  scenarios,
 ) {
   const started = performance.now();
-  const selected = scenarios ?? fullScenarioOrder;
-  const verified = JSON.parse(
-    await readFile(
-      path.join(cwd, "verification/fake-model/verified.json"),
-      "utf8",
-    ),
-  );
-  const checkedClis = Object.keys(verified.clis);
-  const versions = {};
-  const unavailableVersions = new Set();
-  for (const cli of checkedClis) {
-    try {
-      versions[cli] = execFileSync(cli, ["--version"], {
-        cwd,
-        env,
-        encoding: "utf8",
-      }).trim();
-    } catch {
-      unavailableVersions.add(cli);
-      console.log(`[release] ${cli}: 版を取れない`);
-    }
-  }
-  // A release build uses a clean HEAD snapshot in cwd; standalone acceptance
-  // uses the worktree itself, including uncommitted instruction changes.
-  const head = execFileSync("git", ["rev-parse", "HEAD"], {
-    cwd: root,
-    encoding: "utf8",
-  }).trim();
-  const diff = spawnSync(
-    "git",
-    [
-      "diff",
-      "--quiet",
-      verified.instructionsCommit,
-      ...(cwd === root ? [] : [head]),
-      "--",
-      ...verified.instructionFiles,
-    ],
-    { cwd: root },
-  );
-  const instructionsChanged =
-    diff.error || (diff.status !== 0 && diff.status !== 1) || diff.status === 1;
-  if (diff.error || (diff.status !== 0 && diff.status !== 1))
-    console.log(
-      "[release] 記録の commit を比べられないため指示のファイルを変更扱い",
-    );
-  const changedClis = [...checkedClis].filter(
-    (cli) =>
-      unavailableVersions.has(cli) || versions[cli] !== verified.clis[cli],
-  );
-  if (instructionsChanged)
-    console.log(
-      `[release] 指示のファイルが変更: 実モデルの対象CLI ${Object.keys(versions).join(", ")}`,
-    );
-  const verificationScenarios = fullScenarioOrder.filter(
-    (scenario) => fakeModelScenarios[scenario],
-  );
-  const excludedScenarios = Object.keys(fakeModelScenarios).filter(
-    (scenario) => !fullScenarioOrder.includes(scenario),
-  );
-  const realScenarios = new Set(
-    selected.filter((scenario) =>
-      fakeModelScenarios[scenario]?.clis.some(
-        (cli) => instructionsChanged || changedClis.includes(cli),
-      ),
-    ),
-  );
-  if (realScenarios.size)
-    console.log(
-      `[release] 確認済み更新の対象外（全体受入に含まれない操作列）: ${excludedScenarios.join(", ")}`,
-    );
-  for (const scenario of realScenarios) {
-    const reasons = [
-      ...(instructionsChanged ? ["指示のファイルが変更"] : []),
-      ...fakeModelScenarios[scenario].clis
-        .filter((cli) => changedClis.includes(cli))
-        .map(
-          (cli) =>
-            `${cli}: ${verified.clis[cli]} → ${versions[cli] ?? "版を取れない"}`,
-        ),
-    ];
-    console.log(
-      `[release] 実モデル ${scenario} (CLI: ${fakeModelScenarios[scenario].clis.join(", ")}): ${reasons.join("、")}`,
-    );
-  }
-  const outOfRangeClis = changedClis.filter(
-    (cli) =>
-      ![...realScenarios].some((scenario) =>
-        fakeModelScenarios[scenario].clis.includes(cli),
-      ),
-  );
-  const outOfRangeMessage = (cli) => {
-    const declaredScenarios = Object.keys(fakeModelScenarios).filter(
-      (scenario) => fakeModelScenarios[scenario].clis.includes(cli),
-    );
-    return `[release] ${cli}: ${verified.clis[cli]} → ${versions[cli] ?? "版を取れない"}、宣言に含む操作列が範囲に無い（${declaredScenarios.join(", ")}）`;
-  };
-  for (const cli of outOfRangeClis) console.log(outOfRangeMessage(cli));
-  const completedReal = new Set();
   const temporaryRoot = path.join(cwd, ".local");
   await mkdir(temporaryRoot, { recursive: true });
   const temporary = await mkdtemp(path.join(temporaryRoot, "acceptance-"));
@@ -305,7 +170,10 @@ export async function acceptance(
     );
     await mkdir(host);
     await command("tar", ["-xzf", archive, "-C", host]);
-    const previous = await previousAndroidRelease();
+    const targetVersion = JSON.parse(
+      await readFile(path.join(host, "release-version.json"), "utf8"),
+    ).version;
+    const previous = await previousAndroidRelease(fetch, targetVersion);
     if (!previous)
       throw new Error("更新互換の確認に必要な前のReleaseがありません");
     const download = await fetch(
@@ -318,156 +186,96 @@ export async function acceptance(
     await writeFile(previousArchive, Buffer.from(await download.arrayBuffer()));
     await mkdir(previousHost);
     await command("tar", ["-xzf", previousArchive, "-C", previousHost]);
-    await command(
-      process.execPath,
-      [
-        "scripts/run-bounded-check.mjs",
-        process.execPath,
-        "--test",
-        "--test-timeout=60000",
-        "e2e/host/terminal-daemon-upgrade.test.mjs",
-      ],
+    const childEnv = Object.fromEntries(
+      Object.entries(env).filter(
+        ([name]) => name !== "CLAUDECODE" && !name.startsWith("CLAUDE_CODE_"),
+      ),
+    );
+    const checks = [
       {
-        cwd,
+        name: "terminal-daemon-upgrade",
+        args: [
+          process.execPath,
+          "--test",
+          "--test-timeout=60000",
+          "e2e/host/terminal-daemon-upgrade.test.mjs",
+        ],
         env: {
-          ...env,
           IORI_PREVIOUS_HOST_BUNDLE: previousHost,
           IORI_TARGET_HOST_BUNDLE: host,
         },
       },
-    );
-    await command(
-      process.execPath,
-      [
-        "scripts/run-bounded-check.mjs",
-        process.execPath,
-        "scripts/release/model-catalogs.mjs",
-        host,
-        path.join(executionEvidence, "model-catalogs.json"),
-      ],
-      { cwd, env },
-    );
-    const pending = [...(scenarios ?? fullScenarioOrder)];
-    const groups = Array.from(
-      { length: Math.min(pending.length, acceptanceConcurrency) },
-      (_, index) => `group-${index + 1}`,
-    );
+      {
+        // Removal uses the same installation, so retry this dependent pair together.
+        name: "host-update+host-uninstall",
+        args: [
+          process.execPath,
+          "verification/updates/host-linux.mjs",
+          `--previous-archive=${previousArchive}`,
+          `--target-archive=${archive}`,
+          "--uninstall",
+        ],
+      },
+      {
+        name: "ui-smoke",
+        args: [
+          process.execPath,
+          "node_modules/@playwright/test/cli.js",
+          "test",
+          "--config=e2e/ui/playwright.config.ts",
+          "--project=desktop",
+          "--retries=0",
+          "register-first-agent.spec.ts",
+          "terminal-input-resize.spec.ts",
+        ],
+        env: { IORI_UI_HOST_DISTRIBUTION: host },
+      },
+    ];
     const results = await Promise.allSettled(
-      groups.map(async (group, index) => {
-        const start = performance.now();
-        console.log(
-          `[release] acceptance/${group} start ${new Date().toISOString()}`,
-        );
-        try {
-          const source =
-            index === 0 ? cwd : path.join(temporary, `source-${group}`);
-          if (source !== cwd) {
-            // Vite and dependency generation must not share a writable source.
-            await createSourceCopy(cwd, source);
-            for (const binary of [
-              "native/iori_iroh_host_native.node",
-              "terminal-native/iori_terminal_native.node",
-            ])
-              await cp(
-                path.join(cwd, "apps/host", binary),
-                path.join(source, "apps/host", binary),
-              );
+      checks.map(async (check) => {
+        for (const attempt of ["first-attempt", "retry"]) {
+          const evidence = path.resolve(executionEvidence, check.name, attempt);
+          const attemptStarted = performance.now();
+          console.log(
+            `[release] acceptance/${check.name}/${attempt} evidence=${evidence}`,
+          );
+          try {
             await command(
               process.execPath,
-              [
-                "scripts/run-bounded-check.mjs",
-                "pnpm",
-                "install",
-                "--frozen-lockfile",
-              ],
-              { cwd: source, env },
-            );
-          }
-          const failures = [];
-          for (
-            let scenario = pending.shift();
-            scenario !== undefined;
-            scenario = pending.shift()
-          ) {
-            let fakeSucceeded = false;
-            for (const realModels of realScenarios.has(scenario)
-              ? [false, true]
-              : [false]) {
-              if (realModels && !fakeSucceeded) {
-                console.log(
-                  `[release] ${group}/${scenario} 偽の操作列が成功しなかったため実モデルを省略`,
-                );
-                continue;
-              }
-              for (const attempt of ["first-attempt", "retry"]) {
-                const evidence = path.resolve(
-                  executionEvidence,
-                  scenario,
-                  ...(realModels ? ["real-models"] : []),
-                  attempt,
-                );
-                console.log(
-                  `[release] acceptance/${group}/${scenario}${realModels ? "/real-models" : ""}/${attempt} evidence=${evidence}`,
-                );
-                const attemptStarted = performance.now();
-                try {
-                  await runWebScenario({
-                    cwd: source,
-                    host,
-                    scenario,
+              ["scripts/run-bounded-check.mjs", ...check.args],
+              {
+                cwd,
+                env: {
+                  ...childEnv,
+                  ...check.env,
+                  IORI_VERIFICATION_EVIDENCE_ROOT: evidence,
+                  IORI_UI_RUN: path.relative(
+                    path.join(cwd, ".local/evidence/ui"),
                     evidence,
-                    env,
-                    realModels,
-                  });
-                  if (realModels) completedReal.add(scenario);
-                  else fakeSucceeded = true;
-                  break;
-                } catch (error) {
-                  if (attempt === "first-attempt")
-                    firstFailures.push({
-                      group,
-                      scenario: realModels
-                        ? `${scenario}/real-models`
-                        : scenario,
-                      evidence,
-                    });
-                  if (error instanceof WebRunCleanupError) {
-                    failures.push(error);
-                    break;
-                  }
-                  if (attempt === "first-attempt") {
-                    console.error(
-                      `[release] ${group}/${scenario} failed; retrying once with the same distribution: ${error.message}`,
-                    );
-                  } else
-                    failures.push(
-                      new Error(`${scenario}: ${error.message}`, {
-                        cause: error,
-                      }),
-                    );
-                } finally {
-                  console.log(
-                    `[release] acceptance/${group}/${scenario}${realModels ? "/real-models" : ""}/${attempt} seconds=${((performance.now() - attemptStarted) / 1000).toFixed(3)}`,
-                  );
-                }
-              }
-            }
-          }
-          if (failures.length)
-            throw new AggregateError(
-              failures,
-              failures.map((error) => error.message).join("; "),
+                  ),
+                },
+              },
             );
-        } catch (error) {
-          throw new Error(`${group}: ${error.message}`, { cause: error });
-        } finally {
-          console.log(
-            `[release] acceptance/${group} seconds=${((performance.now() - start) / 1000).toFixed(3)}`,
-          );
+            if (attempt === "retry")
+              firstFailures.push({ scenario: check.name, evidence });
+            return;
+          } catch (error) {
+            if (attempt === "retry")
+              throw new Error(`${check.name}: ${error.message}`, {
+                cause: error,
+              });
+            console.error(
+              `[release] ${check.name} failed; retrying once with the same distribution: ${error.message}`,
+            );
+          } finally {
+            console.log(
+              `[release] acceptance/${check.name}/${attempt} seconds=${((performance.now() - attemptStarted) / 1000).toFixed(3)}`,
+            );
+          }
         }
       }),
     );
-    // All runners must finish their own process cleanup before removing source.
+    // All checks must finish their process cleanup before removing the bundles.
     const failures = results
       .filter((result) => result.status === "rejected")
       .map((result) => result.reason);
@@ -476,54 +284,6 @@ export async function acceptance(
         failures,
         `Release受入の失敗: ${failures.map((error) => error.message).join("; ")}`,
       );
-    if (realScenarios.size) {
-      const proposed = { ...verified, clis: { ...verified.clis } };
-      for (const cli of checkedClis) {
-        const required = verificationScenarios.filter((scenario) =>
-          fakeModelScenarios[scenario].clis.includes(cli),
-        );
-        const alternatives = Object.keys(fakeModelScenarios).filter(
-          (scenario) => fakeModelScenarios[scenario].clis.includes(cli),
-        );
-        const missing = required.filter(
-          (scenario) => !completedReal.has(scenario),
-        );
-        const confirmed = required.length
-          ? !missing.length
-          : alternatives.some((scenario) => completedReal.has(scenario));
-        if (confirmed && !unavailableVersions.has(cli))
-          proposed.clis[cli] = versions[cli];
-        else if (!confirmed && changedClis.includes(cli))
-          console.log(
-            `[release] ${cli} 未確認の操作列: ${(required.length ? missing : alternatives).join(", ")}`,
-          );
-      }
-      const missing = verificationScenarios.filter(
-        (scenario) => !completedReal.has(scenario),
-      );
-      if (instructionsChanged && !missing.length) {
-        const uncommittedDiff = spawnSync(
-          "git",
-          ["diff", "--quiet", head, "--", ...verified.instructionFiles],
-          { cwd: root },
-        );
-        if (uncommittedDiff.status === 0) proposed.instructionsCommit = head;
-        else if (uncommittedDiff.status === 1)
-          console.log(
-            "[release] 指示のファイルに未 commit の変更があるため instructionsCommit は更新しない",
-          );
-      } else if (instructionsChanged && missing.length) {
-        console.log(
-          `[release] 指示のファイル 未確認の操作列: ${missing.join(", ")}`,
-        );
-      }
-      const proposalFile = path.join(executionEvidence, "verified.json");
-      await writeFile(proposalFile, JSON.stringify(proposed, null, 2) + "\n");
-      console.log(
-        `[release] verified.json をこの内容へ更新して commit する: ${proposalFile}`,
-      );
-    }
-    for (const cli of outOfRangeClis) console.log(outOfRangeMessage(cli));
   } finally {
     await rm(temporary, { recursive: true, force: true });
     console.log(
@@ -543,7 +303,6 @@ if (process.argv[1] === import.meta.filename) {
         path.resolve(process.argv[2]),
         process.env,
         firstFailures,
-        releaseScenarios(process.argv.slice(3)),
       );
   } catch (error) {
     console.error(error);

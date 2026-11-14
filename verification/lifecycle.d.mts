@@ -6,6 +6,7 @@ export function registerVerificationDaemon(root: string): Promise<void>;
 export function recoverStaleVerificationRuns(): Promise<void>;
 export function recoverVerificationDirectory(
   directory: string,
+  beforeRemove?: (directory: string) => Promise<void>,
 ): Promise<boolean>;
 export function verificationDirectoryFor(
   path: string,

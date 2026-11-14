@@ -346,7 +346,7 @@ export class ConnectionController {
       if (host) {
         this.recordFor(host);
         this.update({ host, disconnectedAt: Date.now() });
-        void this.reconnect();
+        this.setForeground(this.foreground);
       }
     } catch (error) {
       this.update({

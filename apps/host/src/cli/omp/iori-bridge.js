@@ -7,6 +7,7 @@ const url = process.env.IORI_CLI_HOOK_URL;
 export default function ioriBridge(pi) {
   if (!url) return;
   let serial = Promise.resolve();
+  const toolInputs = new Map();
   const send = (state, extra = {}) => {
     // Order is kept, but a slow iori must not hold omp's turn open.
     serial = serial
@@ -73,6 +74,13 @@ export default function ioriBridge(pi) {
   pi.on("agent_start", (_event, ctx) =>
     send("active", { ...conversation(ctx) }),
   );
+  pi.on("tool_call", (event) => {
+    if (event && typeof event.toolCallId === "string")
+      toolInputs.set(event.toolCallId, event.input);
+  });
+  pi.on("tool_execution_end", (event) => {
+    if (event) toolInputs.delete(event.toolCallId);
+  });
   pi.on("tool_approval_requested", (event, ctx) =>
     send("waiting", {
       ...conversation(ctx),
@@ -81,13 +89,18 @@ export default function ioriBridge(pi) {
         ...(event && typeof event.toolName === "string"
           ? { tool: event.toolName }
           : {}),
+        ...(event && toolInputs.has(event.toolCallId)
+          ? { input: toolInputs.get(event.toolCallId) }
+          : {}),
       },
     }),
   );
-  pi.on("tool_approval_resolved", (_event, ctx) =>
-    send("active", { ...conversation(ctx) }),
-  );
+  pi.on("tool_approval_resolved", (event, ctx) => {
+    if (event) toolInputs.delete(event.toolCallId);
+    send("active", { ...conversation(ctx) });
+  });
   pi.on("agent_end", (event, ctx) => {
+    toolInputs.clear();
     // An automatic continuation is still the same response.
     if (event && event.willContinue) {
       send("active", { ...conversation(ctx) });
@@ -99,7 +112,8 @@ export default function ioriBridge(pi) {
       ...model(event),
     });
   });
-  pi.on("session_shutdown", (_event, ctx) =>
-    send("stopped", { ...conversation(ctx) }),
-  );
+  pi.on("session_shutdown", (_event, ctx) => {
+    toolInputs.clear();
+    send("stopped", { ...conversation(ctx) });
+  });
 }

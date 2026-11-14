@@ -15,4 +15,7 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o /tmp/rustup-ini
     && rustup component add rustfmt clippy \
     && rm /tmp/rustup-init.sh
 RUN corepack enable && corepack prepare "pnpm@${PNPM_VERSION}" --activate
+ARG PLAYWRIGHT_VERSION
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright
+RUN npx --yes playwright@${PLAYWRIGHT_VERSION} install --with-deps chromium
 WORKDIR /work

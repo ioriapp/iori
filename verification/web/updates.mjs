@@ -10,7 +10,7 @@ const version = JSON.parse(
 
 // The browser bridge substitutes only the OS boundary. Update discovery uses
 // a real HTTP response; the product's controller and settings are unchanged.
-export function updateCommands(source) {
+export function updateCommands(source, { download = false } = {}) {
   const restart = source?.endsWith("/restart");
   let runningVersion = restart ? "0.0.1" : version;
   return {
@@ -26,6 +26,21 @@ export function updateCommands(source) {
         foregroundOnly: false,
       };
     },
+    ...(download
+      ? {
+          native_update_download: async () => {
+            try {
+              const response = await fetch(source + "/asset");
+              await response.arrayBuffer();
+            } catch {
+              throw new Error("download");
+            }
+          },
+          native_update_install: async () => {
+            throw new Error("install");
+          },
+        }
+      : {}),
     ...(restart
       ? {
           native_update_download: () => {},

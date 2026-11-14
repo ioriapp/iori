@@ -296,5 +296,5 @@ export async function startUpdateHost(
     await close();
     throw error;
   }
-  return { unit, close };
+  return { unit, unitFile, close };
 }

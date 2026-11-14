@@ -1,4 +1,5 @@
 import tseslint from "typescript-eslint";
+import playwright from "eslint-plugin-playwright";
 import eslintComments from "@eslint-community/eslint-plugin-eslint-comments";
 
 import iori from "./scripts/eslint-plugin-iori/index.mjs";
@@ -28,6 +29,62 @@ const verificationRestrictedImports = {
 };
 
 export default [
+  {
+    ...playwright.configs["flat/recommended"],
+    files: ["e2e/ui/**/*.{ts,mjs}"],
+    rules: {
+      ...playwright.configs["flat/recommended"].rules,
+      "playwright/no-eval": "error",
+      "playwright/no-element-handle": "error",
+      "playwright/no-force-option": "error",
+      "playwright/no-wait-for-timeout": "error",
+      "playwright/no-wait-for-selector": "error",
+      "playwright/no-wait-for-navigation": "error",
+      "playwright/prefer-web-first-assertions": "error",
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector:
+            "CallExpression[callee.property.name=/^(evaluate|evaluateHandle|waitForFunction|isVisible|isHidden|isEnabled|isDisabled|isEditable|isChecked|waitFor)$/]",
+          message:
+            "画面の操作と判定にはlocatorとweb-first assertionを使ってください。",
+        },
+        {
+          selector:
+            "CallExpression[callee.name=/^(setTimeout|setInterval|sleep)$/]",
+          message:
+            "固定の待機は使わず、Playwrightのassertionで結果を待ってください。",
+        },
+      ],
+    },
+  },
+  {
+    files: ["e2e/ui/**/*.{ts,mjs}"],
+    ignores: ["e2e/ui/fixtures/test.ts"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector:
+            "CallExpression[callee.property.name=/^(poll|toPass|evaluate|evaluateHandle|waitForFunction|waitForTimeout|isVisible|isHidden|isEnabled|isDisabled|isEditable|isChecked|waitFor)$/]",
+          message:
+            "画面の判定はweb-first assertionを使い、DOMに無い値の待機はfixtureに置いてください。",
+        },
+        {
+          selector:
+            "CallExpression[callee.name=/^(setTimeout|setInterval|sleep)$/]",
+          message: "固定の待機を使わないでください。",
+        },
+      ],
+    },
+  },
+  {
+    files: ["e2e/ui/fixtures/browser.ts"],
+    rules: {
+      "playwright/no-eval": "off",
+      "no-restricted-syntax": "off",
+    },
+  },
   {
     files: [
       "verification/host-setup/run*.mjs",
@@ -108,6 +165,7 @@ export default [
       "verification/window-chrome/**/*.mjs",
       "verification/cli/**/*.mjs",
       "e2e/cli-screen/**/*.mjs",
+      "e2e/cli/**/*.mjs",
       "e2e/web/**/*.mjs",
     ],
     languageOptions: {
@@ -126,19 +184,6 @@ export default [
       ),
     },
     rules: { "no-undef": "error" },
-  },
-  {
-    files: ["scripts/release/**/*.mjs"],
-    rules: {
-      "no-restricted-syntax": [
-        "error",
-        {
-          selector: "Literal[value='verification/web/run.mjs']",
-          message:
-            "ReleaseのWeb受入はverification/web/runner.mjsのrunWebScenarioを使い、異常終了でも専用Terminal係を回収してください。",
-        },
-      ],
-    },
   },
   {
     files: ["verification/**/*.mjs", "e2e/**/*.mjs"],
@@ -275,19 +320,7 @@ export default [
     },
   },
   {
-    files: [
-      "e2e/cli-screen/*status.mjs",
-      "e2e/web/team-fixture.mjs",
-      "e2e/web/team-worker.mjs",
-      "e2e/web/team-command-route.mjs",
-      "e2e/web/team-child-tabs.mjs",
-      "e2e/web/team-messages.mjs",
-      "e2e/web/team-board.mjs",
-      "e2e/web/team-records.mjs",
-      "e2e/web/child-lifecycle.mjs",
-      "e2e/web/team-parent-input.mjs",
-      "e2e/web/repo-delegation.mjs",
-    ],
+    files: ["e2e/cli-screen/*status.mjs"],
     rules: { "iori/no-cli-bundled-submit": "error" },
   },
   {

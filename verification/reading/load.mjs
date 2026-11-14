@@ -1,62 +1,74 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { execFileSync } from "node:child_process";
+import { mkdir, symlink, writeFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
+import { performance } from "node:perf_hooks";
 import { pathToFileURL } from "node:url";
+import { startHostTest } from "../host/process.mjs";
+import { prepareReadingTree } from "./responsiveness-fixture.mjs";
 
-// Dedicated type-4 load test. Reuse the real browser/bridge/Host setup and its
-// cleanup; ordinary E2E and CI never set this mode.
-export async function readingLoad(screen, record) {
-  const result = await screen.evaluate(`(async () => {
-    const { native } = await import('/src/native.ts');
-    const requests = window.readingRequests;
-    const samples = [], startups = [];
-    const started = performance.now();
-    const reading = requests['files.info'];
-    let watch;
-    const stopEvents = await native.onStream(({subscriptionId,json}) => {
-      if (!watch || subscriptionId !== watch.id) return;
-      const event = JSON.parse(json);
-      if (event.ok === false) watch.failure = event.error.code;
-      else if (event.type === 'reading.changed' && !event.paths && !watch.ready) {
-        watch.ready = true;
-        startups.push(performance.now() - watch.started);
-      }
-    });
-    const readBatch = () => Promise.all(['files.list', 'files.info', 'git.status'].map(async method => {
-      const {connectionId, params} = requests[method];
-      const overlapping = !watch.ready;
-      const at = performance.now();
-      const response = JSON.parse(await native.request(connectionId, JSON.stringify({kind:'request',operationId:crypto.randomUUID(),method,params})));
-      if (!response.ok) throw new Error(method + ': ' + response.error.code);
-      if (overlapping) samples.push({method,ms:performance.now()-at});
-    }));
-    try {
-      while (performance.now() - started < 60000) {
-        watch = {id:crypto.randomUUID(),started:performance.now(),ready:false};
-        try {
-          const subscribing = native.subscribe(reading.connectionId, JSON.stringify({kind:'subscribe',operationId:watch.id,method:'reading.watch',params:{root:reading.params.root,scope:'files'}}), watch.id);
-          await Promise.all([subscribing, readBatch()]);
-          while (!watch.ready && !watch.failure) await readBatch();
-          if (watch.failure) throw new Error('reading.watch: ' + watch.failure);
-        } finally {
-          await native.cancelStream(watch.id);
+// Keep the one-minute load and response limit separate from ordinary E2E.
+export async function readingLoad(client, root, record) {
+  const samples = [],
+    startups = [];
+  const requests = {
+    "files.list": { root, path: "inside", start: 0, count: 128 },
+    "files.info": { root, path: "sample.txt" },
+    "git.status": { root, start: 0, count: 128 },
+  };
+  const started = performance.now();
+  while (performance.now() - started < 60000) {
+    let watch,
+      ready = false;
+    const at = performance.now();
+    const subscribing = client.readingWatch(root, "files").then((value) => {
+      watch = value;
+      return watch.waitFor((event) => {
+        if (event.ok === false)
+          throw new Error(`reading.watch: ${event.error.code}`);
+        if (event.type === "reading.changed" && !event.paths) {
+          ready = true;
+          startups.push(performance.now() - at);
+          return true;
         }
-        if (watch.failure) throw new Error('reading.watch: ' + watch.failure);
-      }
-      return {durationMs:performance.now()-started, samples, startups};
+        return false;
+      });
+    });
+    const readBatch = () =>
+      Promise.all(
+        Object.entries(requests).map(async ([method, params]) => {
+          const overlapping = !ready;
+          const sent = performance.now();
+          await client.request(method, params);
+          if (overlapping)
+            samples.push({ method, ms: performance.now() - sent });
+        }),
+      );
+    try {
+      await Promise.all([
+        subscribing,
+        (async () => {
+          do {
+            await readBatch();
+          } while (!ready);
+        })(),
+      ]);
+      const failure = watch.values.find((event) => event.ok === false);
+      if (failure) throw new Error(`reading.watch: ${failure.error.code}`);
     } finally {
-      stopEvents();
+      await watch?.close();
     }
-  })()`);
+  }
   const summary = {
-    durationMs: result.durationMs,
+    durationMs: performance.now() - started,
     limitMs: 500,
-    watchStarts: result.startups.length,
-    watchStartupMaxMs: Math.max(...result.startups),
+    watchStarts: startups.length,
+    watchStartupMaxMs: Math.max(...startups),
     methods: Object.fromEntries(
-      ["files.list", "files.info", "git.status"].map((method) => {
-        const values = result.samples
-          .filter((s) => s.method === method)
-          .map((s) => s.ms)
+      Object.keys(requests).map((method) => {
+        const values = samples
+          .filter((sample) => sample.method === method)
+          .map((sample) => sample.ms)
           .sort((a, b) => a - b);
         return [
           method,
@@ -70,7 +82,7 @@ export async function readingLoad(screen, record) {
       }),
     ),
   };
-  await record(`読み取りの1分負荷試験: ${JSON.stringify(summary)}`);
+  await record(summary);
   for (const [method, values] of Object.entries(summary.methods)) {
     assert.ok(values.count > 0, `${method}: 監視開始と重なる要求がありません`);
     assert.ok(
@@ -84,18 +96,47 @@ if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(process.argv[1]).href
 ) {
-  const child = spawn(
-    process.execPath,
-    ["verification/web/run.mjs", "--only=reading-responsiveness"],
-    {
-      stdio: "inherit",
-      env: { ...process.env, IORI_READING_LOAD_TEST: "1" },
-    },
+  const cleanups = [];
+  const evidence = resolve(
+    process.env.IORI_VERIFICATION_EVIDENCE_ROOT ??
+      ".local/evidence/reading-load",
+    `run-${Date.now()}`,
   );
-  child.once("error", (error) => {
-    throw error;
-  });
-  child.once("exit", (code) => {
-    process.exitCode = code ?? 1;
-  });
+  await mkdir(evidence, { recursive: true });
+  console.log(`evidence=${evidence}`);
+  try {
+    const { client, dataRoot } = await startHostTest({
+      after: (cleanup) => cleanups.push(cleanup),
+      diagnostic: console.error,
+    });
+    const root = join(dataRoot, "repository");
+    await mkdir(root);
+    await symlink(
+      execFileSync("which", ["git"], { encoding: "utf8" }).trim(),
+      join(dataRoot, "bin", "git"),
+    );
+    const git = (...args) =>
+      execFileSync("git", ["-C", root, ...args], { stdio: "pipe" });
+    git("init", "-b", "main");
+    await writeFile(join(root, "sample.txt"), "変更前の行\n");
+    git("add", "sample.txt");
+    git(
+      "-c",
+      "user.name=iori E2E",
+      "-c",
+      "user.email=e2e@example.invalid",
+      "commit",
+      "-m",
+      "Create reading fixture",
+    );
+    await writeFile(join(root, "sample.txt"), "ブラウザーからファイルを読む\n");
+    await prepareReadingTree(root);
+    await readingLoad(client, root, async (summary) => {
+      const json = JSON.stringify(summary, null, 2) + "\n";
+      await writeFile(join(evidence, "result.json"), json);
+      console.log(json);
+    });
+  } finally {
+    for (const cleanup of cleanups.reverse()) await cleanup();
+  }
 }

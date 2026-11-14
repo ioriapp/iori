@@ -164,7 +164,17 @@ export async function connectClient(dataRoot, secretKey) {
       });
       const watch = observation(stream, (frame) => frame);
       subscriptions.add(watch);
-      return watch;
+      return {
+        ...watch,
+        async close() {
+          try {
+            await stream.stop(0);
+            await watch.finished;
+          } finally {
+            subscriptions.delete(watch);
+          }
+        },
+      };
     },
     async events() {
       const stream = await open({
@@ -190,7 +200,13 @@ export async function connectClient(dataRoot, secretKey) {
     },
     async terminal(
       terminalId,
-      { cols = 120, rows = 24, deviceClass = "desktop", claimSize } = {},
+      {
+        cols = 120,
+        rows = 24,
+        deviceClass = "desktop",
+        claimSize,
+        onOutput,
+      } = {},
     ) {
       const stream = await open(
         {
@@ -222,6 +238,7 @@ export async function connectClient(dataRoot, secretKey) {
         if (frame.kind === "terminal.snapshot")
           output += frame.snapshot.scrollbackAnsi + frame.snapshot.snapshotAnsi;
         if (frame.kind === "terminal.output") output += frame.data;
+        onOutput?.(frame);
         return { frame, output };
       });
       subscriptions.add(terminal);

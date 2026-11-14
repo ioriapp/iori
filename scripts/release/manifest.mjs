@@ -3,7 +3,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { createHash, sign } from "node:crypto";
 import path from "node:path";
 import { output, version, assets } from "./common.mjs";
-export async function writeManifest(commit, acceptance = { type: "full" }) {
+export async function writeManifest(commit, acceptance) {
   const manifest = {
     version,
     commit,

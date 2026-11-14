@@ -20,7 +20,10 @@ import type { OpenFile, FileOpenRequest } from "../workspace-panel.tsx";
 import type { FileInfo } from "@iori/protocol";
 import { Button } from "../components/ui/button";
 import { SplitPane } from "../reading/SplitPane.tsx";
-import { useSavedViewState } from "../reading/savedViewState.ts";
+import {
+  useSaveOnPageHide,
+  useSavedViewState,
+} from "../reading/savedViewState.ts";
 import {
   WorktreePicker,
   type WorktreeChoice,
@@ -232,6 +235,7 @@ function FilesWorkspace({
   );
   const saveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const persist = useCallback(() => {
+    clearTimeout(saveTimer.current);
     const value = latest.current;
     if (!value) return;
     void positions.save(value.key, value.value).then(
@@ -239,6 +243,7 @@ function FilesWorkspace({
       () => setSaveFailed(true),
     );
   }, [positions]);
+  useSaveOnPageHide(persist);
   useEffect(
     () => () => {
       clearTimeout(saveTimer.current);

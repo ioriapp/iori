@@ -1,7 +1,7 @@
 import { ruleTester } from "./rule-tester.mjs";
 import rule from "../rules/no-claude-credentials-link-copy.mjs";
 
-const filename = "/repo/verification/web/run.mjs";
+const filename = "/repo/verification/cli/home.mjs";
 
 ruleTester.run("no-claude-credentials-link-copy", rule, {
   valid: [

@@ -8,18 +8,20 @@
     "check:docs": "node docs/check-links.mjs --self-test && node docs/check-links.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "check": "pnpm -r check",
+    "check": "pnpm -r check && tsc --project e2e/ui/tsconfig.json",
     "lint": "eslint .",
     "test": "node scripts/test.mjs",
-    "e2e:web": "node scripts/run-bounded-check.mjs node verification/web/run.mjs",
     "tauri": "pnpm --filter @iori/client tauri",
-    "release:build": "node scripts/release/build.mjs"
+    "release:build": "node scripts/release/build.mjs",
+    "e2e:ui": "node node_modules/@playwright/test/cli.js test --config=e2e/ui/playwright.config.ts"
   },
   "devDependencies": {
     "@eslint-community/eslint-plugin-eslint-comments": "4.8.1",
+    "@playwright/test": "1.64.0",
     "@types/node": "24.19.1",
     "cmd-shim": "9.0.2",
     "eslint": "10.12.0",
+    "eslint-plugin-playwright": "2.12.2",
     "github-slugger": "2.0.0",
     "prettier": "3.9.9",
     "remark-parse": "11.0.0",

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { readFile, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
@@ -8,7 +9,7 @@ import { actorCommand } from "../../verification/host/scripted-definition.mjs";
 import { registerLifecycleCli } from "../../verification/host/lifecycle-definition.mjs";
 import { registerResponseCli } from "../../verification/host/response-definition.mjs";
 
-async function setup(client, dataRoot, actions, limit = "") {
+async function setup(client, dataRoot, actions, limit = "", cwd = dataRoot) {
   const parentCli = await registerLifecycleCli(client, dataRoot, "parent");
   const candidates = [];
   for (const action of actions) {
@@ -55,13 +56,75 @@ async function setup(client, dataRoot, actions, limit = "") {
   await events.waitFor((event) => event.type === "snapshot");
   const { terminal } = await client.request("team.launch", {
     teamId: team.saved.id,
-    cwd: dataRoot,
+    cwd,
   });
   const parent = await client.terminal(terminal.id);
   await parent.output("LIFECYCLE_READY:startup");
   await parent.output("LIFECYCLE_PARENT_INPUT:");
   return { parent, parentId: terminal.id, events };
 }
+
+test("別のリポジトリへの委譲は指定先にworktreeを作る", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    await symlink(
+      execFileSync("which", ["git"], { encoding: "utf8" }).trim(),
+      join(dataRoot, "bin", "git"),
+    );
+    const repositories = [join(dataRoot, "first"), join(dataRoot, "second")];
+    for (const [index, root] of repositories.entries()) {
+      await mkdir(root);
+      const git = (...args) =>
+        execFileSync("git", ["-C", root, ...args], { stdio: "pipe" });
+      git("init", "-b", "main");
+      git("config", "user.name", "Worktree E2E");
+      git("config", "user.email", "worktree@localhost");
+      await writeFile(join(root, "source.txt"), `repository ${index + 1}`);
+      git("add", ".");
+      git("commit", "-m", "initial");
+    }
+    const context = await setup(
+      client,
+      dataRoot,
+      ["report-later"],
+      "",
+      repositories[0],
+    );
+    const result = await actorCommand(context.parent, "other-repository", [
+      "delegate",
+      "--role",
+      "Worker",
+      "--difficulty",
+      "low",
+      "--title",
+      "Other repository",
+      "--worktree",
+      "new",
+      "--repo",
+      repositories[1],
+      "--body",
+      "Do the work.",
+    ]);
+    const started = await context.events.waitFor(
+      (event) =>
+        event.type === "teams.child.updated" &&
+        event.child.id === result.data.child &&
+        event.child.terminalId,
+    );
+    const child = await client.terminal(started.child.terminalId);
+    await child.output("LIFECYCLE_WORKING");
+    const cwd = started.child.cwd;
+    assert.ok(cwd);
+    assert.equal(
+      await readFile(join(cwd, "source.txt"), "utf8"),
+      "repository 2",
+    );
+    const main = execFileSync(
+      "git",
+      ["-C", cwd, "rev-parse", "--git-common-dir"],
+      { encoding: "utf8" },
+    ).trim();
+    assert.equal(main, join(repositories[1], ".git"));
+  }));
 async function delegate(context, id, body = "Do the work.") {
   const result = await actorCommand(context.parent, id, [
     "delegate",

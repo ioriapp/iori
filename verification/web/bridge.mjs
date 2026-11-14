@@ -205,6 +205,7 @@ function session(
   onTerminalEvent,
   isOffline,
   updateSource,
+  updateDownload = false,
   hostUninstall = false,
 ) {
   const connections = new Map();
@@ -289,6 +290,8 @@ function session(
             stage: "receive",
             streamId: id,
             kind: JSON.parse(json).kind,
+            terminalId: entry.terminalId,
+            frame: JSON.parse(json),
           });
           emit("native://terminal-frame", { connectionId, streamId: id, json });
           await applied;
@@ -320,7 +323,7 @@ function session(
   };
 
   const commands = {
-    ...updateCommands(updateSource),
+    ...updateCommands(updateSource, { download: updateDownload }),
     ...(hostUninstall ? removalCommands(onResponse) : {}),
     native_initial_state: (args) =>
       storage.initial({
@@ -480,6 +483,7 @@ function session(
       if (previous) await stop(previous);
       const entry = await open(connectionId, id, json, false);
       entry.terminal = true;
+      entry.terminalId = JSON.parse(json).terminalId;
       void receive(entry, id, connectionId, true);
     },
     native_terminal_acknowledge: ({ streamId }) => {
@@ -487,6 +491,7 @@ function session(
         stage: "ack",
         streamId,
         waiting: Boolean(streams.get(string(streamId))?.ack),
+        terminalId: streams.get(string(streamId))?.terminalId,
       });
       streams.get(string(streamId))?.ack?.();
     },
@@ -564,6 +569,7 @@ export async function startBridge({
   onHostEventStream,
   onTerminalEvent,
   updateSource,
+  updateDownload = false,
   hostUninstall = false,
 }) {
   const storage = await openStorage(storageRoot);
@@ -626,6 +632,7 @@ export async function startBridge({
           onTerminalEvent,
           () => offline,
           updateSource,
+          updateDownload,
           hostUninstall,
         );
         sessions.add(close);
@@ -723,6 +730,8 @@ export async function startBridge({
       }
     },
     async close() {
+      // Reject reconnects before terminating clients; teardown must not acquire a new socket.
+      const socketsClosed = new Promise((resolve) => wss.close(resolve));
       await faults.clear();
       for (const ws of wss.clients) ws.terminate();
       try {
@@ -733,7 +742,7 @@ export async function startBridge({
         inputPeers.clear();
       }
       await endpoint.close();
-      await new Promise((resolve) => wss.close(resolve));
+      await socketsClosed;
       await new Promise((resolve) => server.close(resolve));
       storage.close();
     },

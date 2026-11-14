@@ -46,6 +46,8 @@ if (process.argv.includes("--version") || process.argv.includes("--help")) {
     );
   let requests = 0;
   function handlePrompt(line) {
+    if (process.argv.includes("--capture-prompts"))
+      console.log(`ACTOR_INPUT:${JSON.stringify(line)}`);
     if (!noReady) {
       // Like a real CLI accepting a prompt: the Host writes the text and the
       // Enter separately, so tests wait for this before typing their own lines.

@@ -237,7 +237,7 @@ Qoder のように、`hooks` の下で出来事ごとにコマンドの hooks �
 }
 ```
 
-`iori_cli` には定義の `id` を書きます。別の CLI を指す知らせは無視されます。状態の意味は `rules` と同じです。任意の項目は `sessionId`・`transcript`（会話ファイルのパス）・`response`・`model`・`attention`（例: `{ "kind": "approval", "tool": "shell" }`）、`outcome: "failure"` と理由の `failure`、`tokens` です。CLI から得られたものだけを書き、知らない項目は無視されます。Tokens は直前の応答だけでなく会話の累計にします。`tokens` のスクリプトがある時は、その値を優先します。
+`iori_cli` には定義の `id` を書きます。別の CLI を指す知らせは無視されます。状態の意味は `rules` と同じです。任意の項目は `sessionId`・`transcript`（会話ファイルのパス）・`response`・`model`・`attention`（例: `{ "kind": "approval", "tool": "shell", "input": { "command": "…" } }`。`input` は省略でき、iori はその中のコマンド・パス・質問の文だけを要約として表示します）、`outcome: "failure"` と理由の `failure`、`tokens` です。CLI から得られたものだけを書き、知らない項目は無視されます。Tokens は直前の応答だけでなく会話の累計にします。`tokens` のスクリプトがある時は、その値を優先します。
 
 ## スクリプトで Tokens と Usage を取得する
 

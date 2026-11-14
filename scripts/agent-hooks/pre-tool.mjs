@@ -1,14 +1,7 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
-import { homedir } from "node:os";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
-import {
-  screenE2eCovers,
-  targets,
-  unresolved,
-  waitsOnCommandLine,
-} from "./policy.mjs";
+import { targets, waitsOnCommandLine } from "./policy.mjs";
 import {
   hasCiEvidence,
   hasPublicationCiEvidence,
@@ -32,9 +25,6 @@ function deny(reason) {
     }),
   );
 }
-async function json(file) {
-  return JSON.parse(await readFile(file, "utf8"));
-}
 
 try {
   const input = await readInput();
@@ -51,10 +41,6 @@ try {
     process.exit(0);
   }
   const target = targets(input.tool_input.command);
-  if (target.fullWithoutReason) {
-    deny("--full には --reason で理由を指定してください。");
-    process.exit(0);
-  }
   if (!target.pushes.length && !target.release && !target.notes.length)
     process.exit(0);
   const cwd = input.cwd;
@@ -63,46 +49,6 @@ try {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "ignore"],
   }).trim();
-  // A push waits only for ci.sh. The screen E2E runs nightly and gates a Release.
-  if (target.release) {
-    try {
-      const base = path.join(homedir(), ".local/share/iori-background-e2e");
-      const latest = await json(path.join(base, "latest.json"));
-      const { quarantine } = await import(
-        pathToFileURL(path.join(root, "scripts/background-e2e/config.mjs"))
-      );
-      let acknowledged = {};
-      try {
-        acknowledged = await json(path.join(base, "acknowledged.json"));
-      } catch (error) {
-        if (error.code !== "ENOENT") throw error;
-      }
-      const pending = unresolved(latest, quarantine, acknowledged);
-      if (pending.length) {
-        deny(
-          `裏の全画面 E2E が未処置: ${pending.map((failure) => failure.scenario).join("、")}。証拠: ${latest.evidence}。隔離するか acknowledged.json に処置を記録してください。`,
-        );
-        process.exit(0);
-      }
-      if (target.build) {
-        const changed = execFileSync(
-          "git",
-          ["diff", "--no-renames", "--name-only", "-z", latest.sha, "HEAD"],
-          { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
-        )
-          .split("\0")
-          .filter(Boolean);
-        if (!screenE2eCovers(changed)) {
-          deny(
-            `全画面 E2E を実行した commit（${latest.sha.slice(0, 8)}）の後に、製品か試験が変わっています。main へ push してから systemctl --user start iori-background-e2e.service を実行し、終わってから Release を作成してください。`,
-          );
-          process.exit(0);
-        }
-      }
-    } catch {
-      /* Unreadable or malformed data must not block. */
-    }
-  }
   const unchecked = target.pushes.filter((push) => !push.ciCovered);
   if (unchecked.length) {
     try {

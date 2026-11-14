@@ -15,31 +15,48 @@ try {
       process.stdin.on("error", reject);
     }),
   );
-  const latest = JSON.parse(
-    await readFile(
-      path.join(homedir(), ".local/share/iori-background-e2e/latest.json"),
-      "utf8",
-    ),
-  );
   if (
     typeof input.session_id !== "string" ||
     !input.session_id ||
-    !["PostToolUse", "UserPromptSubmit"].includes(input.hook_event_name) ||
+    !["PostToolUse", "UserPromptSubmit"].includes(input.hook_event_name)
+  )
+    process.exit(0);
+  const latest = JSON.parse(
+    await readFile(
+      path.join(homedir(), ".local/share/iori-cli-compat/latest.json"),
+      "utf8",
+    ),
+  );
+  const preparationFailed = latest.preparation?.status === "failed";
+  if (
     typeof latest.finishedAt !== "string" ||
     typeof latest.sha !== "string" ||
     !Array.isArray(latest.failed) ||
-    !latest.failed.length ||
+    (!latest.failed.length && !preparationFailed) ||
     typeof latest.evidence !== "string" ||
-    latest.failed.some((failure) => typeof failure?.scenario !== "string")
+    latest.failed.some(
+      (failure) =>
+        typeof failure?.cli !== "string" ||
+        typeof failure?.version !== "string" ||
+        typeof failure?.test !== "string" ||
+        typeof failure?.evidence !== "string",
+    )
   )
     process.exit(0);
-  const dir = path.join(homedir(), ".claude/state/iori-background-e2e");
+  const dir = path.join(homedir(), ".claude/state/iori-cli-compat");
   const key = createHash("sha256")
     .update(JSON.stringify([input.session_id, latest.finishedAt]))
     .digest("hex");
   await mkdir(dir, { recursive: true });
   await writeFile(path.join(dir, key), "", { flag: "wx" });
-  const message = `裏の全画面 E2E が赤: ${latest.sha.slice(0, 8)} の ${latest.failed.map((failure) => failure.scenario).join("、")}。証拠: ${latest.evidence}。次の作業の前に、直すか隔離するかを決める（AGENTS.md の「試験と検証」）`;
+  const message = preparationFailed
+    ? `他社の CLI の互換の監視の準備が失敗。証拠: ${latest.evidence}`
+    : latest.failed
+        .map(
+          (failure) =>
+            `他社の CLI の互換の監視が失敗: ${failure.cli} ${failure.version} の ${failure.test}。証拠: ${failure.evidence}`,
+        )
+        .join("\n");
   console.log(
     JSON.stringify({
       hookSpecificOutput: {
@@ -49,5 +66,5 @@ try {
     }),
   );
 } catch {
-  // A hook failure must not interrupt development.
+  // A missing result, an already delivered notice or a hook failure must not interrupt development.
 }

@@ -1,9 +1,18 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import assert from "node:assert/strict";
+import {
+  access,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { createSocket } from "node:dgram";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { performance } from "node:perf_hooks";
 import {
   prepareHostDistribution,
   startUpdateHost,
@@ -11,6 +20,7 @@ import {
 import { runReleaseScenario } from "./host-release-scenario.mjs";
 import { terminalClient } from "../terminal/daemon-client.mjs";
 import { prepareCliHome, stopCliProcesses } from "../cli/home.mjs";
+import { waitFor } from "../ui.mjs";
 
 const argument = (name) =>
   process.argv
@@ -21,6 +31,7 @@ const targetArchive = argument("target-archive");
 if (!previousArchive || !targetArchive)
   throw new Error("--previous-archive and --target-archive are required");
 const runningClis = process.argv.includes("--running-clis");
+const uninstall = process.argv.includes("--uninstall");
 const evidence = resolve(
   process.env.IORI_VERIFICATION_EVIDENCE_ROOT ?? ".local/evidence/host-update",
   `linux-${Date.now()}-${process.pid}`,
@@ -37,6 +48,17 @@ const result = {
   cleanupFailures: [],
 };
 let fixture, host, client, cliHome;
+let currentCheck = "host-update";
+let checkStarted = performance.now();
+function finishCheck() {
+  result.seconds ??= {};
+  result.seconds[currentCheck] = Number(
+    ((performance.now() - checkStarted) / 1000).toFixed(3),
+  );
+  console.log(
+    `[release] acceptance/${currentCheck} seconds=${result.seconds[currentCheck]}`,
+  );
+}
 const run = promisify(execFile);
 async function processes() {
   const { stdout } = await run("ps", ["-eo", "pid=,ppid=,lstart="], {
@@ -96,7 +118,23 @@ try {
   const port = socket.address().port;
   socket.close();
   await checkpoint("old-host-ready");
-  host = await startUpdateHost(fixture, join(root, "data"), { port });
+  // Removal also deletes a launcher under HOME. Keep it and all CLI settings
+  // inside this run, even when no real CLI is requested.
+  const home = join(root, "home");
+  if (!runningClis) await mkdir(home);
+  host = await startUpdateHost(fixture, join(root, "data"), {
+    port,
+    cliEnvironment: runningClis
+      ? {}
+      : {
+          HOME: home,
+          XDG_CONFIG_HOME: join(home, ".config"),
+          XDG_CACHE_HOME: join(home, ".cache"),
+          XDG_STATE_HOME: join(home, ".local/state"),
+          CODEX_HOME: join(home, ".codex"),
+          CLAUDE_CONFIG_DIR: join(home, ".claude"),
+        },
+  });
   await checkpoint("connect-old-host");
   client = await terminalClient(hostRoot, port);
   await runReleaseScenario({
@@ -121,20 +159,58 @@ try {
     activePattern: /\d{4}/u,
     pulseCommand: `'${process.execPath.replaceAll("'", "'\\''")}' pulse.mjs\r`,
   });
+  if (uninstall) {
+    finishCheck();
+    currentCheck = "host-uninstall";
+    checkStarted = performance.now();
+    await checkpoint("prepare-uninstall");
+    const plan = await client.request("host.uninstall.prepare");
+    assert.equal(plan.error, undefined);
+    const status = await client.request("host.uninstall", {
+      canContinue: plan.canContinue,
+      hasOpenTerminals: plan.hasOpenTerminals,
+      targets: plan.targets.map((target) => target.id),
+      generations: Object.fromEntries(
+        plan.targets.map((target) => [target.id, target.generation]),
+      ),
+      deleteData: false,
+    });
+    assert.equal(status.phase, "removing", JSON.stringify(status));
+    await checkpoint("uninstall-receipt");
+    const receipt = await waitFor(
+      () =>
+        readFile(status.receiptPath, "utf8")
+          .then(JSON.parse)
+          .catch((error) => {
+            if (error.code !== "ENOENT") throw error;
+          }),
+      Boolean,
+    );
+    assert.equal(receipt.status.phase, "succeeded", JSON.stringify(receipt));
+    for (const file of [fixture.bundle, host.unitFile]) {
+      await assert.rejects(access(file), { code: "ENOENT" });
+    }
+    await access(join(hostRoot, "host.sqlite"));
+    await access(join(root, "pulse.mjs"));
+    result.uninstall = { phase: receipt.status.phase, deleteData: false };
+  }
   delete result.waitingFor;
   result.passed = true;
 } catch (error) {
   result.error = error.message;
   process.exitCode = 1;
 } finally {
+  finishCheck();
   await cleanup("client", async () => client?.close());
   await cleanup("host", async () => host?.close());
   if (cliHome)
     await cleanup("cli-processes", async () => stopCliProcesses(cliHome.home));
   await cleanup("distribution", async () => fixture?.close());
-  await cleanup("temporary-directory", async () =>
-    rm(root, { recursive: true, force: true }),
-  );
+  if (!result.cleanupFailures.length)
+    await cleanup("temporary-directory", async () =>
+      rm(root, { recursive: true, force: true }),
+    );
+  if (result.cleanupFailures.length) result.retainedRoot = root;
   if (result.cleanupFailures.length) result.passed = false;
   await writeFile(
     join(evidence, "result.json"),

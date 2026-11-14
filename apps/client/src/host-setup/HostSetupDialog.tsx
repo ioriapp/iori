@@ -481,33 +481,36 @@ export function LocalHostConnections({
     <>
       <Separator />
       <section className="settings-section connection-form">
-        {allowed && connectionScope !== "loopback" && (
+        {allowed && connectionScope !== "loopback" ? (
           <p>{t("Connections from other devices are allowed")}</p>
+        ) : (
+          <>
+            <p className="settings-note">
+              {t(
+                "Windows will ask for administrator approval to allow other devices to connect.",
+              )}
+            </p>
+            <Button
+              variant="outline"
+              pending={busy}
+              data-iori-action="allow-host-connections"
+              onClick={() => {
+                setBusy(true);
+                setFailed(false);
+                void native
+                  .hostFirewall()
+                  .then((allowed) => {
+                    setAllowed((previous) => allowed || previous);
+                    setFailed(!allowed);
+                  })
+                  .catch(() => setFailed(true))
+                  .finally(() => setBusy(false));
+              }}
+            >
+              {t("Allow connections from other devices")}
+            </Button>
+          </>
         )}
-        <p className="settings-note">
-          {t(
-            "Windows will ask for administrator approval to allow other devices to connect.",
-          )}
-        </p>
-        <Button
-          variant="outline"
-          pending={busy}
-          data-iori-action="allow-host-connections"
-          onClick={() => {
-            setBusy(true);
-            setFailed(false);
-            void native
-              .hostFirewall()
-              .then((allowed) => {
-                setAllowed((previous) => allowed || previous);
-                setFailed(!allowed);
-              })
-              .catch(() => setFailed(true))
-              .finally(() => setBusy(false));
-          }}
-        >
-          {t("Allow connections from other devices")}
-        </Button>
         {failed && (
           <p role="alert" className="connection-error">
             {t(

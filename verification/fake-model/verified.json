@@ -1,12 +1,4 @@
 {
-  "clis": {
-    "claude": "2.1.322 (Claude Code)",
-    "codex": "codex-cli 0.164.0",
-    "pi": "1.4.0",
-    "opencode": "opencode v2.2.6",
-    "omp": "omp/18.12.6"
-  },
-  "instructionsCommit": "8b8ee1bd144dd26f8699e7c9f641a5746fa30a35",
   "instructionFiles": [
     "apps/host/src/teams/manager.ts",
     "apps/host/src/teams/commands.ts",

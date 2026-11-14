@@ -25,18 +25,15 @@ Orca（[stablyai/orca](https://github.com/stablyai/orca)、MIT）の実装は流
 
 確かめは、故障する境界ごとに最も安く確かめられる場所へ置く。入口は次のとおり。
 
-| 確かめ                                               | 入口                                                                                               | 流す時                                                                                       |
-| ---------------------------------------------------- | -------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| 型・lint・整形・純粋関数・Host API の E2E            | `bash scripts/ci.sh`（Host API の書き方は [verification](verification/README.md#host-api-の-e2e)） | main へ載せる前（必須チェックはこれだけ）                                                    |
-| 画面の E2E（ブラウザー・本物の CLI・偽のモデル API） | `node scripts/run-bounded-check.mjs node verification/web/run.mjs --only=<シナリオ>`               | 変えた画面の分を作者が1〜2本。全部は夜間に1回と Release の前（`scripts/background-e2e.mjs`） |
-| CLI の実物との照合                                   | `--real-models`                                                                                    | CLI を上げた時、iori がモデルへ渡す指示を変えた時                                            |
-| 負荷の試験                                           | 下記                                                                                               | 性能に関わる変更の時と Release の前                                                          |
+| 内容                                                  | 入口                                                                    | 実行するとき                                                                           |
+| ----------------------------------------------------- | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| 型・lint・整形・純粋関数・Host API の E2E・画面の試験 | `bash scripts/ci.sh`                                                    | main へマージする前                                                                    |
+| Release の受け入れ                                    | `scripts/release/acceptance.mjs`                                        | 配布物の導入・更新・撤去と画面の最小の経路を確認するとき                               |
+| 他社の CLI の互換の監視                               | `node scripts/cli-compat.mjs`                                           | 毎日の監視。手元での実行は[検証](verification/README.md#他社の-cli-の互換の監視)を参照 |
+| 本物のモデルとの照合                                  | `node scripts/cli-compat.mjs --only=claude --real-model`                | iori がモデルへ渡す指示を変えたとき、親が試験用の Claude の専用トークンで実行          |
+| 読み取りの負荷の試験                                  | `node scripts/run-bounded-check.mjs node verification/reading/load.mjs` | 性能に関わる変更のとき                                                                 |
 
-Release の受け入れは、配布物でしか確かめられない境界（導入・更新・Terminal のデーモンの入れ替え・接続）の少数だけを流す。同じバージョンで流し直して通る失敗は揺れとして Issue に記録し、公開を止めない。
-
-読み取りの負荷試験は `node scripts/run-bounded-check.mjs node verification/reading/load.mjs` で流す。専用のブラウザー・本物のHost・通信を使い、1分間、監視の開始・初回の全体更新・停止を繰り返し、その開始と重なる間にFilesの一覧・ファイル情報とGitの状態を並行して要求する。監視の失敗も試験の失敗とし、監視開始と重なった要求の応答を測る。応答の最大値が500ms未満かを判定し、件数・p50・p99・最大値を通常のWeb E2Eと同じ証拠先へ残す。性能に関わる変更時とRelease前に、他の受け入れやビルドと重ねず単独で流す。通常のE2EとCIからは呼ばない。準備は[ブラウザーの画面E2E](verification/README.md#ブラウザーの画面e2e)と同じ。
-
-画面のE2Eは本物のCLIの接続先を、試験の中で立てる偽のモデルAPI（`verification/fake-model/`）へ向け、台本どおりの応答（文・道具の呼び出し）を返させて流す。CLI本体・Host・画面・hookは本物のまま使い、モデルの沈黙・利用枠・応答の揺れで落ちないようにする。偽にするシナリオとCLIは `verification/web/fake-model-scenarios.mjs` で宣言し、宣言の無いものは安い実モデルで流す。CLIの実物との照合は同じシナリオを `--real-models` で実モデルに流し、偽のAPIの前提（要求の経路・応答のeventの種類・hookの並び）が変わっていないかを確かめ、変わっていれば台本を直す。記録を再生する試験は補助で、本物のCLIを通した受け入れの代わりにしない。 Releaseの受け入れは `verification/fake-model/verified.json` とCLIのバージョン・指示ファイルを比べ、変更に関係するシナリオを実モデルでも自動で流す。成功後に証拠先へ出た更新案を確認し、`verified.json` に反映して公開の後にcommitする（更新案はバージョンのcommitで作成した後に出る）。
+Release の受け入れは配布物でしか確認できない境界に限る。CLI の互換の監視と本物のモデルとの照合は main と Release を停止しない。読み取りの負荷の試験は画面を使わず、本物の Host と Client と同じ通信で実行する。
 
 Linuxで資源の上限付きの検査は `node scripts/run-bounded-check.mjs <command> [args...]` を入口にする。メモリ上限の枠の中ではそのまま時間制限を付けて実行し、枠の外ではsystemdのscopeで制限して実行する。制限を外さない。`node --test` を直接呼ぶ時は `--test-timeout` を指定する。
 
@@ -75,9 +72,7 @@ pnpm --filter @iori/host invite
 
 bridgeのWebSocketは127.0.0.1だけで待ち受ける。irohのUDP endpointは製品Clientと同じ設定でbindし、別machineの検証Hostにも通常の招待で接続する。鍵と画面の保存を `.local/web-client/` に持つ（`IORI_WEB_CLIENT_DATA` で変更可）。製品のDPAPI/Keystoreによる保護とは異なり、開発用の鍵・SQLiteを本人限定のdirectory/fileに保存する。製品Clientの保存先や鍵を指定しない。clipboard・リンクを開く・前面状態はChromiumのAPIを使い、QR読取は使えない。開発ブラウザーではAlt+←でAndroidと同じ戻る処理を呼ぶ。`IORI_WEB_PORT` で画面serverのportを変更できる。
 
-画面の変更ごとの操作確認は `pnpm e2e:web --only=<シナリオ>`。専用Host・bridge・画面server・既存Chromiumを起動し、選んだシナリオを通して後始末する。登録と配置・Terminal・CLIの状態・再開とFiles/Gitなど、内容のまとまりごとに1つずつ流す。各runは既定の4GiBで実行する。準備と結果の場所は[ブラウザーの画面E2E](verification/README.md#ブラウザーの画面e2e)を参照する。Windows/Androidの実機E2EやIME確認の代わりにはしない。
-
-READMEの画像は `node scripts/run-bounded-check.mjs node verification/web/run.mjs --only=readme-shots` でダーク・ライトのPNGと実動画からのGIFを `docs/images/` に撮り直す（ffmpegと `~/.config/iori/publish.json` の公開禁止の値が必要）。
+画面の操作確認は[画面の試験](verification/README.md#画面の試験)を使う。
 
 Clientのnative開発には[Tauriの前提条件](https://v2.tauri.app/start/prerequisites/)を揃える。AndroidはSDK 36・Build Tools 36.0.0・NDK 27.2.12479018・JDK 21を設定してから実行する。
 
@@ -87,18 +82,17 @@ Clientのnative開発には[Tauriの前提条件](https://v2.tauri.app/start/pre
 pnpm tauri android build --debug --apk --target aarch64
 ```
 
-| コマンド                                                                                            | 検査                                                           |
-| --------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| `pnpm check`                                                                                        | Host・Client・E2Eの型                                          |
-| `pnpm lint`                                                                                         | ESLint・作りの原則・型の抜け道・説明のない抑制                 |
-| `pnpm test`                                                                                         | Host・Clientと検査規則の `node --test`。各試験の上限は1分      |
-| `pnpm e2e:web --only=<シナリオ>`                                                                    | 開発ClientとLinux Hostで画面のシナリオ（実機の代用にはしない） |
-| `pnpm format:check`                                                                                 | Prettier                                                       |
-| `pnpm check:docs`                                                                                   | 文書リンクと検査器の自己試験                                   |
-| `cargo fmt --all --check`                                                                           | 共有通信crate・Host addonのRust整形                            |
-| `cargo clippy --workspace --all-targets --locked -- -D warnings`                                    | 共有通信crate・Host addonのRust静的検査                        |
-| `cargo fmt --manifest-path apps/client/src-tauri/Cargo.toml --all --check`                          | ClientとpluginのRust整形                                       |
-| `cargo clippy --manifest-path apps/client/src-tauri/Cargo.toml --workspace --locked -- -D warnings` | 実行OS向けのClient/pluginのRust静的検査                        |
+| コマンド                                                                                            | 検査                                                      |
+| --------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| `pnpm check`                                                                                        | Host・Client・E2Eの型                                     |
+| `pnpm lint`                                                                                         | ESLint・作りの原則・型の抜け道・説明のない抑制            |
+| `pnpm test`                                                                                         | Host・Clientと検査規則の `node --test`。各試験の上限は1分 |
+| `pnpm format:check`                                                                                 | Prettier                                                  |
+| `pnpm check:docs`                                                                                   | 文書リンクと検査器の自己試験                              |
+| `cargo fmt --all --check`                                                                           | 共有通信crate・Host addonのRust整形                       |
+| `cargo clippy --workspace --all-targets --locked -- -D warnings`                                    | 共有通信crate・Host addonのRust静的検査                   |
+| `cargo fmt --manifest-path apps/client/src-tauri/Cargo.toml --all --check`                          | ClientとpluginのRust整形                                  |
+| `cargo clippy --manifest-path apps/client/src-tauri/Cargo.toml --workspace --locked -- -D warnings` | 実行OS向けのClient/pluginのRust静的検査                   |
 
 Linux上のClient用clippyはAndroid向けのコードを検査しない。Android向けのRust・Kotlinの型の検査は `verification/connection/build-android.mjs` のAPK buildで行う。
 
@@ -132,31 +126,7 @@ CIの前にCargo targetへworktreeの絶対パスを記録し、消えたworktre
 
 ## 開発の回し方
 
-改善をユーザーへ早く届けることを、品質と同じ目的として扱う。確認は速さで3段に分け、遅い確認で開発を待たせない。
-
-1. **取り込み前（変更ごと、数分以内）**: 型・lint・原則の検査・format、変えた範囲の試験。通信・保存・停止・CLI・OSとの境界を変えた時は、本物のCLIでの代表操作も流す。
-2. **夜間とReleaseの前（待たない）**: 全部の画面のE2Eを夜間に1回と、Releaseを作成する前に実行する。再実行でも失敗したシナリオだけを、原因の変更を特定して直すか戻す。
-3. **日常の利用**: 日常利用で見つかった問題を直す。
-
-再実行で成功した揺れは調べない。同じシナリオの再実行が繰り返す時だけ、1回直し、直らなければ、同じ振る舞いを揺れない場所で確認する形に作り直す。原因が製品の不具合なら、試験の期待を製品に合わせて変えない。
-
-取り込み前の確認の重さは、変更の危険で決める。
-
-| 変更                              | 取り込み前の確認                            |
-| --------------------------------- | ------------------------------------------- |
-| 文言・見た目・試験・文書だけ      | 取り込み前の検査と、親Agentによる差分の確認 |
-| 製品の動き                        | 取り込み前の検査と、作者以外のreview        |
-| 通信・保存・停止・CLI・OSとの境界 | 上に加えて、本物のCLIでの代表操作           |
-
-実機の検証は、次の段で必要な分だけ流す。追い修正のたびに通しを流し直さない。
-
-| 時                                                                            | 流すもの                                                                                                    |
-| ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| 変更ごと                                                                      | CIと、変えた所だけを確かめる手早い道具。画面は `pnpm e2e:web --only=<シナリオ>`（開発用ClientとLinux Host） |
-| native境界（通信・プロセス・保存・OS統合・Windows/Androidのnative）を変えた時 | 変更が及ぶ組合せを1つ、実機で                                                                               |
-| 単位を受け入れる時                                                            | 変更が及ぶ組合せの通しを1回（最大4組合せ）                                                                  |
-
-画面のシナリオ（`e2e/web/scenario.mjs`）へ段を足す・順を変える時は、変更が及ぶ名前付きのシナリオを通す。各シナリオは招待・フォルダー・Terminalなどの前提を自分でそろえる。Host再起動前後の会話や、PC・スマホ間の同じTerminalなど、続きが必要な確認は同じシナリオへ残す。基本のシナリオの一覧は[ブラウザーの画面E2E](verification/README.md#ブラウザーの画面e2e)を参照する。
+main へマージする前に `bash scripts/ci.sh` を実行する。実機の検証は通信・プロセスの起動と停止・ファイル・OS 統合・導入と更新など、変更が及ぶ境界の組合せで行う。画面だけ・Host 内部だけの変更には実機を使わない。手順は[検証](verification/README.md)を参照する。
 
 ## 保存形式の変更
 

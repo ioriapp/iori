@@ -585,23 +585,16 @@ try {
       openSettingsSection(client.screen, "open-connection"),
     );
     await settingsStep(() =>
-      client.screen.reveal('[data-iori-action="allow-host-connections"]'),
+      client.screen.reveal(".connection-form > p:not([class])"),
+    );
+    assert.equal(
+      await client.screen.evaluate(
+        `Boolean(document.querySelector('[data-iori-action="allow-host-connections"]'))`,
+      ),
+      false,
     );
     await capture("connection-settings");
-    if (manualReapply) {
-      // Leave the Client open. The Owner operates the button, UAC and the UI.
-      // No WebDriver call follows this handoff, including during cleanup.
-      await approval("manual-reapply");
-      record(
-        "owner-observation",
-        await readFile(path.join(root, "continue-manual-reapply"), "utf8"),
-      );
-      await approval("record-manual-reapply");
-      record(
-        "after-manual-reapply-native",
-        await windowsDesktop(state, "window-health-read", { program }),
-      );
-    } else {
+    if (!manualReapply) {
       await client.screen.click('[data-iori-action="register-new-host"]');
       await settingsStep(() =>
         client.screen.wait('[data-iori-view="host-choices"]'),
@@ -616,13 +609,31 @@ try {
       await settingsStep(() =>
         client.screen.wait('[data-iori-view="host-choices"]'),
       );
-      await client.screen.key("Escape");
-      await settingsStep(() =>
-        openSettingsSection(client.screen, "open-connection"),
+    }
+    await client.screen.key("Escape");
+    const removed = removeWindowsProgramRules(program);
+    record("removed-firewall-rules-for-reapply", removed);
+    assert.equal(removed.remaining, 0);
+    await settingsStep(() =>
+      openSettingsSection(client.screen, "open-connection"),
+    );
+    await settingsStep(() =>
+      client.screen.reveal('[data-iori-action="allow-host-connections"]'),
+    );
+    if (manualReapply) {
+      // Leave the Client open. The Owner operates the button, UAC and the UI.
+      // No WebDriver call follows this handoff, including during cleanup.
+      await approval("manual-reapply");
+      record(
+        "owner-observation",
+        await readFile(path.join(root, "continue-manual-reapply"), "utf8"),
       );
-      await settingsStep(() =>
-        client.screen.reveal('[data-iori-action="allow-host-connections"]'),
+      await approval("record-manual-reapply");
+      record(
+        "after-manual-reapply-native",
+        await windowsDesktop(state, "window-health-read", { program }),
       );
+    } else {
       await approval("reapply-firewall");
       const reapplied = await windowsConsentOperation(
         state,
@@ -646,7 +657,7 @@ try {
       await settingsStep(() =>
         waitFor(() =>
           client.screen.evaluate(
-            `document.querySelector('[data-iori-action="allow-host-connections"]')?.disabled === false`,
+            `Boolean(document.querySelector('.connection-form > p:not([class])')) && !document.querySelector('[data-iori-action="allow-host-connections"]')`,
           ),
         ),
       );

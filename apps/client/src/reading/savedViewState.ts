@@ -1,5 +1,19 @@
 import { useCallback, useEffect, useRef } from "react";
 
+export function useSaveOnPageHide(save: () => void) {
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") save();
+    };
+    window.addEventListener("pagehide", save);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("pagehide", save);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [save]);
+}
+
 /**
  * Saves a View's state with the workspace layout shortly after it changes, and
  * whatever is still unsaved at once when the View closes or its worktree is
@@ -28,6 +42,7 @@ export function useSavedViewState<T extends { ratio?: number }>(
     clearTimeout(timer.current);
     timer.current = setTimeout(save, 250);
   }, [save]);
+  useSaveOnPageHide(save);
   const shown = useRef(false);
   useEffect(() => {
     if (!shown.current) {

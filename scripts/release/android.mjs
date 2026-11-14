@@ -1,9 +1,11 @@
-import { mkdir, readFile, rm } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { root, output, command } from "./common.mjs";
+import { root, output, command, releaseSource } from "./common.mjs";
 import { lockEntry } from "../../verification/native/locks.mjs";
 import { checkAndroidApkPlugins } from "../../verification/native/android-apk-check.mjs";
 import { signAndroid } from "./sign-android.mjs";
+import { checkAndroidUpgrade } from "./android-upgrade.mjs";
+import { previousAndroidRelease } from "./acceptance.mjs";
 await lockEntry(import.meta.url);
 await mkdir(output, { recursive: true });
 let failure;
@@ -29,14 +31,44 @@ try {
     path.join(state.androidRoot, "client.apk"),
     state.androidJavaHome,
   );
+  const staticEvidence =
+    process.env.IORI_RELEASE_ANDROID_STATIC_EVIDENCE ??
+    path.join(evidence, "static-apk-check");
+  await mkdir(staticEvidence, { recursive: true });
+  const previous = await previousAndroidRelease();
+  if (previous) {
+    const response = await fetch(
+      `${releaseSource}/download/${encodeURIComponent(previous.tag_name)}/iori-android-arm64.apk`,
+    );
+    if (!response.ok)
+      throw new Error(
+        `前の Release の APK の取得に失敗: HTTP ${response.status}`,
+      );
+    const previousApk = path.join(state.androidRoot, "previous-release.apk");
+    await writeFile(previousApk, Buffer.from(await response.arrayBuffer()));
+    await checkAndroidUpgrade(
+      previousApk,
+      path.join(output, "iori-android-arm64.apk"),
+      staticEvidence,
+      state.androidJavaHome,
+    );
+  } else {
+    await writeFile(
+      path.join(staticEvidence, "upgrade.json"),
+      JSON.stringify(
+        { skipped: "前の公開版がないため上書きの確認を飛ばしました" },
+        null,
+        2,
+      ) + "\n",
+    );
+    console.log("[release] 前の公開版がないため上書きの確認を飛ばしました");
+  }
   // Check the distribution APK before the build scratch (and the Gradle
   // settings it generated) is removed.
   await checkAndroidApkPlugins({
     apk: path.join(output, "iori-android-arm64.apk"),
     sourceRoot: path.join(state.androidRoot, "source"),
-    evidence:
-      process.env.IORI_RELEASE_ANDROID_STATIC_EVIDENCE ??
-      path.join(evidence, "static-apk-check"),
+    evidence: staticEvidence,
   });
 } catch (error) {
   failure = error;
