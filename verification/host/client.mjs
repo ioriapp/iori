@@ -116,9 +116,7 @@ export async function connectClient(dataRoot, secretKey) {
   const identity = secretKey
     ? { secretKey: Buffer.from(secretKey) }
     : addon.generateIdentity();
-  const endpoint = await addon.Endpoint.bind(identity.secretKey, [
-    "127.0.0.1:0",
-  ]);
+  const endpoint = await addon.Endpoint.bind(identity.secretKey, ["0.0.0.0:0"]);
   identity.secretKey.fill(0);
   let peer;
   const subscriptions = new Set();

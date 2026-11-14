@@ -26,7 +26,7 @@ export interface CliSimpleDefinition {
 }
 /** Why a definition is not read, worded by the Client in its language. */
 export type CliDefinitionReason =
-  | { kind: "json" }
+  | { kind: "json"; line?: number; column?: number }
   | { kind: "unreadable" }
   | { kind: "missing"; field: string }
   | {

@@ -13,7 +13,7 @@ import {
 } from "../components/ui/command.tsx";
 import { CliIcon, useCliName, useModelLabel } from "./context.tsx";
 import { useI18n } from "./context.tsx";
-import { groupModels, modelProvider } from "./model-catalog.ts";
+import { groupModels, modelOrder, modelProvider } from "./model-catalog.ts";
 import type { Candidate } from "./team-data.ts";
 
 type Target = {
@@ -47,22 +47,17 @@ export function ModelPicker({
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const root = useRef<HTMLDivElement>(null);
   const searching = search.trim() !== "";
-  const recent = allRecent.filter((entry) =>
-    Object.hasOwn(availableModels, entry.cli),
-  );
+  const cliOrder = clis.map((cli) => cli.id);
+  const compareModels = modelOrder(cliOrder, language);
+  const recent = allRecent
+    .filter((entry) => Object.hasOwn(availableModels, entry.cli))
+    .sort(compareModels);
   const catalogs = Object.entries(availableModels)
-    .sort(([a], [b]) =>
-      definitionOrder(
-        clis.map((cli) => cli.id),
-        language,
-      )(a, b),
-    )
+    .sort(([a], [b]) => definitionOrder(cliOrder, language)(a, b))
     .map(([cli, models]): [string, string[]] => [
       cli,
-      [...models].sort(
-        (a, b) =>
-          modelProvider(a).localeCompare(modelProvider(b), language) ||
-          a.localeCompare(b, language),
+      [...models].sort((a, b) =>
+        compareModels({ cli, model: a }, { cli, model: b }),
       ),
     ]);
   const matches = (cli: string, model: string) =>

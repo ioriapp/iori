@@ -22,6 +22,7 @@
     "@napi-rs/keyring": "2.1.0",
     "@decimalturn/toml-patch": "3.3.0",
     "@shikijs/engine-oniguruma": "4.5.0",
+    "jsonc-parser": "3.3.1",
     "shiki": "4.5.0",
     "yaml": "2.9.1"
   },

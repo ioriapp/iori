@@ -127,3 +127,39 @@ test(
     ).toBeChecked();
   },
 );
+
+test(
+  "CLI一覧の到着前に新しいAutomationを開いても保存できる",
+  { tag: "@desktop" },
+  async ({ page, registeredApp: app }) => {
+    await addModel(app);
+    await app.faults.hold("cli.list");
+    await page.goto(app.url);
+    await page
+      .getByRole("button", { name: "AI Agents/Teams", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Automations", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "New automation", exact: true })
+      .click();
+    await app.faults.clear();
+    await expect(
+      page.getByRole("combobox", { name: /^CLI and model:/ }),
+    ).toContainText("›");
+    await page
+      .getByRole("textbox", { name: "Name", exact: true })
+      .fill("Delayed CLI work");
+    await page
+      .getByRole("textbox", { name: "Instructions", exact: true })
+      .fill("Perform the work.");
+    await page
+      .getByRole("textbox", { name: "Folder", exact: true })
+      .fill(app.folder);
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(
+      page.getByRole("button", { name: "Run now", exact: true }),
+    ).toBeVisible();
+  },
+);

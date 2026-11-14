@@ -68,3 +68,24 @@ test(
     await expect(await journey(page, app, true)).toBeVisible();
   },
 );
+
+test(
+  "スマホで戻る操作が利用枠のポップオーバーだけを閉じる",
+  { tag: "@phone" },
+  async ({ page, registeredApp: app }) => {
+    const usage = await journey(page, app, true);
+    const heading = page.getByRole("heading", {
+      name: "Usage test",
+      exact: true,
+    });
+    // After the reload, the phone shows the first screen, which has no
+    // earlier view: Android would leave the app on this back.
+    const firstScreen = page.getByRole("region", { name: /^Boards/ });
+    await expect(heading).toBeVisible();
+    await expect(firstScreen).toBeVisible();
+    await page.keyboard.press("Alt+ArrowLeft");
+    await expect(heading).toBeHidden();
+    await expect(usage).toBeVisible();
+    await expect(firstScreen).toBeVisible();
+  },
+);

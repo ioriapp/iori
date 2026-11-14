@@ -59,6 +59,7 @@ async function launchOnce(isolatedEnvironment, distribution, onStderr) {
   const environment = verificationHostEnvironment();
   delete environment.CLAUDE_CODE_OAUTH_TOKEN;
   delete environment.IORI_HOST_PORT;
+  if (isolatedEnvironment.PATH !== undefined) delete environment.Path;
   const child = fork(
     import.meta.filename,
     [

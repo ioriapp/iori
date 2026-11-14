@@ -3,6 +3,10 @@ import { copyFile, mkdir, readdir, readFile, rm, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  parse as parseJsonc,
+  type ParseError as JsoncParseError,
+} from "jsonc-parser";
 import type {
   CliDefinitionFailure,
   CliDefinitionReason,
@@ -602,6 +606,29 @@ export function cliSupport(
   };
 }
 
+/** 1-based line and column for a UTF-16 code unit offset in `text`. */
+export function lineColumnAt(
+  text: string,
+  offset: number,
+): { line: number; column: number } {
+  const end = Math.max(0, Math.min(offset, text.length));
+  let line = 1;
+  let column = 1;
+  for (let i = 0; i < end; i++) {
+    if (text[i] === "\r") {
+      line += 1;
+      column = 1;
+      if (i + 1 < end && text[i + 1] === "\n") i += 1;
+    } else if (text[i] === "\n") {
+      line += 1;
+      column = 1;
+    } else {
+      column += 1;
+    }
+  }
+  return { line, column };
+}
+
 /** Read a definition received as text, for the folder `id`. */
 export function readDefinitionText(
   text: string,
@@ -611,6 +638,15 @@ export function readDefinitionText(
   try {
     value = JSON.parse(text);
   } catch {
+    const errors: JsoncParseError[] = [];
+    parseJsonc(text, errors, {
+      disallowComments: true,
+      allowTrailingComma: false,
+    });
+    if (errors.length > 0) {
+      const { line, column } = lineColumnAt(text, errors[0].offset);
+      return { reason: { kind: "json", line, column } };
+    }
     return { reason: { kind: "json" } };
   }
   return readDefinition(value, id);

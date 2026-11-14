@@ -79,6 +79,7 @@ export function devicePlan(file, args = []) {
     case "verification/cli/forge-command.mjs":
     case "verification/workspace/worktree-removal.mjs":
     case "verification/terminal/daemon-windows.mjs":
+    case "verification/updates/client-windows-overwrite.mjs":
     case "verification/updates/host-windows.mjs":
     case "verification/forge/token-store-windows.mjs":
     case "verification/cli/run.mjs":

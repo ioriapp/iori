@@ -206,6 +206,28 @@ export default function App() {
   );
 }
 
+const OPEN_RADIX_LAYER_SELECTOR = [
+  '[data-state="open"][role="dialog"]',
+  '[data-state="open"][role="alertdialog"]',
+  '[data-state="open"][role="menu"]',
+  '[data-state="open"][role="listbox"]',
+].join(", ");
+
+function dismissOpenRadixLayer(): boolean {
+  if (!document.querySelector(OPEN_RADIX_LAYER_SELECTOR)) return false;
+  // bubbles: false keeps window-level Escape handlers (such as workspace maximize)
+  // from firing while still reaching Radix's capture listener on document.
+  document.dispatchEvent(
+    new KeyboardEvent("keydown", {
+      key: "Escape",
+      code: "Escape",
+      bubbles: false,
+      cancelable: true,
+    }),
+  );
+  return true;
+}
+
 function AppContent({
   onMaintenanceClisReader,
 }: {
@@ -604,6 +626,7 @@ function AppContent({
     settingsCloseRef.current = close;
   }, []);
   backHandlerRef.current = () => {
+    if (dismissOpenRadixLayer()) return true;
     if (nestedBackRef.current) {
       nestedBackRef.current();
       return true;

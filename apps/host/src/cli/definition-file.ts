@@ -134,7 +134,9 @@ export function reasonText(reason: CliDefinitionReason): string {
       : items.map((item) => `"${item}"`).join(" or ");
   switch (reason.kind) {
     case "json":
-      return "definition.json is not valid JSON";
+      return reason.line !== undefined && reason.column !== undefined
+        ? `definition.json is not valid JSON (line ${reason.line}, column ${reason.column})`
+        : "definition.json is not valid JSON";
     case "unreadable":
       return "definition.json cannot be read";
     case "missing":

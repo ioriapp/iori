@@ -1,19 +1,66 @@
 import assert from "node:assert/strict";
 import { spawn, execFileSync } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
+import { access, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { linuxClientImage } from "../../scripts/release/linux-client.mjs";
 import { command, root } from "../../scripts/release/common.mjs";
 import { WebDriver, ui, waitFor } from "../ui.mjs";
 
-if (!process.argv.includes("--inside")) {
-  const directory = path.resolve(process.argv[2]);
+const inside = process.argv.includes("--inside");
+const smoke = process.argv.includes("--smoke");
+
+async function readProcesses() {
+  const entries = await readdir("/proc", { withFileTypes: true });
+  const processes = new Map();
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !/^\d+$/u.test(entry.name)) continue;
+    try {
+      const stat = await readFile(`/proc/${entry.name}/stat`, "utf8");
+      const nameEnd = stat.lastIndexOf(")");
+      if (nameEnd < 0) continue;
+      const comm = stat.slice(stat.indexOf("(") + 1, nameEnd);
+      const ppid = Number(stat.slice(nameEnd + 2).split(" ")[1]);
+      processes.set(Number(entry.name), {
+        pid: Number(entry.name),
+        ppid,
+        comm,
+      });
+    } catch {
+      /* Process exited while reading /proc. */
+    }
+  }
+  return processes;
+}
+
+function hasDescendantNamed(processes, rootPid, targetComm) {
+  const owned = new Set([rootPid]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const item of processes.values()) {
+      if (owned.has(item.ppid) && !owned.has(item.pid)) {
+        owned.add(item.pid);
+        if (item.comm === targetComm) return true;
+        changed = true;
+      }
+    }
+  }
+  return false;
+}
+
+if (!inside) {
+  const directoryArg = process.argv
+    .slice(2)
+    .find((argument) => !argument.startsWith("-"));
+  if (!directoryArg) throw new Error("配布物のディレクトリを指定してください");
+  const directory = path.resolve(directoryArg);
   const evidence = path.resolve(
     process.env.IORI_VERIFICATION_EVIDENCE_ROOT ??
       ".local/evidence/linux-client",
     "ubuntu-" + Date.now(),
   );
   await mkdir(evidence, { recursive: true });
+  const { linuxClientImage } =
+    await import("../../scripts/release/linux-client.mjs");
   const image = await linuxClientImage();
   await command("docker", [
     "--config",
@@ -38,12 +85,16 @@ if (!process.argv.includes("--inside")) {
 umask 077
 export HOME=/tmp/iori-ubuntu XDG_DATA_HOME=/tmp/iori-ubuntu/data XDG_CONFIG_HOME=/tmp/iori-ubuntu/config XDG_CACHE_HOME=/tmp/iori-ubuntu/cache XDG_RUNTIME_DIR=/tmp/iori-ubuntu/runtime
 mkdir -p "$HOME" "$XDG_DATA_HOME" "$XDG_CONFIG_HOME" "$XDG_CACHE_HOME" "$XDG_RUNTIME_DIR"
-exec dbus-run-session -- xvfb-run -a -s '-screen 0 1440x1000x24' bash -ec 'head -c 32 /dev/urandom | base64 | gnome-keyring-daemon --daemonize --components=secrets --unlock; exec node /source/verification/linux-client/ubuntu.mjs --inside'
+exec dbus-run-session -- xvfb-run -a -s '-screen 0 1440x1000x24' bash -ec 'head -c 32 /dev/urandom | base64 | gnome-keyring-daemon --daemonize --components=secrets --unlock; exec node /source/verification/linux-client/ubuntu.mjs --inside${smoke ? " --smoke" : ""}'
 `,
   ]);
   console.log(`Ubuntu 22.04 evidence: ${evidence}`);
 } else {
-  const result = { passed: false, phases: [] };
+  const result = {
+    passed: false,
+    ...(smoke ? { mode: "smoke" } : {}),
+    phases: [],
+  };
   let debExecutable;
   try {
     for (const format of ["deb", "AppImage"]) {
@@ -66,11 +117,29 @@ exec dbus-run-session -- xvfb-run -a -s '-screen 0 1440x1000x24' bash -ec 'head 
       } else await command("chmod", ["+x", "/tmp/iori-linux-x64.AppImage"]);
       const executable =
         format === "deb" ? debExecutable : "/tmp/iori-linux-x64.AppImage";
+      const formatRoot = `/tmp/iori-ubuntu-${format}`;
+      const xdgData = `${formatRoot}/data`;
+      const xdgConfig = `${formatRoot}/config`;
+      const xdgCache = `${formatRoot}/cache`;
+      const xdgRuntime = `${formatRoot}/runtime`;
+      if (smoke) {
+        for (const dir of [xdgData, xdgConfig, xdgCache, xdgRuntime])
+          await mkdir(dir, { recursive: true, mode: 0o700 });
+      }
       const env = {
         ...process.env,
-        TAURI_WEBVIEW_AUTOMATION: "true",
-        WEBKIT_INSPECTOR_SERVER: "127.0.0.1:4447",
-        WEBDRIVER_TARGET_ADDR: "127.0.0.1:4447",
+        ...(smoke
+          ? {
+              XDG_DATA_HOME: xdgData,
+              XDG_CONFIG_HOME: xdgConfig,
+              XDG_CACHE_HOME: xdgCache,
+              XDG_RUNTIME_DIR: xdgRuntime,
+            }
+          : {
+              TAURI_WEBVIEW_AUTOMATION: "true",
+              WEBKIT_INSPECTOR_SERVER: "127.0.0.1:4447",
+              WEBDRIVER_TARGET_ADDR: "127.0.0.1:4447",
+            }),
         WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS: "1",
         LIBGL_ALWAYS_SOFTWARE: "1",
         APPIMAGE_EXTRACT_AND_RUN: "1",
@@ -87,67 +156,117 @@ exec dbus-run-session -- xvfb-run -a -s '-screen 0 1440x1000x24' bash -ec 'head 
       app.stderr.on("data", (data) => {
         appLog += data;
       });
-      const driver = spawn(
-        "WebKitWebDriver",
-        ["--port=4445", "--host=127.0.0.1"],
-        { env, stdio: "ignore" },
+      let exitedStatus;
+      const appClosed = new Promise((resolve) =>
+        app.once("close", (code, signal) => {
+          exitedStatus = signal ?? code;
+          resolve();
+        }),
       );
-      const driverClosed = new Promise((resolve) =>
-        driver.once("close", resolve),
-      );
-      const appClosed = new Promise((resolve) => app.once("close", resolve));
-      let browser;
-      try {
-        await waitFor(async () => {
-          try {
-            return (await fetch("http://127.0.0.1:4445/status")).ok;
-          } catch {
-            return false;
-          }
-        });
-        const response = await fetch("http://127.0.0.1:4445/session", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            capabilities: {
-              alwaysMatch: {
-                "webkitgtk:browserOptions": { binary: executable },
-              },
+      if (smoke) {
+        try {
+          await waitFor(
+            async () => {
+              if (exitedStatus !== undefined)
+                throw new Error(
+                  `${format} Client exited before ready (${exitedStatus}): ${appLog.slice(-1000)}`,
+                );
+              const processes = await readProcesses();
+              if (!processes.has(app.pid)) return false;
+              if (!hasDescendantNamed(processes, app.pid, "WebKitWebProces"))
+                return false;
+              try {
+                await access(
+                  path.join(
+                    xdgData,
+                    "io.github.ioriapp.iori",
+                    "registrations.sqlite3",
+                  ),
+                );
+                return true;
+              } catch {
+                return false;
+              }
             },
-          }),
-        });
-        const payload = await response.json();
-        assert.equal(response.status, 200, JSON.stringify(payload));
-        browser = new WebDriver(
-          "http://127.0.0.1:4445",
-          payload.value.sessionId,
-        );
-        const screen = ui(
-          (expression) => browser.evaluate(expression),
-          browser,
-        );
-        await screen.wait('[data-iori-view="first-run"]');
-        await writeFile(
-          `/evidence/${format}.png`,
-          Buffer.from(await browser.screenshot(), "base64"),
-        );
-        result.phases.push(
-          `${format}: first Host registration screen on Ubuntu 22.04`,
-        );
-      } finally {
-        try {
-          await browser?.close();
-        } catch {
-          /* Preserve original result. */
+            Boolean,
+            45000,
+            `${format} Client の起動`,
+          );
+          assert.equal(exitedStatus, undefined);
+          result.phases.push(
+            `${format}: started on Ubuntu 22.04 Xvfb with WebKitWebProcess and registrations.sqlite3`,
+          );
+        } finally {
+          try {
+            process.kill(-app.pid, "SIGTERM");
+          } catch (error) {
+            if (error.code !== "ESRCH") throw error;
+          }
+          await appClosed;
+          await writeFile(`/evidence/${format}.log`, appLog);
         }
+      } else {
+        const driver = spawn(
+          "WebKitWebDriver",
+          ["--port=4445", "--host=127.0.0.1"],
+          { env, stdio: "ignore" },
+        );
+        const driverClosed = new Promise((resolve) =>
+          driver.once("close", resolve),
+        );
+        let browser;
         try {
-          process.kill(-app.pid, "SIGTERM");
-        } catch (error) {
-          if (error.code !== "ESRCH") throw error;
+          await waitFor(async () => {
+            try {
+              return (await fetch("http://127.0.0.1:4445/status")).ok;
+            } catch {
+              return false;
+            }
+          });
+          const response = await fetch("http://127.0.0.1:4445/session", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              capabilities: {
+                alwaysMatch: {
+                  "webkitgtk:browserOptions": { binary: executable },
+                },
+              },
+            }),
+          });
+          const payload = await response.json();
+          assert.equal(response.status, 200, JSON.stringify(payload));
+          browser = new WebDriver(
+            "http://127.0.0.1:4445",
+            payload.value.sessionId,
+          );
+          const screen = ui(
+            (expression) => browser.evaluate(expression),
+            browser,
+          );
+          await screen.wait('[data-iori-view="first-run"]');
+          await writeFile(
+            `/evidence/${format}.png`,
+            Buffer.from(await browser.screenshot(), "base64"),
+          );
+          result.phases.push(
+            `${format}: first Host registration screen on Ubuntu 22.04`,
+          );
+        } finally {
+          try {
+            await browser?.close();
+          } catch {
+            /* Preserve original result. */
+          }
+          try {
+            process.kill(-app.pid, "SIGTERM");
+          } catch (error) {
+            if (error.code !== "ESRCH") throw error;
+          }
+          driver.kill("SIGTERM");
+          await Promise.all([appClosed, driverClosed]);
+          await writeFile(`/evidence/${format}.log`, appLog);
         }
-        driver.kill("SIGTERM");
-        await Promise.all([appClosed, driverClosed]);
-        await writeFile(`/evidence/${format}.log`, appLog);
       }
     }
     result.passed = true;

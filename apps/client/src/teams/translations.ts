@@ -83,6 +83,11 @@ export const teamJapanese: Record<string, string> = {
     "Automationの履歴を読み込めませんでした。もう一度お試しください。",
   "Could not save the automation. Check its fields and retry.":
     "Automationを保存できませんでした。入力内容を確認して、もう一度お試しください。",
+  "Enter a name.": "名前を入力してください。",
+  "Enter instructions.": "指示を入力してください。",
+  "Choose a folder.": "フォルダーを選択してください。",
+  "Choose a CLI.": "CLIを選択してください。",
+  "Choose a team.": "Teamを選択してください。",
   "Could not run the automation. Retry.":
     "Automationを実行できませんでした。もう一度お試しください。",
   "Could not delete the automation. Retry.":
@@ -309,6 +314,8 @@ export const teamJapanese: Record<string, string> = {
   "Enter the JSON.": "JSONを入力してください。",
   "Upload a file.": "ファイルをアップロードしてください。",
   "The JSON format is not valid.": "JSONの形式が正しくありません。",
+  "The JSON format is not valid (line {line}, column {column}).":
+    "JSONの形式が正しくありません（行 {line}、列 {column}）。",
   "Add the definition of {name}?": "{name}の定義を追加しますか？",
   "Overwrite the definition of {name}?": "{name}の定義を上書きしますか？",
   "Save the definition of {name}?": "{name}の定義を保存しますか？",

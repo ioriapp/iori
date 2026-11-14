@@ -48,6 +48,7 @@
 | 応答・作業が終わった状態（Done）               | 完了                                                 | 終わった                                                 | VS Code（`Done`→完了）                                                                       |
 | 5時間・週などの個々の制限（rate limit）        | 利用枠（長さは 5h・7d）                              | 窓                                                       | VS Code（`session rate limit`→セッション レート制限、`weekly rate limit`→週間レート制限）    |
 | Overwrite（保存の競合）                        | 上書き                                               | —                                                        | VS Code の保存の競合（Overwrite → 上書き）                                                   |
+| 文字の位置（Line・Column）                     | 行 {n}、列 {n}                                       | {n}行目・{n}文字目                                       | VS Code（`Ln {0}, Col {1}` → 行 {0}、列 {1}）                                                |
 
 ## 表記
 

@@ -30,6 +30,8 @@ test("連結されたコマンドの push・Release・本文を判定する", ()
       pushes: [{ source: "HEAD", ciCovered: true }],
       release: false,
       notes: [],
+      posts: [],
+      postTitles: [],
     },
   );
   assert.deepEqual(
@@ -40,13 +42,21 @@ test("連結されたコマンドの push・Release・本文を判定する", ()
       pushes: [{ source: "main", ciCovered: false }],
       release: true,
       notes: ["release notes.md"],
+      posts: [],
+      postTitles: [],
     },
   );
   assert.deepEqual(
     targets(
       "git push origin HEAD:other | node scripts/release/notes.mjs 1.0 --notes notes.md",
     ),
-    { pushes: [], release: false, notes: ["notes.md"] },
+    {
+      pushes: [],
+      release: false,
+      notes: ["notes.md"],
+      posts: [],
+      postTitles: [],
+    },
   );
 });
 
@@ -206,4 +216,53 @@ test("版番号だけを変えた commit は親の通常 CI の証拠を使う",
     ),
     true,
   );
+});
+
+test("Issue の投稿と iori の依頼の本文・題を判定する", () => {
+  assert.deepEqual(
+    targets(
+      'cd /repo && forgejo-agent issue create --title "新規の題" --body-file ".local/briefs/issue body.md"',
+    ),
+    {
+      pushes: [],
+      release: false,
+      notes: [],
+      posts: [".local/briefs/issue body.md"],
+      postTitles: ["新規の題"],
+    },
+  );
+  for (const sub of ["comment 1", "edit 2"]) {
+    assert.deepEqual(
+      targets(`forgejo-agent issue ${sub} --body-file '.local/briefs/a.md'`),
+      {
+        pushes: [],
+        release: false,
+        notes: [],
+        posts: [".local/briefs/a.md"],
+        postTitles: [],
+      },
+    );
+  }
+  for (const sub of ["delegate", "send", "report", "ask", "pr create"]) {
+    assert.deepEqual(targets(`iori ${sub} --file .local/briefs/msg.md`), {
+      pushes: [],
+      release: false,
+      notes: [],
+      posts: [".local/briefs/msg.md"],
+      postTitles: [],
+    });
+  }
+  for (const line of [
+    "cat --file x",
+    "iori status --file x",
+    "forgejo-agent issue list --body-file x",
+  ]) {
+    assert.deepEqual(targets(line), {
+      pushes: [],
+      release: false,
+      notes: [],
+      posts: [],
+      postTitles: [],
+    });
+  }
 });

@@ -1,3 +1,4 @@
+import { createTeam } from "./fixtures/journeys.ts";
 import type { Page } from "@playwright/test";
 import type { App } from "./fixtures/test.ts";
 import { writeFile } from "node:fs/promises";
@@ -17,40 +18,7 @@ type Args = { page: Page; registeredApp: App };
 function worktreeJourney(mobile: boolean) {
   return async ({ page, registeredApp: app }: Args) => {
     await repository(app.folder);
-    const candidate = {
-      id: "scripted",
-      cli: app.cliId,
-      model: "",
-      tools: [],
-      minimum: "",
-    };
-    const { saved } = await app.request("teams.create", {
-      definition: {
-        name: "Removal team",
-        description: "",
-        instruction: "",
-        parent: { ...candidate, id: "parent" },
-        roles: [
-          {
-            id: "worker",
-            name: "Worker",
-            when: "",
-            limit: "",
-            reuse: true,
-            split: false,
-            instruction: "",
-            request: "",
-            report: "",
-            candidates: { high: [], medium: [candidate], low: [] },
-          },
-        ],
-      },
-    });
-    await app.request("teams.settings", {
-      enabled: true,
-      defaultTeam: saved.id,
-      limits: {},
-    });
+    await createTeam(app, { name: "Removal team" });
     await page.goto(app.url);
     await openFolder(page, app, mobile);
     if (mobile)

@@ -1,3 +1,4 @@
+import { createTeam } from "./fixtures/journeys.ts";
 import {
   test,
   expect,
@@ -10,40 +11,7 @@ test(
   "差し戻して受け入れたタスクの経緯をRecordsで見返す",
   { tag: "@desktop" },
   async ({ page, registeredApp: app }) => {
-    const candidate = {
-      id: "scripted",
-      cli: app.cliId,
-      model: "",
-      tools: [],
-      minimum: "",
-    };
-    const { saved } = await app.request("teams.create", {
-      definition: {
-        name: "Records team",
-        description: "",
-        instruction: "",
-        parent: { ...candidate, id: "parent" },
-        roles: [
-          {
-            id: "worker",
-            name: "Worker",
-            when: "",
-            limit: "",
-            reuse: true,
-            split: false,
-            instruction: "",
-            request: "",
-            report: "",
-            candidates: { high: [], medium: [candidate], low: [] },
-          },
-        ],
-      },
-    });
-    await app.request("teams.settings", {
-      enabled: true,
-      defaultTeam: saved.id,
-      limits: {},
-    });
+    await createTeam(app, { name: "Records team" });
     await page.goto(app.url);
     await openFolder(page, app);
     await page.getByRole("button", { name: "New tab", exact: true }).click();

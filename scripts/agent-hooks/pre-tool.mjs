@@ -8,6 +8,7 @@ import {
   isDocsOnly,
   readCiEvidence,
 } from "../ci-evidence.mjs";
+import { findTerms, readTerms } from "../wording/terms.mjs";
 
 async function readInput() {
   let data = "";
@@ -47,7 +48,13 @@ try {
     process.exit(0);
   }
   const target = targets(input.tool_input.command);
-  if (!target.pushes.length && !target.release && !target.notes.length)
+  if (
+    !target.pushes.length &&
+    !target.release &&
+    !target.notes.length &&
+    !target.posts.length &&
+    !target.postTitles.length
+  )
     process.exit(0);
   const cwd = input.cwd;
   const root = execFileSync("git", ["rev-parse", "--show-toplevel"], {
@@ -257,6 +264,45 @@ try {
       }
     } catch {
       /* Missing notes or linter must not block. */
+    }
+  }
+  if (target.posts.length || target.postTitles.length) {
+    try {
+      const wording = await readFile(
+        new URL("../../docs/design/wording.md", import.meta.url),
+        "utf8",
+      );
+      const terms = readTerms(wording);
+      const reasons = [];
+      for (const post of target.posts) {
+        try {
+          const contents = await readFile(path.resolve(cwd, post), "utf8");
+          const lines = contents.split(/\r?\n/);
+          for (const { line, banned, use } of findTerms(contents, terms)) {
+            reasons.push(
+              `${post}: ${lines[line - 1].trim()}: ${banned} → ${use}`,
+            );
+          }
+        } catch {
+          /* Unreadable post file must not block. */
+        }
+      }
+      for (const title of target.postTitles) {
+        const lines = title.split(/\r?\n/);
+        for (const { line, banned, use } of findTerms(title, terms)) {
+          reasons.push(
+            `--title: ${lines[line - 1].trim()}: ${banned} → ${use}`,
+          );
+        }
+      }
+      if (reasons.length) {
+        deny(
+          `${[...new Set(reasons)].join("\n")}\n文脈で別の意味なら直さなくてよい。直す時は使う語に合わせる。`,
+        );
+        process.exit(0);
+      }
+    } catch {
+      /* Missing wording glossary must not block. */
     }
   }
 } catch {

@@ -1,3 +1,4 @@
+import { createTeam } from "./fixtures/journeys.ts";
 import {
   test,
   expect,
@@ -11,40 +12,7 @@ test(
   "チームで子へ委譲し報告後にタブを閉じても結果が残る",
   { tag: "@desktop" },
   async ({ page, registeredApp: app }) => {
-    const candidate = {
-      id: "scripted",
-      cli: app.cliId,
-      model: "",
-      tools: [],
-      minimum: "",
-    };
-    const { saved } = await app.request("teams.create", {
-      definition: {
-        name: "Scripted team",
-        description: "",
-        instruction: "",
-        parent: { ...candidate, id: "parent" },
-        roles: [
-          {
-            id: "worker",
-            name: "Worker",
-            when: "",
-            limit: "",
-            reuse: true,
-            split: false,
-            instruction: "",
-            request: "",
-            report: "",
-            candidates: { high: [], medium: [candidate], low: [] },
-          },
-        ],
-      },
-    });
-    await app.request("teams.settings", {
-      enabled: true,
-      defaultTeam: saved.id,
-      limits: {},
-    });
+    await createTeam(app, { name: "Scripted team" });
     await page.goto(app.url);
     await openFolder(page, app);
     await page.getByRole("button", { name: "New tab", exact: true }).click();

@@ -145,7 +145,13 @@ function segments(line) {
 }
 
 export function targets(line) {
-  const result = { pushes: [], release: false, notes: [] };
+  const result = {
+    pushes: [],
+    release: false,
+    notes: [],
+    posts: [],
+    postTitles: [],
+  };
   let ciInChain = false;
   let docsCiInChain = false;
   let headMayChange = false;
@@ -273,6 +279,31 @@ export function targets(line) {
     if (isCi) {
       if (words.includes("--docs-only")) docsCiInChain = true;
       else ciInChain = true;
+    }
+    const cmd = words[executable] ?? "";
+    if (
+      /(?:^|\/)forgejo-agent$/.test(cmd) &&
+      words[executable + 1] === "issue" &&
+      ["create", "comment", "edit"].includes(words[executable + 2])
+    ) {
+      const bodyIndex = words.indexOf("--body-file", executable + 3);
+      if (bodyIndex >= 0 && words[bodyIndex + 1])
+        result.posts.push(words[bodyIndex + 1]);
+      if (words[executable + 2] === "create") {
+        const titleIndex = words.indexOf("--title", executable + 3);
+        if (titleIndex >= 0 && words[titleIndex + 1])
+          result.postTitles.push(words[titleIndex + 1]);
+      }
+    } else if (
+      /(?:^|\/)iori$/.test(cmd) &&
+      (["delegate", "send", "report", "ask"].includes(words[executable + 1]) ||
+        (words[executable + 1] === "pr" && words[executable + 2] === "create"))
+    ) {
+      const start =
+        words[executable + 1] === "pr" ? executable + 3 : executable + 2;
+      const fileIndex = words.indexOf("--file", start);
+      if (fileIndex >= 0 && words[fileIndex + 1])
+        result.posts.push(words[fileIndex + 1]);
     }
   }
   return result;

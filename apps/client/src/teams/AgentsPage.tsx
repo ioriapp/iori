@@ -224,7 +224,11 @@ function ReasonText({ reason }: { reason: CliDefinitionReason }) {
   const field = "field" in reason ? code(reason.field) : undefined;
   switch (reason.kind) {
     case "json":
-      return t("The JSON format is not valid.");
+      return reason.line !== undefined && reason.column !== undefined
+        ? t("The JSON format is not valid (line {line}, column {column}).")
+            .replace("{line}", String(reason.line))
+            .replace("{column}", String(reason.column))
+        : t("The JSON format is not valid.");
     case "unreadable":
       return t("definition.json cannot be read");
     case "id":

@@ -91,7 +91,14 @@ export function inheritedMemoryLimit(
 }
 
 function execute(command, args, unit) {
-  const child = spawn(command, args, { stdio: "inherit" });
+  // Checks are not interactive. Run them in their own session without the
+  // caller's terminal: `timeout` puts the check in a background group, where
+  // an interactive shell that the Host starts would be stopped by the
+  // terminal (SIGTTOU) and never reach the time limit.
+  const child = spawn(command, args, {
+    stdio: ["ignore", "inherit", "inherit"],
+    detached: process.platform !== "win32",
+  });
   const completion = new Promise((resolve) => {
     child.once("error", (error) => resolve({ error }));
     child.once("close", (status, signal) => resolve({ status, signal }));

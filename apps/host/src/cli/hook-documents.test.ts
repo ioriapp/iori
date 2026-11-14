@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import * as TOML from "@decimalturn/toml-patch";
 import { parse as parseYaml } from "yaml";
-import { readDefinitionText } from "./definitions.ts";
+import { lineColumnAt, readDefinitionText } from "./definitions.ts";
 import {
   claudeSettingsTarget,
   definitionTarget,
@@ -341,4 +341,13 @@ test("2スペースのJSONの公式の設定例に足すと元の文字を変え
     own.replace('"version": "v1"', '"version": "v1",\n  "theme": "dark"'),
   ])
     assert.equal(ownHookFile(user, "json", "kiro", base), false, user);
+});
+
+test("lineColumnAtはLF・CRLF・CRを1行として1始まりで行と列を数える", () => {
+  const text = "ab\ncd\r\nef\rgh";
+  assert.deepEqual(lineColumnAt(text, 0), { line: 1, column: 1 });
+  assert.deepEqual(lineColumnAt(text, 3), { line: 2, column: 1 });
+  assert.deepEqual(lineColumnAt(text, 7), { line: 3, column: 1 });
+  assert.deepEqual(lineColumnAt(text, 10), { line: 4, column: 1 });
+  assert.deepEqual(lineColumnAt(text, 11), { line: 4, column: 2 });
 });

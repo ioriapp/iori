@@ -97,3 +97,26 @@ test(
     ).toBeVisible();
   },
 );
+
+test(
+  "定義のJSONの末尾のカンマで行と列を示し確認へ進まない",
+  { tag: "@desktop" },
+  async ({ page, registeredApp: app }) => {
+    await page.goto(app.url);
+    await page
+      .getByRole("button", { name: "AI Agents/Teams", exact: true })
+      .click();
+    await page.getByRole("button", { name: "Add CLI", exact: true }).click();
+    await page.locator('[data-iori-action="cli-add-json"]').click();
+    await page
+      .getByRole("textbox", { name: "Definition JSON", exact: true })
+      .fill(["{", '  "schema": 1,', '  "id": "bad-json",', "}"].join("\n"));
+    await page.getByRole("button", { name: "Add", exact: true }).click();
+    await expect(
+      page.locator('[data-iori-view="cli-definition-add"] .cli-def-error'),
+    ).toContainText("The JSON format is not valid (line 4, column 1).");
+    await expect(
+      page.locator('[data-iori-view="cli-definition-confirmation"]'),
+    ).toHaveCount(0);
+  },
+);

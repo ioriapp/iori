@@ -1,12 +1,15 @@
 import { constants } from "node:fs";
 import { access, mkdir, symlink, writeFile } from "node:fs/promises";
-import { delimiter, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 
 async function executable(name) {
   for (const directory of (process.env.PATH ?? "").split(delimiter)) {
-    const path = join(directory, name);
+    const path = join(directory.replace(/^"|"$/gu, ""), name);
     try {
-      await access(path, constants.X_OK);
+      await access(
+        path,
+        process.platform === "win32" ? constants.F_OK : constants.X_OK,
+      );
       return path;
     } catch (error) {
       if (!["ENOENT", "EACCES"].includes(error.code)) throw error;
@@ -20,7 +23,32 @@ export async function prepareHostEnvironment(dataRoot) {
   const bin = join(dataRoot, "bin");
   await mkdir(home);
   await mkdir(bin);
-  await symlink(process.execPath, join(bin, "node"));
+  const isWindows = process.platform === "win32";
+  await symlink(process.execPath, join(bin, isWindows ? "node.exe" : "node"));
+  const config = join(home, ".config");
+  if (isWindows) {
+    const systemRoot = process.env.SystemRoot ?? "C:\\Windows";
+    const system32 = join(systemRoot, "System32");
+    const pwsh = await executable("pwsh.exe");
+    const pathEntries = [
+      bin,
+      ...(pwsh ? [dirname(pwsh)] : []),
+      join(system32, "WindowsPowerShell", "v1.0"),
+      system32,
+      systemRoot,
+    ];
+    return {
+      HOME: home,
+      USERPROFILE: home,
+      APPDATA: join(home, "AppData", "Roaming"),
+      LOCALAPPDATA: dataRoot,
+      PATH: pathEntries.join(delimiter),
+      XDG_DATA_HOME: dataRoot,
+      XDG_CONFIG_HOME: config,
+      XDG_CACHE_HOME: join(home, ".cache"),
+      XDG_STATE_HOME: join(home, ".local", "state"),
+    };
+  }
   for (const name of [
     "bash",
     "zsh",
@@ -45,7 +73,6 @@ export async function prepareHostEnvironment(dataRoot) {
     ".zshrc",
   ])
     await writeFile(join(home, name), profile);
-  const config = join(home, ".config");
   await mkdir(join(config, "fish"), { recursive: true });
   await writeFile(
     join(config, "fish", "config.fish"),

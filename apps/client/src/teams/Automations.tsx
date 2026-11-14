@@ -109,6 +109,26 @@ function Choice({
     </Select>
   );
 }
+const SAVE_ERRORS = new Set([
+  "Enter a name.",
+  "Enter instructions.",
+  "Choose a folder.",
+  "Choose a CLI.",
+  "Choose a team.",
+  "Could not save the automation. Check its fields and retry.",
+]);
+
+function missingFieldError(draft: Automation): string | undefined {
+  if (!draft.name.trim()) return "Enter a name.";
+  if (!draft.instruction.trim()) return "Enter instructions.";
+  if (!draft.cwd.trim()) return "Choose a folder.";
+  if (draft.target.kind === "cli" && !draft.target.candidate.cli.trim())
+    return "Choose a CLI.";
+  if (draft.target.kind === "team" && !draft.target.teamId.trim())
+    return "Choose a team.";
+  return undefined;
+}
+
 export function Automations({
   host,
   active,
@@ -290,6 +310,39 @@ export function Automations({
         return true;
       });
   }, [active, draft, registerBack]);
+  useEffect(() => {
+    setDraft((current) => {
+      if (!current || current.id) return current;
+      if (current.target.kind === "cli" && !current.target.candidate.cli) {
+        const cli = selectableClis[0]?.id;
+        if (!cli) return current;
+        return {
+          ...current,
+          target: {
+            kind: "cli",
+            candidate: { ...current.target.candidate, cli },
+          },
+        };
+      }
+      if (current.target.kind === "team" && !current.target.teamId) {
+        const teamId =
+          selectableTeams.find((team) => team.id === defaultTeam)?.id ??
+          selectableTeams[0]?.id;
+        if (!teamId) return current;
+        return {
+          ...current,
+          target: { kind: "team", teamId },
+        };
+      }
+      return current;
+    });
+  }, [
+    draft?.id,
+    draft?.target.kind,
+    selectableClis,
+    selectableTeams,
+    defaultTeam,
+  ]);
   if (!active) return null;
   const zone = data?.timeZone;
   const date = (at: number) =>
@@ -349,6 +402,11 @@ export function Automations({
   const save = async (action: "save" | "run" = "save") => {
     if (!draft || !zone) return;
     if (!draftChanged) return draft;
+    const missing = missingFieldError(draft);
+    if (missing) {
+      setError(missing);
+      return;
+    }
     setWorkingOn(action);
     setError("");
     try {
@@ -553,8 +611,7 @@ export function Automations({
           : value.reason === "disabled"
             ? t("Skipped: automation was disabled")
             : "";
-  const saveError =
-    error === "Could not save the automation. Check its fields and retry.";
+  const saveError = SAVE_ERRORS.has(error);
   const savedDefinition = draft && savedDefinitions.current.get(draft.id);
   const draftChanged =
     draft &&
@@ -714,34 +771,32 @@ export function Automations({
           )
         }
       />
-      {error &&
-        error !==
-          "Could not save the automation. Check its fields and retry." && (
-          <p role="alert">
-            {t(error)}{" "}
-            <Button
-              variant="outline"
-              onClick={() => {
-                if (
-                  error === "Could not change the automation. Retry." &&
-                  retryEnabled
-                ) {
-                  retryEnabled();
-                  return;
-                }
-                if (
-                  error ===
-                  "Could not restore this device's automation drafts. Retry."
-                )
-                  setDraftRetry((value) => value + 1);
-                void load();
-                if (draft?.id) void history(draft.id);
-              }}
-            >
-              {t("Retry")}
-            </Button>
-          </p>
-        )}
+      {error && !saveError && (
+        <p role="alert">
+          {t(error)}{" "}
+          <Button
+            variant="outline"
+            onClick={() => {
+              if (
+                error === "Could not change the automation. Retry." &&
+                retryEnabled
+              ) {
+                retryEnabled();
+                return;
+              }
+              if (
+                error ===
+                "Could not restore this device's automation drafts. Retry."
+              )
+                setDraftRetry((value) => value + 1);
+              void load();
+              if (draft?.id) void history(draft.id);
+            }}
+          >
+            {t("Retry")}
+          </Button>
+        </p>
+      )}
       {!draft ? (
         <SettingsSection className="team-list">
           {data?.automations.map((automation) => (

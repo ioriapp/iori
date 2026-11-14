@@ -1,23 +1,14 @@
+import { createTeam } from "./fixtures/journeys.ts";
 import { test, expect } from "./fixtures/test.ts";
 
 test(
   "チームを編集して保存し保存の競合を解決する",
   { tag: "@desktop" },
   async ({ page, registeredApp: app }) => {
-    const { saved } = await app.request("teams.create", {
-      definition: {
-        name: "Editor team",
-        description: "",
-        instruction: "",
-        parent: {
-          id: "parent",
-          cli: app.cliId,
-          model: "",
-          tools: [],
-          minimum: "",
-        },
-        roles: [],
-      },
+    const saved = await createTeam(app, {
+      name: "Editor team",
+      roles: [],
+      makeDefault: false,
     });
     await page.goto(app.url);
     await page

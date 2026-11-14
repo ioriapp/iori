@@ -36,6 +36,12 @@ const previousZip = process.argv
 const targetZip = process.argv
   .find((arg) => arg.startsWith("--target-zip="))
   ?.slice(13);
+const sourceRootArg = process.argv
+  .find((arg) => arg.startsWith("--source="))
+  ?.slice(9);
+const sourceRoot = sourceRootArg
+  ? path.resolve(sourceRootArg)
+  : fileURLToPath(new URL("../../", import.meta.url));
 const runningClis = process.argv.includes("--running-clis");
 if (runningClis && !previousZip)
   throw new Error("--running-clis requires both release ZIPs");
@@ -63,10 +69,7 @@ const task = previousZip
 let firewall, result;
 try {
   const archive = path.join(temporary, "source.tar");
-  await createSourceArchive(
-    fileURLToPath(new URL("../../", import.meta.url)),
-    archive,
-  );
+  await createSourceArchive(sourceRoot, archive);
   await prepareTls(temporary, "Android");
   windows(
     `[IO.Directory]::CreateDirectory(${ps(root)}) | Out-Null;[IO.Directory]::CreateDirectory(${ps(root + "\\host-updates\\tls")}) | Out-Null`,

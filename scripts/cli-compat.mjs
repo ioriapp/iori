@@ -219,7 +219,10 @@ try {
     }
     activeAttempt = attempt(cli, 1);
     let tests = await activeAttempt;
-    const failed = tests.filter((test) => test.status === "failed");
+    const retryable = (test) =>
+      test.status === "failed" ||
+      (test.status === "skipped" && test.reason === "起動に失敗したため未実行");
+    const failed = tests.filter(retryable);
     if (failed.length && !stopping) {
       activeAttempt = attempt(
         cli,
@@ -228,7 +231,7 @@ try {
       );
       const retried = await activeAttempt;
       tests = tests.map((test) =>
-        test.status === "failed"
+        retryable(test)
           ? {
               ...(retried.find((retry) => retry.name === test.name) ?? test),
               retried: true,

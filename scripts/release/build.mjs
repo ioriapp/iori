@@ -23,6 +23,9 @@ const {
   acceptanceScenarios,
   androidAcceptance,
   previousAndroidRelease,
+  windowsAcceptance,
+  linuxClientAcceptance,
+  checkUpdaterStatic,
 } = await import("./acceptance.mjs");
 await command(process.execPath, [
   "scripts/publish/check-forbidden.mjs",
@@ -189,12 +192,21 @@ try {
             env,
           );
         });
+      if (platform === "linux-client")
+        await timed("acceptance/linux-client", () =>
+          linuxClientAcceptance(cwd, output, env, firstFailures),
+        );
+      if (platform === "windows")
+        await timed("acceptance/windows", () =>
+          windowsAcceptance(cwd, output, env, firstFailures),
+        );
     }),
   );
   // Finish child cleanup before removing any source, including on failure.
   const failure = results.find((result) => result.status === "rejected");
   if (failure) throw failure.reason;
   await timed("updater", () => writeUpdater());
+  await timed("updater-static", () => checkUpdaterStatic(root, output, env));
   const acceptanceResult = {
     type: "scoped",
     scenarios: acceptanceScenarios,

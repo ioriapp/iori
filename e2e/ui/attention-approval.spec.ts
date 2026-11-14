@@ -1,4 +1,4 @@
-import { openPath } from "./fixtures/journeys.ts";
+import { createTeam, openPath } from "./fixtures/journeys.ts";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -45,39 +45,9 @@ test(
       }),
     });
     expect(savedCli).toHaveProperty("cliId", childCli);
-    const candidate = {
-      id: "scripted",
-      cli: childCli,
-      model: "",
-      tools: [],
-      minimum: "",
-    };
-    const { saved } = await app.request("teams.create", {
-      definition: {
-        name: "Approval team",
-        description: "",
-        instruction: "",
-        parent: { ...candidate, id: "parent", cli: app.cliId },
-        roles: [
-          {
-            id: "worker",
-            name: "Worker",
-            when: "",
-            limit: "",
-            reuse: true,
-            split: false,
-            instruction: "",
-            request: "",
-            report: "",
-            candidates: { high: [], medium: [candidate], low: [] },
-          },
-        ],
-      },
-    });
-    await app.request("teams.settings", {
-      enabled: true,
-      defaultTeam: saved.id,
-      limits: {},
+    await createTeam(app, {
+      name: "Approval team",
+      roles: [{ name: "Worker", candidate: { cli: childCli } }],
     });
     await page.goto(app.url);
     await openFolder(page, app);

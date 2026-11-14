@@ -1,3 +1,4 @@
+import { createTeam } from "./fixtures/journeys.ts";
 import {
   test,
   expect,
@@ -46,27 +47,7 @@ test(
   { tag: "@desktop" },
   async ({ page, registeredApp: app }) => {
     await repository(app.folder);
-    const candidate = {
-      id: "scripted",
-      cli: app.cliId,
-      model: "",
-      tools: [],
-      minimum: "",
-    };
-    const { saved } = await app.request("teams.create", {
-      definition: {
-        name: "Tab team",
-        description: "",
-        instruction: "",
-        parent: { ...candidate, id: "parent" },
-        roles: [],
-      },
-    });
-    await app.request("teams.settings", {
-      enabled: true,
-      defaultTeam: saved.id,
-      limits: {},
-    });
+    await createTeam(app, { name: "Tab team", roles: [] });
     await page.goto(app.url);
     await openFolder(page, app);
     await page.getByRole("button", { name: "New tab", exact: true }).click();

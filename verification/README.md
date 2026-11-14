@@ -71,7 +71,7 @@ Linuxの検証用debの導入・回収は `verification/native/linux-packages.mj
 
 ## 他社の CLI の互換の監視
 
-`e2e/cli/` は本物の他社の CLI の hook・session・引数・記録の形を、画面を使わずに確認する。モデルには `verification/fake-model/server.mjs` の偽の API を使い、認証は試験用に分ける。毎日の監視は main と Release を停止しない。結果は `~/.local/share/iori-cli-compat/latest.json` に保存し、失敗は `scripts/agent-hooks/notify.mjs` がセッションの最初に知らせる。
+`e2e/cli/` は本物の他社の CLI の hook・session・引数・記録の形を、画面を使わずに確認する。モデルには `verification/fake-model/server.mjs` の偽の API を使い、認証は試験用に分ける。毎日の監視は main と Release を停止しない。結果は `~/.local/share/iori-cli-compat/latest.json` に保存し、失敗は `scripts/agent-hooks/notify.mjs` がセッションの最初に知らせる。起動に失敗した時は、起動を前提にする残りの項目を未実行として記録し、自動の再実行では未実行の項目も実行し直す。
 
 Linux の専用作業場所に Node 24・pnpm・Rust と対象の CLI を用意し、導入元のリポジトリで次を実行する。サービスは `origin/main` を取得して依存と Host の native 部分を準備し、timer は毎日実行する。
 
