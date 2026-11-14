@@ -1,5 +1,9 @@
+import {
+  registerCleanup,
+  recoverStaleVerificationRuns,
+} from "../verification/lifecycle.mjs";
 import { writeMemoryEvidence } from "../verification/process-memory.mjs";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -86,7 +90,43 @@ export function inheritedMemoryLimit(
   return undefined;
 }
 
-function main(commandArgs, memoryOnly = false, memoryMax = "4G") {
+function execute(command, args, unit) {
+  const child = spawn(command, args, { stdio: "inherit" });
+  const completion = new Promise((resolve) => {
+    child.once("error", (error) => resolve({ error }));
+    child.once("close", (status, signal) => resolve({ status, signal }));
+  });
+  const close = registerCleanup(async () => {
+    if (child.exitCode === null && child.signalCode === null)
+      child.kill("SIGTERM");
+    if (unit) {
+      const running = () =>
+        ["active", "activating", "deactivating"].includes(
+          spawnSync(
+            "systemctl",
+            ["--user", "show", unit, "--property=ActiveState", "--value"],
+            { encoding: "utf8" },
+          ).stdout?.trim(),
+        );
+      if (running()) {
+        const stopped = spawnSync("systemctl", ["--user", "stop", unit], {
+          stdio: "inherit",
+        });
+        // A scope whose processes already exited can disappear between the
+        // read and the stop. Only a scope that is still running is a failure.
+        if ((stopped.error || stopped.status !== 0) && running())
+          throw stopped.error ?? new Error(`Failed to stop ${unit}`);
+      }
+    }
+    // Stop the scope before waiting: systemd's stop timeout bounds descendants
+    // which ignore SIGTERM, including the command awaited by systemd-run.
+    await completion;
+    await recoverStaleVerificationRuns();
+  });
+  return { completion, close };
+}
+
+async function main(commandArgs, memoryOnly = false, memoryMax = "4G") {
   if (commandArgs.length === 0) {
     process.stderr.write(
       "使い方: node scripts/run-bounded-check.mjs [--memory-only] [--memory-max=4G] <command> [args...]\n",
@@ -94,19 +134,22 @@ function main(commandArgs, memoryOnly = false, memoryMax = "4G") {
     return USAGE_ERROR;
   }
 
+  await recoverStaleVerificationRuns();
   const inherited = inheritedMemoryLimit();
-  if (inherited !== undefined) {
-    const result = spawnSync(
+  const userBus = hasUserBus();
+  if (inherited !== undefined && !userBus) {
+    const running = execute(
       memoryOnly ? commandArgs[0] : "timeout",
       memoryOnly ? commandArgs.slice(1) : ["900", ...commandArgs],
-      {
-        stdio: "inherit",
-      },
     );
-    return classifyResult(result).code ?? 1;
+    try {
+      return classifyResult(await running.completion).code ?? 1;
+    } finally {
+      await running.close();
+    }
   }
 
-  if (!hasUserBus()) {
+  if (!userBus) {
     process.stderr.write(
       "systemd user busに接続できません。同じコマンドを実行環境の権限付き実行(require_escalated等)で再実行し、メモリ/時間制限を維持してください。\n",
     );
@@ -116,7 +159,8 @@ function main(commandArgs, memoryOnly = false, memoryMax = "4G") {
   const unit = `iori-check-${process.pid}-${Date.now()}.scope`;
   const argv = buildBoundedArgv(commandArgs, memoryOnly, memoryMax).slice(1);
   argv.splice(argv.indexOf("--scope") + 1, 0, `--unit=${unit}`);
-  const result = spawnSync("systemd-run", argv, { stdio: "inherit" });
+  const running = execute("systemd-run", argv, unit);
+  const result = await running.completion;
   if (result.status !== 0) {
     const state = spawnSync(
       "systemctl",
@@ -151,6 +195,7 @@ function main(commandArgs, memoryOnly = false, memoryMax = "4G") {
       );
     }
   }
+  await running.close();
   return classifyResult(result).code ?? 1;
 }
 
@@ -188,5 +233,5 @@ if (
           ...(memoryMax === "4G" ? [] : [`--memory-max=${memoryMax}`]),
           ...commandArgs,
         ])
-      : main(commandArgs, memoryOnly, memoryMax);
+      : await main(commandArgs, memoryOnly, memoryMax);
 }

@@ -239,6 +239,7 @@ export interface WorktreeRemovalOutcome {
 }
 export interface WorktreeRemovalResult {
   outcomes: WorktreeRemovalOutcome[];
+  preview?: WorktreeRemovalPreview;
 }
 
 export const MAX_FRAME_BYTES = 4 * 1024 * 1024;
@@ -356,6 +357,7 @@ export interface Device {
 }
 
 export interface HostInfo {
+  connectionScope?: "loopback" | "network";
   relay?: RelaySettings;
   publicKey: string;
   hostName: string;
@@ -499,6 +501,7 @@ export interface RequestParamsByMethod
     previewId: string;
     paths: string[];
     branches: string[];
+    recheck?: boolean;
   };
   "worktrees.options": { path: string };
   "worktrees.create": {
@@ -860,6 +863,10 @@ function optionalOs(value: unknown): { os?: string } {
 function parseHostInfo(value: unknown): HostInfo {
   const input = record(value);
   return {
+    ...(input.connectionScope === "loopback" ||
+    input.connectionScope === "network"
+      ? { connectionScope: input.connectionScope }
+      : {}),
     ...optionalRelay(input),
     publicKey: publicKey(input.publicKey, "publicKey"),
     hostName: displayName(input.hostName, "hostName"),
@@ -1443,7 +1450,13 @@ function parseTerminalClientMessage(
         ...(input.origin === "scroll" ? { origin: "scroll" as const } : {}),
       };
     case "terminal.submit":
-      return { kind: "terminal.submit", data: string(input.data, "data") };
+      return {
+        kind: "terminal.submit",
+        data: string(input.data, "data"),
+        ...(input.id === undefined
+          ? {}
+          : { id: nonEmptyString(input.id, "id") }),
+      };
     case "terminal.seen":
       return { kind: "terminal.seen" };
     case "terminal.resize":
@@ -1476,6 +1489,13 @@ function parseTerminalServerMessage(
         sequence: typeof input.sequence === "number" ? input.sequence : 0,
         // No view has claimed a restarted PTY yet; Host represents that as "".
         sizeOwnerViewId: string(input.sizeOwnerViewId, "sizeOwnerViewId"),
+        ...(input.submitResult === true ? { submitResult: true } : {}),
+      };
+    case "terminal.submitted":
+      return {
+        kind: "terminal.submitted",
+        id: nonEmptyString(input.id, "id"),
+        success: boolean(input.success, "success"),
       };
     case "terminal.output":
       return {
@@ -1758,6 +1778,9 @@ function parseRemovalResult(value: unknown): WorktreeRemovalResult {
   const input = record(value);
   if (!Array.isArray(input.outcomes)) return fail("outcomes must be an array");
   return {
+    ...(input.preview === undefined
+      ? {}
+      : { preview: parseRemovalPreview(input.preview) }),
     outcomes: input.outcomes.map((value) => {
       const item = record(value);
       return {
@@ -2395,6 +2418,9 @@ export function parseRequest(value: unknown): Request {
           branches: params.branches.map((branch) =>
             nonEmptyString(branch, "branch"),
           ),
+          ...(params.recheck === undefined
+            ? {}
+            : { recheck: boolean(params.recheck, "recheck") }),
         },
       };
     case "worktrees.options":

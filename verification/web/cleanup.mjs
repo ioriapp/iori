@@ -1,3 +1,8 @@
+import {
+  recoverVerificationDirectory,
+  recoverStaleVerificationRuns,
+  verificationDirectoryFor,
+} from "../lifecycle.mjs";
 import { stopTerminalDaemonsUnder } from "../terminal/daemon-process.mjs";
 import { mkdir, readdir, readFile, realpath, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -28,11 +33,14 @@ async function legacyRunnerActive(runnerPath) {
 }
 
 export async function cleanStaleRuns(runsRoot, runnerPath) {
+  await recoverStaleVerificationRuns();
   await mkdir(runsRoot, { recursive: true });
   let legacyActive;
   for (const entry of await readdir(runsRoot, { withFileTypes: true })) {
     if (!entry.isDirectory() || !entry.name.startsWith("run-")) continue;
     const path = join(runsRoot, entry.name);
+    if (await recoverVerificationDirectory(path)) continue;
+    if ((await verificationDirectoryFor(path)) === path) continue;
     try {
       const pid = Number(await readFile(join(path, "owner.pid"), "utf8"));
       if (running(pid)) continue;

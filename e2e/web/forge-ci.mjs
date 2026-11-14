@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readCiExpectation } from "../../verification/web/forge-fixture.mjs";
-import { openSidebar } from "../connection/scenario.mjs";
+import { openSidebar, openWorkspaceSettings } from "../connection/scenario.mjs";
+import { openFolder } from "../workspace/scenario.mjs";
 import { waitFor } from "../../verification/ui.mjs";
 
 const action = (name) => `[data-iori-action="${name}"]`;
@@ -72,7 +73,7 @@ async function chooseWorktree(screen, path, press = screen.click) {
   );
 }
 
-/** forge.md「CIの詳細」 through the sidebar's CI mark, with the public repository's real CI. */
+/** forge.md「CIの詳細」 through the sidebar's CI mark, with fixed Forge data. */
 export async function forgeCiScenario({
   client,
   fixture,
@@ -82,6 +83,19 @@ export async function forgeCiScenario({
   record,
 }) {
   const screen = client.screen;
+  await openFolder(screen, fixture.repository, false);
+  await openWorkspaceSettings(screen, fixture.repository);
+  const mapping = `[data-iori-forge-host=${JSON.stringify(fixture.remoteHost)}]`;
+  await screen.wait(`${mapping} [data-iori-field="forge-web-url"]`);
+  await screen.input(
+    `${mapping} [data-iori-field="forge-web-url"]`,
+    fixture.origin,
+  );
+  await screen.key("Enter");
+  await screen.wait(`${mapping} [data-iori-state="saved"]`);
+  await screen.key("Escape");
+  await openSidebar(screen);
+  await screen.wait(ciMark(fixture.repository));
   const current = await readCiExpectation(fixture, fixture.sha);
   await screen.click(ciMark(fixture.repository));
   await screen.wait(loaded(fixture.repository));
@@ -133,7 +147,7 @@ export async function forgeCiScenario({
     current.browserUrl,
   );
   await record(
-    "CIのアイコンでCIのタブが開き、実APIと同じ実行とjobが並び、ブラウザーで開く先が実APIに一致",
+    "CIのアイコンでCIのタブが開き、固定した実行とjobが並び、ブラウザーで開く先が一致",
     { sha: fixture.sha, runs: current.runs.map((run) => run.id) },
   );
 

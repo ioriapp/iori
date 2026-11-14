@@ -41,7 +41,7 @@ export default function(pi) {
       req.once('error',resolve);req.once('close',resolve);req.end(body);
     })).catch(() => {});
   };
-  pi.on('session_start', (event, ctx) => { model = ctx.model; if (event.reason !== 'reload') { running = false; prompts = 0; post('session_start', {session_id:ctx.sessionManager.getSessionId(),session_file:ctx.sessionManager.getSessionFile()}); } });
+  pi.on('session_start', (event, ctx) => { model = ctx.model; if (event.reason !== 'reload') { running = false; prompts = 0; } post('session_start', {session_id:ctx.sessionManager.getSessionId(),session_file:ctx.sessionManager.getSessionFile()}); });
   pi.on('model_select', (event, ctx) => { model = ctx.model ?? event.model; post('model_select'); });
   pi.on('before_agent_start', () => { running = true; response = undefined; failed = false; errorMessage = undefined; stopReason = undefined; post('before_agent_start'); });
   pi.on('agent_start', () => { running = true; prompts = 0; post('agent_start'); });

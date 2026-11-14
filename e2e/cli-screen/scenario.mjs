@@ -66,6 +66,16 @@ export async function focusTerminal(client, id) {
 
 /** Observe the actual Host hook state, without depending on TUI wording. */
 export async function waitForCliState(client, id, states) {
+  if (client.nativeCliObservation)
+    return waitFor(
+      () =>
+        client.screen.evaluate(
+          `window.__nativeCliTerminals?.[${JSON.stringify(id)}]?.cliStatus?.state`,
+        ),
+      (state) => states.includes(state),
+      120000,
+      "CLIのhook状態の観測",
+    );
   return waitFor(
     () =>
       client.screen.evaluate(`(async()=>{
@@ -120,7 +130,11 @@ export async function waitForPiInput(client, id) {
 export async function finishCli(client, id, cliId = "codex") {
   await focusTerminal(client, id);
   await clearObserved(client);
-  const state = await client.screen.evaluate(`(async()=>{
+  const state = client.nativeCliObservation
+    ? await client.screen.evaluate(
+        `window.__nativeCliTerminals?.[${JSON.stringify(id)}]?.cliStatus?.state`,
+      )
+    : await client.screen.evaluate(`(async()=>{
     const {connection}=await import('/src/connection.ts');
     const result=await connection.requestHost(connection.getSnapshot().host.publicKey,'terminal.list',{});
     if(!result.ok)throw new Error('CLI状態を取得できませんでした');
@@ -129,8 +143,15 @@ export async function finishCli(client, id, cliId = "codex") {
   if (["active", "waiting"].includes(state)) {
     await controlKey(client, "c");
     await waitForCliState(client, id, ["stopped", "idle", "done"]);
-    if (cliId === "codex") await waitForCodexInput(client, id);
-    else if (cliId === "pi")
+    if (cliId === "codex") {
+      if (client.nativeCliObservation)
+        await observedCurrentScreen(
+          client,
+          id,
+          /Ask Codex[\s\S]*GPT-\S+\s+(?:low|medium|high|xhigh|minimal)\b/iu,
+        );
+      else await waitForCodexInput(client, id);
+    } else if (cliId === "pi")
       await observedCurrentScreen(client, id, /\d+(?:\.\d+)?%/u);
     else await observedCurrentScreen(client, id, /Interrupted|❯/u);
   }
@@ -182,6 +203,7 @@ export async function cliScenario({
   registrationCommand = "pi",
   settings = true,
   beforeFirstOpen,
+  verifyReload = false,
   resize = false,
   resizeOnly = false,
 }) {
@@ -229,10 +251,19 @@ export async function cliScenario({
   await screen.wait(`[data-iori-row-cli="${cliId}"]`);
   if (cliId === "pi") await waitForPiInput(client, id);
   else await waitForCodexInput(client, id);
+  if (verifyReload) {
+    const indicator = `[data-iori-terminal-row="${id}"] [aria-label="Idle"]`;
+    await screen.wait(indicator);
+    await clearObserved(client);
+    await typeTerminal(client, "/reload\r");
+    await observed(client, "Reloaded keybindings, extensions");
+    await screen.wait(indicator);
+    await record("Piの拡張を再読み込みした後も待機中の状態を表示する");
+  }
   if (!settings) {
     const label = await screen.text(`[data-iori-tab-id="terminal:${id}"]`);
     assert.doesNotMatch(label, /\b(?:cmd|pwsh|powershell)\.exe/iu);
-    await themedShots(client, shot, "pc-overall-ja");
+    if (shot) await themedShots(client, shot, "pc-overall-ja");
   }
   await record("＋から本物のCLIの画面を開き、タブとサイドバーで見分ける");
   if (resize && !settings)
@@ -417,6 +448,159 @@ export async function cliScenario({
   await quit(second);
   await quit(customTerminal);
   return id;
+}
+
+// Independent first-use flow, with its own shell and CLI configuration.
+export async function cliFirstOpen({ client, record, verifyUnusedHooks }) {
+  const screen = client.screen;
+  const id = await cliScenario({
+    client,
+    record,
+    settings: false,
+    verifyReload: true,
+    beforeFirstOpen: async () => {
+      await verifyUnusedHooks();
+      await record("CLI一覧を開いても、ioriで未使用のCLIの設定は変わらない");
+    },
+  });
+  await screen.click(action("workspace-add-tab"));
+  await screen.click('[data-iori-cli-id="pi"]');
+  await screen.wait('[data-iori-tab-cli="pi"]');
+  const interrupted = (
+    await screen.attribute('[data-iori-tab-cli="pi"]', "data-iori-tab-id")
+  ).replace(/^terminal:/, "");
+  await focusTerminal(client, interrupted);
+  await controlKey(client, "c");
+  await controlKey(client, "c");
+  await waitFor(
+    () =>
+      screen.attribute(
+        `[data-iori-tab-id="terminal:${interrupted}"]`,
+        "data-iori-tab-cli",
+      ),
+    (value) => !value,
+  );
+  assert.equal(
+    await screen.attribute(
+      `[data-iori-terminal-row="${interrupted}"]`,
+      "data-iori-row-cli",
+    ),
+    "",
+  );
+  await record("CLIの起動直後のCtrl+Cでタブとサイドバーがshell表示へ戻る");
+  await screen.click(`[data-iori-tab-id="terminal:${id}"]`);
+  await splitTab(screen, `[data-iori-tab-id="terminal:${id}"]`, "right");
+  const group = await screen.attribute(
+    `[data-iori-tab-id="terminal:${id}"]`,
+    "data-iori-group-id",
+    "[data-iori-group-id]",
+  );
+  await focusTerminal(client, id);
+  await typeTerminal(client, "exit\r");
+  const empty = `[data-iori-empty-group="${group}"]`;
+  await screen.wait(`${empty} .cli-launcher-search input`);
+  await screen.click(`${empty} [data-iori-shell-id="bash"]`);
+  const resumed = (
+    await waitFor(() =>
+      screen.attribute(
+        `[data-iori-group-id="${group}"] [data-iori-tab-id^="terminal:"]`,
+        "data-iori-tab-id",
+      ),
+    )
+  ).replace(/^terminal:/, "");
+  await focusTerminal(client, resumed);
+  await typeTerminal(client, "printf '%s%s\\n' '空のペイン' 'で続ける'\r");
+  await observed(client, "空のペインで続ける");
+  await record("空ペインからTerminalを開いて続けられる");
+}
+
+export async function cliSettings({ client, record }) {
+  const screen = client.screen;
+  await openAgents(screen);
+  await screen.wait('[data-iori-cli-version="pi"]');
+  assert.match(await screen.text('[data-iori-cli-version="pi"]'), /\d+\.\d+/u);
+  await screen.click(action("cli-add-open"));
+  await screen.input('[data-iori-field="cli-name"]', "My CLI");
+  await screen.input('[data-iori-field="cli-command"]', "pi");
+  await screen.key("Tab");
+  const modelArgument = '[data-iori-field="cli-model-argument"]';
+  await waitFor(
+    () => screen.value(modelArgument),
+    (value) => value === "--model {model}",
+  );
+  await screen.input(modelArgument, "");
+  await screen.input('[data-iori-field="cli-command"]', "pi");
+  await screen.key("Tab");
+  assert.equal(await screen.value(modelArgument), "");
+  await record("コマンドを入力し直しても削除したモデルの引数は戻らない");
+  await screen.click(action("cli-add-submit"));
+  const customId = await cliRowNamed(screen, "My CLI");
+  const customRow = `[data-iori-cli-row="${customId}"]`;
+  if ((await screen.attribute(customRow, "data-state")) !== "open")
+    await screen.click(`${customRow} .team-agent-toggle`);
+  await screen.click(`${customRow} ${action("cli-definition-edit")}`);
+  await screen.input(`${customRow} [data-iori-field="cli-name"]`, "My Pi");
+  await screen.input(
+    `${customRow} [data-iori-field="cli-command"]`,
+    "pi --no-session",
+  );
+  await screen.click(`${customRow} ${action("cli-definition-save")}`);
+  await waitFor(async () =>
+    (await screen.text(`${customRow} .team-agent-name > span`)).includes(
+      "My Pi",
+    ),
+  );
+  await returnToWorktree(screen);
+  await screen.click(action("workspace-add-tab"));
+  const launcherOrder = await screen.evaluate(`(async () => {
+    const { connection } = await import('/src/connection.ts');
+    const host = connection.getSnapshot().host.publicKey;
+    const response = await connection.requestHost(host, 'cli.list', {});
+    if (!response?.ok) throw new Error('CLI list unavailable');
+    const ids = [...document.querySelectorAll('.new-items-popover [data-iori-cli-id]')].map(el => el.getAttribute('data-iori-cli-id'));
+    return { ids, expected: response.result.clis.map(cli => cli.id).filter(id => ids.includes(id)) };
+  })()`);
+  assert.ok(launcherOrder.ids.includes("pi"));
+  assert.deepEqual(launcherOrder.ids, launcherOrder.expected);
+  await screen.input(".new-items-popover input", "My Pi");
+  await screen.wait(`[data-iori-cli-id="${customId}"]`);
+  assert.equal(
+    await screen.visible('.new-items-popover button[data-iori-cli-id="pi"]'),
+    false,
+  );
+  await screen.click(`[data-iori-cli-id="${customId}"]`);
+  await screen.wait(`[data-iori-tab-cli="${customId}"]`);
+  const customTerminal = (
+    await screen.attribute(
+      `[data-iori-tab-cli="${customId}"]`,
+      "data-iori-tab-id",
+    )
+  ).replace(/^terminal:/, "");
+  await focusTerminal(client, customTerminal);
+  await waitForPiInput(client, customTerminal);
+  await openAgents(screen);
+  await screen.reveal(customRow);
+  if ((await screen.attribute(customRow, "data-state")) !== "open")
+    await screen.click(`${customRow} .team-agent-toggle`);
+  await screen.click(`${customRow} ${action("cli-definition-edit")}`);
+  assert.equal(
+    await screen.value(`${customRow} [data-iori-field="cli-command"]`),
+    "pi --no-session",
+  );
+  await screen.click(`${customRow} ${action("cli-definition-cancel")}`);
+  await cliMenuAction(screen, customId, "cli-definition-delete");
+  await screen.wait('[data-iori-view="cli-definition-removal"]');
+  await screen.click(action("cli-definition-remove"));
+  await waitFor(() =>
+    screen.evaluate(`!document.querySelector(${JSON.stringify(customRow)})`),
+  );
+  await returnToWorktree(screen);
+  await screen.click(action("workspace-add-tab"));
+  assert.equal(await screen.visible(`[data-iori-cli-id="${customId}"]`), false);
+  await screen.key("Escape");
+  await record(
+    "CLIの一覧順と検索、編集したコマンドでの起動と削除後の一覧を確認する",
+  );
 }
 
 /** An unauthenticated real Cursor CLI explains model discovery failure. */

@@ -1,31 +1,12 @@
-import { execFile, spawn } from "node:child_process";
+import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { promisify } from "node:util";
-import { fileURLToPath } from "node:url";
+import { hook } from "./send-hook.mjs";
 
 const run = promisify(execFile);
-const hookScript = fileURLToPath(
-  new URL("../../apps/host/src/cli/hook-script.mjs", import.meta.url),
-);
-
-// Invoke the product sender as a real subprocess of this PTY's CLI.
-async function hook(event, payload) {
-  const child = spawn(process.execPath, [hookScript, event, "-"], {
-    stdio: ["pipe", "ignore", "inherit"],
-  });
-  const exited = new Promise((resolve, reject) => {
-    child.once("error", reject);
-    child.once("exit", (code) => {
-      if (code === 0) resolve();
-      else reject(new Error("hook sender failed"));
-    });
-  });
-  child.stdin.end(JSON.stringify(payload));
-  await exited;
-}
 
 if (process.argv.includes("--version") || process.argv.includes("--help")) {
   console.log("scripted-cli 1.0.0");

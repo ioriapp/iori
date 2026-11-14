@@ -73,7 +73,7 @@ $firstRemovalError=$null
 function Remove-Path($path) {
   $timer=[Diagnostics.Stopwatch]::StartNew();$backoff=0
   while(Test-Path -LiteralPath $path) {
-    try { Remove-Item -LiteralPath $path -Recurse -Force;return }
+    try { Remove-Item -LiteralPath ($(if($path -match '^[A-Za-z]:\\\\'){'\\\\?\\'+$path}else{$path})) -Recurse -Force;return }
     catch {
       $code=$_.Exception.HResult -band 65535
       if(($code -notin @(5,32,33) -and $_.CategoryInfo.Category -ne 'PermissionDenied') -or $timer.ElapsedMilliseconds -ge 60000){throw}

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { access, readFile, watch } from "node:fs/promises";
+import { access, mkdir, readFile, watch, writeFile } from "node:fs/promises";
 import { join, relative, dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
@@ -135,6 +135,23 @@ test("存在しないフォルダーの起動失敗を履歴へ残し、編集�
       ),
       new Set([failed.id, run.id]),
     );
+  }));
+
+test("指示ファイルの準備に失敗した理由を履歴へ残す", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    const { automation } = await save(client, dataRoot);
+    const root = join(dataRoot, "iori-host", "automation-files");
+    await mkdir(root, { recursive: true });
+    await writeFile(join(root, automation.id), "blocks directory creation");
+    const { run } = await client.request("automation.run", {
+      id: automation.id,
+    });
+    assert.ok(run.launchError);
+    assert.equal(run.terminalId, undefined);
+    const { runs } = await client.request("automation.history", {
+      id: automation.id,
+    });
+    assert.equal(runs[0].launchError, run.launchError);
   }));
 
 test("親CLIが未設定のチームを実行すると設定の案内を履歴に残す", (t) =>

@@ -1,6 +1,8 @@
+import type { ParserEvent, OscEvent } from "./parser-events.ts";
+import type { TerminalModes } from "./types.ts";
 import type { TerminalSnapshot } from "./types.ts";
 import type { IPtyForkOptions, IWindowsPtyForkOptions } from "node-pty";
-export const DAEMON_PROTOCOL = 15;
+export const DAEMON_PROTOCOL = 17;
 export interface DaemonHello {
   version: number;
   pid: number;
@@ -15,8 +17,8 @@ export interface PtyScreen {
   live: boolean;
   exit?: { exitCode: number; signal?: number };
   snapshot: TerminalSnapshot;
-  title?: string;
-  cwd: string | null;
+  cwd: null;
+  state: PtyState;
 }
 export interface SpawnPty {
   id: string;
@@ -34,3 +36,18 @@ export type PtyEvent =
       exitCode: number;
       signal?: number;
     };
+
+export interface PtyModes {
+  modes: TerminalModes;
+  showCursor: boolean;
+}
+export interface PtyState extends PtyModes {
+  sequence: number;
+  osc: OscEvent[];
+}
+export interface PtyOutput {
+  sequence: number;
+  data: string;
+  events: ParserEvent[];
+  modes?: PtyModes;
+}

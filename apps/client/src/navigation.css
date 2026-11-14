@@ -130,22 +130,6 @@
   font-size: 0.75rem;
   font-weight: 400;
 }
-.nav-worktree-activity {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  width: 100%;
-  min-width: 0;
-  padding-left: 1.4375rem;
-  color: var(--muted-foreground);
-  font-size: 0.75rem;
-}
-.nav-worktree-activity > span:last-child {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .nav-sidebar .nav-view-links {
   display: flex;
   align-items: center;
@@ -231,10 +215,6 @@
   background: color-mix(in oklch, var(--primary) 16%, transparent);
   font-weight: 600;
 }
-.nav-session.is-unread .nav-session-title {
-  color: var(--foreground);
-  font-weight: 650;
-}
 .nav-sidebar [data-slot="sidebar-content"],
 .nav-sidebar [data-slot="sidebar-menu"] {
   gap: 0;
@@ -268,11 +248,6 @@
 .nav-sidebar[data-mobile="true"] .nav-view-link {
   min-height: 2rem;
   height: auto;
-}
-
-.nav-worktree-activity.is-unread > span:last-child {
-  color: var(--foreground);
-  font-weight: 650;
 }
 
 /* Sidebar surface and tree motion from the sample workspace. */

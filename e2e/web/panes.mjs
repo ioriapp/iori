@@ -12,6 +12,7 @@ import {
   typeTerminal,
   observed,
   clearObserved,
+  requestClose,
 } from "../terminal/scenario.mjs";
 import { openAgents, returnToWorktree } from "./agents-navigation.mjs";
 import { openSidebar } from "../connection/scenario.mjs";
@@ -30,7 +31,7 @@ const empty = '[data-iori-view="empty-pane"]';
 const groupOf = (screen, id) =>
   screen.attribute(tab(id), "data-iori-group-id", "[data-iori-group-id]");
 
-export async function paneMaximize({ client, terminalId, record, shot }) {
+export async function paneMaximize({ client, terminalId, record }) {
   const screen = client.screen;
   const originalViews = await screen.evaluate(
     `Array.from(document.querySelectorAll('button[data-iori-tab-kind="files"], button[data-iori-tab-kind="git"]'), tab => tab.dataset.ioriTabKind)`,
@@ -197,7 +198,6 @@ finally:
     for (const id of groupTabs)
       await screen.click(`[data-iori-tab-id="${id}"]`);
     await screen.click(selectedTab);
-    if (restore === "escape") await shot("pane-maximized");
     if (restore === "button") await screen.click(action("restore"));
     else if (restore === "escape") {
       // The tab header is outside the shell/CLI input and owns this key.
@@ -236,7 +236,6 @@ finally:
     );
     assert.equal(await screen.visible(action("restore")), false);
     if (restore === "escape") {
-      await shot("pane-restored");
       // Moving focus after restoring must not scroll the whole workspace.
       await screen.key("Tab");
     }
@@ -369,13 +368,7 @@ export async function paneResize({ client, terminalId, record }) {
   await waitFor(async () => !(await screen.visible(start)));
 }
 
-export async function paneActions({
-  client,
-  terminalId,
-  record,
-  shot,
-  finishBackgroundTerminal,
-}) {
+export async function paneSplit({ client, terminalId, record }) {
   const screen = client.screen;
   const group = await groupOf(screen, terminalId);
   for (const direction of ["right", "below"]) {
@@ -393,21 +386,6 @@ export async function paneActions({
         true,
       );
     if (direction === "right") {
-      await shot("start-pane");
-      if (process.env.IORI_TEAMS_CAPTURE === "1") {
-        for (const theme of ["light", "dark"]) {
-          await client.browser.viewport({ width: 1440, height: 900 });
-          await screen.evaluate(
-            `document.documentElement.classList.toggle('dark', ${theme === "dark"})`,
-          );
-          await shot(`pc-split-panes-${theme}`);
-        }
-        await client.browser.viewport({ width: 390, height: 844 });
-        await screen.wait(start);
-        await shot("mobile-split-panes-dark");
-        await client.browser.viewport({ width: 1440, height: 1000 });
-        await screen.wait(startTab);
-      }
       const emptyGroup = await startGroup(screen);
       await screen.click(
         `[data-iori-group-id="${emptyGroup}"] ${action("maximize")}`,
@@ -430,6 +408,75 @@ export async function paneActions({
   await record(
     "単一Terminalの左右上下分割は元のタブを保ち、始めるタブのあるペインを開き、閉じられる",
   );
+  // With only one pane left, ending its last Terminal keeps the launcher but
+  // cannot offer closing the user's final place to open a View.
+  await screen.click(
+    '.dock-tab-header:has([data-iori-tab-kind="files"]) [data-iori-action="workspace-close-tab"]',
+  );
+  await screen.click('button[data-iori-tab-kind="git"]');
+  await screen.click(
+    '.dock-tab-header:has([data-iori-tab-kind="git"]) [data-iori-action="workspace-close-tab"]',
+  );
+  await focusTerminal(client, terminalId);
+  await typeTerminal(client, "exit\r");
+  await screen.wait(`${empty} .cli-launcher-search input`);
+  assert.equal(await screen.visible(action("close-pane")), false);
+  await record("最後の1ペインには閉じる操作を出さない");
+  await screen.click(`${empty} [data-iori-shell-id="bash"]`);
+  const resumedTab = await waitFor(() =>
+    screen.attribute(
+      `[data-iori-group-id="${group}"] [data-iori-tab-id^="terminal:"]`,
+      "data-iori-tab-id",
+    ),
+  );
+  const resumedId = resumedTab.replace(/^terminal:/, "");
+  await focusTerminal(client, resumedId);
+  await typeTerminal(client, "printf '%s%s\\n' '空のペイン' 'で続ける'\r");
+  await observed(client, "空のペインで続ける");
+  await record("最後の空ペインからTerminalを開いて続けられる");
+  await requestClose(client, resumedId);
+  await screen.wait(`${startTab}[data-state="active"]`);
+  await screen.wait(`${start} .cli-launcher-search input`);
+  await record("最後のTerminalを閉じても始めるタブが置かれる");
+}
+
+export async function paneFileDrop({ client, terminalId, record }) {
+  const screen = client.screen;
+  await focusTerminal(client, terminalId);
+  await clearObserved(client);
+  await typeTerminal(
+    client,
+    `printf '%s%s\\n' 'drop-' 'ready'; IFS= read -r path; printf 'DROP_RESULT=<%s>\\n' "$path"\r`,
+  );
+  await observed(client, "drop-ready");
+  await openWorkspaceView(screen, "files");
+  await screen.wait('[data-iori-file="sample.txt"]');
+  await screen.evaluate(`(()=>{
+    const source=document.querySelector('[data-iori-file="sample.txt"]');
+    const target=document.querySelector(${JSON.stringify(tab(terminalId))});
+    const data=new DataTransfer();
+    for(const [element,type] of [[source,'dragstart'],[target,'dragenter'],[target,'dragover'],[target,'drop'],[source,'dragend']])
+      element.dispatchEvent(new DragEvent(type,{bubbles:true,cancelable:true,dataTransfer:data}));
+  })()`);
+  await screen.wait(
+    `[data-iori-workspace-panel="terminal:${terminalId}"]:not([hidden])`,
+  );
+  await focusTerminal(client, terminalId);
+  await typeTerminal(client, "\r");
+  await observed(client, /^DROP_RESULT=<(?:[^\s]*\/)?sample\.txt >$/mu);
+  await record(
+    "非表示のTerminalのタブにファイルをドロップすると表示してパスを一度入力する",
+  );
+}
+
+export async function paneExit({
+  client,
+  terminalId,
+  record,
+  finishBackgroundTerminal,
+}) {
+  const screen = client.screen;
+  const group = await groupOf(screen, terminalId);
   await openWorkspaceView(screen, "files");
   await screen.click(tab(terminalId));
   await screen.click(
@@ -513,8 +560,6 @@ export async function paneActions({
     `[data-iori-empty-group="${mobileExitGroup}"] ${action("close-pane")}`,
   );
   await record("MobileでTerminalが終了しても、PCへ戻ると空ペインが残る");
-  // With only one pane left, ending its last Terminal keeps the launcher but
-  // cannot offer closing the user's final place to open a View.
   await screen.click(
     '.dock-tab-header:has([data-iori-tab-kind="files"]) [data-iori-action="workspace-close-tab"]',
   );
@@ -522,26 +567,10 @@ export async function paneActions({
   await screen.click(
     '.dock-tab-header:has([data-iori-tab-kind="git"]) [data-iori-action="workspace-close-tab"]',
   );
-  await focusTerminal(client, terminalId);
-  await typeTerminal(client, "exit\r");
-  await screen.wait(`${empty} .cli-launcher-search input`);
-  assert.equal(await screen.visible(action("close-pane")), false);
-  await record("最後の1ペインには閉じる操作を出さない");
-  await screen.click(`${empty} [data-iori-shell-id="bash"]`);
-  const resumedTab = await waitFor(() =>
-    screen.attribute(
-      `[data-iori-group-id="${group}"] [data-iori-tab-id^="terminal:"]`,
-      "data-iori-tab-id",
-    ),
-  );
-  const resumedId = resumedTab.replace(/^terminal:/, "");
-  await focusTerminal(client, resumedId);
-  await typeTerminal(client, "printf '%s%s\\n' '空のペイン' 'で続ける'\r");
-  await observed(client, "空のペインで続ける");
-  await record("最後の空ペインからTerminalを開いて続けられる");
+  const originalTab = `terminal:${terminalId}`;
   await client.browser.viewport({ width: 390, height: 844 });
   await screen.wait(
-    `[data-iori-workspace-panel="${resumedTab}"]:not([hidden])`,
+    `[data-iori-workspace-panel="${originalTab}"]:not([hidden])`,
   );
   await screen.click(action("add-tab"));
   await screen.click('[data-iori-shell-id="bash"]');
@@ -551,10 +580,10 @@ export async function paneActions({
         '[data-iori-workspace-panel^="terminal:"]:not([hidden])',
         "data-iori-workspace-panel",
       ),
-    (id) => Boolean(id && id !== resumedTab),
+    (id) => Boolean(id && id !== originalTab),
   );
   await openSidebar(screen);
-  await screen.click(`[data-iori-terminal-row="${resumedId}"]`);
+  await screen.click(`[data-iori-terminal-row="${terminalId}"]`);
   await screen.click(action("close-tab"));
   await screen.wait(
     `[data-iori-workspace-panel="${mobileNewTab}"]:not([hidden])`,
@@ -568,10 +597,9 @@ export async function paneActions({
   );
   await client.browser.viewport({ width: 1440, height: 1000 });
   await screen.wait(`${empty} .cli-launcher-search input`);
-  await screen.click(`[data-iori-terminal-row="${resumedId}"]`);
-  await screen.wait(tab(resumedId));
+  await screen.click(`[data-iori-terminal-row="${terminalId}"]`);
+  await screen.wait(tab(terminalId));
   await record(
     "MobileでPCのタブを閉じ新しいTerminalが終了してもPCで作業を続けられる",
   );
-  return resumedId;
 }

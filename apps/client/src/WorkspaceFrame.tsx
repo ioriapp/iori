@@ -1,3 +1,4 @@
+import { createWorkspaceDockAdapter } from "./workspace-dock-adapter.ts";
 import { UsageStatus } from "./usage/UsageStatus.tsx";
 import {
   pruneLayout,
@@ -26,7 +27,14 @@ import { TeamsScreen } from "./teams/TeamsScreen.tsx";
 import type { LeaveGuard } from "./teams/TeamEditor.tsx";
 import { samePath, hostPathKey } from "./host-path.ts";
 import type { AttentionItem } from "./attention.ts";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import type {
   CSSProperties,
   DragEvent as ReactDragEvent,
@@ -92,6 +100,7 @@ import {
   worktreeLabel,
   terminalTitle,
   PanelView,
+  initialTabTitle,
   WorkspaceViewServicesContext,
   type CiOpenRequest,
   type FileHistoryRequest,
@@ -108,7 +117,23 @@ import {
   type NotificationPreferences,
 } from "./notifications.ts";
 import { useCliList } from "./cli-list.ts";
-import { replaceStartTab } from "./workspace-launch-tabs.ts";
+import {
+  addWorkspaceTab,
+  closeWorkspaceTab,
+  closeMobileWorkspaceTab,
+  forgetWorkspacePanelState,
+  setWorkspaceViewState,
+  rememberWorkspaceTerminal,
+  createWorkspaceStore,
+  missingWorkspaceTerminals,
+  replaceWorkspaceStartTab,
+  selectWorkspaceReadingWorktree,
+  selectWorkspaceTab,
+  terminalWorkspaceTab,
+  readWorkspaceState,
+  writeSavedLayout,
+  type SavedLayout,
+} from "./workspace-state.ts";
 
 export {
   useWorkspacePanel,
@@ -124,93 +149,12 @@ export type LastWorkspaceTarget = {
   worktreePath: string;
 };
 
-type SavedLayout = {
-  layout?: SerializedDockview;
-  tabs: WorkspaceTab[];
-  activeTabId?: string;
-  lastTerminalId?: string;
-  mobileClosedTabs?: { id: string; preservePane: boolean }[];
-  /** Each View's own state (Files' open files, Git's selection, list widths). */
-  views?: Record<string, unknown>;
-};
-
-const viewKinds: WorkspaceViewKind[] = [
-  "start",
-  "file",
-  "files",
-  "git",
-  "terminal",
-  "board",
-  "issues",
-  "ci",
-];
-
 /** Files and a file tab are read wide, so they maximize to the full width unless set otherwise. */
 function maximizesFullWidth(
   kind: WorkspaceViewKind,
   saved: Partial<Record<WorkspaceViewKind, boolean>>,
 ) {
   return saved[kind] ?? (kind === "files" || kind === "file");
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-// A saved layout is read leniently: entries in an unknown shape are dropped,
-// so an old or damaged layout still opens the worktree.
-function readSavedLayout(value: unknown): SavedLayout | undefined {
-  if (!isObject(value)) return undefined;
-  const tabs = Array.isArray(value.tabs)
-    ? value.tabs.filter(
-        (tab): tab is WorkspaceTab =>
-          isObject(tab) &&
-          typeof tab.id === "string" &&
-          typeof tab.title === "string" &&
-          viewKinds.includes(tab.kind as WorkspaceViewKind) &&
-          isObject(tab.target) &&
-          isObject(tab.target.host) &&
-          isObject(tab.target.folder) &&
-          isObject(tab.target.worktree),
-      )
-    : [];
-  return {
-    // Dockview checks the layout itself; a failure there is caught on load.
-    layout: isObject(value.layout)
-      ? (value.layout as unknown as SerializedDockview)
-      : undefined,
-    tabs,
-    activeTabId:
-      typeof value.activeTabId === "string" ? value.activeTabId : undefined,
-    lastTerminalId:
-      typeof value.lastTerminalId === "string"
-        ? value.lastTerminalId
-        : undefined,
-    mobileClosedTabs: Array.isArray(value.mobileClosedTabs)
-      ? value.mobileClosedTabs.filter(
-          (entry): entry is { id: string; preservePane: boolean } =>
-            isObject(entry) &&
-            typeof entry.id === "string" &&
-            typeof entry.preservePane === "boolean",
-        )
-      : undefined,
-    views: isObject(value.views) ? value.views : undefined,
-  };
-}
-
-// A View's state is kept while its tab is open: the tab's first panel, or a
-// split panel of the tab.
-function openViews(views: Record<string, unknown>, tabs: WorkspaceTab[]) {
-  return Object.fromEntries(
-    Object.entries(views).filter(([key]) =>
-      tabs.some(
-        (tab) =>
-          key === tab.id ||
-          key.startsWith(`${tab.id}:split:`) ||
-          key.startsWith(`${tab.id}:reading:`),
-      ),
-    ),
-  );
 }
 
 type Props = {
@@ -639,8 +583,12 @@ function WorkspaceFrameInner({
   // PC and Mobile layouts recreate their panes, but a Terminal's logical view
   // in this Client keeps its identity. A different Client has its own IDs.
   const terminalViewIds = useRef(new Map<string, string>());
-  const [tabs, setTabs] = useState<WorkspaceTab[]>([]);
-  const [activeTabId, setActiveTabId] = useState("");
+  const [workspace] = useState(createWorkspaceStore);
+  const workspaceState = useSyncExternalStore(
+    workspace.subscribe,
+    workspace.getSnapshot,
+  );
+  const { tabs, activeTabId } = workspaceState;
   const [tabVisitHistories, setTabVisitHistories] = useState<
     Record<string, string[]>
   >({});
@@ -676,15 +624,10 @@ function WorkspaceFrameInner({
   const removalTarget = removalState.target;
   const setRemovalTarget = worktreeRemovalFlow.open;
   const [shellPickerOpen, setShellPickerOpen] = useState(false);
-  const pendingDockPosition = useRef<
-    { groupId: string; direction: DropDirection } | undefined
-  >(undefined);
-  const dockApi = useRef<DockviewApi | null>(null);
+  const [dock] = useState(() => createWorkspaceDockAdapter(workspace));
   const dockRoot = useRef<HTMLDivElement>(null);
   const layoutScope = useRef("");
   const layoutSaved = useRef(false);
-  const lastLayout = useRef<SerializedDockview | undefined>(undefined);
-  const mobileClosedTabs = useRef<{ id: string; preservePane: boolean }[]>([]);
   const saveQueue = useRef<Promise<void>>(Promise.resolve());
   const pendingLayoutSaves = useRef<Record<string, SavedLayout>>({});
   // Worktrees whose most recent save failed; only they show the save failure.
@@ -697,18 +640,12 @@ function WorkspaceFrameInner({
       Record<string, { revision: number; folders: FolderHistoryItem[] }>
     >
   >({});
-  const lastTerminalByScope = useRef<Record<string, string>>({});
-  const viewStates = useRef<Record<string, unknown>>({});
   // Panels closed by the user; the save a closing View sends is not kept.
   const closedPanels = useRef(new Set<string>());
   const backHandlers = useRef(new Map<string, () => boolean>());
   const [fileHistoryRequest, setFileHistoryRequest] =
     useState<FileHistoryRequest>();
   const touchStart = useRef<{ x: number; y: number } | undefined>(undefined);
-  const tabsRef = useRef(tabs);
-  tabsRef.current = tabs;
-  const activeTabRef = useRef(activeTabId);
-  activeTabRef.current = activeTabId;
   const keySequence = useRef(false);
   const terminalRequests = useRef(new Set<string>());
   const terminalEventsDuringLoad = useRef(new Map<string, TerminalEvent[]>());
@@ -792,13 +729,6 @@ function WorkspaceFrameInner({
         result.result,
       );
       setTerminalLists((current) => ({ ...current, [hostKey]: list }));
-      for (const tab of tabsRef.current)
-        if (
-          tab.target.host.publicKey === hostKey &&
-          tab.terminalId &&
-          !list.terminals.some((terminal) => terminal.id === tab.terminalId)
-        )
-          removeTerminalRef.current(hostKey, tab.terminalId);
       setTerminalStatus((current) => ({ ...current, [hostKey]: "loaded" }));
     } catch {
       setTerminalStatus((current) => ({ ...current, [hostKey]: "error" }));
@@ -1215,7 +1145,7 @@ function WorkspaceFrameInner({
     ).map((kind) => ({
       id: `${kind}:${crypto.randomUUID()}`,
       kind,
-      title: kind === "start" ? "Start" : kind === "files" ? "Files" : "Git",
+      title: initialTabTitle(kind),
       target,
     }));
 
@@ -1229,18 +1159,15 @@ function WorkspaceFrameInner({
         const pending = pendingLayoutSaves.current[targetScope];
         if (pending) {
           if (layoutScope.current !== targetScope) return;
-          tabsRef.current = pending.tabs;
-          activeTabRef.current =
-            pending.activeTabId ?? pending.tabs[0]?.id ?? "";
-          setTabs(tabsRef.current);
-          setActiveTabId(activeTabRef.current);
-          lastLayout.current = pending.layout;
-          mobileClosedTabs.current = pending.mobileClosedTabs ?? [];
-          viewStates.current = pending.views ?? {};
-          setLoadedLayoutScope(targetScope);
-          lastTerminalByScope.current[targetScope] =
-            pending.lastTerminalId ?? "";
           layoutSaved.current = true;
+          workspace.update(() => ({
+            ...pending,
+            mobileClosedTabs: pending.mobileClosedTabs ?? [],
+            views: pending.views ?? {},
+            lastTerminalId: pending.lastTerminalId ?? "",
+            activeTabId: pending.activeTabId ?? pending.tabs[0]?.id ?? "",
+          }));
+          setLoadedLayoutScope(targetScope);
           if (failedLayoutSaves.current.has(targetScope))
             setLayoutErrors((current) => ({
               ...current,
@@ -1249,7 +1176,7 @@ function WorkspaceFrameInner({
           setLayoutLoading(false);
           return;
         }
-        const saved = readSavedLayout(
+        const saved = readWorkspaceState(
           await native.loadWorkspaceLayout<unknown>(targetScope),
         );
         if (layoutScope.current !== targetScope) return;
@@ -1329,18 +1256,7 @@ function WorkspaceFrameInner({
                 tab = {
                   id: `${kind}:${crypto.randomUUID()}`,
                   kind,
-                  title:
-                    kind === "start"
-                      ? "Start"
-                      : kind === "files"
-                        ? "Files"
-                        : kind === "git"
-                          ? "Git"
-                          : kind === "board"
-                            ? "Board"
-                            : kind === "issues"
-                              ? "Issues"
-                              : "CI",
+                  title: initialTabTitle(kind),
                   target,
                 };
               }
@@ -1409,21 +1325,22 @@ function WorkspaceFrameInner({
           });
         // A closing View can save while React is committing the new layout.
         // Keep the synchronous snapshot aligned with the new scope first.
-        tabsRef.current = restoredTabs;
-        activeTabRef.current =
-          saved?.activeTabId || templateActive || restoredTabs[0]?.id || "";
-        setTabs(tabsRef.current);
-        setActiveTabId(activeTabRef.current);
-        lastLayout.current = saved?.layout ?? templateLayout;
-        mobileClosedTabs.current = saved?.mobileClosedTabs ?? [];
-        viewStates.current = saved?.views ?? {};
-        setLoadedLayoutScope(targetScope);
-        lastTerminalByScope.current[targetScope] =
-          saved?.lastTerminalId ??
-          saved?.tabs.filter((tab) => tab.kind === "terminal").at(-1)?.id ??
-          "";
-        layoutSaved.current = true;
         delete pendingLayoutSaves.current[targetScope];
+        layoutSaved.current = true;
+        workspace.update(() => ({
+          ...saved,
+          mobileClosedTabs: saved?.mobileClosedTabs ?? [],
+          views: saved?.views ?? {},
+          lastTerminalId:
+            saved?.lastTerminalId ??
+            saved?.tabs.filter((tab) => tab.kind === "terminal").at(-1)?.id ??
+            "",
+          tabs: restoredTabs,
+          layout: saved?.layout ?? templateLayout,
+          activeTabId:
+            saved?.activeTabId || templateActive || restoredTabs[0]?.id || "",
+        }));
+        setLoadedLayoutScope(targetScope);
         setLayoutErrors((current) => {
           const next = { ...current };
           delete next[targetScope];
@@ -1446,8 +1363,7 @@ function WorkspaceFrameInner({
     setFileHistoryRequest(undefined);
     closedPanels.current.clear();
     if (!scope) {
-      setTabs([]);
-      setActiveTabId("");
+      workspace.update(() => ({ tabs: [], activeTabId: "" }));
       setLoadedLayoutScope("");
       setLayoutLoading(false);
       return;
@@ -1487,23 +1403,15 @@ function WorkspaceFrameInner({
     [],
   );
 
-  const persistLayout = useCallback(() => {
-    const currentScope = layoutScope.current;
-    if (!currentScope || !layoutSaved.current) return;
-    saveLayout(currentScope, {
-      layout: lastLayout.current,
-      mobileClosedTabs: mobileClosedTabs.current,
-      tabs: tabsRef.current,
-      activeTabId: activeTabRef.current,
-      lastTerminalId: lastTerminalByScope.current[currentScope],
-      views: openViews(viewStates.current, tabsRef.current),
-    });
-  }, [saveLayout]);
-
-  // Mobile has no Dockview to report changes, so tab changes save directly.
+  // The handler belongs to the ledger, so a closing View can still queue its
+  // final state while React unmounts the Frame and its effect subscriptions.
   useEffect(() => {
-    if (isMobile && loadedLayoutScope === scope) persistLayout();
-  }, [isMobile, tabs, activeTabId, loadedLayoutScope, scope, persistLayout]);
+    workspace.onChange(() => {
+      const currentScope = layoutScope.current;
+      if (currentScope && layoutSaved.current)
+        saveLayout(currentScope, writeSavedLayout(workspace.getSnapshot()));
+    });
+  }, [workspace, saveLayout]);
 
   const retryLayoutSave = (targetScope: string) => {
     const pending = pendingLayoutSaves.current[targetScope];
@@ -1519,22 +1427,20 @@ function WorkspaceFrameInner({
       title: "Start",
       target: selectedTarget,
     };
-    tabsRef.current = [start];
-    setTabs(tabsRef.current);
-    activeTabRef.current = start.id;
-    setActiveTabId(start.id);
-    lastLayout.current = undefined;
-    mobileClosedTabs.current = [];
-    viewStates.current = {};
-    lastTerminalByScope.current[targetScope] = "";
-    setLoadedLayoutScope(targetScope);
     layoutSaved.current = true;
+    workspace.update(() => ({
+      tabs: [start],
+      activeTabId: start.id,
+      mobileClosedTabs: [],
+      views: {},
+      lastTerminalId: "",
+    }));
+    setLoadedLayoutScope(targetScope);
     setLayoutErrors((current) => {
       const next = { ...current };
       delete next[targetScope];
       return next;
     });
-    persistLayout();
   };
 
   const currentHostKey = selectedTarget?.host.publicKey ?? "";
@@ -1598,20 +1504,17 @@ function WorkspaceFrameInner({
         ? shownMobileTab.current?.scope === scope
           ? shownMobileTab.current.id
           : undefined
-        : activeTabRef.current;
+        : workspace.getSnapshot().activeTabId;
       if (previous && previous !== id)
         setTabVisitHistory((current) => [...current, previous]);
-      activeTabRef.current = id;
-      setActiveTabId(id);
+      workspace.update((current) => selectWorkspaceTab(current, id));
     },
     [isMobile, scope, setTabVisitHistory],
   );
 
   const showPanel = (id: string) => {
     activateTab(id);
-    dockApi.current?.panels
-      .find((panel) => panel.params?.tabId === id)
-      ?.api.setActive();
+    dock.select(id);
   };
 
   const addTab = useCallback(
@@ -1620,13 +1523,17 @@ function WorkspaceFrameInner({
       groupId?: string,
       direction: DropDirection = "within",
     ) => {
-      pendingDockPosition.current = groupId
-        ? { groupId, direction }
-        : undefined;
-      tabsRef.current = [...tabsRef.current, tab];
-      setTabs(tabsRef.current);
-      activateTab(tab.id);
-      requestFocus(tab.id);
+      dock.pendingPosition = groupId ? { groupId, direction } : undefined;
+      const next = workspace.update((current) => addWorkspaceTab(current, tab));
+      const opened = tab.terminalId
+        ? (terminalWorkspaceTab(
+            next,
+            tab.target.host.publicKey,
+            tab.terminalId,
+          ) ?? tab)
+        : tab;
+      activateTab(opened.id);
+      requestFocus(opened.id);
       setShellPickerOpen(false);
     },
     [activateTab, requestFocus],
@@ -1639,12 +1546,12 @@ function WorkspaceFrameInner({
       direction: DropDirection = "within",
     ) => {
       if (!selectedTarget) return;
-      const existing = tabsRef.current.find((tab) => tab.kind === kind);
+      const existing = workspace
+        .getSnapshot()
+        .tabs.find((tab) => tab.kind === kind);
       if (existing) {
         activateTab(existing.id);
-        dockApi.current?.panels
-          .find((panel) => panel.params?.tabId === existing.id)
-          ?.api.setActive();
+        dock.select(existing.id);
         requestFocus(existing.id);
         return existing.id;
       }
@@ -1653,16 +1560,9 @@ function WorkspaceFrameInner({
         {
           id,
           kind,
-          title:
-            kind === "files"
-              ? "Files"
-              : kind === "board"
-                ? "Board"
-                : kind === "issues"
-                  ? "Issues"
-                  : kind === "ci"
-                    ? "CI"
-                    : "Git",
+          title: initialTabTitle(
+            kind === "file" || kind === "start" ? "git" : kind,
+          ),
           target: selectedTarget,
         },
         groupId,
@@ -1685,12 +1585,29 @@ function WorkspaceFrameInner({
       if (launch) {
         if (
           launch.startTabId &&
-          tabsRef.current.some((tab) => tab.id === launch.startTabId)
+          workspace
+            .getSnapshot()
+            .tabs.some((tab) => tab.id === launch.startTabId)
         ) {
-          const id = terminalTabId(summary.id);
-          const alreadyOpen = tabsRef.current.some((tab) => tab.id === id);
-          tabsRef.current = replaceStartTab(
-            tabsRef.current,
+          const id =
+            terminalWorkspaceTab(
+              workspace.getSnapshot(),
+              selectedTarget.host.publicKey,
+              summary.id,
+            )?.id ?? terminalTabId(summary.id);
+          const alreadyOpen = workspace
+            .getSnapshot()
+            .tabs.some((tab) => tab.id === id);
+          workspace.update((current) =>
+            replaceWorkspaceStartTab(current, launch.startTabId!, {
+              id,
+              kind: "terminal",
+              title: summary.title || summary.shell,
+              terminalId: summary.id,
+              target: selectedTarget,
+            }),
+          );
+          dock.replaceTab(
             launch.startTabId,
             {
               id,
@@ -1699,55 +1616,38 @@ function WorkspaceFrameInner({
               terminalId: summary.id,
               target: selectedTarget,
             },
+            alreadyOpen,
           );
-          for (const panel of [...(dockApi.current?.panels ?? [])]) {
-            if (panel.params?.tabId === launch.startTabId) {
-              if (alreadyOpen) panel.api.close();
-              else {
-                panel.api.updateParameters({ tabId: id });
-                panel.api.setTitle(summary.title || summary.shell);
-              }
-            }
-          }
-          // A newly opened worktree can still be mounting its dock. Keep
-          // the restored panel in the same position when it becomes ready.
-          // A Start panel left behind is closed with its group when the dock
-          // is ready, since no tab refers to it.
-          if (!alreadyOpen)
-            for (const panel of Object.values(
-              lastLayout.current?.panels ?? {},
-            )) {
-              if (panel.params?.tabId === launch.startTabId) {
-                panel.params = { ...panel.params, tabId: id };
-                panel.title = summary.title || summary.shell;
-              }
-            }
-          setTabs(tabsRef.current);
         }
         if (
           summary.teamConversation &&
           !isMobile &&
-          !tabsRef.current.some((tab) => tab.kind === "board")
+          !workspace.getSnapshot().tabs.some((tab) => tab.kind === "board")
         ) {
-          tabsRef.current = [
-            ...tabsRef.current,
-            {
+          workspace.update((current) =>
+            addWorkspaceTab(current, {
               id: `board:${crypto.randomUUID()}`,
               kind: "board",
               title: "Board",
               target: selectedTarget,
-            },
-          ];
-          setTabs(tabsRef.current);
+            }),
+          );
         }
       }
-      if (scope) lastTerminalByScope.current[scope] = summary.id;
+      if (scope)
+        workspace.update((current) =>
+          rememberWorkspaceTerminal(current, summary.id),
+        );
       setClaimTerminals((current) => new Set(current).add(summary.id));
-      const id = terminalTabId(summary.id);
-      if (tabsRef.current.some((tab) => tab.id === id)) {
+      const id =
+        terminalWorkspaceTab(
+          workspace.getSnapshot(),
+          selectedTarget.host.publicKey,
+          summary.id,
+        )?.id ?? terminalTabId(summary.id);
+      if (workspace.getSnapshot().tabs.some((tab) => tab.id === id)) {
         showPanel(id);
         requestFocus(id);
-        if (launch) persistLayout();
         return;
       }
       addTab(
@@ -1761,9 +1661,8 @@ function WorkspaceFrameInner({
         groupId,
         direction,
       );
-      if (launch) persistLayout();
     },
-    [addTab, requestFocus, scope, selectedTarget, isMobile, persistLayout],
+    [addTab, requestFocus, scope, selectedTarget, isMobile],
   );
 
   const [attentionToOpen, setAttentionToOpen] = useState<
@@ -1912,7 +1811,9 @@ function WorkspaceFrameInner({
       undefined,
       attentionToOpen.started
         ? {
-            startTabId: tabsRef.current.find((tab) => tab.kind === "start")?.id,
+            startTabId: workspace
+              .getSnapshot()
+              .tabs.find((tab) => tab.kind === "start")?.id,
           }
         : undefined,
     );
@@ -2009,81 +1910,49 @@ function WorkspaceFrameInner({
 
   const chooseShell = useCallback(
     (shell: TerminalShell) => {
-      const pending = pendingDockPosition.current;
-      pendingDockPosition.current = undefined;
+      const pending = dock.pendingPosition;
+      dock.pendingPosition = undefined;
       void createTerminal(shell.id, pending?.groupId, pending?.direction);
     },
     [createTerminal],
   );
 
   const closeTab = (id: string, panelId?: string, preservePane = false) => {
-    const api = dockApi.current;
-    if (!api && lastLayout.current)
-      mobileClosedTabs.current = [
-        ...mobileClosedTabs.current,
-        { id, preservePane },
-      ];
-    const closing =
-      api?.panels.filter((panel) =>
-        panelId ? panel.id === panelId : panel.params?.tabId === id,
-      ) ?? [];
-    // Keep the last pane and its tab bar when the user closes every tab.
-    // Process exits use the existing empty-pane launcher instead.
-    if (
-      !preservePane &&
-      selectedTarget &&
-      closing.length &&
-      closing.length === api?.panels.length
-    ) {
-      addTab(
-        {
-          id: `start:${crypto.randomUUID()}`,
-          kind: "start",
-          title: "Start",
-          target: selectedTarget,
-        },
-        closing[0].group.id,
-      );
-      syncPanels(api);
-    }
-    if (panelId && api) {
-      // A split panel's View state leaves the saved layout with the panel.
-      closedPanels.current.add(panelId);
-      viewStates.current = Object.fromEntries(
-        Object.entries(viewStates.current).filter(
-          ([key]) => key !== panelId && !key.startsWith(`${panelId}:reading:`),
-        ),
-      );
-      api.getPanel(panelId)?.api.close();
-      return;
-    }
-    if (preservePane && api) {
-      const closing = api.panels.filter((panel) => panel.params?.tabId === id);
-      for (const panel of closing) {
-        if (panel.group.panels.every((item) => closing.includes(item))) {
-          api.addPanel({
-            id: `empty:${panel.group.id}`,
-            component: "empty",
-            tabComponent: "empty",
-            params: { emptyPane: true },
-            position: { referenceGroup: panel.group.id, direction: "within" },
-            inactive: true,
-          });
-        }
-      }
-    }
-    api?.panels
-      .filter((panel) => panel.params?.tabId === id)
-      .forEach((panel) => panel.api.close());
-    tabsRef.current = tabsRef.current.filter((tab) => tab.id !== id);
-    setTabs(tabsRef.current);
+    const api = dock.api;
+    dock.close(id, {
+      panelId,
+      preservePane,
+      onLastPanel: selectedTarget
+        ? (groupId) =>
+            addTab(
+              {
+                id: `start:${crypto.randomUUID()}`,
+                kind: "start",
+                title: "Start",
+                target: selectedTarget,
+              },
+              groupId,
+            )
+        : undefined,
+      onPanelClose: (closedId) => {
+        closedPanels.current.add(closedId);
+        workspace.update((current) =>
+          forgetWorkspacePanelState(current, closedId),
+        );
+      },
+    });
+    if (panelId && api) return;
+    workspace.update((current) =>
+      api
+        ? closeWorkspaceTab(current, id)
+        : closeMobileWorkspaceTab(current, id, preservePane),
+    );
     setTabVisitHistory((current) => current.filter((tabId) => tabId !== id));
-    if (activeTabRef.current === id) setActiveTabId("");
     if (
       !api &&
-      tabsRef.current.length === 0 &&
+      workspace.getSnapshot().tabs.length === 0 &&
       selectedTarget &&
-      !(preservePane && lastLayout.current)
+      !(preservePane && workspace.getSnapshot().layout)
     )
       addTab({
         id: `start:${crypto.randomUUID()}`,
@@ -2098,10 +1967,14 @@ function WorkspaceFrameInner({
     (hostKey: string, terminalId: string, processExited = false) => {
       terminalViewIds.current.delete(`${hostKey}:${terminalId}`);
       applyTerminalEventFor(hostKey, { type: "terminal.closed", terminalId });
-      if (tabsRef.current.some((tab) => tab.terminalId === terminalId))
-        closeTab(terminalTabId(terminalId), undefined, processExited);
+      const tab = terminalWorkspaceTab(
+        workspace.getSnapshot(),
+        hostKey,
+        terminalId,
+      );
+      if (tab) closeTab(tab.id, undefined, processExited);
     },
-    [applyTerminalEventFor],
+    [applyTerminalEventFor, closeTab],
   );
 
   removeTerminalRef.current = removeTerminal;
@@ -2130,7 +2003,7 @@ function WorkspaceFrameInner({
   const recentTerminal = useCallback(
     () =>
       targetTerminalsRef.current.find(
-        (terminal) => terminal.id === lastTerminalByScope.current[scope],
+        (terminal) => terminal.id === workspace.getSnapshot().lastTerminalId,
       ) ?? targetTerminalsRef.current.at(-1),
     [scope],
   );
@@ -2170,14 +2043,6 @@ function WorkspaceFrameInner({
       }
       return;
     }
-    const placement =
-      direction === "within"
-        ? "center"
-        : direction === "above"
-          ? "top"
-          : direction === "below"
-            ? "bottom"
-            : direction;
     const summary =
       payload.kind !== "terminal"
         ? undefined
@@ -2189,16 +2054,17 @@ function WorkspaceFrameInner({
     const existing =
       payload.kind === "terminal"
         ? summary &&
-          tabsRef.current.find((tab) => tab.id === terminalTabId(summary.id))
-        : tabsRef.current.find((tab) => tab.kind === payload.kind);
+          workspace
+            .getSnapshot()
+            .tabs.find((tab) => tab.id === terminalTabId(summary.id))
+        : workspace.getSnapshot().tabs.find((tab) => tab.kind === payload.kind);
     if (existing) {
-      const panel = dockApi.current?.panels.find(
-        (item) => item.params?.tabId === existing.id,
-      );
-      panel?.api.moveTo({ group, position: placement });
-      panel?.api.setActive();
+      dock.move(existing.id, group, direction);
       activateTab(existing.id);
-      if (summary && scope) lastTerminalByScope.current[scope] = summary.id;
+      if (summary && scope)
+        workspace.update((current) =>
+          rememberWorkspaceTerminal(current, summary.id),
+        );
       return;
     }
     if (payload.kind === "terminal") {
@@ -2215,16 +2081,11 @@ function WorkspaceFrameInner({
     [],
   );
 
-  const kindOfGroup = (group: DockGroup) => {
-    const tabId = group.activePanel?.params?.tabId as string | undefined;
-    return tabsRef.current.find((tab) => tab.id === tabId)?.kind ?? "files";
-  };
+  const kindOfGroup = dock.kindOfGroup;
 
   const setGroupWidth = useCallback(
     (group: DockGroup, fullWidth: boolean) => {
-      const tabId = group.activePanel?.params?.tabId as string | undefined;
-      const kind =
-        tabsRef.current.find((tab) => tab.id === tabId)?.kind ?? "files";
+      const kind = kindOfGroup(group);
       const width = fullWidth
         ? "calc(100vw - 24px)"
         : `min(${Math.max(widthForKind(kind), unmaximizedWidth.current)}px, calc(100vw - 24px))`;
@@ -2273,9 +2134,7 @@ function WorkspaceFrameInner({
     (event: ReactPointerEvent<HTMLDivElement>) => {
       event.preventDefault();
       event.stopPropagation();
-      const group = dockApi.current?.groups.find(
-        (item) => item.id === maximizedGroup,
-      );
+      const group = dock.api?.groups.find((item) => item.id === maximizedGroup);
       if (!group || maximizesFullWidth(kind, maximizedFullWidthRef.current))
         return;
       const startWidth = group.element.getBoundingClientRect().width;
@@ -2324,24 +2183,14 @@ function WorkspaceFrameInner({
     if (maximizedGroup) return;
     // Switching tabs while maximized makes Dockview measure the lifted group.
     // Refresh its overlay coordinates once the normal group geometry is back.
-    const api = dockApi.current;
-    api?.layout(api.width, api.height, true);
-    // Dockview's layout refresh skips hidden overlays. Those can retain the
-    // maximized height and overflow the dock when their tab is shown again.
-    // Reposition them without selecting, remounting, or revealing the panel.
-    for (const panel of api?.panels ?? []) {
-      if (!panel.api.isVisible)
-        panel.group.model.renderContainer.repositionPanelOverlay(panel.id);
-    }
+    dock.refreshOverlays();
   }, [maximizedGroup]);
 
   // Keep the overlay of the maximized group's visible panel lifted with it,
   // also when the view changes inside the group. Split ratios stay unchanged.
   useEffect(() => {
     if (!maximizedGroup) return;
-    const group = dockApi.current?.groups.find(
-      (item) => item.id === maximizedGroup,
-    );
+    const group = dock.api?.groups.find((item) => item.id === maximizedGroup);
     if (!group) {
       setMaximizedGroup(undefined);
       return;
@@ -2357,169 +2206,57 @@ function WorkspaceFrameInner({
   }, [isMobile, closeMaximize]);
 
   const onDockReady = (api: DockviewApi) => {
-    dockApi.current = api;
-    if (lastLayout.current) {
-      try {
-        api.fromJSON(lastLayout.current);
-      } catch {
-        // Preserve a parent that already replaced Start before the dock mounted.
-        const agentId =
-          lastLayout.current.panels?.[templateAgentPanel.current ?? ""]?.params
-            ?.tabId;
-        const agent = tabsRef.current.find((tab) => tab.id === agentId);
-        const board = tabsRef.current.find((tab) => tab.kind === "board");
-        // A layout Dockview cannot read opens as one group of the saved tabs.
-        lastLayout.current = undefined;
-        api.clear();
-        if (templateApplied.current && selectedTarget) {
-          tabsRef.current = defaultTabs(selectedTarget, false);
-          if (agent) tabsRef.current[0] = agent;
-          if (board) tabsRef.current.push(board);
-          setTabs(tabsRef.current);
-          activeTabRef.current = tabsRef.current[0].id;
-          setActiveTabId(activeTabRef.current);
-          templateApplied.current = false;
-        }
-        if (selectedTarget && tabsRef.current.length === 0) {
-          const start: WorkspaceTab = {
-            id: `start:${crypto.randomUUID()}`,
-            kind: "start",
-            title: "Start",
-            target: selectedTarget,
-          };
-          tabsRef.current = [start];
-          setTabs(tabsRef.current);
-          activeTabRef.current = start.id;
-          setActiveTabId(start.id);
-        }
+    if (!dock.restore(api, scope, () => layoutScope.current)) {
+      // Preserve a parent that already replaced Start before the dock mounted.
+      const agentId =
+        workspace.getSnapshot().layout?.panels?.[
+          templateAgentPanel.current ?? ""
+        ]?.params?.tabId;
+      const agent = workspace
+        .getSnapshot()
+        .tabs.find((tab) => tab.id === agentId);
+      const board = workspace
+        .getSnapshot()
+        .tabs.find((tab) => tab.kind === "board");
+      // A layout Dockview cannot read opens as one group of the saved tabs.
+      workspace.update((current) => ({ ...current, layout: undefined }));
+      dock.clear();
+      if (templateApplied.current && selectedTarget) {
+        const restored = defaultTabs(selectedTarget, false);
+        if (agent) restored[0] = agent;
+        if (board) restored.push(board);
+        workspace.update((current) => ({
+          ...current,
+          tabs: restored,
+          activeTabId: restored[0].id,
+        }));
+        templateApplied.current = false;
+      }
+      if (selectedTarget && workspace.getSnapshot().tabs.length === 0) {
+        const start: WorkspaceTab = {
+          id: `start:${crypto.randomUUID()}`,
+          kind: "start",
+          title: "Start",
+          target: selectedTarget,
+        };
+        workspace.update((current) => ({
+          ...current,
+          tabs: [start],
+          activeTabId: start.id,
+        }));
       }
     }
-    // Preserve groups whose last tab exited while Dockview was unmounted.
-    // A Mobile-only tab may have exited after every saved panel was closed.
-    // Keep one place to start again even though that tab had no saved panel.
-    const fallbackGroup =
-      tabsRef.current.length === 0 &&
-      mobileClosedTabs.current.some((closed) => closed.preservePane) &&
-      !api.panels.some((panel) =>
-        mobileClosedTabs.current.some(
-          (closed) => closed.preservePane && panel.params?.tabId === closed.id,
-        ),
-      ) &&
-      !api.panels.some((panel) => panel.params?.emptyPane)
-        ? (api.activeGroup ?? api.groups[0])
-        : undefined;
-    for (const group of api.groups) {
-      const lastClosed = [...mobileClosedTabs.current]
-        .reverse()
-        .find((closed) =>
-          group.panels.some((panel) => panel.params?.tabId === closed.id),
-        );
-      if (
-        (lastClosed?.preservePane || group === fallbackGroup) &&
-        group.panels.every(
-          (panel) =>
-            !panel.params?.emptyPane &&
-            !tabsRef.current.some((tab) => tab.id === panel.params?.tabId),
-        )
-      )
-        api.addPanel({
-          id: `empty:${group.id}`,
-          component: "empty",
-          tabComponent: "empty",
-          params: { emptyPane: true },
-          position: { referenceGroup: group.id, direction: "within" },
-          inactive: true,
-        });
-    }
-    mobileClosedTabs.current = [];
-    // Tabs closed while the Mobile view was shown leave no panel behind.
-    for (const panel of [...api.panels])
-      if (
-        !panel.params?.emptyPane &&
-        !tabsRef.current.some((tab) => tab.id === panel.params?.tabId)
-      )
-        panel.api.close();
-    syncPanels(api);
-    // Restore and select the requested tab before observing user changes.
-    // fromJSON emits selection events for the previously saved active panel.
-    const activeListener = api.onDidActivePanelChange(({ panel }) => {
-      const tabId = panel?.params?.tabId as string | undefined;
-      if (tabId) activateTab(tabId);
+    return dock.observe({
+      onActive: activateTab,
+      onRemoveGroup: (id) =>
+        setMaximizedGroup((current) => (current === id ? undefined : current)),
     });
-    const layoutListener = api.onDidLayoutChange(() => {
-      lastLayout.current = api.toJSON();
-      persistLayout();
-    });
-    const removeListener = api.onDidRemovePanel((panel) => {
-      const tabId = panel.params?.tabId as string | undefined;
-      if (tabId && !api.panels.some((item) => item.params?.tabId === tabId)) {
-        tabsRef.current = tabsRef.current.filter((tab) => tab.id !== tabId);
-        setTabs(tabsRef.current);
-      }
-    });
-    const removeGroupListener = api.onDidRemoveGroup((group) => {
-      setMaximizedGroup((current) =>
-        current === group.id ? undefined : current,
-      );
-    });
-    lastLayout.current = api.toJSON();
-    persistLayout();
-
-    return () => {
-      activeListener.dispose();
-      layoutListener.dispose();
-      removeListener.dispose();
-      removeGroupListener.dispose();
-      if (dockApi.current === api) dockApi.current = null;
-    };
-  };
-
-  // Every tab has a Dockview panel. Tabs added before Dockview was ready (or
-  // while the Mobile view was shown) join the active group.
-  const syncPanels = (api: DockviewApi) => {
-    for (const tab of tabsRef.current) {
-      if (api.panels.some((panel) => panel.params?.tabId === tab.id)) continue;
-      const pending = pendingDockPosition.current;
-      api.addPanel({
-        id: tab.id,
-        component: "workspace",
-        inactive: tab.id !== activeTabRef.current,
-        title: tab.title,
-        params: { tabId: tab.id },
-        ...(pending && api.getGroup(pending.groupId)
-          ? {
-              position: {
-                referenceGroup: pending.groupId,
-                direction: pending.direction,
-              },
-            }
-          : api.activeGroup
-            ? {
-                position: {
-                  referenceGroup: api.activeGroup.id,
-                  direction: "within" as const,
-                },
-              }
-            : {}),
-      });
-      const panel = api.getPanel(tab.id);
-      if (panel)
-        for (const empty of [...panel.group.panels])
-          if (empty.params?.emptyPane) empty.api.close();
-      if (tab.id === activeTabRef.current)
-        pendingDockPosition.current = undefined;
-    }
-    const active = api.panels.find(
-      (panel) => panel.params?.tabId === activeTabRef.current,
-    );
-    if (active && !active.api.isActive) active.api.setActive();
   };
 
   useEffect(() => {
-    const api = dockApi.current;
-    if (!api || isMobile || layoutLoading || loadedLayoutScope !== scope)
+    if (!dock.api || isMobile || layoutLoading || loadedLayoutScope !== scope)
       return;
-    syncPanels(api);
+    dock.sync();
   }, [tabs, activeTabId, layoutLoading, isMobile, loadedLayoutScope, scope]);
 
   // The worktrees of the opened folder as the sidebar knows them now.
@@ -2577,22 +2314,11 @@ function WorkspaceFrameInner({
       });
     return [...choices.values()];
   }, [targetFolder, selectedTarget, childDisplay]);
-  const selectReadingWorktree = useCallback(
-    (tabId: string, path: string) => {
-      tabsRef.current = tabsRef.current.map((tab) =>
-        tab.id === tabId
-          ? tab.kind === "git"
-            ? { ...tab, gitWorktreePath: path }
-            : tab.kind === "ci"
-              ? { ...tab, ciWorktreePath: path }
-              : { ...tab, filesWorktreePath: path }
-          : tab,
-      );
-      setTabs(tabsRef.current);
-      persistLayout();
-    },
-    [persistLayout],
-  );
+  const selectReadingWorktree = useCallback((tabId: string, path: string) => {
+    workspace.update((current) =>
+      selectWorkspaceReadingWorktree(current, tabId, path),
+    );
+  }, []);
   const [fileOpenRequest, setFileOpenRequest] = useState<FileOpenRequest>();
   const viewServices = useMemo<WorkspaceViewServices>(
     () => ({
@@ -2615,12 +2341,14 @@ function WorkspaceFrameInner({
           if (tabId) selectReadingWorktree(tabId, worktree.path);
           path = absolute.slice(normalize(worktree.path).length + 1);
         } else {
-          const existing = tabsRef.current.find(
-            (tab) =>
-              tab.kind === "file" &&
-              tab.file &&
-              samePath(tab.file.absolutePath, file.absolutePath),
-          );
+          const existing = workspace
+            .getSnapshot()
+            .tabs.find(
+              (tab) =>
+                tab.kind === "file" &&
+                tab.file &&
+                samePath(tab.file.absolutePath, file.absolutePath),
+            );
           tabId = existing?.id ?? `file:${crypto.randomUUID()}`;
           if (existing) activateTab(tabId);
           else
@@ -2638,7 +2366,7 @@ function WorkspaceFrameInner({
       fileOpenRequest,
       fileOpened: (id) =>
         setFileOpenRequest((value) => (value?.id === id ? undefined : value)),
-      viewState: (key) => viewStates.current[key],
+      viewState: (key) => workspace.getSnapshot().views?.[key],
       setViewState: (key, state) => {
         if (
           [...closedPanels.current].some(
@@ -2646,8 +2374,9 @@ function WorkspaceFrameInner({
           )
         )
           return;
-        viewStates.current = { ...viewStates.current, [key]: state };
-        persistLayout();
+        workspace.update((current) =>
+          setWorkspaceViewState(current, key, state),
+        );
       },
       setBackHandler: (key, handler) => {
         if (handler) backHandlers.current.set(key, handler);
@@ -2694,7 +2423,6 @@ function WorkspaceFrameInner({
       },
     }),
     [
-      persistLayout,
       addPanel,
       addTab,
       activateTab,
@@ -2740,8 +2468,9 @@ function WorkspaceFrameInner({
     }
     // Inside the shown View first: a detail goes back to its list.
     const shownPanel = isMobile
-      ? activeTabRef.current || tabsRef.current[0]?.id
-      : dockApi.current?.activePanel?.id;
+      ? workspace.getSnapshot().activeTabId ||
+        workspace.getSnapshot().tabs[0]?.id
+      : dock.api?.activePanel?.id;
     if (shownPanel && backHandlers.current.get(shownPanel)?.()) return true;
     // After the shown tab closes, the tab shown in its place can still be in
     // the history; going back skips it so every press moves somewhere.
@@ -2749,17 +2478,15 @@ function WorkspaceFrameInner({
       .reverse()
       .find(
         (id) =>
-          id !== activeTabRef.current && tabs.some((tab) => tab.id === id),
+          id !== workspace.getSnapshot().activeTabId &&
+          tabs.some((tab) => tab.id === id),
       );
     if (previousTab) {
       setTabVisitHistory((current) =>
         current.slice(0, current.lastIndexOf(previousTab)),
       );
-      activeTabRef.current = previousTab;
-      setActiveTabId(previousTab);
-      dockApi.current?.panels
-        .find((item) => item.params?.tabId === previousTab)
-        ?.api.setActive();
+      workspace.update((current) => selectWorkspaceTab(current, previousTab));
+      dock.select(previousTab);
       return true;
     }
     const previous = visitedTargets.at(-1);
@@ -2804,7 +2531,7 @@ function WorkspaceFrameInner({
       if (keySequence.current) {
         keySequence.current = false;
         if ((event.ctrlKey || event.metaKey) && key === "m") {
-          const group = dockApi.current?.activePanel?.api.group;
+          const group = dock.api?.activePanel?.api.group;
           if (group) toggleMaximize(group);
           event.preventDefault();
         }
@@ -2983,7 +2710,11 @@ function WorkspaceFrameInner({
       )
         continue;
       finishedChildTabs.current.delete(key);
-      if (tabsRef.current.some((tab) => tab.terminalId === child.terminalId))
+      if (
+        workspace
+          .getSnapshot()
+          .tabs.some((tab) => tab.terminalId === child.terminalId)
+      )
         closeTab(terminalTabId(child.terminalId), undefined, true);
     }
   }, [childrenByHost, selectedTarget, layoutLoading, loadedLayoutScope, scope]);
@@ -2996,12 +2727,14 @@ function WorkspaceFrameInner({
     )
       return;
     const ids = new Set(terminalList.terminals.map((terminal) => terminal.id));
-    // Compare the tabs and Host list from the same render. A launch can add a
-    // tab to tabsRef before this older effect runs; that newer tab is absent
-    // from this effect's list and must not be closed as a removed Terminal.
-    for (const tab of tabs)
-      if (tab.kind === "terminal" && !ids.has(tab.terminalId ?? ""))
-        closeTab(tab.id);
+    // A launch can update the store before this effect runs. Only compare
+    // tabs from this render with the Host list from the same render.
+    for (const tab of missingWorkspaceTerminals({ tabs }, ids)) {
+      terminalViewIds.current.delete(
+        `${tab.target.host.publicKey}:${tab.terminalId}`,
+      );
+      closeTab(tab.id);
+    }
   }, [
     terminalList,
     terminalStatus,
@@ -3044,10 +2777,11 @@ function WorkspaceFrameInner({
     if (layoutLoading || loadedLayoutScope !== scope) return;
     const id = addPanel("board");
     if (id) {
-      viewStates.current[id] = boardToOpen.conversation;
+      workspace.update((current) =>
+        setWorkspaceViewState(current, id, boardToOpen.conversation),
+      );
       // The restored active tab was not visited on this trip from Home.
       setTabVisitHistory([]);
-      persistLayout();
     }
     setBoardToOpen(undefined);
   }, [
@@ -3057,7 +2791,6 @@ function WorkspaceFrameInner({
     scope,
     selectedTarget,
     addPanel,
-    persistLayout,
   ]);
 
   useEffect(() => {
@@ -3245,7 +2978,7 @@ function WorkspaceFrameInner({
   const saveTemplateRef =
     useRef<() => WorktreeLayoutTemplate | undefined>(undefined);
   saveTemplateRef.current = () => {
-    const layout = dockApi.current?.toJSON();
+    const layout = dock.api?.toJSON();
     if (!layout) return;
     const candidates = displayTabs.filter(
       (tab) => tab.kind === "terminal" && tab.cli && !tab.childId,
@@ -3280,7 +3013,7 @@ function WorkspaceFrameInner({
     }
     const portable = pruneLayout(layout, mapped);
     if (!portable) return;
-    const activePanel = dockApi.current?.activePanel?.id;
+    const activePanel = dock.api?.activePanel?.id;
     const selected = (
       node: SerializedDockview["grid"]["root"],
     ): string | undefined =>
@@ -3370,9 +3103,7 @@ function WorkspaceFrameInner({
     doubleClickMaximize,
     maximizedGroup,
     maximizedFullWidth: (() => {
-      const group = dockApi.current?.groups.find(
-        (item) => item.id === maximizedGroup,
-      );
+      const group = dock.api?.groups.find((item) => item.id === maximizedGroup);
       return group
         ? maximizesFullWidth(kindOfGroup(group), maximizedFullWidth)
         : false;
@@ -3406,15 +3137,15 @@ function WorkspaceFrameInner({
         summary.shell,
       );
       if (text === undefined) return;
-      showPanel(tab.id);
       typeIntoTerminal(summary.id, text);
+      showPanel(tab.id);
     },
     focusRequest,
     focusConsumed,
   };
 
   const maximizedDockGroup = maximizedGroup
-    ? dockApi.current?.groups.find((group) => group.id === maximizedGroup)
+    ? dock.api?.groups.find((group) => group.id === maximizedGroup)
     : undefined;
   const target = selectedTarget;
   const targetName = target ? basename(target.worktree.path) : "";
@@ -3445,8 +3176,8 @@ function WorkspaceFrameInner({
         }
       }}
       onTeam={(team) => {
-        const pending = pendingDockPosition.current;
-        pendingDockPosition.current = undefined;
+        const pending = dock.pendingPosition;
+        dock.pendingPosition = undefined;
         void createTerminal(
           undefined,
           pending?.groupId,
@@ -3462,8 +3193,8 @@ function WorkspaceFrameInner({
       clis={cliList.clis}
       cliError={cliError}
       onCli={(cli) => {
-        const pending = pendingDockPosition.current;
-        pendingDockPosition.current = undefined;
+        const pending = dock.pendingPosition;
+        dock.pendingPosition = undefined;
         void createTerminal(
           undefined,
           pending?.groupId,
@@ -3594,7 +3325,7 @@ function WorkspaceFrameInner({
         return child ? () => void stopChild(currentHostKey, child) : undefined;
       })()}
       onNew={() => {
-        pendingDockPosition.current = undefined;
+        dock.pendingPosition = undefined;
         setShellPickerOpen(true);
       }}
       onCloseView={
@@ -3678,6 +3409,7 @@ function WorkspaceFrameInner({
         t={t}
       />
       <Navigation
+        issueRepositories={issueRepositories}
         showForgeStatus={showForgeStatus}
         onDeleteWorktree={(host, path, cleanup, label) =>
           setRemovalTarget({ host, path, cleanup, label })

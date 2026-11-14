@@ -35,3 +35,28 @@ $remaining=@(Get-NetFirewallApplicationFilter | Where-Object {$_.Program -ieq $p
 `),
   );
 }
+
+/** Create a rule only for this verification's executable. Failure is non-fatal. */
+export function allowWindowsVerificationProgram(program, name) {
+  try {
+    windows(
+      `New-NetFirewallRule -Name ${ps(name)} -DisplayName ${ps(name)} -Direction Inbound -Action Allow -Profile Any -Program ${ps(program)} | Out-Null`,
+    );
+    return { name, program, created: true };
+  } catch (error) {
+    return { name, program, created: false, error: error.message };
+  }
+}
+
+/** Remove this run's rule and record any Windows-created block for its path. */
+export function cleanupWindowsVerificationProgram(rule) {
+  return JSON.parse(
+    windows(`
+$name=${ps(rule.name)};$program=${ps(rule.program)}
+Get-NetFirewallRule -Name $name -ErrorAction SilentlyContinue | Remove-NetFirewallRule
+$remaining=@(Get-NetFirewallRule -Name $name -ErrorAction SilentlyContinue).Count
+$blocks=@(Get-NetFirewallApplicationFilter | Where-Object {$_.Program -ieq $program} | Get-NetFirewallRule | Where-Object Action -eq Block | Select-Object Name,DisplayName,Action)
+@{remaining=$remaining;blocks=$blocks} | ConvertTo-Json -Depth 4 -Compress
+`),
+  );
+}

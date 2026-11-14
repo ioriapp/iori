@@ -283,6 +283,58 @@ test("候補のCLIの失敗を次の候補への続行案内とともに親へ�
     assert.match(notice, /Model unavailable/u);
   }));
 
+test("実行中のタスクを続行すると前の子を停止して新しい子だけが動く", (t) =>
+  runHostTest(t, async ({ client, dataRoot, stage }) => {
+    const context = await setup(client, dataRoot, ["report-later"]);
+    const first = await delegate(context, "first", "Original work.");
+    const previous = await childTerminal(client, context, first.child);
+    await previous.output("LIFECYCLE_WORKING");
+    stage("実行中のタスクを新しい子へ引き継ぐ");
+    const next = await actorCommand(context.parent, "continue-running", [
+      "delegate",
+      "--role",
+      "Worker",
+      "--difficulty",
+      "low",
+      "--title",
+      "Continue",
+      "--worktree",
+      "parent",
+      "--continue",
+      first.task,
+      "--body",
+      "Continue the work.",
+    ]);
+    assert.equal(next.data.task, first.task);
+    assert.notEqual(next.data.child, first.child);
+    const child = await childTerminal(client, context, next.data.child);
+    const output = await child.output("LIFECYCLE_WORKING");
+    assert.match(output, /Original work\./u);
+    const tasks = await actorCommand(context.parent, "continued-tasks", [
+      "tasks",
+    ]);
+    const children = tasks.data.children.filter(
+      (entry) => entry.task === first.task,
+    );
+    assert.equal(
+      children.find((entry) => entry.child === first.child).state,
+      "stopped",
+    );
+    assert.deepEqual(
+      children
+        .filter((entry) => !["finished", "stopped"].includes(entry.state))
+        .map((entry) => entry.child),
+      [next.data.child],
+    );
+    const previousChild = (
+      await client.request("teams.children", {})
+    ).children.find((entry) => entry.id === first.child);
+    const terminal = (await client.request("terminal.list")).terminals.find(
+      (entry) => entry.id === previousChild.terminalId,
+    );
+    assert.equal(terminal.state, "error");
+  }));
+
 test("失敗した候補の次の候補へ依頼と失敗理由を引き継ぐ", (t) =>
   runHostTest(t, async ({ client, dataRoot, stage }) => {
     const context = await setup(client, dataRoot, ["failure", "response"], "1");

@@ -14,14 +14,22 @@ async function executable(name) {
   }
 }
 
-/** Only real shells and Node are discoverable, regardless of installed agents. */
+/** Only real shells, Node and lifecycle tools are discoverable, regardless of installed agents. */
 export async function prepareHostEnvironment(dataRoot) {
   const home = join(dataRoot, "home");
   const bin = join(dataRoot, "bin");
   await mkdir(home);
   await mkdir(bin);
   await symlink(process.execPath, join(bin, "node"));
-  for (const name of ["bash", "zsh", "fish", "sh", "dash"]) {
+  for (const name of [
+    "bash",
+    "zsh",
+    "fish",
+    "sh",
+    "dash",
+    "systemctl",
+    "systemd-run",
+  ]) {
     const path = await executable(name);
     if (path) await symlink(path, join(bin, name));
   }

@@ -7,7 +7,46 @@ export async function setAndroidInstallPermission(appLabel, allowed) {
   const settings = ["com.android.settings"];
   const readControl = () =>
     permissionControl(androidSystemControls(settings), appLabel);
-  const permission = await waitFor(readControl);
+  let controls = await waitFor(() => {
+    const current = androidSystemControls(settings);
+    return permissionControl(current, appLabel) ||
+      current.some((node) => node.scrollable === "true")
+      ? current
+      : undefined;
+  });
+  let permission = permissionControl(controls, appLabel);
+  let seekingStart = true;
+  while (!permission) {
+    if (
+      controls.some(
+        (node) =>
+          node["resource-id"] === "android:id/title" && node.text === appLabel,
+      )
+    )
+      throw new Error("対象アプリのスイッチを特定できません");
+    const list = controls.find((node) => node.scrollable === "true");
+    const bounds = list?.bounds.match(/^\[(\d+),(\d+)\]\[(\d+),(\d+)\]$/u);
+    if (!bounds) throw new Error("アプリ一覧の位置がありません");
+    const [left, top, right, bottom] = bounds.slice(1).map(Number);
+    const x = String(Math.round((left + right) / 2));
+    adb([
+      "shell",
+      "input",
+      "swipe",
+      x,
+      String(Math.round(top + (bottom - top) * (seekingStart ? 0.2 : 0.8))),
+      x,
+      String(Math.round(top + (bottom - top) * (seekingStart ? 0.8 : 0.2))),
+      "300",
+    ]);
+    const next = androidSystemControls(settings);
+    if (JSON.stringify(next) === JSON.stringify(controls)) {
+      if (!seekingStart) throw new Error("アプリ一覧に対象アプリがありません");
+      seekingStart = false;
+    }
+    controls = next;
+    permission = permissionControl(controls, appLabel);
+  }
   if (permission.checked !== String(allowed))
     tapAndroidSystemControl(permission);
   await waitFor(readControl, (control) => control?.checked === String(allowed));

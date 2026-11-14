@@ -17,7 +17,7 @@ export function pathCandidates(text: string): PathCandidate[] {
   // Quotes following prose/punctuation delimit paths, but apostrophes in
   // ASCII words (I've, it's) stay part of the word.
   const tokens =
-    /(?<![A-Za-z0-9])(?:"([^"\r\n]+)"|'([^'\r\n]+)'|`([^`\r\n]+)`)|([^\s<>"`|()\[\]{}']+(?:(?<=[A-Za-z0-9])'[A-Za-z0-9]+)*)/gu;
+    /(?<![A-Za-z0-9])(?:"([^"\r\n]+)"|'([^'\r\n]+)'|`([^`\r\n]+)`)|([^\s<>"`|()\[\]{}'（）「」『』【】〈〉《》〔〕［］｛｝‘’“”]+(?:(?<=[A-Za-z0-9])'[A-Za-z0-9]+)*)/gu;
   for (const match of text.matchAll(tokens)) {
     const quoted = match[1] ?? match[2] ?? match[3];
     const raw = quoted ?? match[4]!;
@@ -42,6 +42,11 @@ export function pathCandidates(text: string): PathCandidate[] {
       });
     };
     add(value);
+    // Japanese punctuation can also be part of a real filename. Resolve the
+    // complete candidate first, then try the prose-free version.
+    const withoutPunctuation = value.replace(/[。、]+$/u, "");
+    if (quoted === undefined && withoutPunctuation !== value)
+      add(withoutPunctuation);
     // Keep Japanese filenames intact; try a prose-free prefix only if the
     // complete filename does not exist. Both go in the same Host request.
     const prefix =
@@ -152,10 +157,10 @@ export function terminalPathLinks(
   return links;
 }
 
-// Same default expression as @xterm/addon-web-links (MIT). Shared with the
-// desktop addon so touch and pointer use the same URL boundaries.
+// Based on @xterm/addon-web-links (MIT), with Japanese prose boundaries.
+// Shared with the desktop addon so touch and pointer use the same boundaries.
 export const terminalUrlRegex =
-  /(https?|HTTPS?):[/]{2}[^\s"'!*(){}|\\\^<>`]*[^\s"':,.!?{}|\\\^~\[\]`()<>]/;
+  /(https?|HTTPS?):[/]{2}[^\s"'!*(){}|\\\^<>`（）「」『』【】〈〉《》〔〕［］｛｝‘’“”]*[^\s"':,.!?{}|\\\^~\[\]`()<>。、（）「」『』【】〈〉《》〔〕［］｛｝‘’“”]/;
 
 type OscTerminal = {
   _core?: {

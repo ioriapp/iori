@@ -141,7 +141,7 @@ function inputEvidence(body, expectTokens) {
   return { imageCount, tokensPresent };
 }
 
-export async function startFakeModel({ scripts }) {
+export async function startFakeModel({ scripts, host = "127.0.0.1" }) {
   const requests = [];
   let usesPreviousResponseId = false;
   const timers = new Set();
@@ -261,10 +261,10 @@ export async function startFakeModel({ scripts }) {
   });
   await new Promise((resolve, reject) => {
     server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve);
+    server.listen(0, host, resolve);
   });
   return {
-    baseURL: `http://127.0.0.1:${server.address().port}`,
+    baseURL: `http://${host.includes(":") ? `[${host}]` : host}:${server.address().port}`,
     requests,
     get usesPreviousResponseId() {
       return usesPreviousResponseId;

@@ -27,6 +27,20 @@ const publicKey = await prepareSigning(directory, "Android");
 const certificate = await readFile(path.join(directory, "tls/ca.pem"), "utf8");
 const source = path.join(state.localRoot, "update-android-source");
 await createSourceCopy(process.cwd(), source);
+// The Settings list uses the Android resource, not the Tauri product name.
+// Give this package a distinct label before the shared builder copies resources.
+const stringsFile = path.join(
+  source,
+  "apps/client/src-tauri/gen/android/app/src/main/res/values/strings.xml",
+);
+const strings = await readFile(stringsFile, "utf8");
+await writeFile(
+  stringsFile,
+  strings.replace(
+    /(<string name="(?:app_name|main_activity_title)">).*?(<\/string>)/gu,
+    '$1"iori Update Test"$2',
+  ),
+);
 execFileSync("git", ["init", "-q"], { cwd: source });
 // Keep tracked Android inputs that the repository ignores for new files.
 execFileSync("git", ["add", "--force", "."], { cwd: source });

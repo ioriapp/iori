@@ -1,3 +1,5 @@
+import { translator } from "../i18n.ts";
+import { useNarrowBack } from "../reading/useNarrowBack.ts";
 import { useFileUploads } from "./FileUploads.tsx";
 import { MiddleEllipsis } from "../MiddleEllipsis.tsx";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -133,7 +135,7 @@ function FilesWorkspace({
   positions = nativeReadingPositions,
   onFileHistory,
 }: FilesPaneProps) {
-  const ja = locale.startsWith("ja");
+  const t = translator(locale);
   const [view, setView] = useState(() =>
     standalone
       ? {
@@ -155,11 +157,12 @@ function FilesWorkspace({
   const [saveFailed, setSaveFailed] = useState(false);
   const [position, setPosition] = useState<FilePosition>();
   const [infoRequest, setInfoRequest] = useState(0);
+  const [readRefresh, setReadRefresh] = useState(0);
   const tree = useRef<FileTreeHandle>(null);
   const uploads = useFileUploads(transport, hostKey, root, locale);
   const save = uploads.save;
   const saveAction = (path: string): MenuAction => ({
-    label: ja ? "ダウンロード…" : "Download…",
+    label: t("Download…"),
     icon: <Download aria-hidden="true" />,
     action: "files-save",
     run: () => save(path),
@@ -217,20 +220,11 @@ function FilesWorkspace({
   const changeRatio = useSavedViewState(view, onViewState);
 
   // On a narrow screen, going back closes the file and shows the list.
-  const back = useRef(onBackHandler);
-  back.current = onBackHandler;
   const showsDetail = !standalone && narrow && view.detailOpen;
-  useEffect(() => {
-    back.current?.(
-      showsDetail
-        ? () => {
-            setView((value) => ({ ...value, detailOpen: false }));
-            return true;
-          }
-        : undefined,
-    );
-  }, [showsDetail]);
-  useEffect(() => () => back.current?.(undefined), []);
+  useNarrowBack(onBackHandler, showsDetail, () => {
+    setView((value) => ({ ...value, detailOpen: false }));
+    return true;
+  });
 
   // Reading positions are kept per file.
   const latest = useRef<{ key: string; value: FilePosition } | undefined>(
@@ -328,6 +322,7 @@ function FilesWorkspace({
       standalone ? "file" : "files",
       ({ paths }) => {
         setWatchError(undefined);
+        if (!paths) setReadRefresh((value) => value + 1);
         tree.current?.changed(paths);
         const shown = activeRef.current;
         if (!paths || (shown && paths.includes(shown)))
@@ -355,7 +350,7 @@ function FilesWorkspace({
         if (cause instanceof ReadError && cause.code === "path_not_found") {
           setInfo(undefined);
           setInfoError({
-            message: ja ? "ファイルが見つかりません" : "File not found",
+            message: t("File not found"),
             missing: true,
           });
         } else {
@@ -364,7 +359,7 @@ function FilesWorkspace({
         }
       });
     return () => controller.abort();
-  }, [transport, root, active, visible, infoRequest, locale, standalone, ja]);
+  }, [transport, root, active, visible, infoRequest, locale, standalone]);
   useEffect(() => {
     setInfo((current) => (current?.path === active ? current : undefined));
     setInfoError(undefined);
@@ -444,7 +439,7 @@ function FilesWorkspace({
     ...(onFileHistory && current
       ? [
           {
-            label: ja ? "ファイル履歴" : "File history",
+            label: t("File history"),
             icon: <History />,
             action: "file-history",
             run: () => onFileHistory(current.absolutePath),
@@ -455,7 +450,10 @@ function FilesWorkspace({
 
   const list = (
     <>
-      <div className="reading-header" data-iori-part="files-list-header">
+      <div
+        className="reading-header reading-list-header"
+        data-iori-part="files-list-header"
+      >
         <WorktreePicker
           label={label}
           root={root}
@@ -467,7 +465,7 @@ function FilesWorkspace({
         <Button
           variant="ghost"
           size="icon-sm"
-          aria-label={ja ? "ファイル名で絞り込む" : "Filter by file name"}
+          aria-label={t("Filter by file name")}
           data-iori-action="open-file-filter"
           onClick={() => tree.current?.openFilter()}
         >
@@ -510,7 +508,7 @@ function FilesWorkspace({
               : "reading-breadcrumb"
           }
           title={standalone?.absolutePath ?? active}
-          aria-label={ja ? "パス" : "Path"}
+          aria-label={t("Path")}
         >
           {standalone ? (
             <MiddleEllipsis
@@ -539,26 +537,12 @@ function FilesWorkspace({
           disabled={tooLarge || !position}
           title={
             tooLarge
-              ? ja
-                ? "大きいファイルはソースで表示します"
-                : "Large documents are shown as source"
+              ? t("Large documents are shown as source")
               : position?.source
-                ? ja
-                  ? "プレビューを表示"
-                  : "Show rendered"
-                : ja
-                  ? "ソースを表示"
-                  : "Show source"
+                ? t("Show rendered")
+                : t("Show source")
           }
-          aria-label={
-            position?.source
-              ? ja
-                ? "プレビューを表示"
-                : "Show rendered"
-              : ja
-                ? "ソースを表示"
-                : "Show source"
-          }
+          aria-label={position?.source ? t("Show rendered") : t("Show source")}
           onClick={() => {
             updatePosition((current) =>
               current.source
@@ -585,8 +569,8 @@ function FilesWorkspace({
           size="icon-sm"
           data-iori-action="file-wrap"
           aria-pressed={Boolean(position?.wrap)}
-          aria-label={ja ? "折り返す" : "Wrap lines"}
-          title={ja ? "折り返す" : "Wrap lines"}
+          aria-label={t("Wrap lines")}
+          title={t("Wrap lines")}
           onClick={() =>
             updatePosition((current) => ({ ...current, wrap: !current.wrap }))
           }
@@ -599,8 +583,8 @@ function FilesWorkspace({
           variant="ghost"
           size="icon-sm"
           data-iori-action="file-history"
-          aria-label={ja ? "ファイル履歴" : "File history"}
-          title={ja ? "ファイル履歴" : "File history"}
+          aria-label={t("File history")}
+          title={t("File history")}
           onClick={() => onFileHistory(current.absolutePath)}
         >
           <History />
@@ -611,8 +595,8 @@ function FilesWorkspace({
           variant="ghost"
           size="icon-sm"
           data-iori-action="open-find"
-          aria-label={ja ? "検索" : "Find"}
-          title={ja ? "検索（Ctrl+F）" : "Find (Ctrl+F)"}
+          aria-label={t("Find")}
+          title={t("Find (Ctrl+F)")}
           onClick={() => request("find")}
         >
           <Search />
@@ -623,26 +607,12 @@ function FilesWorkspace({
 
   let body: React.ReactNode = null;
   if (!active)
-    body = (
-      <p className="reading-empty">
-        {ja
-          ? "一覧からファイルを選んでください"
-          : "Choose a file from the list"}
-      </p>
-    );
+    body = <p className="reading-empty">{t("Choose a file from the list")}</p>;
   else if (infoError && !current)
     body = (
       <ReadingError
         centered
-        retryLabel={
-          standalone || infoError.missing
-            ? ja
-              ? "再読み込み"
-              : "Reload"
-            : ja
-              ? "再試行"
-              : "Retry"
-        }
+        retryLabel={standalone || infoError.missing ? t("Reload") : t("Retry")}
         action="file-retry"
         onRetry={() => setInfoRequest((value) => value + 1)}
       >
@@ -653,7 +623,7 @@ function FilesWorkspace({
     if (current.kind === "text" && current.lineCount === 0)
       body = (
         <p className="reading-empty" data-iori-state="empty-file">
-          {ja ? "空のファイルです" : "This file is empty"}
+          {t("This file is empty")}
         </p>
       );
     else if (rendered)
@@ -662,6 +632,7 @@ function FilesWorkspace({
           transport={transport}
           root={root}
           info={current}
+          refresh={readRefresh}
           position={position.markdown}
           onPosition={(markdownPosition) =>
             updatePosition((current) => ({
@@ -684,6 +655,7 @@ function FilesWorkspace({
           transport={transport}
           root={root}
           info={current}
+          refresh={readRefresh}
           position={position}
           onPosition={(value) =>
             updatePosition((current) => ({ ...current, ...value }))
@@ -701,6 +673,7 @@ function FilesWorkspace({
           transport={transport}
           root={root}
           info={current}
+          refresh={readRefresh}
           locale={locale}
         />
       );
@@ -711,20 +684,12 @@ function FilesWorkspace({
           data-iori-state={`link-${current.symlinkTarget ?? "unknown"}`}
         >
           {current.symlinkTarget === "outside_root"
-            ? ja
-              ? "このリンクは開いたフォルダーの外を指しています。"
-              : "This link points outside the open folder."
-            : ja
-              ? "リンク先が見つかりません。"
-              : "This link's target no longer exists."}
+            ? t("This link points outside the open folder.")
+            : t("This link's target no longer exists.")}
         </p>
       );
     else if (current.kind === "directory")
-      body = (
-        <p className="reading-empty">
-          {ja ? "フォルダーです" : "This is a folder"}
-        </p>
-      );
+      body = <p className="reading-empty">{t("This is a folder")}</p>;
     else
       body = (
         <div
@@ -735,12 +700,8 @@ function FilesWorkspace({
         >
           <p>
             {current.kind === "binary"
-              ? ja
-                ? "テキストとして表示できないファイルです"
-                : "This file cannot be shown as text"
-              : ja
-                ? "この形式は表示できません"
-                : "This format cannot be displayed"}
+              ? t("This file cannot be shown as text")
+              : t("This format cannot be displayed")}
           </p>
           <p className="reading-muted">
             {[
@@ -782,23 +743,20 @@ function FilesWorkspace({
   return (
     <div
       className="files-pane"
-      aria-label={standalone ? (ja ? "ファイル" : "File") : undefined}
+      aria-label={standalone ? t("File") : undefined}
       data-iori-view={standalone ? "file" : "files"}
       hidden={!visible}
     >
       {(watchError || saveFailed) && (
         <ReadingError
-          retryLabel={ja ? "再試行" : "Retry"}
+          retryLabel={t("Retry")}
           action={watchError ? "files-watch-retry" : "files-save-retry"}
           onRetry={() => {
             if (watchError) setWatchRetry((value) => value + 1);
             else persist();
           }}
         >
-          {watchError ??
-            (ja
-              ? "スクロール位置を保存できませんでした。"
-              : "Could not save the reading position.")}
+          {watchError ?? t("Could not save the reading position.")}
         </ReadingError>
       )}
       {standalone ? (
@@ -820,20 +778,14 @@ function FilesWorkspace({
             <Button
               variant="ghost"
               size="icon-sm"
-              className="reading-tabs-lead"
+              className={`reading-tabs-lead${narrow ? " reading-back" : ""}`}
               data-iori-action={narrow ? "reading-back" : "toggle-file-list"}
               aria-label={
                 narrow
-                  ? ja
-                    ? "一覧へ戻る"
-                    : "Back to list"
+                  ? t("Back to list")
                   : view.listOpen
-                    ? ja
-                      ? "一覧を非表示"
-                      : "Hide list"
-                    : ja
-                      ? "一覧を表示"
-                      : "Show list"
+                    ? t("Hide list")
+                    : t("Show list")
               }
               aria-pressed={narrow ? undefined : view.listOpen}
               onClick={() =>
@@ -857,30 +809,30 @@ function FilesWorkspace({
                   showIcons={false}
                   leadingActions={[
                     {
-                      label: ja ? "閉じる" : "Close",
+                      label: t("Close"),
                       action: "file-tab-close",
                       run: () => close(path),
                     },
                     {
-                      label: ja ? "その他を閉じる" : "Close Others",
+                      label: t("Close Others"),
                       action: "file-tab-close-others",
                       disabled: view.tabs.length === 1,
                       run: () => closeTabs(path, "others"),
                     },
                     {
-                      label: ja ? "右側を閉じる" : "Close to the Right",
+                      label: t("Close to the Right"),
                       action: "file-tab-close-right",
                       disabled: index === view.tabs.length - 1,
                       run: () => closeTabs(path, "right"),
                     },
                     {
-                      label: ja ? "左側を閉じる" : "Close to the Left",
+                      label: t("Close to the Left"),
                       action: "file-tab-close-left",
                       disabled: index === 0,
                       run: () => closeTabs(path, "left"),
                     },
                     {
-                      label: ja ? "すべて閉じる" : "Close All",
+                      label: t("Close All"),
                       action: "file-tab-close-all",
                       run: () => closeTabs(path, "all"),
                     },
@@ -911,7 +863,9 @@ function FilesWorkspace({
                     <button
                       type="button"
                       className="reading-tab-close"
-                      aria-label={ja ? `${path}を閉じる` : `Close ${path}`}
+                      aria-label={t("Close {value1}").replace("{value1}", () =>
+                        String(path),
+                      )}
                       onClick={(event) => {
                         event.stopPropagation();
                         close(path);

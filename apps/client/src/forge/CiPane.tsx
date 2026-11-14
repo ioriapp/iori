@@ -1,3 +1,5 @@
+import { translator } from "../i18n.ts";
+import { useNarrowBack } from "../reading/useNarrowBack.ts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
@@ -140,7 +142,7 @@ function CiWorkspace({
   onOpenIntegrations,
   onOpenWorkspaceSettings,
 }: CiPaneProps) {
-  const ja = locale.startsWith("ja");
+  const t = translator(locale);
   const mobile = useIsMobile();
   const [view, setView] = useState(() => readViewState(viewState));
   const update = (value: Partial<CiViewState>) =>
@@ -241,20 +243,11 @@ function CiWorkspace({
   }, [selected, reads]);
 
   // On a narrow screen, going back leaves the detail for the list.
-  const back = useRef(onBackHandler);
-  back.current = onBackHandler;
   const showsDetail = narrow && view.detailOpen;
-  useEffect(() => {
-    back.current?.(
-      showsDetail
-        ? () => {
-            setView((value) => ({ ...value, detailOpen: false }));
-            return true;
-          }
-        : undefined,
-    );
-  }, [showsDetail]);
-  useEffect(() => () => back.current?.(undefined), []);
+  useNarrowBack(onBackHandler, showsDetail, () => {
+    setView((value) => ({ ...value, detailOpen: false }));
+    return true;
+  });
 
   const now = Date.now();
   const choose = (selection: Selection) =>
@@ -295,8 +288,8 @@ function CiWorkspace({
         <Button
           variant="ghost"
           size="icon-sm"
-          aria-label={ja ? "再読み込み" : "Reload"}
-          title={ja ? "再読み込み" : "Reload"}
+          aria-label={t("Reload")}
+          title={t("Reload")}
           data-iori-action="ci-reload"
           onClick={reread}
         >
@@ -311,7 +304,7 @@ function CiWorkspace({
             onClick={() => openUrl(ci.url)}
           >
             <ExternalLink />
-            {ja ? "ブラウザーで開く" : "Open in browser"}
+            {t("Open in browser")}
           </Button>
         )}
       </span>
@@ -386,9 +379,7 @@ function CiWorkspace({
       {ci.results.length > 0 && (
         <div className="ci-run">
           {ci.runs.length > 0 && (
-            <div className="ci-run-head ci-run-plain">
-              {ja ? "その他の結果" : "Other results"}
-            </div>
+            <div className="ci-run-head ci-run-plain">{t("Other results")}</div>
           )}
           {ci.results.map((result) =>
             row(
@@ -409,19 +400,14 @@ function CiWorkspace({
     <Button
       variant="ghost"
       size="icon-sm"
+      className={narrow ? "reading-back" : undefined}
       data-iori-action={narrow ? "ci-back" : "toggle-ci-list"}
       aria-label={
         narrow
-          ? ja
-            ? "一覧へ戻る"
-            : "Back to list"
+          ? t("Back to list")
           : view.listOpen
-            ? ja
-              ? "一覧を非表示"
-              : "Hide list"
-            : ja
-              ? "一覧を表示"
-              : "Show list"
+            ? t("Hide list")
+            : t("Show list")
       }
       aria-pressed={narrow ? undefined : view.listOpen}
       onClick={() =>
@@ -473,8 +459,8 @@ function CiWorkspace({
             variant={view.wrap ? "secondary" : "ghost"}
             size="icon-sm"
             aria-pressed={view.wrap === true}
-            aria-label={ja ? "長い行を折り返す" : "Wrap long lines"}
-            title={ja ? "長い行を折り返す" : "Wrap long lines"}
+            aria-label={t("Wrap long lines")}
+            title={t("Wrap long lines")}
             data-iori-action="ci-log-wrap"
             onClick={() => update({ wrap: !view.wrap })}
           >
@@ -485,12 +471,8 @@ function CiWorkspace({
           <Button
             variant="ghost"
             size="icon-sm"
-            aria-label={
-              ja ? "このジョブをブラウザーで開く" : "Open this job in browser"
-            }
-            title={
-              ja ? "このジョブをブラウザーで開く" : "Open this job in browser"
-            }
+            aria-label={t("Open this job in browser")}
+            title={t("Open this job in browser")}
             data-iori-action="ci-job-open-browser"
             onClick={() => openUrl(selected.job.url)}
           >
@@ -500,17 +482,9 @@ function CiWorkspace({
       </div>
       {selected.kind === "job" && ci.logs ? (
         forgeCiState(selected.job.status) === "skipped" ? (
-          <p className="reading-empty">
-            {ja
-              ? "このジョブは実行されませんでした。"
-              : "This job did not run."}
-          </p>
+          <p className="reading-empty">{t("This job did not run.")}</p>
         ) : NOT_STARTED.has(selected.job.status) ? (
-          <p className="reading-empty">
-            {ja
-              ? "このジョブはまだ開始されていません。"
-              : "This job has not started yet."}
-          </p>
+          <p className="reading-empty">{t("This job has not started yet.")}</p>
         ) : (
           <CiLog
             key={selected.job.id}
@@ -540,7 +514,7 @@ function CiWorkspace({
             }
           >
             <ExternalLink />
-            {ja ? "ブラウザーで開く" : "Open in browser"}
+            {t("Open in browser")}
           </Button>
         </div>
       )}
@@ -552,18 +526,14 @@ function CiWorkspace({
     ci && !ci.commit ? (
       <ForgeNotice data-iori-state="ci-no-target">
         <p>
-          {ja
-            ? "このブランチにはpush先がありません。CIを表示するには、ブランチをpushしてください。"
-            : "This branch has no push destination. Push it to see its commit's CI."}
+          {t(
+            "This branch has no push destination. Push it to see its commit's CI.",
+          )}
         </p>
       </ForgeNotice>
     ) : ci && ci.runs.length === 0 && ci.results.length === 0 ? (
       <ForgeNotice data-iori-state="ci-none">
-        <p>
-          {ja
-            ? "このcommitのCIはありません。"
-            : "There is no CI for this commit."}
-        </p>
+        <p>{t("There is no CI for this commit.")}</p>
       </ForgeNotice>
     ) : undefined;
   return (

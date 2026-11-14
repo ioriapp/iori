@@ -1,14 +1,19 @@
 import type { DaemonChannel } from "./daemon/channel.ts";
-import type { PtyEvent, PtyScreen, SpawnPty } from "./daemon/protocol.ts";
+import type {
+  PtyEvent,
+  PtyScreen,
+  SpawnPty,
+  PtyOutput,
+} from "./daemon/protocol.ts";
 import type { TerminalSnapshot } from "./daemon/types.ts";
 type HookPayload = Record<string, unknown>;
 
 type PtyExit = { exitCode: number; signal?: number };
 /** Output and an exit that came before the Host listened to the process. */
-type Early = { data: string[]; exit?: PtyExit; listened: boolean };
+type Early = { data: PtyOutput[]; exit?: PtyExit; listened: boolean };
 
 export class RemotePty {
-  readonly data = new Set<(data: string) => unknown>();
+  readonly data = new Set<(data: PtyOutput) => unknown>();
   readonly exits = new Set<(event: PtyExit) => unknown>();
   readonly owner: RemotePtys;
   readonly id: string;
@@ -25,7 +30,7 @@ export class RemotePty {
     this.pid = pid;
     this.early = early;
   }
-  onData(callback: (data: string) => unknown) {
+  onData(callback: (data: PtyOutput) => unknown) {
     this.data.add(callback);
     // The first listener gets what came before it, in order; queued listeners
     // keep that order for what comes next.
@@ -110,7 +115,7 @@ export class RemotePtys {
       this.#unattached.set(pid, (early = { data: [], listened: false }));
     return early;
   }
-  async data(pid: number, data: string) {
+  async data(pid: number, data: PtyOutput) {
     const early = this.#early(pid);
     if (early) early.data.push(data);
     else

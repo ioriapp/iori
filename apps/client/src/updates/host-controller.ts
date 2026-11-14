@@ -189,6 +189,14 @@ export async function performHostMaintenance(
     const input = {
       canContinue: plan.canContinue,
       targets: plan.targets.map((target) => target.id),
+      hasOpenTerminals: plan.hasOpenTerminals,
+      ...(plan.targets.every((target) => target.generation !== undefined)
+        ? {
+            generations: Object.fromEntries(
+              plan.targets.map((target) => [target.id, target.generation!]),
+            ),
+          }
+        : {}),
     };
     const result =
       kind === "update"

@@ -34,6 +34,8 @@ static NEXT_NATIVE_ID: AtomicU64 = AtomicU64::new(1);
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct HostInfo {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    connection_scope: Option<String>,
     public_key: String,
     host_name: String,
     #[serde(default)]
@@ -133,7 +135,12 @@ struct RelayEndpoint {
 }
 
 impl RelayEndpoint {
-    fn configuration(&self, host_key: &str, relay: Option<&RelaySettings>) -> Vec<RelaySettings> {
+    fn configuration(
+        &self,
+        host_key: &str,
+        relay: Option<&RelaySettings>,
+        local_hosts: &[String],
+    ) -> Vec<RelaySettings> {
         let previous = self
             .hosts
             .iter()
@@ -142,7 +149,7 @@ impl RelayEndpoint {
         let changed = previous != relay;
         let mut relays = std::collections::BTreeMap::new();
         for (key, settings) in &self.hosts {
-            if !changed || key != host_key {
+            if (!changed || key != host_key) && !local_hosts.contains(key) {
                 relays.insert(settings.url.clone(), settings.clone());
             }
         }
@@ -241,7 +248,7 @@ impl NativeState {
             .lock()
             .map_err(|_| "registration database is unavailable".to_owned())?;
         let mut statement = database
-            .prepare("SELECT hosts.public_key, host_name, addresses_json, host_setup.destination FROM hosts LEFT JOIN host_setup ON host_setup.public_key = hosts.public_key ORDER BY hosts.rowid")
+            .prepare("SELECT hosts.public_key, host_name, addresses_json, host_setup.destination, host_network.scope FROM hosts LEFT JOIN host_setup ON host_setup.public_key = hosts.public_key LEFT JOIN host_network ON host_network.public_key = hosts.public_key ORDER BY hosts.rowid")
             .map_err(|error| error.to_string())?;
         let rows = statement
             .query_map([], |row| {
@@ -254,6 +261,7 @@ impl NativeState {
                     )
                 })?;
                 Ok(HostInfo {
+                    connection_scope: row.get(4)?,
                     public_key: row.get(0)?,
                     host_name: row.get(1)?,
                     ssh_destination: row.get(3)?,
@@ -294,6 +302,7 @@ impl NativeState {
                 params![host.public_key, host.host_name, addresses_json],
             )
             .map_err(|error| error.to_string())?;
+        transaction.execute("INSERT INTO host_network (public_key, scope) VALUES (?1, ?2) ON CONFLICT(public_key) DO UPDATE SET scope = excluded.scope", params![host.public_key, host.connection_scope]).map_err(|error| error.to_string())?;
         if let Some(destination) = &host.ssh_destination {
             transaction.execute("INSERT INTO host_setup (public_key, destination) VALUES (?1, ?2) ON CONFLICT(public_key) DO UPDATE SET destination = excluded.destination", params![host.public_key, destination]).map_err(|error| error.to_string())?;
         }
@@ -356,7 +365,13 @@ impl NativeState {
         relay: Option<RelaySettings>,
     ) -> Result<Endpoint, String> {
         let mut current = self.endpoint.lock().await;
-        let settings = current.configuration(host_key, relay.as_ref());
+        let local_hosts = self
+            .hosts()?
+            .into_iter()
+            .filter(|host| host.connection_scope.as_deref() == Some("loopback"))
+            .map(|host| host.public_key)
+            .collect::<Vec<_>>();
+        let settings = current.configuration(host_key, relay.as_ref(), &local_hosts);
         if current.applied == settings
             && let Some(endpoint) = &current.endpoint
         {
@@ -1373,6 +1388,10 @@ fn open_database(app_data_dir: &Path) -> Result<SqliteConnection, String> {
              CREATE TABLE IF NOT EXISTS host_setup (\
                public_key TEXT PRIMARY KEY NOT NULL,\
                destination TEXT NOT NULL\
+             );\
+             CREATE TABLE IF NOT EXISTS host_network (\
+               public_key TEXT PRIMARY KEY NOT NULL,\
+               scope TEXT\
              );\
              CREATE TABLE IF NOT EXISTS active_host (\
                singleton INTEGER PRIMARY KEY,\

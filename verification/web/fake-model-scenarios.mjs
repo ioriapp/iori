@@ -51,8 +51,13 @@ export const fakeModelScenarios = {
     codexAccount: true,
   },
   "automation-issue": { clis: ["codex"], scripts: automationIssueScripts },
-  automations: { clis: ["claude", "codex"], scripts: automationsScripts },
-  "automation-webhook": { clis: ["codex"], scripts: automationWebhookScripts },
+  "automation-run": { clis: ["claude"], scripts: automationsScripts },
+  "automation-schedule": { clis: ["codex"], scripts: automationsScripts },
+  "automation-recovery": { clis: ["codex"], scripts: automationsScripts },
+  "automation-webhook-receive": {
+    clis: ["codex"],
+    scripts: automationWebhookScripts,
+  },
   "web-recovery": { clis: ["codex"], scripts: webRecoveryScripts },
   "forge-issue-start": { clis: ["claude"], scripts: forgeIssueStartScripts },
   "host-update": { clis: ["claude"], scripts: hostUpdateScripts },
@@ -74,7 +79,16 @@ export const fakeModelScenarios = {
     scripts: opencodeDelegationScripts,
     codexAccount: true,
   },
-  "web-cli": { clis: ["claude", "codex", "pi"], scripts: cliStatusScripts },
+  "cli-status": {
+    clis: ["codex"],
+    scripts: {
+      ...cliStatusScripts,
+      "codex-running": [
+        { tool: "exec_command", input: { cmd: "sleep 90" } },
+        { text: "done" },
+      ],
+    },
+  },
   "claude-status": { clis: ["claude"], scripts: cliStatusScripts },
   "long-approval": { clis: ["claude"], scripts: cliStatusScripts },
   "repo-delegation": {

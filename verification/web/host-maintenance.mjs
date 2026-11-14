@@ -298,7 +298,7 @@ export async function hostMaintenancePreview({
     await observed(client, "TITLE_DONE");
     await typeTerminal(
       client,
-      "printf 'MAINTENANCE_BUSY\\n'; sh -c 'echo $$ > maintenance-sleep.pid; exec sleep 600'; printf done > maintenance-sleep.done\r",
+      "printf 'MAINTENANCE_BUSY\\n'; sh -c 'echo $$ > maintenance-sleep.pid; exec sleep 600'; sh -c 'echo $$ > maintenance-next.pid; exec sleep 600'; printf done > maintenance-sleep.done\r",
     );
     await observed(client, "MAINTENANCE_BUSY");
     await requestClose(client, terminalId);
@@ -378,7 +378,7 @@ export async function hostMaintenancePreview({
       "SIGTERM",
     );
     await waitFor(() =>
-      readFile(join(worktree, "maintenance-sleep.done"), "utf8").catch(
+      readFile(join(worktree, "maintenance-next.pid"), "utf8").catch(
         () => undefined,
       ),
     );

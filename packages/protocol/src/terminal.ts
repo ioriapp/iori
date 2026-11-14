@@ -155,7 +155,7 @@ export interface TerminalOpenStream {
 export type TerminalClientMessage =
   | { kind: "terminal.seen" }
   | { kind: "terminal.input"; data: string; origin?: "scroll" }
-  | { kind: "terminal.submit"; data: string }
+  | { kind: "terminal.submit"; data: string; id?: string }
   | { kind: "terminal.resize"; cols: number; rows: number }
   | { kind: "terminal.focus"; cols: number; rows: number }
   | {
@@ -170,7 +170,9 @@ export type TerminalServerMessage =
       snapshot: TerminalSnapshot;
       sequence: number;
       sizeOwnerViewId: string;
+      submitResult?: boolean;
     }
+  | { kind: "terminal.submitted"; id: string; success: boolean }
   | { kind: "terminal.output"; data: string; sequence: number }
   | {
       kind: "terminal.size";

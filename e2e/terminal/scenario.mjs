@@ -598,6 +598,7 @@ async function softKeyboard(os, client, shot) {
   // Live input: a swipe leaves the keyboard closed, a tap opens it and the
   // typed characters arrive, and a tap opens it again after Back.
   await setLive(true);
+  await client.browser.dismissKeyboard();
   const liveBefore = await layout();
   const screenPoint = await centerOf(".xterm-screen");
   await client.screen.evaluate(`(()=>{

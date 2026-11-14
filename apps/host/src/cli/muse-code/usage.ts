@@ -44,6 +44,7 @@ export const monitorUsage: UsageMonitor = async (
   let fallbackOnExit = false;
   let refresh = async () => {};
   const update = (value: unknown, subscription: boolean | undefined) => {
+    if (closed || signal.aborted) return;
     if (value === undefined && subscription === undefined && !saved) return;
     const previous = saved;
     const result = displayUsage(value, saved, subscription, Date.now());

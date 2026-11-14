@@ -1,4 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { ReadConnectionLost } from "./transport.ts";
+import { useConnectionRetry } from "./useConnectionRetry.ts";
 
 // Bytes of one huge line kept as text; the rest is read again as the user scrolls.
 const WINDOW_BYTES = 32 * 1024;
@@ -41,6 +43,7 @@ export function LongLine({
   focus,
   retainedWindows = [],
   onError,
+  refresh,
 }: {
   read: LongLineRead;
   /** Where the line's text starts. */
@@ -50,6 +53,7 @@ export function LongLine({
   focus?: { byteOffset: number; byteLength: number };
   retainedWindows?: number[];
   onError: (error: unknown) => void;
+  refresh: number;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [end, setEnd] = useState<number>();
@@ -63,21 +67,28 @@ export function LongLine({
     new Map<number, { offset: number; text: string; left: number }>(),
   );
   const [bytesPerPx, setBytesPerPx] = useState(1 / 8);
+  const endRetry = useConnectionRetry(refresh);
+  const windowRetry = useConnectionRetry(refresh);
   const total = end === undefined ? 0 : Math.max(1, end - start);
   const width = Math.min(MAX_WIDTH_PX, Math.max(1, total / bytesPerPx));
 
   useEffect(() => {
     const controller = new AbortController();
+    const lost = endRetry.begin();
     void locateEnd(controller.signal).then(setEnd, (error: unknown) => {
-      if (!controller.signal.aborted) onError(error);
+      if (!controller.signal.aborted) {
+        if (error instanceof ReadConnectionLost) lost();
+        else onError(error);
+      }
     });
     return () => controller.abort();
-  }, [start]);
+  }, [start, endRetry.attempt]);
 
   // Read the window around the anchor byte.
   useEffect(() => {
     if (end === undefined) return;
     const controller = new AbortController();
+    const lost = windowRetry.begin();
     const from = Math.max(
       start,
       Math.min(anchor - WINDOW_BYTES / 4, end - WINDOW_BYTES),
@@ -98,11 +109,14 @@ export function LongLine({
         setView({ offset: from + skip, bytes: body, text });
       },
       (error: unknown) => {
-        if (!controller.signal.aborted) onError(error);
+        if (!controller.signal.aborted) {
+          if (error instanceof ReadConnectionLost) lost();
+          else onError(error);
+        }
       },
     );
     return () => controller.abort();
-  }, [end, Math.floor(anchor / (WINDOW_BYTES / 2))]);
+  }, [end, Math.floor(anchor / (WINDOW_BYTES / 2)), windowRetry.attempt]);
 
   // A search match moves the line so the match is in view once its text is read.
   const pendingFocus = useRef<number | undefined>(undefined);

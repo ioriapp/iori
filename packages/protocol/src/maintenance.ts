@@ -15,6 +15,7 @@ export interface MaintenanceTarget {
   title: string;
   state: ChildWorkState;
   command?: string;
+  generation?: string;
 }
 export interface MaintenancePlan {
   version?: string;
@@ -51,10 +52,23 @@ export interface MaintenanceParams {
   "host.uninstall": {
     canContinue: boolean;
     targets: string[];
+    hasOpenTerminals?: boolean;
+    generations?: Record<string, string>;
     deleteData: boolean;
   };
-  "host.update": { version: string; canContinue: boolean; targets: string[] };
-  "host.restart": { canContinue: boolean; targets: string[] };
+  "host.update": {
+    version: string;
+    canContinue: boolean;
+    targets: string[];
+    hasOpenTerminals?: boolean;
+    generations?: Record<string, string>;
+  };
+  "host.restart": {
+    canContinue: boolean;
+    targets: string[];
+    hasOpenTerminals?: boolean;
+    generations?: Record<string, string>;
+  };
   "host.maintenance.status": { operationId: string };
 }
 export interface MaintenanceResults {
@@ -139,6 +153,19 @@ export function parseMaintenanceParams(
   return {
     canContinue: boolean(input.canContinue),
     targets: input.targets.map(string),
+    ...(input.hasOpenTerminals === undefined
+      ? {}
+      : { hasOpenTerminals: boolean(input.hasOpenTerminals) }),
+    ...(input.generations === undefined
+      ? {}
+      : {
+          generations: Object.fromEntries(
+            Object.entries(object(input.generations)).map(([key, value]) => [
+              key,
+              string(value),
+            ]),
+          ),
+        }),
     ...(method === "host.uninstall"
       ? { deleteData: boolean(input.deleteData) }
       : {}),
@@ -172,6 +199,9 @@ export function parseMaintenancePlan(value: unknown): MaintenancePlan {
         id: string(target.id),
         title: string(target.title),
         state: target.state,
+        ...(target.generation === undefined
+          ? {}
+          : { generation: string(target.generation) }),
         ...(target.command === undefined
           ? {}
           : { command: string(target.command) }),

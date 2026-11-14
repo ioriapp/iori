@@ -1,3 +1,4 @@
+import { translator } from "../i18n.ts";
 import {
   useCallback,
   useEffect,
@@ -88,6 +89,7 @@ export function FileTree({
   handle: Ref<FileTreeHandle>;
 }) {
   const ja = locale.startsWith("ja");
+  const t = translator(locale);
   const [dropFolder, setDropFolder] = useState<string>();
   const destination = (target: EventTarget | null) =>
     (target instanceof Element
@@ -96,7 +98,7 @@ export function FileTree({
       : undefined) ?? "";
   const putAction = (folder: string) => [
     {
-      label: ja ? "ファイルをアップロード…" : "Upload files…",
+      label: t("Upload files…"),
       icon: <Upload aria-hidden="true" />,
       action: "files-put",
       run: () => onChoose(folder),
@@ -169,8 +171,15 @@ export function FileTree({
       for (const path of [...open.current].sort(
         (a, b) => a.split("/").length - b.split("/").length,
       )) {
-        const index = await locateChild(path).catch(() => undefined);
+        let index: number | undefined;
+        try {
+          index = await locateChild(path);
+        } catch {
+          if (disposed) return;
+          continue;
+        }
         if (disposed) return;
+        if (!open.current.has(path)) continue;
         if (index === undefined) open.current.delete(path);
         else positions.current.set(path, index);
       }
@@ -282,22 +291,24 @@ export function FileTree({
         for (const [path, list] of lists.current) {
           if (folders && !folders.has(path)) continue;
           list.refresh();
-          // Open subfolders may have moved within the refreshed folder.
-          for (const child of open.current)
-            if (parentOf(child) === path)
-              void locateChild(child).then(
-                (index) => {
-                  if (index === undefined) {
-                    const next = new Set(open.current);
-                    next.delete(child);
-                    setOpen(next);
-                  } else if (positions.current.get(child) !== index) {
-                    positions.current.set(child, index);
-                    render();
-                  }
-                },
-                () => undefined,
-              );
+        }
+        // Also retry restored folders whose parent list has not loaded yet.
+        for (const child of open.current) {
+          if (folders && !folders.has(parentOf(child))) continue;
+          void locateChild(child).then(
+            (index) => {
+              if (!open.current.has(child)) return;
+              if (index === undefined) {
+                const next = new Set(open.current);
+                next.delete(child);
+                setOpen(next);
+              } else if (positions.current.get(child) !== index) {
+                positions.current.set(child, index);
+                render();
+              }
+            },
+            () => undefined,
+          );
         }
       },
       openFilter() {
@@ -402,9 +413,9 @@ export function FileTree({
             <Input
               ref={filterInput}
               autoFocus
-              aria-label={ja ? "ファイル名で絞り込む" : "Filter by file name"}
+              aria-label={t("Filter by file name")}
               data-iori-field="file-filter"
-              placeholder={ja ? "ファイル名で絞り込む" : "Filter by file name"}
+              placeholder={t("Filter by file name")}
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               onKeyDown={(event) => {
@@ -417,7 +428,7 @@ export function FileTree({
             <Button
               variant="ghost"
               size="icon-sm"
-              aria-label={ja ? "絞り込みを解除" : "Clear filter"}
+              aria-label={t("Clear filter")}
               data-iori-action="file-filter-clear"
               onClick={() => {
                 setQuery("");
@@ -430,7 +441,7 @@ export function FileTree({
         )}
         {Boolean(failed) && (
           <ReadingError
-            retryLabel={ja ? "再試行" : "Retry"}
+            retryLabel={t("Retry")}
             onRetry={() => {
               findList.current?.retry();
               for (const list of lists.current.values())
@@ -521,7 +532,7 @@ export function FileTree({
                           entry.symlinkTarget === "inside_root")
                       ? [
                           {
-                            label: ja ? "ダウンロード…" : "Download…",
+                            label: t("Download…"),
                             icon: <Download aria-hidden="true" />,
                             action: "files-save",
                             run: () => onSave(entry.path),
@@ -586,12 +597,8 @@ export function FileTree({
                   {outside && (
                     <span className="files-tree-note">
                       {entry.symlinkTarget === "broken"
-                        ? ja
-                          ? "リンク切れ"
-                          : "broken link"
-                        : ja
-                          ? "フォルダーの外"
-                          : "outside"}
+                        ? t("broken link")
+                        : t("outside")}
                     </span>
                   )}
                 </div>

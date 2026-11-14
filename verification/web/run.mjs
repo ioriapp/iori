@@ -1,3 +1,4 @@
+import { ownVerificationDirectory } from "../lifecycle.mjs";
 import {
   readmeShotsScenario,
   prepareReadmeRepository,
@@ -277,7 +278,9 @@ const updates = ["client-update", "host-update", "client-host-update"].includes(
 const teamScenario = [
   "readme-shots",
   ...teamWebScenarios,
-  "automations",
+  "automation-run",
+  "automation-schedule",
+  "automation-recovery",
   "repo-delegation",
   "board-activity",
   "opencode-delegation",
@@ -374,6 +377,7 @@ try {
   let executablePath = await chromiumExecutable(chromium);
   await mkdir(evidence, { recursive: true });
   runRoot = await mkdtemp(join(runsRoot, "run-"));
+  await ownVerificationDirectory(runRoot);
   process.env.TMPDIR = join(runRoot, "tmp");
   await mkdir(process.env.TMPDIR);
   await writeFile(join(runRoot, "owner.pid"), String(process.pid), {
@@ -505,9 +509,12 @@ try {
   if (only === "readme-shots")
     await prepareReadmeRepository({ repository, worktree });
 
-  forgeFixture = ["forge-status", "forge-issues", "forge-issue-start"].includes(
-    only,
-  )
+  forgeFixture = [
+    "forge-status",
+    "forge-ci",
+    "forge-issues",
+    "forge-issue-start",
+  ].includes(only)
     ? await prepareForgeFixture(runRoot)
     : undefined;
   forgeTokenFixture = [
@@ -664,9 +671,11 @@ process.stdin.resume();
   if (
     [
       "team-notifications",
-      "child-running",
+      "child-board",
+      "child-board-mobile",
+      "child-sidebar-navigation",
       "child-rows",
-      "worktree-removal",
+      "removal-parent-child",
     ].includes(only)
   )
     await writeFile(
@@ -709,6 +718,7 @@ input.on('line',async line=>{if(!line.startsWith('DELEGATE'))return;const option
       `Viteの依存の準備が失敗: exit ${preparationSignal ?? preparationCode}`,
     );
   let heldChildrenResponse;
+  let hostInfoWithoutVersion;
   web = await startWeb({
     storageRoot: join(runRoot, "client-data"),
     updateSource: updates?.source,
@@ -825,7 +835,12 @@ input.on('line',async line=>{if(!line.startsWith('DELEGATE'))return;const option
         return JSON.stringify({ ok: false, error: { code: "internal_error" } });
       }
     },
-    transformResponse: (method, json) => {
+    transformResponse: (method, json, hostKey) => {
+      if (method === "host.info" && hostKey === hostInfoWithoutVersion) {
+        const response = JSON.parse(json);
+        if (response.ok) delete response.result.version;
+        return JSON.stringify(response);
+      }
       if (
         !childDisplayChild ||
         !["teams.children", "terminal.list"].includes(method)
@@ -925,6 +940,10 @@ input.on('line',async line=>{if(!line.startsWith('DELEGATE'))return;const option
     const evaluate = (expression) =>
       withUiAbort(() => targetPage.evaluate(expression));
     const client = {
+      faults: web.faults,
+      omitHostInfoVersion: (hostKey) => {
+        hostInfoWithoutVersion = hostKey;
+      },
       screenshot: (name) =>
         targetPage.screenshot({ path: join(evidence, name + ".png") }),
       screen: ui(evaluate, {
@@ -1146,12 +1165,15 @@ input.on('line',async line=>{if(!line.startsWith('DELEGATE'))return;const option
     forgeTokenFixture,
     hostData: join(runRoot, "host-data", "iori-host"),
     createPlainFolder: () => mkdtemp(join(runRoot, "folder-")),
-    additionalHost: async ({ interruptions = false } = {}) => {
+    additionalHost: async ({ interruptions = false, connectionScope } = {}) => {
+      if (connectionScope) await additionalHost?.close();
       const dataRoot = join(
         runRoot,
         only === "client-host-update"
           ? `additional-host-data-${updateHosts.length}`
-          : "additional-host-data",
+          : connectionScope
+            ? "additional-host-data-local"
+            : "additional-host-data",
       );
       if (only === "host-update-mark") {
         hostDistribution = await prepareHostDistribution(runRoot);
@@ -1187,6 +1209,7 @@ input.on('line',async line=>{if(!line.startsWith('DELEGATE'))return;const option
         additionalHost = await startObservedWebHost(undefined, {
           dataRoot,
           port: await hostPort(),
+          connectionScope,
         });
       return invitation(dataRoot);
     },
@@ -1493,18 +1516,20 @@ input.on('line',async line=>{if(!line.startsWith('DELEGATE'))return;const option
       await web.setOffline(true);
       try {
         await inspect();
-        await writeFile(join(worktree, ".retention-output"), "");
-        await waitFor(
-          () =>
-            access(join(worktree, ".retention-done")).then(
-              () => true,
-              () => false,
-            ),
-          Boolean,
-        );
       } finally {
         await web.setOffline(false);
       }
+    },
+    releaseRetentionOutput: async () => {
+      await writeFile(join(worktree, ".retention-output"), "");
+      await waitFor(
+        () =>
+          access(join(worktree, ".retention-done")).then(
+            () => true,
+            () => false,
+          ),
+        Boolean,
+      );
     },
     malformedEvent: (enabled) => {
       eventFault = enabled
@@ -2028,8 +2053,8 @@ input.on('line',async line=>{if(!line.startsWith('DELEGATE'))return;const option
       if (result.passed) {
         const usedClis =
           basicScenario?.modelClis ??
-          (only === "automations"
-            ? ["codex", "claude"]
+          (only === "automation-schedule"
+            ? ["codex"]
             : teamScenario
               ? [
                   "child-background",
@@ -2061,9 +2086,13 @@ input.on('line',async line=>{if(!line.startsWith('DELEGATE'))return;const option
         for (const cli of usedClis) {
           const records = result.cliRecords[cli];
           if (
-            ["automations", "automation-issue", "automation-webhook"].includes(
-              only,
-            )
+            [
+              "automation-run",
+              "automation-schedule",
+              "automation-recovery",
+              "automation-issue",
+              "automation-webhook-receive",
+            ].includes(only)
           ) {
             const selected = selectedAutomationModels[cli];
             if (cli === "claude") {
@@ -2079,7 +2108,7 @@ input.on('line',async line=>{if(!line.startsWith('DELEGATE'))return;const option
               );
             } else {
               const expected = new Set([selected]);
-              if (only === "automations") expected.add("gpt-6-luna");
+              if (only === "automation-schedule") expected.add("gpt-6-luna");
               assert.deepEqual(
                 [...records.models].sort(),
                 [...expected].sort(),

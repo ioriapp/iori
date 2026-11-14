@@ -376,6 +376,12 @@ async function pointerLinkClicks({
   );
   // Without focus the link does not look clickable and the first click only
   // brings focus back; then it looks clickable and a new click opens it.
+  // Splitting reflows Terminal output, so use coordinates after its size settles.
+  await waitFor(() =>
+    screen.evaluate(
+      `(()=>{const t=${terminal};const mount=t?.element.parentElement;const screen=t?.element.querySelector('.xterm-screen');return !!mount&&!!screen&&screen.getBoundingClientRect().right<=mount.getBoundingClientRect().right;})()`,
+    ),
+  );
   at = await point(url);
   await hover(at);
   assert.equal(await pointer(), false);

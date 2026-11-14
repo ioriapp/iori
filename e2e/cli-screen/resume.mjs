@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { fakeMarker } from "../fake-model/marker.mjs";
 import { waitFor } from "../../verification/ui.mjs";
 import { submitToCli } from "./input.mjs";
 import { finishCli, focusTerminal } from "./scenario.mjs";
@@ -31,7 +32,8 @@ export async function cliResumeScenario({
   await observed(client, "Ask Codex");
   await submitToCli(
     client,
-    "Remember IORI_WINDOWS_RESUME_MEMORY. Reply exactly WINDOWS_RESUME_SAVED without tools.",
+    "Remember IORI_WINDOWS_RESUME_MEMORY. Reply exactly WINDOWS_RESUME_SAVED without tools." +
+      fakeMarker("windows-resume-save"),
     undefined,
     "resume-before",
     { focus: false },
@@ -65,7 +67,8 @@ export async function cliResumeScenario({
   await observed(client, "Ask Codex");
   await submitToCli(
     client,
-    "What word did I ask you to remember? Reply with that word only, without using tools.",
+    "What word did I ask you to remember? Reply with that word only, without using tools." +
+      fakeMarker("windows-resume-after"),
     undefined,
     "resume-after",
     { focus: false },

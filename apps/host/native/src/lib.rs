@@ -1,4 +1,5 @@
 use std::{
+    collections::VecDeque,
     net::SocketAddr,
     str::FromStr,
     sync::{Arc, Once, Weak},
@@ -329,9 +330,12 @@ impl ConnectionResources {
         };
         for stream in streams.into_iter().filter_map(|stream| stream.upgrade()) {
             stream.send_interrupted.send_replace(true);
-            stream.recv_interrupted.send_replace(true);
             stream.send.lock().await.take();
-            stream.recv.lock().await.take();
+            // Acknowledged bytes may still be unread by JavaScript. Drain only
+            // after connection closure: noq returns buffered data before its
+            // terminal result, without waiting for more network input. Retain
+            // those bytes, not a RecvStream that owns the old socket.
+            stream.recv.lock().await.release().await;
         }
         self.closed.send_replace(Some(reason));
     }
@@ -444,9 +448,58 @@ pub struct PathSnapshot {
 
 pub struct StreamResources {
     send: Mutex<Option<iroh::endpoint::SendStream>>,
-    recv: Mutex<Option<iroh::endpoint::RecvStream>>,
+    recv: Mutex<ReceiveResources>,
     send_interrupted: watch::Sender<bool>,
     recv_interrupted: watch::Sender<bool>,
+}
+
+struct ReceiveResources {
+    stream: Option<iroh::endpoint::RecvStream>,
+    buffered: VecDeque<Vec<u8>>,
+    offset: usize,
+    error: Option<String>,
+}
+
+impl ReceiveResources {
+    async fn release(&mut self) {
+        let Some(mut stream) = self.stream.take() else {
+            return;
+        };
+        loop {
+            match stream.read_chunk(usize::MAX).await {
+                Ok(Some(bytes)) => self.buffered.push_back(bytes.to_vec()),
+                Ok(None) => break,
+                Err(error) => {
+                    self.error = Some(error.to_string());
+                    break;
+                }
+            }
+        }
+    }
+
+    async fn read(&mut self, max_length: usize) -> napi::Result<Option<Buffer>> {
+        let bytes = if let Some(stream) = self.stream.as_mut() {
+            stream
+                .read_chunk(max_length)
+                .await
+                .map(|chunk| chunk.map(|bytes| bytes.to_vec()))
+                .map_err(|error| Error::from_reason(error.to_string()))?
+        } else if let Some(front) = self.buffered.front() {
+            let length = max_length.min(front.len() - self.offset);
+            let bytes = front[self.offset..self.offset + length].to_vec();
+            self.offset += length;
+            if self.offset == front.len() {
+                self.buffered.pop_front();
+                self.offset = 0;
+            }
+            Some(bytes)
+        } else if let Some(error) = &self.error {
+            return Err(Error::from_reason(error.clone()));
+        } else {
+            None
+        };
+        Ok(bytes.map(Into::into))
+    }
 }
 
 #[napi(js_name = "BiStream")]
@@ -468,7 +521,12 @@ impl JsBiStream {
         Self {
             inner: Arc::new(StreamResources {
                 send: Mutex::new(Some(send)),
-                recv: Mutex::new(Some(recv)),
+                recv: Mutex::new(ReceiveResources {
+                    stream: Some(recv),
+                    buffered: VecDeque::new(),
+                    offset: 0,
+                    error: None,
+                }),
                 send_interrupted,
                 recv_interrupted,
             }),
@@ -611,15 +669,10 @@ impl JsBiStream {
         let mut recv =
             lock_unless_interrupted(&self.recv, &mut interrupted, "stream receive was stopped")
                 .await?;
-        let recv = recv
-            .as_mut()
-            .ok_or_else(|| Error::from_reason("stream closed"))?;
         tokio::select! {
             biased;
             _ = interrupted.changed() => Err(Error::from_reason("stream receive was stopped")),
-            result = recv.read_chunk(max_length as usize) => result
-                .map(|chunk| chunk.map(|bytes| bytes.to_vec().into()))
-                .map_err(|error| Error::from_reason(error.to_string()))
+            result = recv.read(max_length as usize) => result
         }
     }
 
@@ -667,10 +720,10 @@ impl JsBiStream {
     #[napi]
     pub async fn stop(&self, error_code: u32) -> napi::Result<()> {
         self.recv_interrupted.send_replace(true);
-        self.recv
-            .lock()
-            .await
-            .as_mut()
+        let mut recv = self.recv.lock().await;
+        recv.buffered.clear();
+        recv.stream
+            .take()
             .ok_or_else(|| Error::from_reason("stream closed"))?
             .stop(error_code.into())
             .map_err(|error| Error::from_reason(error.to_string()))
@@ -681,6 +734,7 @@ impl JsBiStream {
         self.recv
             .lock()
             .await
+            .stream
             .as_ref()
             .ok_or_else(|| Error::from_reason("stream closed"))?
             .bytes_read()

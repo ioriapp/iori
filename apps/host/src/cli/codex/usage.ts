@@ -46,8 +46,10 @@ export const monitorUsage: UsageMonitor = async (
   let pending: Promise<void> | undefined;
   let resolvePending: (() => void) | undefined;
   let resetTimer: NodeJS.Timeout | undefined;
+  let closed = false;
   let refresh: () => void | Promise<void> = () => {};
   const update = (value: unknown) => {
+    if (closed || signal.aborted) return;
     const usage = readUsage(value);
     if (resetTimer) clearTimeout(resetTimer);
     changed(usage);
@@ -108,6 +110,7 @@ export const monitorUsage: UsageMonitor = async (
       },
     );
   } finally {
+    closed = true;
     resolvePending?.();
     if (resetTimer) clearTimeout(resetTimer);
     changed(undefined);

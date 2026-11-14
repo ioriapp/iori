@@ -1,5 +1,4 @@
 import { assertBundledIcon } from "./cli-definition-icons.mjs";
-import { openSidebar } from "../connection/scenario.mjs";
 import assert from "node:assert/strict";
 import { waitFor } from "../../verification/ui.mjs";
 import { finishCli, waitForPiInput } from "../cli-screen/scenario.mjs";
@@ -13,16 +12,9 @@ export async function cliLauncherScenario({
   terminalId,
   replayCliUpdate,
   record,
-  shot,
-  mobile,
-  desktop,
   firstUse = false,
 }) {
   const screen = client.screen;
-  const worktree = await screen.attribute(
-    "[data-iori-current-worktree-path]",
-    "data-iori-current-worktree-path",
-  );
   const icons = async (selector) => {
     assert.equal(
       await screen.evaluate(`(()=>{
@@ -40,23 +32,6 @@ export async function cliLauncherScenario({
         });
       })()`),
     );
-  };
-  const themes = async (name) => {
-    const wasDark = await screen.evaluate(
-      "document.documentElement.classList.contains('dark')",
-    );
-    try {
-      for (const theme of ["light", "dark"]) {
-        await screen.evaluate(
-          `document.documentElement.classList.toggle('dark', ${theme === "dark"})`,
-        );
-        await shot(`${name}-${theme}`);
-      }
-    } finally {
-      await screen.evaluate(
-        `document.documentElement.classList.toggle('dark', ${wasDark})`,
-      );
-    }
   };
   const connectionId = await screen.evaluate(
     "(async()=>{const {connection}=await import('/src/connection.ts');return connection.getSnapshot().connectionId;})()",
@@ -86,7 +61,6 @@ export async function cliLauncherScenario({
     await icons(selector);
     await assertBundledIcon(screen, selector, cli.icon);
   }
-  await themes("pc-cli-icons-new");
   await screen.input(search, "pi");
   await screen.evaluate(`(()=>{
     window.__launcherOption=document.querySelector(${JSON.stringify(option)});
@@ -145,18 +119,6 @@ export async function cliLauncherScenario({
   }
   await icons('[data-iori-tab-cli="pi"]');
   await icons('[data-iori-row-cli="pi"]');
-  await themes("pc-cli-icons-workspace");
-  await mobile();
-  await openSidebar(screen);
-  await screen.wait('[data-sidebar="sidebar"][data-mobile="true"]');
-  await screen.click(
-    `button[data-iori-worktree-path=${JSON.stringify(worktree)}]`,
-  );
-  if (!(await screen.visible('[data-iori-row-cli="pi"]')))
-    await openSidebar(screen);
-  await themes("mobile-cli-icons-sidebar");
-  await screen.key("Escape");
-  await desktop();
   await finishCli(client, id, "pi");
   await record(
     "タブを選んだ直後に＋を開いても、遅れたフォーカス移動が一覧を閉じずCLIを選べる",

@@ -9,6 +9,8 @@ import type {
 import type { HostStore, StoreContext } from "../store.ts";
 import type { NativeBiStream, NativeConnection } from "../native.ts";
 import { CliRegistry } from "../cli/registry.ts";
+import { cliTitle } from "../cli/title.ts";
+import { applyTerminalMetadata } from "./terminal-metadata.ts";
 import { cliDefinitions } from "../cli/definitions.ts";
 import type { HookState } from "../cli/hooks.ts";
 import { type ShellDefinition } from "./platform.ts";
@@ -16,8 +18,9 @@ import { discoverShells } from "./shells.ts";
 import { TerminalRuntime, type TeamTerminalOptions } from "./runtime.ts";
 import { RemotePtys } from "./remote-pty.ts";
 import { attachTerminalDaemon, stopTerminalDaemon } from "./daemon/launch.ts";
+import { TERMINAL_PARSER_SUBSCRIPTIONS } from "./runtime.ts";
 import type { DaemonChannel } from "./daemon/channel.ts";
-import type { PtyScreen, PtyEvent } from "./daemon/protocol.ts";
+import type { PtyScreen, PtyEvent, PtyOutput } from "./daemon/protocol.ts";
 import {
   executeRawCommand,
   type Caller,
@@ -107,10 +110,32 @@ export class TerminalManager {
         try {
           const record = this.#store.terminal(screen.id);
           if (!record) continue;
-          this.#store.putTerminal({
+          const restored = {
             ...record,
+            cwd: typeof screen.cwd === "string" ? screen.cwd : record.cwd,
+            title:
+              typeof screen.title === "string"
+                ? cliTitle(
+                    screen.title,
+                    this.#store.terminalCli(screen.id)?.cli.name ??
+                      this.#shells.find((shell) => shell.id === record.shell)
+                        ?.label ??
+                      record.title,
+                    process.platform === "win32",
+                  )
+                : record.title,
             snapshot: parseTerminalSnapshot(screen.snapshot),
-          });
+          };
+          if (screen.state)
+            applyTerminalMetadata(
+              restored,
+              screen.state.osc,
+              this.#store.terminalCli(screen.id)?.cli.name ??
+                this.#shells.find((shell) => shell.id === record.shell)
+                  ?.label ??
+                record.title,
+            );
+          this.#store.putTerminal(restored);
         } catch {
           /* Use the previously saved screen. */
         }
@@ -118,11 +143,16 @@ export class TerminalManager {
     if (!attached.continued) this.#store.markTerminalsForRestart();
     const remote = new RemotePtys(this.#channel);
     this.#channel.handle = async (method, args) => {
-      if (method === "data") return remote.data(...(args as [number, string]));
+      if (method === "data")
+        return remote.data(...(args as [number, PtyOutput]));
       if (method === "event") {
-        void remote.event(args[0] as PtyEvent).catch(() => {
+        if (this.#closing) throw new Error("Terminal Host is stopping");
+        try {
+          await remote.event(args[0] as PtyEvent);
+        } catch (error) {
+          if (this.#closing || this.#channel !== attached.channel) throw error;
           console.error("Terminal event processing failed");
-        });
+        }
         return;
       }
       if (method === "command")
@@ -140,7 +170,10 @@ export class TerminalManager {
         );
       throw new Error("Unknown terminal request");
     };
-    const screens = await this.#channel.call<PtyScreen[]>("attach");
+    const screens = await this.#channel.call<PtyScreen[]>(
+      "attach",
+      TERMINAL_PARSER_SUBSCRIPTIONS,
+    );
     this.#runtime = await TerminalRuntime.create(
       this.#store,
       this.#publish,
@@ -229,6 +262,9 @@ export class TerminalManager {
   }
   shellActivity(id: string) {
     return this.#runtime.shellActivity(id);
+  }
+  workGeneration(id: string) {
+    return this.#runtime.workGeneration(id);
   }
   summary(id: string): TerminalSummary | undefined {
     return this.#runtime.summary(id);
@@ -484,11 +520,21 @@ export class TerminalManager {
     const screens = await stopTerminalDaemon(this.#root);
     for (const screen of screens ?? []) {
       const record = this.#store.terminal(screen.id);
-      if (record)
-        this.#store.putTerminal({
+      if (record) {
+        const restored = {
           ...record,
           snapshot: parseTerminalSnapshot(screen.snapshot),
-        });
+        };
+        if (screen.state)
+          applyTerminalMetadata(
+            restored,
+            screen.state.osc,
+            this.#store.terminalCli(screen.id)?.cli.name ??
+              this.#shells.find((shell) => shell.id === record.shell)?.label ??
+              record.title,
+          );
+        this.#store.putTerminal(restored);
+      }
     }
     this.#store.markTerminalsForRestart();
     this.#channel.close();

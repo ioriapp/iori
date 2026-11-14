@@ -277,6 +277,7 @@ export async function teamNotificationsScenario({
       worktree,
       repository,
       request,
+      workflow: childRunningOnly,
       childDisplayFixture,
       mobile,
       desktop,

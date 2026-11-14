@@ -82,6 +82,8 @@ export async function terminalWidthHandoff({
     undefined,
     "スマホのpaneへPCの幅が届く",
   );
+  // Only a width report after the tap counts as the tap taking the width.
+  await clearObserved(desktop);
   // The shared touch helper with no finger movement is a tap, not a mouse
   // click or focus change. The program reports the real PTY width on resize.
   await mobile.screen.swipe(
@@ -89,18 +91,10 @@ export async function terminalWidthHandoff({
     { x: 0.5, y: 0.5 },
     { x: 0.5, y: 0.5 },
   );
-  // A pane shows the PTY's current size, so read the phone's width once the
-  // tap has taken it: the phone's layout may have settled after the first take.
-  const mobileCols = await waitFor(
-    async () => {
-      const value = await cols(mobile);
-      return value < pc.cols ? value : undefined;
-    },
-    Boolean,
-    undefined,
-    "スマホのtapの後のpaneの列数",
-  );
-  await observed(desktop, `PTY_${mobileCols}x`);
+  // The phone's layout can change while the PTY is being resized. Observe a
+  // narrower PTY report instead of matching a transient pane width.
+  const narrowerWidths = Array.from({ length: pc.cols - 1 }, (_, i) => i + 1);
+  await observed(desktop, new RegExp(`PTY_(?:${narrowerWidths.join("|")})x`));
   assert.equal(
     await mobile.screen.evaluate("document.activeElement.matches('textarea')"),
     false,

@@ -99,7 +99,6 @@ button {
 [data-slot="select-item"] {
   font-size: var(--text-xs);
 }
-.auxiliary,
 time {
   font-size: 0.86rem;
   color: var(--muted-foreground);

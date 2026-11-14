@@ -67,7 +67,7 @@ WindowsのHostでLANから受けるには、ファイアウォールの規則（
 
 Issueで実行する自動化は、フォルダーのリポジトリのIssue（GitHub・Forgejo・Gitea。[Forgeとの連携](forge.md#対象のリポジトリ)のIssueの対象と同じリポジトリ）に、決めたlabel（例 `agent-ready`）を付けると、そのIssueの作業を始める。形は、OpenHandsのIssue resolver（`fix-me`）、Claude CodeのGitHub Actions、Cursor Automationsのlabelの契機に合わせる。成果はPull requestで、mergeは人が行う。
 
-- **見に行く**: Hostが1分ごとに、そのlabelの付いたOpenのIssueを読み込む（GitHubがリポジトリの出来事のAPIの推奨する間隔と同じ）。HostはインターネットからWebhookを受けないので、Relayが無くてもGitHubで動く。認証は[連携](forge.md#連携の設定)のものを使う。自動化が無効の間は見に行かない。読み込めない時は、Issueの節に理由を表示し（[Forgeの失敗の表示方法](forge.md#失敗の表示方法)と同じ理由）、次の回で読み込めれば非表示にする。
+- **見に行く**: Hostが1分ごとに、そのlabelの付いたOpenのIssueを読み込む。HostはインターネットからWebhookを受けないので、Relayが無くてもGitHubで動く。認証は[連携](forge.md#連携の設定)のものを使う。自動化が無効の間は見に行かない。読み込めない時は、Issueの節に理由を表示し（[Forgeの失敗の表示方法](forge.md#失敗の表示方法)と同じ理由）、次の回で読み込めれば非表示にする。
 - **拾うラベル**: Issueの出来事の記録で、そのlabelを最後に付けた人と時刻を確かめる。付けた人が、このHostがそのリポジトリを読むアカウント（GitHubは `gh` のアカウント、Forgejo・Giteaはトークンの持ち主）の時だけ拾う。Issueのテンプレートなどで外の人が付けたlabelでは動かない。Issueで実行するようにした後（自動化を有効に戻した時はその後）に付いたラベルだけを拾い、それより前から付いていたlabelでは動かない。Hostが止まっていた間に付いたラベルは、動き出した後の最初の回で拾う。
 - **1件ずつ**: 同じ自動化の前回の会話が作業中の間は始めず、終わった後の回で次のIssueを拾う。待っているIssueはラベルを付けた順に拾う。飛ばした回は作らない。
 - **もう一度頼む**: labelを削除して付け直すと、新しいラベルとして同じIssueをもう一度拾う。

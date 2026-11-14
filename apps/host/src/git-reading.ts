@@ -1,3 +1,4 @@
+import { isWithin } from "./path-boundary.ts";
 import { fileUploadTemporaries } from "./files-upload-temporaries.ts";
 import { lstat, realpath, stat } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -42,14 +43,6 @@ export type Repository = {
 const MESSAGE_CHUNK_BYTES = 256 * 1024;
 const NUMSTAT_ARGUMENT_CHARS = 8000;
 const areas: GitChangeArea[] = ["staged", "unstaged", "untracked", "conflict"];
-
-function within(root: string, target: string): boolean {
-  const rel = relative(root, target);
-  return (
-    rel === "" ||
-    (!isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep}`))
-  );
-}
 
 export async function discoverRepository(
   root: string,
@@ -139,7 +132,7 @@ function historyPath(repository: Repository, value: string): string {
     return value;
   }
   const absolute = resolve(value);
-  if (!within(repository.root, absolute))
+  if (!isWithin(repository.root, absolute))
     throw new ReadingFailure(
       "path_outside_root",
       "History path is outside the Git repository",
@@ -237,6 +230,15 @@ async function collapseLinkedUntracked(
   return result;
 }
 
+export function parseNumstatField(value: string): {
+  added: string;
+  removed: string;
+  path: string;
+} {
+  const [added = "", removed = "", ...path] = value.split("\t");
+  return { added, removed, path: path.join("\t") };
+}
+
 async function readNumstat(
   repository: Repository,
   cached: boolean,
@@ -274,7 +276,11 @@ async function readNumstat(
       for (;;) {
         const field = await reader.next();
         if (field === undefined) break;
-        const [added, removed, inline] = field.toString("utf8").split("\t");
+        const {
+          added,
+          removed,
+          path: inline,
+        } = parseNumstatField(field.toString("utf8"));
         let path: string | undefined = inline;
         if (!path) {
           // A rename is "added\tremoved\t" followed by the old and new paths.

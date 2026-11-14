@@ -115,6 +115,30 @@
   font-size: 0.93rem;
   font-weight: 400;
 }
+.reading-list-header {
+  border-bottom: 0;
+}
+.reading-list-header + .files-tree {
+  padding-top: 8px;
+}
+@media (pointer: coarse) {
+  .reading-list-header,
+  .files-pane .reading-tabs,
+  .files-pane .reading-tab {
+    height: 44px;
+    min-height: 44px;
+  }
+  .reading-back {
+    width: 44px;
+    height: 44px;
+  }
+  .reading-header:has(.reading-back) {
+    padding-inline: 4px;
+  }
+  .reading-header > .reading-back {
+    margin: 0;
+  }
+}
 /* One choice only: the branch name as plain text, aligned with the picker. */
 .reading-worktree-static {
   display: inline-flex;
@@ -893,9 +917,16 @@
   min-width: 0;
   overflow: hidden;
 }
+.reading-worktree-choice[data-highlighted] {
+  background: color-mix(in srgb, var(--foreground) 7.5%, var(--popover));
+  color: var(--popover-foreground);
+}
 .reading-worktree-choice[data-state="checked"] {
-  background: var(--accent);
-  color: var(--accent-foreground);
+  background: color-mix(in srgb, var(--foreground) 13.3333%, var(--popover));
+  color: var(--popover-foreground);
+}
+.reading-worktree-choice[data-state="checked"][data-highlighted] {
+  background: color-mix(in srgb, var(--foreground) 20%, var(--popover));
 }
 .reading-markdown [data-streamdown="code-block"] {
   margin: 0 0 0.9em;

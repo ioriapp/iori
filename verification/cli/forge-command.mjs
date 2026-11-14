@@ -277,7 +277,7 @@ if (process.platform === "win32") {
   await lockEntry(import.meta.url);
   const { gate, windows, ps, windowsBuildNode, windowsPnpm } =
     await import("../native/remote.mjs");
-  const { writeWindows, windowsEnvironment } =
+  const { writeWindows, windowsEnvironment, runWindowsBuild } =
     await import("../connection/build.mjs");
   const { createSourceArchive, windowsSourceMtimes } =
     await import("../native/source.mjs");
@@ -319,8 +319,10 @@ if (process.platform === "win32") {
     );
     windows(`[IO.Directory]::CreateDirectory(${ps(root)}) | Out-Null`);
     await writeWindows(root + "\\source.tar", await readFile(archive));
-    windows(
+    await runWindowsBuild(
+      root,
       `${windowsEnvironment}tar -mxf ${ps(root + "\\source.tar")} -C ${ps(root)};if($LASTEXITCODE -ne 0){throw 'extract failed'};Set-Location ${ps(root)};${windowsSourceMtimes}$env:CARGO_TARGET_DIR=${ps(windowsCache + "\\cargo-target")};$env:CARGO_BUILD_JOBS='2';& ${ps(windowsBuildNode)} ${ps(windowsPnpm)} install --frozen-lockfile --store-dir ${ps(windowsCache + "\\pnpm-store")};if($LASTEXITCODE -ne 0){throw 'install failed'};node verification/native/node-pty.mjs;if($LASTEXITCODE -ne 0){throw 'node-pty build failed'};& ${ps(windowsBuildNode)} ${ps(windowsPnpm)} --filter @iori/host build:native;if($LASTEXITCODE -ne 0){throw 'native build failed'};& ${ps(windowsBuildNode)} scripts/release/host.mjs bundle;if($LASTEXITCODE -ne 0){throw 'bundle failed'}`,
+      path.join(evidence, "build.log"),
     );
     // A separate Codex home: the model is cheap; approval and sandbox stay
     // Codex's defaults, with the verification Host's default Windows sandbox.

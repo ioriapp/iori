@@ -7,7 +7,7 @@ const action = (name) => `[data-iori-action="${name}"]`;
 const selector = '[data-iori-view="terminal"][data-iori-displayed="true"]';
 const terminal = `document.querySelector('${selector} [data-iori-part="terminal-screen"]').__e2eTerminal`;
 
-export async function mobileTerminalReading({ client, record, shot }) {
+export async function mobileTerminalReading({ client, record }) {
   const screen = client.screen;
   const pinch = async (ratio) => {
     const point = await waitFor(() =>
@@ -93,7 +93,6 @@ export async function mobileTerminalReading({ client, record, shot }) {
     await screen.evaluate(`${terminal}.buffer.active.viewportY`),
     position.viewport,
   );
-  await shot("mobile-terminal-jump-latest");
   const atBottom = async () => {
     await waitFor(() =>
       screen.evaluate(

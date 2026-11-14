@@ -190,6 +190,28 @@ export async function clientHostUpdate({
   );
   assert.equal(await screen.attribute(checkbox, "data-state"), "checked");
   await updatePictures(client, shot, "connected-hosts-update-setting");
+  // A failed intent save must leave this Client version and its retry intact.
+  const saveFailure = await client.faults.failNative("native_save_view", {
+    scope: "client-update-hosts",
+  });
+  await screen.click(action("update-install"));
+  await waitFor(() => saveFailure.count > 0);
+  await waitFor(
+    async () =>
+      distribution.installs > 0 ||
+      (await screen.visible('[data-iori-state="update-error"]')),
+  );
+  await shot("pc-connected-hosts-save-failure");
+  assert.equal(distribution.installs, 0);
+  assert.equal(
+    await screen.text('[data-iori-state="update-error"]'),
+    "iori Hostの更新を準備できませんでした。もう一度お試しください。",
+  );
+  await screen.wait(action("update-install") + ":not(:disabled)");
+  await saveFailure.clear();
+  await record(
+    "Hostの更新対象を保存できないときはClientを更新せず再試行できる",
+  );
   await screen.click(action("update-install"));
   await waitForOperation(
     "client-update: Clientの更新を導入",
@@ -255,18 +277,15 @@ export async function clientHostUpdate({
     "停止中のHostが接続失敗を示しても、中断の無いHostは押さずに更新され、中断されるHostだけ確認を待つ",
   );
   const offlineRow = `[data-iori-update-host=${JSON.stringify(offlineKey)}]`;
-  await screen.evaluate(`(async () => {
-    const { connection } = await import('/src/connection.ts');
-    const request = connection.requestHost;
-    const observation = window.__reconnectedUpdate = { requests: 0, checking: false };
-    connection.requestHost = function(hostKey, method, ...args) {
-      if (hostKey === ${JSON.stringify(offlineKey)} && method === 'host.update') observation.requests++;
-      return request.call(this, hostKey, method, ...args);
-    };
-    observation.stop = () => { connection.requestHost = request; observer.disconnect(); };
+  const updateRequests = await client.faults.count("host.update", {
+    hostKey: offlineKey,
+  });
+  await screen.evaluate(`(() => {
+    const observation = window.__reconnectedUpdate = { checking: false };
     const observer = new MutationObserver(() => {
       if (document.querySelector(${JSON.stringify(offlineRow)} + ' [data-iori-state="host-checking"]')) observation.checking = true;
     });
+    observation.stop = () => observer.disconnect();
     observer.observe(document.querySelector(${JSON.stringify(offlineRow)}), { childList: true, subtree: true, attributes: true });
   })()`);
   await stopAdditionalUpdateHost(true);
@@ -286,12 +305,14 @@ export async function clientHostUpdate({
   );
   assert.deepEqual(
     await screen.evaluate(`(() => {
-      const { requests, checking, stop } = window.__reconnectedUpdate;
+      const { checking, stop } = window.__reconnectedUpdate;
       stop();
-      return { requests, checking };
+      return checking;
     })()`),
-    { requests: 1, checking: true },
+    true,
   );
+  assert.equal(updateRequests.count, 1);
+  await updateRequests.clear();
   await record("開いた画面で再接続したHostを確認後に一度だけ更新");
   await screen.click(`${workingRow} ${action("connected-hosts-confirm")}`);
   assert.equal(
@@ -336,19 +357,7 @@ export async function clientHostUpdate({
   })()`);
   await reload();
   await screen.wait('[data-iori-state="host-disconnected"]');
-  await screen.evaluate(`(async () => {
-    const { connection } = await import('/src/connection.ts');
-    const request = connection.requestHost;
-    connection.requestHost = async function(hostKey, method, ...args) {
-      const reply = await request.call(this, hostKey, method, ...args);
-      if (hostKey === ${JSON.stringify(offlineKey)} && method === 'host.info' && reply?.ok) {
-        const { version, ...result } = reply.result;
-        return { ...reply, result };
-      }
-      return reply;
-    };
-    window.__restoreHostInfo = () => { connection.requestHost = request; };
-  })()`);
+  client.omitHostInfoVersion(offlineKey);
   await stopAdditionalUpdateHost(true);
   await waitFor(
     () => screen.text(dialog),
@@ -358,7 +367,7 @@ export async function clientHostUpdate({
       ),
   );
   assert.equal(await screen.visible('[data-iori-state="host-current"]'), false);
-  await screen.evaluate("window.__restoreHostInfo()");
+  client.omitHostInfoVersion();
   await screen.key("Escape");
   await record(
     "バージョンを返さないHostを最新と表示せず、設定からの更新を案内する",

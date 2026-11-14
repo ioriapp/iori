@@ -865,7 +865,8 @@ else {
   const { gate, ps, windows, windowsBuildNode, windowsPnpm } =
     await import("../native/remote.mjs");
   const { windowsCache } = await import("../native/cache.mjs");
-  const { writeWindows } = await import("../connection/build.mjs");
+  const { writeWindows, runWindowsBuild } =
+    await import("../connection/build.mjs");
   const { createSourceArchive } = await import("../native/source.mjs");
   const { stopOwnedWindowsProcesses } = await import("../native/processes.mjs");
   gate({ requireFreePorts: false });
@@ -892,10 +893,14 @@ else {
     await createSourceArchive(repo, archive);
     windows(`[IO.Directory]::CreateDirectory(${ps(root)}) | Out-Null`);
     await writeWindows(root + "\\source.tar", await readFile(archive));
-    windows(
+    await runWindowsBuild(
+      root,
       `tar -xf ${ps(root + "\\source.tar")} -C ${ps(root)};if($LASTEXITCODE -ne 0){throw 'source extraction failed'};Set-Location ${ps(root)};$env:PATH=${ps(win32.dirname(windowsBuildNode) + ";")}+$env:PATH;` +
-        `& ${ps(windowsBuildNode)} ${ps(windowsPnpm)} install --frozen-lockfile --ignore-scripts --store-dir ${ps(win32.join(windowsCache, "pnpm-store"))};if($LASTEXITCODE -ne 0){throw 'pnpm install failed'};` +
-        `& ${ps(windowsBuildNode)} verification/cli/windows-definitions.mjs --result ${ps(resultFile)};if(-not(Test-Path -LiteralPath ${ps(resultFile)})){throw 'result missing'}`,
+        `& ${ps(windowsBuildNode)} ${ps(windowsPnpm)} install --frozen-lockfile --ignore-scripts --store-dir ${ps(win32.join(windowsCache, "pnpm-store"))};if($LASTEXITCODE -ne 0){throw 'pnpm install failed'}`,
+      join(evidence, "build.log"),
+    );
+    windows(
+      `Set-Location ${ps(root)};$env:PATH=${ps(win32.dirname(windowsBuildNode) + ";")}+$env:PATH;& ${ps(windowsBuildNode)} verification/cli/windows-definitions.mjs --result ${ps(resultFile)};if(-not(Test-Path -LiteralPath ${ps(resultFile)})){throw 'result missing'}`,
       { timeout: 900_000 },
     );
     const output = windows(`Get-Content -LiteralPath ${ps(resultFile)} -Raw`);

@@ -171,11 +171,15 @@ export class ConnectionController {
                 ...knownHost,
                 ...event.host,
                 relay: event.host.relay,
+                connectionScope: event.host.connectionScope,
                 publicKey: hostKey,
-                addresses: mergeAddresses(
-                  knownHost?.addresses ?? [],
-                  event.host.addresses,
-                ),
+                addresses:
+                  event.host.connectionScope === "loopback"
+                    ? event.host.addresses
+                    : mergeAddresses(
+                        knownHost?.addresses ?? [],
+                        event.host.addresses,
+                      ),
               };
               this.update({
                 observedHosts: { ...this.state.observedHosts, [hostKey]: host },

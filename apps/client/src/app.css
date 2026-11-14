@@ -134,23 +134,10 @@
   max-width: 100%;
 }
 
-.settings-section > h3,
-.settings-section-heading h3 {
+.settings-section > h3 {
   margin: 0 0 14px;
   font-size: 0.98rem;
   font-weight: 600;
-}
-
-.settings-section-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 14px;
-}
-
-.settings-section-heading h3 {
-  margin: 0;
 }
 
 .settings-recovery {
@@ -182,22 +169,6 @@
 
 .connection-form .settings-note {
   font-weight: 400;
-}
-
-.device-list {
-  display: grid;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.device-list > li {
-  display: flex;
-  min-height: 48px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  border-bottom: 1px solid var(--border);
 }
 
 .device-details,
@@ -339,12 +310,6 @@
   .onboarding-panel {
     margin: auto 0;
     padding: 20px;
-  }
-
-  .device-list > li {
-    align-items: flex-start;
-    flex-direction: column;
-    padding-block: 8px;
   }
 
   .device-actions {

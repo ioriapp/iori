@@ -479,7 +479,7 @@ export async function windowsSshScenario() {
       destinationText,
       signedOut
         ? /not an administrator, so installation over SSH is not available|管理者ではないため、SSHではインストールできません/u
-        : /During installation, incoming connections|Windows ファイアウォールにiori Hostの受信の許可/u,
+        : /During installation, incoming connections|Windows ファイアウォールでiori Hostの受信接続を許可/u,
     );
     await snapshot("destination");
     if (signedOut) {

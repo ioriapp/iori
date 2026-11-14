@@ -30,6 +30,12 @@ export function WorktreePicker({
 }) {
   const sorted = [...worktrees].sort(worktreeOrder);
   const separated = sorted.length > 1 && sorted.some((w) => w.primary);
+  const name = (
+    <span className="reading-worktree-choice-name reading-truncate">
+      <span aria-hidden="true">{label}</span>
+      <MiddleEllipsis text={label} className="reading-worktree-choice-fitted" />
+    </span>
+  );
   if (sorted.length < 2) {
     return (
       <span
@@ -38,7 +44,7 @@ export function WorktreePicker({
         data-iori-field={field}
       >
         <GitBranch />
-        <span className="reading-truncate">{label}</span>
+        {name}
       </span>
     );
   }
@@ -53,7 +59,7 @@ export function WorktreePicker({
           data-iori-field={field}
         >
           <GitBranch />
-          <span className="reading-truncate">{label}</span>
+          {name}
           <ChevronDown />
         </Button>
       </DropdownMenuTrigger>

@@ -10,6 +10,7 @@ export async function terminalRetention({
   client,
   terminalId,
   withConnectionOffline,
+  releaseRetentionOutput,
   record,
 }) {
   const screen = client.screen;
@@ -46,6 +47,7 @@ export async function terminalRetention({
       true,
       "切断中も本文・読み位置・選択を保つ",
     );
+    await releaseRetentionOutput();
   });
   await screen.wait(`${pane(terminalId)}[data-iori-stream-state="ready"]`);
   assert.equal(

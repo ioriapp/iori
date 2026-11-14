@@ -62,15 +62,20 @@ try {{
     }
     // Only administrator accounts can grant the per-installation rule over SSH.
     // Other existing Hosts are checked by the UI's subsequent Direct connection.
-    if administrator {
+    let firewall_allowed = if administrator {
         emit(app, session, json!({"type":"stage","stage":"firewall"}));
-        request(
+        let values = request(
             commands,
             Shell::Windows,
-            format!("& {{ {} }} -Remote", include_str!("../firewall.ps1")),
+            format!("$allowed = & {{ {} }} -Remote; [Console]::WriteLine('IORI_SETUP ' + (ConvertTo-Json -Compress @{{type='firewall';allowed=[bool]$allowed}}))", include_str!("../firewall.ps1")),
         )
         .await?;
-    }
+        values
+            .iter()
+            .any(|v| v["type"] == "firewall" && v["allowed"] == true)
+    } else {
+        false
+    };
     // The initial probe can predate sign-in. Recheck the local control endpoint
     // for every registration attempt before scheduling another Host.
     let responding = request(
@@ -93,6 +98,32 @@ try {{
         )).await?;
         if values.iter().any(|v| v["type"] == "signInRequired") {
             return Ok(json!({"type":"signInRequired"}));
+        }
+    }
+    if firewall_allowed {
+        let info = request(
+            commands,
+            Shell::Windows,
+            remote::control(Shell::Windows, "host.info"),
+        )
+        .await?;
+        if info.iter().any(|v| {
+            v["type"] == "control"
+                && v["ok"] == true
+                && v["result"]["connectionScope"] == "loopback"
+        }) {
+            let values = request(
+                commands,
+                Shell::Windows,
+                remote::control(Shell::Windows, "host.connections.allow"),
+            )
+            .await?;
+            if !values
+                .iter()
+                .any(|v| v["type"] == "control" && v["ok"] == true)
+            {
+                return Err(Failure::new("install", "Host did not respond"));
+            }
         }
     }
     emit(app, session, json!({"type":"stage","stage":"register"}));

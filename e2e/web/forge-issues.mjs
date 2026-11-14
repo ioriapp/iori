@@ -1,4 +1,3 @@
-import { local as verificationLocal } from "../../verification/native/local.mjs";
 import assert from "node:assert/strict";
 import { readIssuesExpectation } from "../../verification/web/forge-fixture.mjs";
 import { waitFor } from "../../verification/ui.mjs";
@@ -80,9 +79,7 @@ async function chooseLabels(screen, names) {
 }
 
 /**
- * The repository row's Issues button opens the Issues of the Owner's public
- * Forgejo repository. The live Issues change, so the steps compare with the
- * Forge's own answers instead of fixed text.
+ * The repository row opens Issues supplied by the local Forge fixture.
  */
 export async function forgeIssuesScenario({
   client,
@@ -161,7 +158,7 @@ export async function forgeIssuesScenario({
   await screen.wait(row(expected.newest));
   assert.equal(
     await screen.text(`${pane} [data-iori-part="issues-repository"]`),
-    verificationLocal.forge.repository,
+    "owner/repo",
   );
   const first = await rows(screen);
   assert.equal(first[0].number, expected.newest);
@@ -172,8 +169,45 @@ export async function forgeIssuesScenario({
     "作成の新しい順",
   );
   await record(
-    "別のフォルダーを見ている時にリポジトリの行のIssuesからmain worktreeの配置にIssuesのタブが開き、実Forgejoの新しい順の一覧が出る",
+    "別のフォルダーを見ている時にリポジトリの行のIssuesからmain worktreeの配置にIssuesのタブが開き、固定した新しい順の一覧が出る",
     { newest: expected.newest, total: expected.total },
+  );
+
+  // A failed label read must not hide the Issues or retry their list.
+  const labelsFailure = await client.faults.fail("forge.issues.labels");
+  await screen.click(`${pane} ${action("issues-reload")}`);
+  await screen.click(`${pane} ${action("issues-labels")}`);
+  const labelFailure = '.issues-label-menu [data-iori-state="issues-failure"]';
+  await screen.wait(labelFailure);
+  assert.equal(
+    await screen.text(`${labelFailure} .forge-failure-heading`),
+    "ラベルを読み込めませんでした。",
+  );
+  await shot("pc-issues-label-failure");
+  assert.equal(await screen.visible(row(expected.newest)), true);
+  assert.ok(labelsFailure.count > 0);
+  await labelsFailure.clear();
+  // Guard the other reads only during retry: their counts must stay at zero.
+  const otherReads = [];
+  for (const method of [
+    "forge.issues.repository",
+    "forge.issues.list",
+    "forge.issues.show",
+  ])
+    otherReads.push(await client.faults.fail(method));
+  await screen.click(`${labelFailure} ${action("issues-retry")}`);
+  await screen.wait(action("issues-label"));
+  for (const read of otherReads) {
+    assert.equal(
+      read.count,
+      0,
+      "ラベルの再試行ではIssueの一覧と詳細を再取得しない",
+    );
+    await read.clear();
+  }
+  await screen.key("Escape");
+  await record(
+    "ラベルの取得失敗をメニューで表示し、一覧を保ったままラベルだけ再試行する",
   );
 
   // Reading on as the list scrolls.
@@ -257,6 +291,21 @@ export async function forgeIssuesScenario({
       `${detail(expected.discussed.number)} [data-iori-part="issue-body"]`,
     ),
     expected.discussed.body,
+  );
+  assert.ok(
+    (
+      await screen.text(
+        `${detail(expected.discussed.number)} [data-iori-part="issue-body"]`,
+      )
+    ).includes(fixture.issue.body),
+  );
+  const comments = await screen.evaluate(
+    `[...document.querySelectorAll(${JSON.stringify(`${detail(expected.discussed.number)} [data-iori-part="issue-comment"]`)})].map(item => item.textContent)`,
+  );
+  assert.ok(
+    fixture.comments.every((comment, index) =>
+      comments[index].includes(comment.body),
+    ),
   );
   // The title, its facts and its actions each take their own line, the title
   // keeps the whole width and the first action starts under the title.

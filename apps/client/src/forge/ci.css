@@ -25,9 +25,9 @@
   flex: none;
   align-items: center;
   gap: 8px;
-  height: 44px;
+  height: 35px;
   min-width: 0;
-  padding: 7px 8px;
+  padding: 0 6px;
 }
 .ci-head .reading-worktree {
   flex: none;
@@ -77,7 +77,7 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 0 0 12px;
+  padding: 8px 0 12px;
 }
 .reading-list[data-wide="true"] .ci-list {
   background: var(--background);
@@ -173,6 +173,10 @@
   color: var(--muted-foreground);
 }
 @media (pointer: coarse) {
+  .ci-head {
+    height: 44px;
+    min-height: 44px;
+  }
   .ci-row,
   .ci-run-head {
     min-height: 44px;
@@ -212,6 +216,11 @@
   height: auto;
   min-height: 44px;
   padding: 6px 8px;
+}
+@media (pointer: coarse) {
+  .ci-pane .ci-detail-head:has(.reading-back) {
+    padding-inline: 4px;
+  }
 }
 .ci-detail-title {
   display: flex;

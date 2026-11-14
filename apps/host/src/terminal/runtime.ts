@@ -8,7 +8,7 @@ import { realpath, stat, mkdir, open, rm } from "node:fs/promises";
 import { basename, join } from "node:path";
 import type * as pty from "node-pty";
 import { RemotePtys, type RemotePty } from "./remote-pty.ts";
-import type { PtyScreen } from "./daemon/protocol.ts";
+import type { PtyScreen, PtyState } from "./daemon/protocol.ts";
 import type { CliCaller } from "../teams/local-command.ts";
 import {
   encodeFrame,
@@ -63,12 +63,17 @@ import type {
   StoredWorktreeSetup,
 } from "../store.ts";
 
-import {
-  HeadlessEmulator,
-  type HeadlessEmulatorOptions,
-} from "./daemon/headless-emulator.ts";
-import { replayTerminalSnapshot } from "./daemon/terminal-snapshot-replay.ts";
-import type { TerminalSnapshot } from "./daemon/types.ts";
+import type { TerminalSnapshot, TerminalModes } from "./daemon/types.ts";
+import type {
+  ParserEvent,
+  ParserSubscriptions,
+} from "./daemon/parser-events.ts";
+import { applyTerminalMetadata } from "./terminal-metadata.ts";
+
+export const TERMINAL_PARSER_SUBSCRIPTIONS: ParserSubscriptions = {
+  osc: [0, 2, 7, 133],
+  csi: [{ prefix: "?", final: "h" }],
+};
 import {
   buildProcessBoundaryGround,
   ABORT_TRUNCATED_CONTROL_STRING,
@@ -104,7 +109,6 @@ import {
   shellCommand,
   shellDialect,
 } from "../cli/shell-command.ts";
-import { cliTitle } from "../cli/title.ts";
 import { LineEditorReady } from "./line-editor-ready.ts";
 import { shellOwnsForeground } from "./linux-foreground.ts";
 import { ShellIntegration } from "./shell-integration.ts";
@@ -195,6 +199,7 @@ interface RuntimeTerminal {
   submissionStateChanged?: () => void;
   cli?: CliSummary;
   cliStatus?: CliStatus;
+  cliWorkGeneration?: string;
   toolActivity?: ToolActivity;
   waitPresentation?: {
     timer: NodeJS.Timeout;
@@ -218,7 +223,9 @@ interface RuntimeTerminal {
   cliMarker?: string;
   shellReady?: boolean;
   record: StoredTerminal;
-  emulator: HeadlessEmulator;
+  modes: TerminalModes;
+  showCursor: boolean;
+  cwdReported: boolean;
   pty?: RemotePty;
   subscribers: Set<TerminalSubscriber>;
   sequence: number;
@@ -310,19 +317,6 @@ function toWireSnapshot(snapshot: TerminalSnapshot): WireSnapshot {
     ...(snapshot.pendingEscapeTailAnsi === undefined
       ? {}
       : { pendingEscapeTailAnsi: snapshot.pendingEscapeTailAnsi }),
-  };
-}
-
-function emulatorOptions(cols: number, rows: number): HeadlessEmulatorOptions {
-  return {
-    cols,
-    rows,
-    scrollback: SCROLLBACK_LINES,
-    pathFlavor: isWindowsHost() ? "win32" : "posix",
-    // Match the Client: VS Code reflows the cursor line only for ConPTY.
-    ...(getWindowsPtyCompatibility()?.backend === "conpty"
-      ? { reflowCursorLine: true }
-      : {}),
   };
 }
 
@@ -674,11 +668,10 @@ export class TerminalRuntime {
       record.snapshot = toWireSnapshot(screen.snapshot);
       record.cols = screen.snapshot.cols;
       record.rows = screen.snapshot.rows;
-      record.cwd = screen.cwd ?? record.cwd;
       record.restartPending = false;
       const runtime = this.#runtimeForStored(record)!;
       await runtime.ready;
-      runtime.emulator.setCwd(screen.cwd);
+      this.#applyDaemonState(runtime, screen.state);
       if (record.state !== "running" || (!screen.live && !screen.exit))
         continue;
       const saved = this.#store.terminalCli(record.id),
@@ -694,13 +687,6 @@ export class TerminalRuntime {
           });
         continue;
       }
-      runtime.emulator.setLastTitle(
-        cliTitle(
-          screen.title ?? record.title,
-          saved?.cli.name ?? shell.label,
-          isWindowsHost(),
-        ),
-      );
       runtime.pty = this.#remote.attach(screen);
       runtime.cliMarker = state?.marker;
       runtime.observedModel = state?.observedModel;
@@ -710,11 +696,16 @@ export class TerminalRuntime {
         ? cliDefinitions.find((d) => d.id === saved.cli.id)?.hooks
         : undefined;
       runtime.cliReady = state?.ready ?? false;
-      runtime.inputModeReady = screen.snapshot.modes.bracketedPaste;
+      runtime.inputModeReady =
+        screen.snapshot.modes.bracketedPaste &&
+        (!cliDefinitions.find((d) => d.id === runtime.cli?.id)
+          ?.waitForInputCursor ||
+          runtime.showCursor);
       runtime.cliStatus = state?.status;
       if (runtime.cliStatus?.state === "waiting")
         this.#deferWaitingPresentation(runtime);
       runtime.pendingCliCommand = state?.pendingCommand;
+      this.#applyParserEvents(runtime, shell, screen.state.osc, true);
       runtime.commandPath = state?.commandPath;
       runtime.commandSession = state?.commandSession;
       runtime.initialInput = state?.initialInput;
@@ -725,8 +716,7 @@ export class TerminalRuntime {
           for (const id of runtime.initialDeliveryIds ?? [])
             this.onDelivered?.(id);
         };
-      runtime.shellReady =
-        state?.shellReady || runtime.emulator.getModes().bracketedPaste;
+      runtime.shellReady = state?.shellReady || runtime.modes.bracketedPaste;
       if (shellDialect(shell) === "posix") {
         runtime.lineEditorReady = new LineEditorReady();
         runtime.lineEditorReady.scan(
@@ -774,6 +764,12 @@ export class TerminalRuntime {
   summary(id: string): TerminalSummary | undefined {
     const record = this.#store.terminalSummary(id);
     return record ? this.#summary(record) : undefined;
+  }
+
+  workGeneration(id: string): string | undefined {
+    const runtime = this.#runtimes.get(id);
+    if (!runtime) return undefined;
+    return (runtime.cliWorkGeneration ??= randomUUID());
   }
 
   list(): Response<TerminalListResult> {
@@ -899,7 +895,6 @@ export class TerminalRuntime {
           runtime.cli = launch.cli;
           runtime.hooks = launch.hooks;
           runtime.record.title = launch.cli.name;
-          runtime.emulator.setLastTitle(launch.cli.name);
           try {
             this.#store.putTerminalSummary(runtime.record);
           } catch {
@@ -930,8 +925,6 @@ export class TerminalRuntime {
           terminal: this.#summary(record),
         });
       } catch {
-        const existing = this.#runtimes.get(record.id);
-        existing?.emulator.dispose();
         this.#runtimes.delete(record.id);
         this.#store.removeTerminal(record.id);
         await this.#remote.channel
@@ -1343,6 +1336,7 @@ export class TerminalRuntime {
             snapshot,
             sequence: runtime.sequence,
             sizeOwnerViewId: runtime.sizeOwnerViewId,
+            submitResult: true,
           });
           if (
             !runtime.setup &&
@@ -1388,7 +1382,6 @@ export class TerminalRuntime {
       runtime.exitDisposer?.dispose();
       for (const subscriber of runtime.subscribers)
         this.#detachSubscriber(runtime, subscriber, OVERFLOW_RESET_CODE);
-      runtime.emulator.dispose();
     }
     this.#runtimes.clear();
   }
@@ -1409,7 +1402,6 @@ export class TerminalRuntime {
       runtime.dataDisposer?.dispose();
       runtime.exitDisposer?.dispose();
       runtime.stopped = true;
-      runtime.emulator.dispose();
     }
     this.#runtimes.clear();
   }
@@ -1458,18 +1450,7 @@ export class TerminalRuntime {
   }
 
   #newRuntime(record: StoredTerminal): RuntimeTerminal {
-    let runtime!: RuntimeTerminal;
-    const emulator = new HeadlessEmulator({
-      ...emulatorOptions(record.cols, record.rows),
-    });
-    if (isWindowsHost())
-      emulator.installConptyPrimaryDeviceAttributesOverride();
-    let ready = Promise.resolve();
-    if (record.snapshot) {
-      ready = replayTerminalSnapshot(emulator, record.snapshot);
-    }
-    emulator.installViewAttributeResponder(() => runtime.viewAttributes);
-    runtime = {
+    const runtime: RuntimeTerminal = {
       record,
       setup: this.#store.terminalSetup(record.id),
       imageSequence: record.imageSequence,
@@ -1478,15 +1459,26 @@ export class TerminalRuntime {
       inputModeReady: false,
       ptyExited: false,
       teamOptions: this.#teamOptions.get(record.id),
-      emulator,
+      modes: {
+        bracketedPaste: false,
+        mouseTracking: false,
+        mouseTrackingMode: "none",
+        sgrMouseMode: false,
+        sgrMousePixelsMode: false,
+        applicationCursor: false,
+        alternateScreen: false,
+        kittyKeyboardFlags: 0,
+      },
+      showCursor: true,
+      cwdReported: false,
       subscribers: new Set(),
       sequence: 0,
       sizeOwnerViewId: "",
       viewAttributes: null,
       serial: Promise.resolve(),
       notifications: Promise.resolve(),
-      ready: ready.then(() =>
-        this.#remote.channel.call<void>(
+      ready: this.#remote.channel
+        .call<PtyState>(
           "screen",
           record.id,
           record.cols,
@@ -1495,8 +1487,8 @@ export class TerminalRuntime {
             ? buildTerminalSnapshotRestoreSequence(record.snapshot)
             : "",
           record.snapshot?.oscLinks,
-        ),
-      ),
+        )
+        .then((state) => this.#applyDaemonState(runtime, state)),
       persistDirty: false,
       stopped: false,
       backpressured: false,
@@ -1504,24 +1496,6 @@ export class TerminalRuntime {
     // Launch preparation or a queued operation can delay awaiting this screen.
     // Observe early failures now; callers still receive the original rejection.
     void runtime.ready.catch(() => {});
-    // Observe this process's readiness sequence, not the previous screen's
-    // modes. Some TUIs enable paste before mounting the prompt; their input
-    // cursor is shown when the focused input has rendered.
-    emulator.responderParser.registerCsiHandler(
-      { prefix: "?", final: "h" },
-      (params) => {
-        const cursor = cliDefinitions.find(
-          (definition) => definition.id === runtime.cli?.id,
-        )?.waitForInputCursor;
-        if (
-          cursor
-            ? params.includes(25) && emulator.getModes().bracketedPaste
-            : params.includes(2004)
-        )
-          runtime.inputModeReady = true;
-        return false;
-      },
-    );
     return runtime;
   }
 
@@ -1556,7 +1530,7 @@ export class TerminalRuntime {
             .find((c) => c.terminalId === record.id)?.id
         : undefined);
     return {
-      ...toSummary(record, runtime?.emulator.getCwd() != null),
+      ...toSummary(record, runtime?.cwdReported ?? false),
       ...(setup
         ? { setup: { state: setup.state, exitCode: setup.exitCode } }
         : {}),
@@ -1638,6 +1612,12 @@ export class TerminalRuntime {
     )
       return;
     const previous = runtime.cliStatus;
+    if (
+      (next.state === "active" || next.state === "waiting") &&
+      (!previous ||
+        (previous.state !== "active" && previous.state !== "waiting"))
+    )
+      runtime.cliWorkGeneration = randomUUID();
     // An unseen wait must not restart elapsed time when the CLI resumes the
     // same activity. Keep that continuity in the saved/internal state too.
     const continued =
@@ -1679,6 +1659,7 @@ export class TerminalRuntime {
     runtime: RuntimeTerminal,
     text: string,
     beforeWrite?: () => void,
+    onAccepted?: () => void,
   ): Promise<boolean> {
     const child = runtime.pty;
     const submission = (runtime.submission ?? Promise.resolve())
@@ -1728,11 +1709,9 @@ export class TerminalRuntime {
             await this.#remote.channel.call(
               "write",
               runtime.record.id,
-              terminalSubmitPaste(
-                text,
-                runtime.emulator.getModes().bracketedPaste,
-              ),
+              terminalSubmitPaste(text, runtime.modes.bracketedPaste),
             );
+            onAccepted?.();
             if (!timer) timer = setTimeout(settle, SUBMIT_NO_OUTPUT_MS);
           });
           if (!output) return false;
@@ -1808,7 +1787,7 @@ export class TerminalRuntime {
         ((waitForBracketedPaste &&
           (!runtime.inputModeReady ||
             // Startup probes can disable paste again before the input UI mounts.
-            !runtime.emulator.getModes().bracketedPaste)) ||
+            !runtime.modes.bracketedPaste)) ||
           (runtime.hooks?.isSessionStart && !runtime.cliReady))) ||
       !runtime.pty ||
       !runtime.cli ||
@@ -1898,7 +1877,8 @@ export class TerminalRuntime {
         runtime.record.id,
         (payload) =>
           this.#runSerial(runtime, async () => {
-            if (!runtime.cli || runtime.stopped || this.#stopping) return;
+            if (this.#stopping) throw new Error("Terminal Host is stopping");
+            if (!runtime.cli || runtime.stopped) return;
             // Not another CLI's hooks: a CLI can also run the hooks that iori
             // wrote for another CLI (Grok reads Claude Code's settings). A
             // hook without an id, written before hooks carried one, is this
@@ -2089,34 +2069,66 @@ export class TerminalRuntime {
     if (!managed && command && dialect === "posix" && !hasLineEditor)
       child.write(command + "\r");
   }
+  #applyDaemonState(runtime: RuntimeTerminal, state: PtyState): void {
+    runtime.modes = state.modes;
+    runtime.showCursor = state.showCursor;
+  }
+
+  #applyParserEvents(
+    runtime: RuntimeTerminal,
+    shell: ShellDefinition,
+    events: ParserEvent[],
+    historical = false,
+  ): void {
+    for (const event of events) {
+      if (event.kind === "csi") {
+        const cursor = cliDefinitions.find(
+          (d) => d.id === runtime.cli?.id,
+        )?.waitForInputCursor;
+        if (
+          cursor
+            ? event.params.includes(25) && event.modes.bracketedPaste
+            : event.params.includes(2004)
+        )
+          runtime.inputModeReady = true;
+      } else {
+        if (
+          applyTerminalMetadata(
+            runtime.record,
+            [event],
+            runtime.cli?.name ?? shell.label,
+          )
+        )
+          runtime.cwdReported = true;
+        if (
+          runtime.pendingCliCommand &&
+          (event.number === 0 || event.number === 2)
+        )
+          runtime.record.title = runtime.cli?.name ?? shell.label;
+        if (
+          !historical &&
+          event.number === 133 &&
+          shellDialect(shell) !== "posix" &&
+          event.data === `D;${runtime.cliMarker}`
+        ) {
+          this.#clearCli(runtime);
+          runtime.record.title = shell.label;
+        }
+      }
+    }
+  }
+
   #observe(runtime: RuntimeTerminal, shell: ShellDefinition, managed: boolean) {
     const child = runtime.pty!,
       dialect = shellDialect(shell);
     const hasLineEditor = !["sh", "dash"].includes(basename(shell.executable));
-    if (dialect !== "posix")
-      runtime.emulator.responderParser.registerOscHandler(133, (data) => {
-        if (data !== `D;${runtime.cliMarker}`) return false;
-        this.#clearCli(runtime);
-        runtime.emulator.setLastTitle(shell.label);
-        return true;
-      });
-    for (const id of [0, 2])
-      runtime.emulator.responderParser.registerOscHandler(id, (data) => {
-        if (runtime.pendingCliCommand) {
-          runtime.emulator.setLastTitle(runtime.cli?.name ?? shell.label);
-          return true;
-        }
-        runtime.emulator.setLastTitle(
-          cliTitle(data, runtime.cli?.name ?? shell.label, isWindowsHost()),
-        );
-        return true;
-      });
     let initialInputTimer: NodeJS.Timeout | undefined;
     const clearInitialInputTimer = () => {
       if (initialInputTimer) clearTimeout(initialInputTimer);
       initialInputTimer = undefined;
     };
-    const output = child.onData((data) => {
+    const output = child.onData((batch) => {
+      const { data } = batch;
       clearInitialInputTimer();
       if (runtime.stopped || this.#stopping) return;
       // Bound pending parser work at the PTY's read boundary, without delaying other terminals.
@@ -2124,20 +2136,26 @@ export class TerminalRuntime {
       return this.#runSerial(runtime, async () => {
         if (runtime.stopped || this.#stopping) return;
         const previousCli = runtime.cli;
-        const reported = runtime.emulator.getCwd() !== null;
-        await runtime.emulator.write(data, { forwardQueryReplies: false });
+        const reported = runtime.cwdReported;
+        const previousCwd = runtime.record.cwd,
+          previousTitle = runtime.record.title;
+        if (batch.modes) {
+          runtime.modes = batch.modes.modes;
+          runtime.showCursor = batch.modes.showCursor;
+        }
+        this.#applyParserEvents(runtime, shell, batch.events);
         // A session-start hook remains authoritative. Otherwise paste mode
         // announces readiness immediately; plain-input CLIs can also settle.
         if (
           !runtime.setup &&
           !runtime.hooks?.isSessionStart &&
-          runtime.emulator.getModes().bracketedPaste
+          runtime.modes.bracketedPaste
         )
           runtime.cliReady = true;
         this.#sendInitialInput(runtime);
         this.#sendPendingLines(runtime);
         runtime.sequence += 1;
-        const cwd = runtime.emulator.getCwd() ?? runtime.record.cwd;
+
         const editorReady = runtime.lineEditorReady?.scan(data) ?? false;
         if (editorReady) runtime.shellReady = true;
         if (runtime.pendingCliCommand && editorReady) {
@@ -2164,17 +2182,14 @@ export class TerminalRuntime {
             (runtime.cliEnteredForeground || editorReady)
           ) {
             this.#clearCli(runtime);
-            runtime.emulator.setLastTitle(shell.label);
+            runtime.record.title = shell.label;
           }
         }
-        const title = runtime.emulator.getLastTitle() ?? runtime.record.title;
         const changed =
           previousCli !== runtime.cli ||
-          cwd !== runtime.record.cwd ||
-          title !== runtime.record.title ||
-          (runtime.emulator.getCwd() !== null) !== reported;
-        runtime.record.cwd = cwd;
-        runtime.record.title = title;
+          previousCwd !== runtime.record.cwd ||
+          previousTitle !== runtime.record.title ||
+          runtime.cwdReported !== reported;
         for (const subscriber of runtime.subscribers) {
           this.#queueOutput(runtime, subscriber, data, runtime.sequence);
         }
@@ -2244,7 +2259,8 @@ export class TerminalRuntime {
     runtime.exitDisposer = child.onExit(({ exitCode, signal }) => {
       if (runtime.pty === child) runtime.ptyExited = true;
       return this.#runSerial(runtime, async () => {
-        if (runtime.stopped || this.#stopping) return;
+        if (this.#stopping) throw new Error("Terminal Host is stopping");
+        if (runtime.stopped) return;
         const reportedExitCode =
           signal !== undefined && signal !== 0 ? 128 + signal : exitCode;
         this.#clearPersistTimer(runtime);
@@ -2312,8 +2328,6 @@ export class TerminalRuntime {
           });
           runtime.stopped = true;
           runtime.persistDirty = false;
-          runtime.emulator.disableQueryReplyForwarding();
-          runtime.emulator.dispose();
           this.#runtimes.delete(runtime.record.id);
         } else {
           await this.#persist(runtime);
@@ -2333,13 +2347,20 @@ export class TerminalRuntime {
         }
       })
         .then(() => runtime.notifications)
-        .catch(() => this.#reportRuntimeError(runtime));
+        .catch((error: unknown) => {
+          this.#reportRuntimeError(runtime);
+          throw error;
+        });
     });
   }
 
   async #writeScreen(runtime: RuntimeTerminal, data: string) {
-    await this.#remote.channel.call("screenWrite", runtime.record.id, data);
-    await runtime.emulator.write(data);
+    const state = await this.#remote.channel.call<PtyState>(
+      "screenWrite",
+      runtime.record.id,
+      data,
+    );
+    this.#applyDaemonState(runtime, state);
   }
   async #startAfterHostRestart(
     runtime: RuntimeTerminal,
@@ -2377,7 +2398,6 @@ export class TerminalRuntime {
         ),
       );
     }
-    runtime.emulator.resize(cols, rows);
     await this.#remote.channel.call("resize", runtime.record.id, cols, rows);
     runtime.record.cols = cols;
     runtime.record.rows = rows;
@@ -2436,6 +2456,7 @@ export class TerminalRuntime {
         snapshot,
         sequence: runtime.sequence,
         sizeOwnerViewId: runtime.sizeOwnerViewId,
+        submitResult: true,
       };
       try {
         const encoded = encodeFrame(message);
@@ -2465,7 +2486,6 @@ export class TerminalRuntime {
         return;
       }
       runtime.viewAttributes = viewAttributes;
-      runtime.emulator.applyPushedViewAttributes(viewAttributes);
       this.#remote.send("attributes", runtime.record.id, viewAttributes);
       return;
     }
@@ -2491,7 +2511,6 @@ export class TerminalRuntime {
     if (sizeChanged) {
       runtime.record.cols = cols;
       runtime.record.rows = rows;
-      runtime.emulator.resize(cols, rows);
       runtime.pty?.resize(cols, rows);
     }
     if (lastDesktopSizeChanged) {
@@ -2500,7 +2519,6 @@ export class TerminalRuntime {
     if (ownerChanged || ownerAttributesChanged) {
       if (ownerChanged) runtime.sizeOwnerViewId = viewId;
       runtime.viewAttributes = viewAttributes;
-      runtime.emulator.applyPushedViewAttributes(viewAttributes);
       this.#remote.send("attributes", runtime.record.id, viewAttributes);
     }
     if (sizeChanged || lastDesktopSizeChanged) {
@@ -2576,7 +2594,6 @@ export class TerminalRuntime {
           subscriber.viewAttributes = message.viewAttributes;
           if (runtime.sizeOwnerViewId === subscriber.viewId) {
             runtime.viewAttributes = message.viewAttributes;
-            runtime.emulator.applyPushedViewAttributes(message.viewAttributes);
             this.#remote.send(
               "attributes",
               runtime.record.id,
@@ -2600,14 +2617,13 @@ export class TerminalRuntime {
             ? message.data
             : filterKittyKeyReleases(
                 message.data,
-                runtime.emulator.getModes().kittyKeyboardFlags,
+                runtime.modes.kittyKeyboardFlags,
               );
         if (!data) return;
         if (runtime.pendingCliCommand) {
           runtime.pendingCliCommand = undefined;
           this.#clearCli(runtime);
           const label = resolveShell(this.#shells, runtime.record.shell)!.label;
-          runtime.emulator.setLastTitle(label);
           runtime.record.title = label;
           try {
             this.#store.putTerminalSummary(runtime.record);
@@ -2622,13 +2638,39 @@ export class TerminalRuntime {
         if (message.kind === "terminal.submit") {
           runtime.userInputSinceActivity = true;
           this.onCliInput?.(runtime.record.id);
-          void this.#submit(runtime, message.data).catch(() => {
-            this.#queueFrame(runtime, subscriber, {
-              kind: "terminal.error",
-              message:
-                "Input could not be sent. Check the connection before continuing.",
+          let accepted = false;
+          void this.#submit(runtime, message.data, undefined, () => {
+            accepted = true;
+            if (message.id)
+              this.#queueFrame(runtime, subscriber, {
+                kind: "terminal.submitted",
+                id: message.id,
+                success: true,
+              });
+          })
+            .then((success) => {
+              if (message.id && !accepted)
+                this.#queueFrame(runtime, subscriber, {
+                  kind: "terminal.submitted",
+                  id: message.id,
+                  success,
+                });
+            })
+            .catch(() => {
+              if (message.id && !accepted) {
+                this.#queueFrame(runtime, subscriber, {
+                  kind: "terminal.submitted",
+                  id: message.id,
+                  success: false,
+                });
+                return;
+              }
+              this.#queueFrame(runtime, subscriber, {
+                kind: "terminal.error",
+                message:
+                  "Input could not be sent. Check the connection before continuing.",
+              });
             });
-          });
           return;
         }
         if (message.origin !== "scroll") {
@@ -2858,9 +2900,6 @@ export class TerminalRuntime {
   async #persist(runtime: RuntimeTerminal): Promise<void> {
     if (runtime.stopped) return;
     await runtime.ready;
-    runtime.record.cwd = runtime.emulator.getCwd() ?? runtime.record.cwd;
-    runtime.record.title =
-      runtime.emulator.getLastTitle() ?? runtime.record.title;
     const snapshot = await this.#remote.snapshot(
       runtime.record.id,
       SCROLLBACK_LINES,
@@ -2919,7 +2958,6 @@ export class TerminalRuntime {
     for (const subscriber of runtime.subscribers) {
       this.#detachSubscriber(runtime, subscriber, OVERFLOW_RESET_CODE);
     }
-    runtime.emulator.dispose();
     this.#runtimes.delete(runtime.record.id);
   }
 

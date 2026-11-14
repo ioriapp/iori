@@ -1,5 +1,4 @@
 import { terminalFit } from "./terminal-fit.mjs";
-import { terminalSend } from "./terminal-send.mjs";
 import { openWorkspaceView } from "../../verification/workspace/interaction.mjs";
 import { openClaude } from "../cli-screen/claude-status.mjs";
 import { mobileTerminalReading } from "./mobile-terminal-reading.mjs";
@@ -21,41 +20,9 @@ import { terminalMouseScroll } from "../terminal/mouse-scroll.mjs";
 const action = (name) => `[data-iori-action="${name}"]`;
 const terminal = `document.querySelector('[data-iori-view="terminal"][data-iori-displayed="true"] [data-iori-part="terminal-screen"]').__e2eTerminal`;
 
-export async function terminalPreferences({
-  client,
-  record,
-  shot,
-  worktree,
-  mobile,
-  desktop,
-  clipboardFiles,
-  reload,
-}) {
-  await terminalSend({ client, record, worktree, clipboardFiles });
+export async function terminalFitScenario({ client, record }) {
   await terminalFit({ client, record });
   const screen = client.screen;
-  const rightClick = async (modifiers = 0) => {
-    const point = await screen.point(
-      '[data-iori-view="terminal"][data-iori-displayed="true"] .xterm-screen',
-    );
-    for (const type of ["mousePressed", "mouseReleased"]) {
-      await client.browser.call("Input.dispatchMouseEvent", {
-        type,
-        ...point,
-        button: "right",
-        clickCount: 1,
-        modifiers,
-      });
-    }
-  };
-  const configure = async (name, label) => {
-    await screen.click(action("settings-open"));
-    await screen.click(action("settings-display"));
-    await screen.click(action(name));
-    await screen.click(`[role="option"][data-state]` + label);
-    await screen.click(action("settings-close"));
-  };
-  await shot("sidebar-before-preferences");
   // Keep the same Terminal open while only the window's width changes. The
   // responsive layout must retain this Client's size ownership without a click.
   const originalViewport = await screen.evaluate(
@@ -66,8 +33,7 @@ export async function terminalPreferences({
     "data-iori-terminal-id",
   );
   const responsivePane = `[data-iori-view="terminal"][data-iori-terminal-id=${JSON.stringify(terminalId)}]`;
-  // The preceding window-resize gesture also restores its viewport. Read the
-  // starting grid only once it fills that viewport, after the coalesced fit.
+  // Read the starting grid once it fills the restored viewport.
   const originalSize = await waitFor(() =>
     screen.evaluate(`(()=>{
     const t=${terminal};
@@ -143,6 +109,23 @@ export async function terminalPreferences({
   await record(
     "命令の入力直後に同じTerminalをPC→スマホ→PCへ幅変更しても入力が欠けず、画面・Client・実PTYの寸法が追従",
   );
+}
+
+export async function terminalFont({
+  client,
+  record,
+  mobile,
+  desktop,
+  reload,
+}) {
+  const screen = client.screen;
+  const configure = async (name, label) => {
+    await screen.click(action("settings-open"));
+    await screen.click(action("settings-display"));
+    await screen.click(action(name));
+    await screen.click(`[role="option"][data-state]` + label);
+    await screen.click(action("settings-close"));
+  };
   const fontInput = '[data-iori-field="terminal-font-family"]';
   const openFontSettings = async () => {
     await screen.click(action("settings-open"));
@@ -388,6 +371,78 @@ export async function terminalPreferences({
   await typeTerminal(client, "printf 'FONT_COLS_%s_END\\n' \"$(tput cols)\"\r");
   await observed(client, `FONT_COLS_${cols}_END`);
   await record("Terminal文字サイズ変更が開いた画面と実PTY列数へ反映");
+  await client.browser.call("Emulation.setTouchEmulationEnabled", {
+    enabled: true,
+  });
+  await mobile();
+  await screen.wait('[data-iori-view="workspace"]');
+  await openSidebar(screen);
+  await screen.click(action("settings-open"));
+  await screen.click(action("settings-keyboard"));
+  const keyboardNames = '[data-iori-field="keyboard-show-button-names"]';
+  const initialNames = await screen.attribute(keyboardNames, "aria-checked");
+  // Fail one Web bridge request at the same boundary as native storage.
+  await screen.evaluate(`(()=>{
+    const send=WebSocket.prototype.send;
+    WebSocket.prototype.send=function(data){
+      if(JSON.parse(data).command==='native_save_client_preferences'){
+        WebSocket.prototype.send=send; throw new Error('save failed');
+      }
+      return send.call(this,data);
+    };
+  })()`);
+  await screen.click(keyboardNames);
+  await screen.reveal(action("preferences-retry"));
+  await screen.click(action("preferences-retry"));
+  const storedNames = () =>
+    screen.evaluate(`(async()=>{
+    const {native}=await import('/src/native.ts');
+    return (await native.loadClientPreferences())?.keyboard?.showButtonNames !== false;
+  })()`);
+  await waitFor(storedNames, (value) => value === (initialNames !== "true"));
+  await screen.click(keyboardNames);
+  await waitFor(storedNames, (value) => value === (initialNames === "true"));
+  await screen.click(action("settings-close"));
+  await record("このPCの設定の保存失敗後、再試行で変更した値を保存する");
+  await desktop();
+  // Persistence is visible in Settings itself; no renderer observer is needed
+  // after reloading the Client.
+  await reload();
+  await screen.wait('[data-iori-view="workspace"]');
+  await openFontSettings();
+  assert.equal(await screen.value(fontInput), fontValue);
+  await screen.input(fontInput, "");
+  await screen.key("Enter");
+  await screen.wait('[data-iori-state="terminal-font-saved"]');
+  await screen.click(action("settings-close"));
+  await record(
+    "Clientを読み込み直しても保存したTerminalのフォント名が設定欄に残る",
+  );
+}
+
+export async function terminalRightClick({ client, record }) {
+  const screen = client.screen;
+  const rightClick = async (modifiers = 0) => {
+    const point = await screen.point(
+      '[data-iori-view="terminal"][data-iori-displayed="true"] .xterm-screen',
+    );
+    for (const type of ["mousePressed", "mouseReleased"]) {
+      await client.browser.call("Input.dispatchMouseEvent", {
+        type,
+        ...point,
+        button: "right",
+        clickCount: 1,
+        modifiers,
+      });
+    }
+  };
+  const configure = async (name, label) => {
+    await screen.click(action("settings-open"));
+    await screen.click(action("settings-display"));
+    await screen.click(action(name));
+    await screen.click(`[role="option"][data-state]` + label);
+    await screen.click(action("settings-close"));
+  };
   await configure(
     "terminal-right-click",
     '[data-iori-option="right-click-copy-paste"]',
@@ -535,51 +590,24 @@ export async function terminalPreferences({
   await record(
     "動きの有無と両設定でEscをメニューだけに渡し、Ctrl・Shift・通常の右クリックを実PTYで確認",
   );
-  await configure("display-text-size", ":last-child");
-  await configure(
-    "terminal-text-size",
-    '[data-iori-option="terminal-size-14"]',
-  );
-  await client.browser.call("Emulation.setTouchEmulationEnabled", {
-    enabled: true,
-  });
+}
+
+export async function mobileTerminalTouch({
+  client,
+  record,
+  mobile,
+  desktop,
+  worktree,
+}) {
+  const screen = client.screen;
   await mobile();
   await screen.wait('[data-iori-view="workspace"]');
-  await openSidebar(screen);
-  await screen.click(action("settings-open"));
-  await screen.click(action("settings-keyboard"));
-  const keyboardNames = '[data-iori-field="keyboard-show-button-names"]';
-  const initialNames = await screen.attribute(keyboardNames, "aria-checked");
-  // Fail one Web bridge request at the same boundary as native storage.
-  await screen.evaluate(`(()=>{
-    const send=WebSocket.prototype.send;
-    WebSocket.prototype.send=function(data){
-      if(JSON.parse(data).command==='native_save_client_preferences'){
-        WebSocket.prototype.send=send; throw new Error('save failed');
-      }
-      return send.call(this,data);
-    };
-  })()`);
-  await screen.click(keyboardNames);
-  await screen.reveal(action("preferences-retry"));
-  await screen.click(action("preferences-retry"));
-  const storedNames = () =>
-    screen.evaluate(`(async()=>{
-    const {native}=await import('/src/native.ts');
-    return (await native.loadClientPreferences())?.keyboard?.showButtonNames !== false;
-  })()`);
-  await waitFor(storedNames, (value) => value === (initialNames !== "true"));
-  await screen.click(keyboardNames);
-  await waitFor(storedNames, (value) => value === (initialNames === "true"));
-  await screen.click(action("settings-close"));
-  await record("このPCの設定の保存失敗後、再試行で変更した値を保存する");
   await openSidebar(screen);
   await screen.click(
     `button[data-iori-worktree-path=${JSON.stringify(worktree)}]`,
   );
   if (!(await screen.visible(action("sidebar-open-terminal"))))
     await openSidebar(screen);
-  await shot("mobile-sidebar");
   await openWorkspaceView(screen, "terminal");
   await screen.wait(
     '[data-iori-view="terminal"][data-iori-stream-state="ready"]',
@@ -591,13 +619,13 @@ export async function terminalPreferences({
   await record(
     "スマホの上下スワイプが実PTYへ正しい座標のホイール報告として届く",
   );
-  await terminalTextSelection({ client, record, shot });
-  await mobileTerminalReading({ client, record, shot });
+  await terminalTextSelection({ client, record });
+  await mobileTerminalReading({ client, record });
   await desktop();
-  await screen.wait(
-    '[data-iori-view="terminal"][data-iori-stream-state="ready"]',
-  );
-  await shot("desktop-sidebar");
+}
+
+export async function mobileCliSelection({ client, record, mobile, desktop }) {
+  const screen = client.screen;
   // The CLI's default batch input and desktop-width scale use the same menu.
   const cliId = await openClaude(client);
   await screen.click(
@@ -632,7 +660,6 @@ export async function terminalPreferences({
     () => screen.evaluate("window.getSelection()?.toString()"),
     (value) => value === target.text,
   );
-  await shot("mobile-cli-long-press-text");
   await screen.click(
     '[data-iori-panel="terminal-text"] [data-slot="sheet-close"]',
   );
@@ -640,22 +667,9 @@ export async function terminalPreferences({
     "Claude Code（haiku）のまとめて入力・縮小表示で長押しした行をテキスト選択",
   );
   await desktop();
-  // Persistence is visible in Settings itself; no renderer observer is needed
-  // after reloading the Client.
-  await reload();
-  await screen.wait('[data-iori-view="workspace"]');
-  await openFontSettings();
-  assert.equal(await screen.value(fontInput), fontValue);
-  await screen.input(fontInput, "");
-  await screen.key("Enter");
-  await screen.wait('[data-iori-state="terminal-font-saved"]');
-  await screen.click(action("settings-close"));
-  await record(
-    "Clientを読み込み直しても保存したTerminalのフォント名が設定欄に残る",
-  );
 }
 
-async function terminalTextSelection({ client, record, shot }) {
+async function terminalTextSelection({ client, record }) {
   const screen = client.screen;
   const terminal = `document.querySelector('[data-iori-view="terminal"][data-iori-displayed="true"] [data-iori-part="terminal-screen"]').__e2eTerminal`;
   const longLine = "TEXT_SELECTION_" + "abcdefghij".repeat(12);
@@ -680,7 +694,6 @@ async function terminalTextSelection({ client, record, shot }) {
     `document.querySelector('[data-iori-panel="terminal-text"] .terminal-text-output').textContent`,
   );
   assert.ok(output.includes(`${longLine}\nSECOND_TEXT_LINE\nTHIRD_TEXT_LINE`));
-  await shot("mobile-terminal-text-selection");
   await screen.click(
     '[data-iori-panel="terminal-text"] [data-slot="sheet-close"]',
   );

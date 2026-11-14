@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { targets, unresolved, waitsOnCommandLine } from "./policy.mjs";
+import {
+  screenE2eCovers,
+  targets,
+  unresolved,
+  waitsOnCommandLine,
+} from "./policy.mjs";
 import {
   hasCiEvidence,
   hasPublicationCiEvidence,
@@ -242,5 +247,22 @@ test("版番号だけを変えた commit は親の通常 CI の証拠を使う",
       [{ ...parent, sha: "release" }],
     ),
     true,
+  );
+});
+
+test("全画面 E2E の後の変更が文書とバージョンのファイルだけなら Release を作成できる", () => {
+  assert.equal(screenE2eCovers([]), true);
+  assert.equal(
+    screenE2eCovers(["docs/product.md", "release-version.json"]),
+    true,
+  );
+  assert.equal(
+    screenE2eCovers(["README.md", "apps/client/src/App.tsx"]),
+    false,
+  );
+  assert.equal(targets("node scripts/release/build.mjs").build, true);
+  assert.equal(
+    targets("node scripts/release/publish.mjs --notes n.md").build,
+    undefined,
   );
 });

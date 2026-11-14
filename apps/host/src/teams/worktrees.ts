@@ -1,3 +1,4 @@
+import { parseGitWorktrees } from "../worktree-list.ts";
 import { worktreeTitleSlug } from "@iori/protocol";
 import { worktreeOptions } from "../worktree-creation.ts";
 import { recordWorktreeBase } from "../worktree-state.ts";
@@ -6,7 +7,10 @@ import { realpath, readFile, lstat } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import { collectGit } from "../git-process.ts";
 import { discoverRepository } from "../git-reading.ts";
-import { removeRemainingWorktreeFolder } from "../worktree-residual.ts";
+import {
+  removeRemainingWorktreeFolder,
+  worktreeRegistered,
+} from "../worktree-residual.ts";
 
 export function childWorktreeSlug(title: string): string {
   return worktreeTitleSlug(title) || "worker";
@@ -38,17 +42,7 @@ export async function childWorktree(
     "--porcelain",
     "-z",
   ]);
-  const entries = stdout
-    .toString("utf8")
-    .split("\0\0")
-    .flatMap((record) => {
-      const fields = record.split("\0");
-      const path = fields.find((v) => v.startsWith("worktree "))?.slice(9);
-      const branch = fields
-        .find((v) => v.startsWith("branch refs/heads/"))
-        ?.slice(18);
-      return path ? [{ path, branch }] : [];
-    });
+  const entries = parseGitWorktrees(stdout.toString("utf8"));
   if (requested !== "new") {
     // A CLI can select a name from this repository's real Git inventory,
     // never submit a path or reach another repository through a symlink.
@@ -136,7 +130,14 @@ export async function checkChildWorktreeRemoval(
     "--porcelain",
     "-z",
   ]);
-  const primary = inventory.stdout.toString("utf8").split("\0")[0]?.slice(9);
+  const entries = parseGitWorktrees(inventory.stdout.toString("utf8"));
+  // Git may list a path through a symlink; compare the real paths.
+  const registered = await Promise.all(
+    entries.map(({ path }) => realpath(path).catch(() => path)),
+  );
+  if (!registered.some((path) => relative(path, childPath) === ""))
+    throw new Error("Worktree is outside this repository.");
+  const primary = entries[0]?.path;
   if (primary && (await realpath(primary)) === childPath)
     throw new Error("Cannot remove the main worktree. Use --worktree keep.");
 }
@@ -147,21 +148,52 @@ export async function removeChildWorktree(
 ): Promise<void> {
   await checkChildWorktreeRemoval(parent, child);
   // Do not retry with force, unlock or prune after Git's refusal.
-  await collectGit(parent, [
-    "worktree",
-    "remove",
-    ...(discard ? ["--force"] : []),
-    "--",
-    child,
-  ]);
+  try {
+    await collectGit(parent, [
+      "worktree",
+      "remove",
+      ...(discard ? ["--force"] : []),
+      "--",
+      child,
+    ]);
+  } catch (error) {
+    const remains = await lstat(child).then(
+      () => true,
+      () => false,
+    );
+    if (!remains || (await worktreeRegistered(parent, child).catch(() => true)))
+      throw error;
+  }
   // Git may leave (or a surviving process may recreate) files such as
   // ignored output after removing the worktree. Delete what remains at
   // the verified child path; a failure surfaces as a failed removal.
   await removeRemainingWorktreeFolder(child);
 }
+
+// Only the caller's iori-owned child path can use this after Git removed its
+// registration. A moved path or a new repository must not be removed.
+export async function isResidualChildWorktree(
+  parent: string,
+  child: string,
+): Promise<boolean> {
+  const [parentPath, childPath] = await Promise.all([
+    realpath(parent),
+    realpath(child),
+  ]);
+  if (relative(child, childPath) !== "" || parentPath === childPath)
+    return false;
+  try {
+    await lstat(join(child, ".git"));
+    return false;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  return !(await worktreeRegistered(parentPath, child));
+}
 export async function worktreeChanges(
   cwd: string,
   base?: string,
+  countUntrackedLines = true,
 ): Promise<Required<import("@iori/protocol").Changes>> {
   // Deletion shows both the index and the working tree, including staged edits
   // subsequently reverted only in the working tree. Team reports keep their base diff.
@@ -202,6 +234,7 @@ export async function worktreeChanges(
     .filter(Boolean)) {
     const absolute = join(cwd, path);
     changed.add(path);
+    if (!countUntrackedLines) continue;
     // Count a symlink as a file without reading its target outside the worktree.
     if ((await lstat(absolute)).isSymbolicLink()) continue;
     const content = await readFile(absolute);

@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createServer } from "node:net";
 import { networkInterfaces } from "node:os";
-import { readdir } from "node:fs/promises";
+import { readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { runHostTest } from "../../verification/host/process.mjs";
 import {
   registerAutomationCli,
@@ -143,6 +144,109 @@ test("Webhookは作業中の受信を飛ばして履歴に本文を残す", (t) 
     );
   }));
 
+test("バックグラウンド処理が終わるまでWebhookの次の実行を飛ばす", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    const script = fileURLToPath(
+      new URL("../../verification/host/automation-cli.mjs", import.meta.url),
+    );
+    await writeFile(
+      join(dataRoot, "bin", "claude"),
+      `#!/bin/sh\nexec '${process.execPath}' '${script}' "$@"\n`,
+      { mode: 0o755 },
+    );
+    const { automation, url, definition } = await setup(client, dataRoot);
+    await client.request("automation.save", {
+      id: automation.id,
+      definition: {
+        ...definition,
+        target: {
+          kind: "cli",
+          candidate: {
+            id: "claude",
+            cli: "claude",
+            model: "",
+            tools: [],
+            minimum: "",
+          },
+        },
+      },
+    });
+    const first = await (await post(url, automation.webhookToken)).json();
+    const run = await launchedRun(
+      client,
+      automation.id,
+      (item) => item.id === first.run,
+    );
+    const terminal = await client.terminal(run.terminalId);
+    await delivered(terminal);
+    const events = await client.events();
+    await events.waitFor((event) => event.type === "snapshot");
+    await terminal.input(
+      JSON.stringify({
+        hook: "Stop",
+        id: "background",
+        payload: {
+          background_tasks: [{ status: "running", command: "build" }],
+        },
+      }) + "\r",
+    );
+    await events.waitFor(
+      (event) =>
+        event.type === "terminal.updated" &&
+        event.terminal.id === run.terminalId &&
+        event.terminal.cliStatus?.state === "done" &&
+        event.terminal.cliStatus.backgroundTasks?.length === 1,
+    );
+    const skipped = await (await post(url, automation.webhookToken)).json();
+    assert.equal(skipped.status, "skipped");
+    assert.equal(skipped.reason, "busy");
+    await terminal.input(
+      JSON.stringify({
+        hook: "Stop",
+        id: "finished",
+        payload: { background_tasks: [] },
+      }) + "\r",
+    );
+    await events.waitFor(
+      (event) =>
+        event.type === "terminal.updated" &&
+        event.terminal.id === run.terminalId &&
+        event.terminal.cliStatus?.state === "done" &&
+        !event.terminal.cliStatus.backgroundTasks?.length,
+    );
+    const next = await (await post(url, automation.webhookToken)).json();
+    assert.equal(next.status, "started");
+  }));
+
+test("後の手動実行が完了しても前の会話が作業中ならWebhookを飛ばす", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    const { automation, url } = await setup(client, dataRoot);
+    const first = await (await post(url, automation.webhookToken)).json();
+    const firstRun = await launchedRun(
+      client,
+      automation.id,
+      (item) => item.id === first.run,
+    );
+    await delivered(await client.terminal(firstRun.terminalId));
+    const { run: manual } = await client.request("automation.run", {
+      id: automation.id,
+    });
+    const terminal = await client.terminal(manual.terminalId);
+    await delivered(terminal);
+    const events = await client.events();
+    await events.waitFor((event) => event.type === "snapshot");
+    await terminal.input(JSON.stringify({ hook: "Stop", id: "done" }) + "\r");
+    await events.waitFor(
+      (event) =>
+        event.type === "terminal.updated" &&
+        event.terminal.id === manual.terminalId &&
+        event.terminal.cliStatus?.state === "done",
+    );
+    const next = await (await post(url, automation.webhookToken)).json();
+    assert.equal(next.status, "skipped");
+    assert.equal(next.reason, "busy");
+  }));
+
 test("CLIの終了後に届いたWebhookは新しい会話を起動する", (t) =>
   runHostTest(t, async ({ client, dataRoot }) => {
     const { automation, url } = await setup(client, dataRoot);
@@ -256,8 +360,22 @@ test("Webhookの設定とtokenは無効化とHost再起動の後も保持する"
 
 test("Webhookの自動化を削除すると受信本文も削除する", (t) =>
   runHostTest(t, async ({ client, dataRoot }) => {
-    const { automation, url } = await setup(client, dataRoot, false);
+    const { automation, url } = await setup(client, dataRoot);
     const { run } = await (await post(url, automation.webhookToken)).json();
+    const started = await launchedRun(
+      client,
+      automation.id,
+      (item) => item.id === run,
+    );
+    const terminal = await client.terminal(started.terminalId);
+    assert.ok((await delivered(terminal)).includes("hello"));
+    const directory = join(
+      dataRoot,
+      "iori-host",
+      "automation-files",
+      automation.id,
+    );
+    assert.ok((await readdir(directory)).some((file) => file.endsWith(".md")));
     assert.equal(
       (await client.request("automation.received", { id: run })).received.body,
       '{"message":"hello"}',
@@ -268,11 +386,13 @@ test("Webhookの自動化を削除すると受信本文も削除する", (t) =>
       /Host request failed/u,
     );
     assert.equal((await client.request("automation.list")).webhook, undefined);
-    const files = await readdir(
-      join(dataRoot, "iori-host", "automation-files", automation.id),
-    );
+    const files = await readdir(directory);
     assert.equal(
       files.some((file) => file.endsWith(".received.json")),
+      false,
+    );
+    assert.equal(
+      files.some((file) => file.endsWith(".md")),
       false,
     );
   }));

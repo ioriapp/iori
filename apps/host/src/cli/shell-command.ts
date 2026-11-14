@@ -375,6 +375,12 @@ function runInShellEnvironment(
         ? ["/s", "/c", `"${script}"`]
         : ["-l", "-i", "-c", script];
   return new Promise((resolve, reject) => {
+    let settled = false;
+    const fail = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    };
     const child = spawn(shell.executable, args, {
       env: environment,
       cwd: homedir(),
@@ -404,22 +410,30 @@ function runInShellEnvironment(
       // Model discovery retains complete diagnostics; other dialogues stream only.
       if (!exchange || completeOutput)
         output = completeOutput ? output + data : (output + data).slice(-65536);
-      if (exchange) {
+      if (exchange && !settled) {
         try {
           exchange.data(data);
         } catch (error) {
           child.stdin?.end();
-          reject(error);
+          fail(error as Error);
         }
       }
     });
-    child.stdin?.on("error", reject);
-    exchange?.start(
-      (line) => child.stdin?.write(line + "\n"),
-      () => child.stdin?.end(),
-    );
-    child.once("error", reject);
-    child.once("close", (code) => resolve({ output, stderr, code }));
+    child.stdin?.on("error", fail);
+    try {
+      exchange?.start(
+        (line) => child.stdin?.write(line + "\n"),
+        () => child.stdin?.end(),
+      );
+    } catch (error) {
+      fail(error as Error);
+    }
+    child.once("error", fail);
+    child.once("close", (code) => {
+      if (settled) return;
+      settled = true;
+      resolve({ output, stderr, code });
+    });
   });
 }
 

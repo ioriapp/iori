@@ -1,3 +1,4 @@
+import { registerCleanup, registerVerificationDaemon } from "../lifecycle.mjs";
 import { createServer } from "node:https";
 import { createReadStream } from "node:fs";
 import { cp, mkdir, readFile, writeFile, rm, stat } from "node:fs/promises";
@@ -238,6 +239,7 @@ export async function startUpdateHost(
     env[claudeTokenName] === undefined ? undefined : claudeTokenPath;
   delete env[claudeTokenName];
   const hostRoot = join(dataRoot, "iori-host");
+  await registerVerificationDaemon(hostRoot);
   const quote = (value) =>
     '"' +
     value
@@ -247,11 +249,15 @@ export async function startUpdateHost(
       .replaceAll("\n", "\\n") +
     '"';
   await mkdir(unitDirectory, { recursive: true });
+  // The unit starts in the data root, which the Host has not created yet on a
+  // first start; systemd fails at CHDIR when it is missing.
+  await mkdir(dataRoot, { recursive: true });
   await writeFile(
     unitFile,
     [
       "[Service]",
       "Type=notify",
+      "WorkingDirectory=" + dataRoot,
       "NotifyAccess=all",
       "Restart=on-failure",
       "TimeoutStartSec=infinity",
@@ -270,23 +276,18 @@ export async function startUpdateHost(
       "",
     ].join("\n"),
   );
-  async function close() {
+  const close = registerCleanup(async () => {
     try {
       await run("systemctl", ["--user", "stop", unit]).catch((error) => {
         if (error.code !== 5) throw error;
       });
     } finally {
-      try {
-        await stopTerminalDaemon(hostRoot);
-      } finally {
-        await rm(unitFile, { force: true });
-        await run("systemctl", ["--user", "daemon-reload"]);
-        await run("systemctl", ["--user", "reset-failed", unit]).catch(
-          () => {},
-        );
-      }
+      await stopTerminalDaemon(hostRoot);
     }
-  }
+    await rm(unitFile, { force: true });
+    await run("systemctl", ["--user", "daemon-reload"]);
+    await run("systemctl", ["--user", "reset-failed", unit]).catch(() => {});
+  });
   try {
     await run("systemctl", ["--user", "daemon-reload"]);
     await run("systemctl", ["--user", "start", unit]);

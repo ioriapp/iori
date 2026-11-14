@@ -8,12 +8,8 @@ import {
   waitForOperation,
 } from "../../verification/web/operation.mjs";
 import { observed, clearObserved } from "../terminal/scenario.mjs";
-import {
-  finishCli,
-  waitForCliState,
-  waitForCodexInput,
-  waitForPiInput,
-} from "./scenario.mjs";
+import { splitTab } from "../../verification/workspace/interaction.mjs";
+import { finishCli, waitForCliState, waitForCodexInput } from "./scenario.mjs";
 const action = (name) => `[data-iori-action="${name}"]`;
 async function focus(client, id) {
   await client.screen.evaluate(
@@ -46,12 +42,17 @@ export async function cliStatusScenario({
     );
   let runningTerminal;
   const open = async (cli) => {
+    const previous = await screen.evaluate(
+      `[...document.querySelectorAll('[data-iori-tab-cli="${cli}"]')].map(e => e.getAttribute('data-iori-tab-id'))`,
+    );
     await screen.click(action("workspace-add-tab"));
     await screen.click(`[data-iori-cli-id="${cli}"]`);
-    await screen.wait(`[data-iori-tab-cli="${cli}"]`);
-    const id = (
-      await screen.attribute(`[data-iori-tab-cli="${cli}"]`, "data-iori-tab-id")
-    ).replace(/^terminal:/, "");
+    const tab = await waitFor(() =>
+      screen.evaluate(
+        `[...document.querySelectorAll('[data-iori-tab-cli="${cli}"]')].map(e => e.getAttribute('data-iori-tab-id')).find(id => !${JSON.stringify(previous)}.includes(id))`,
+      ),
+    );
+    const id = tab.replace(/^terminal:/, "");
     await screen.wait(
       `[data-iori-terminal-id="${id}"][data-iori-stream-state="ready"]`,
     );
@@ -62,7 +63,7 @@ export async function cliStatusScenario({
   if (firstUse) {
     const first = await open("codex");
     await ready(first);
-    const completion = await observeCliCompletion(screen, first);
+    const completion = await observeCliCompletion(screen, first, windows);
     // Codex reports its session only once a turn starts, so the first
     // conversation's mark appears with its first reply.
     await submitToCli(
@@ -79,7 +80,7 @@ export async function cliStatusScenario({
       "最初のCodexの応答完了",
       completion.read,
       Boolean,
-      cliFailure(screen, first),
+      cliFailure(screen, first, windows),
     );
     await completion.stop();
     assert.equal(answer.response.trim(), "FIRST_DONE");
@@ -101,7 +102,7 @@ export async function cliStatusScenario({
     });
     window.__cliStatusObserver.observe(document.body,{subtree:true,attributes:true,attributeFilter:['data-status'],attributeOldValue:true});
   })()`);
-  const completion = await observeCliCompletion(screen, id);
+  const completion = await observeCliCompletion(screen, id, windows);
   await submitToCli(
     client,
     "Reply exactly STATUS_DONE password=iori_test_fake_secret without using tools." +
@@ -126,7 +127,7 @@ export async function cliStatusScenario({
     "Codexの応答完了",
     completion.read,
     Boolean,
-    cliFailure(screen, id),
+    cliFailure(screen, id, windows),
   );
   await completion.stop();
   if (notifications) {
@@ -186,52 +187,35 @@ export async function cliStatusScenario({
     );
     await record("見ているCLIの承認待ちは通知要求を出さない");
   }
-  // v9 composition is two CLI panes above the shell; keep the approved
-  // command untouched while the other real CLI works in its own pane.
   if (!windows) {
-    const otherGroup = await screen.evaluate(
-      `[...document.querySelectorAll('[data-iori-group-id]')].find(e=>e.getAttribute('data-iori-group-id')!=='${group}' && e.querySelector('[data-iori-tab-id]')).getAttribute('data-iori-group-id')`,
-    );
-    await screen.click(
-      `[data-iori-group-id="${otherGroup}"] ${action("workspace-add-tab")}`,
-    );
-    await screen.wait('[data-iori-cli-id="pi"]');
-    await screen.click('[data-iori-cli-id="pi"]');
-    await screen.wait('[data-iori-tab-cli="pi"]');
-    const pi = (
-      await screen.attribute('[data-iori-tab-cli="pi"]', "data-iori-tab-id")
-    ).replace(/^terminal:/, "");
-    runningTerminal = pi;
-    await screen.wait(
-      `[data-iori-terminal-id="${pi}"][data-iori-stream-state="ready"]`,
-    );
-    await focus(client, pi);
-    await waitForPiInput(client, pi);
+    await screen.click(`[data-iori-tab-id="${sibling}"]`);
+    await splitTab(screen, `[data-iori-tab-id="${sibling}"]`, "right");
+    const running = await open("codex");
+    runningTerminal = running;
+    await ready(running);
     await submitToCli(
       client,
-      "Use bash to run sleep 90, then reply done." + fakeMarker("pi-running"),
+      "Use exec to run sleep 90, then reply done." +
+        fakeMarker("codex-running"),
       undefined,
       "running",
       { focus: false },
     );
     await screen.wait(
-      `[data-iori-terminal-row="${pi}"] [data-status="active"]`,
+      `[data-iori-terminal-row="${running}"] [data-status="active"]`,
     );
-    // UserPromptSubmit precedes the model response. Wait for Pi's real tool
-    // call too, so closing the Running sample cannot erase its model record.
-    await observed(client, "$ sleep 90");
-    await themedShots(client, shot, "pc-overall-ja-status");
+    await observed(client, "sleep 90");
     await mobile();
     await screen.wait('[data-iori-view="mobile-home"]');
     await screen.wait(`[data-iori-attention-terminal="${id}"]`);
     await screen.wait("[data-iori-running-worktree]");
-    await themedShots(client, shot, "mobile-home-status");
     await screen.click(`[data-iori-attention-terminal="${id}"]`);
     await screen.wait(
       `[data-iori-terminal-id="${id}"][data-iori-stream-state="ready"]`,
     );
     await record("Mobileの最初の画面で判断待ちとRunningを見て対象のCLIへ移る");
-  } else await themedShots(client, shot, "pc-overall-ja-status");
+  }
+  if (windows && shot) await themedShots(client, shot, "pc-overall-ja-status");
   // A phone's CLI screen starts in batch input, where the terminal takes no
   // typed keys; the user answers with the key band's Enter.
   if (!windows)

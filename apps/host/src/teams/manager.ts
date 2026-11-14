@@ -4,7 +4,7 @@ import { worktreeSetup, worktreeOptions } from "../worktree-creation.ts";
 import type { WorktreeSetup } from "../store.ts";
 import { randomUUID } from "node:crypto";
 import { appendFileSync } from "node:fs";
-import { lstat, mkdir, readFile, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import {
   belowUsageMinimum,
@@ -57,6 +57,7 @@ import {
 } from "./local-command.ts";
 import {
   childWorktree,
+  isResidualChildWorktree,
   removeChildWorktree,
   worktreeChanges,
 } from "./worktrees.ts";
@@ -65,6 +66,7 @@ import {
   worktreeDirectory,
 } from "../worktree-state.ts";
 import { stopWatchingPath } from "../directory-watch.ts";
+import { removeRemainingWorktreeFolder } from "../worktree-residual.ts";
 
 const ok = (text: string, data?: unknown): CommandResult => ({
   ok: true,
@@ -604,13 +606,14 @@ export class TeamManager {
     );
   }
   async #measureChild(child: TeamChild): Promise<void> {
-    await this.#measureChildren([child]);
+    await this.#measureChildren([child], false, true);
   }
   async #measureChildren(
     children: TeamChild[],
     periodic = false,
     /** Use the last value of a definition's script and measure in the
-     * background, so a script that does not return does not hold a screen. */
+     * background, so a script that does not return does not hold a command
+     * or screen. */
     backgroundScripts = false,
   ): Promise<void> {
     await Promise.all(
@@ -884,10 +887,16 @@ export class TeamManager {
   }
   records(filter: RecordsFilter): RecordsData {
     const now = Date.now();
+    const childrenByTask = new Map<string, TeamChild[]>();
+    for (const child of this.#children.values()) {
+      const children = childrenByTask.get(child.task) ?? [];
+      children.push(child);
+      childrenByTask.set(child.task, children);
+    }
+    for (const children of childrenByTask.values())
+      children.sort((a, b) => a.createdAt - b.createdAt);
     const tasks: TaskRecord[] = [...this.#tasks.values()].flatMap((task) => {
-      const children = [...this.#children.values()]
-        .filter((child) => child.task === task.id)
-        .sort((a, b) => a.createdAt - b.createdAt);
+      const children = childrenByTask.get(task.id) ?? [];
       const first = children[0];
       if (!first) return [];
       const conversation = this.#conversation(task.conversation);
@@ -1060,7 +1069,7 @@ export class TeamManager {
       ? "starting"
       : child.state;
   }
-  forgetWorktree(path: string): void {
+  async forgetWorktree(path: string): Promise<void> {
     const ids: string[] = [];
     const conversations = new Set(
       [...this.#conversations.values()]
@@ -1095,6 +1104,19 @@ export class TeamManager {
       this.store.removeTeamConversation(id);
     }
     this.publish({ type: "teams.children.removed", ids });
+    const filesRoot = resolve(this.root, "team-files");
+    for (const id of [...ids, ...conversations]) {
+      const directory = resolve(filesRoot, id);
+      if (dirname(directory) !== filesRoot) {
+        console.error("Team files cleanup failed: invalid directory");
+        continue;
+      }
+      try {
+        await rm(directory, { recursive: true, force: true });
+      } catch (error) {
+        console.error("Team files cleanup failed", error);
+      }
+    }
   }
 
   async stopChild(
@@ -1456,10 +1478,9 @@ export class TeamManager {
         delete task.decidedAt;
         const current = this.#children.get(task.currentChild ?? "");
         handoff = current;
-        if (current?.cliError) {
-          // The failed CLI keeps its role slot and worktree; this replaces it.
+        if (current) {
           await this.#run(async () => {
-            if (current.state === "failed" && current.cliError)
+            if (current.state !== "finished" && current.state !== "stopped")
               await this.#stopByParent(current);
           }, current.id);
         }
@@ -1636,15 +1657,19 @@ export class TeamManager {
             );
         // Dirty refusal is determined by Git before stopping the child. Explicit
         // discard is recorded in the child's instruction history as well.
-        const status = await collectGit(child.cwd, [
-          "status",
-          "--porcelain",
-          "-z",
-        ]);
-        if (status.stdout.length && !command.discard)
-          throw new Error(
-            "Worktree has uncommitted or untracked changes. Use keep, or explicitly --discard if authorized.",
-          );
+        const repository = child.repository?.mainPath ?? conversation.cwd;
+        const residual = await isResidualChildWorktree(repository, child.cwd);
+        if (!residual) {
+          const status = await collectGit(child.cwd, [
+            "status",
+            "--porcelain",
+            "-z",
+          ]);
+          if (status.stdout.length && !command.discard)
+            throw new Error(
+              "Worktree has uncommitted or untracked changes. Use keep, or explicitly --discard if authorized.",
+            );
+        }
         if (command.discard) {
           const message =
             "Parent explicitly requested removal including uncommitted and untracked changes.";
@@ -1685,15 +1710,14 @@ export class TeamManager {
         // child's watches are stopped.
         const finishWatches: Array<(restore: boolean) => void> = [];
         finishWatches.push(await stopWatchingPath(child.cwd));
-        finishWatches.push(
-          await stopWatchingPath(await worktreeDirectory(child.cwd)),
-        );
-        try {
-          await removeChildWorktree(
-            child.repository?.mainPath ?? conversation.cwd,
-            child.cwd,
-            command.discard,
+        if (!residual)
+          finishWatches.push(
+            await stopWatchingPath(await worktreeDirectory(child.cwd)),
           );
+        try {
+          if (residual) await removeRemainingWorktreeFolder(child.cwd);
+          else
+            await removeChildWorktree(repository, child.cwd, command.discard);
         } catch (error) {
           const remains = await lstat(child.cwd).then(
             () => true,

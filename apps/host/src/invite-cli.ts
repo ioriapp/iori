@@ -114,6 +114,30 @@ async function main(): Promise<void> {
   try {
     const control = await readLocalControl();
     socket = await connectLocal(control.port);
+    socket.end(
+      Buffer.from(
+        encodeFrame({
+          token: control.token,
+          operationId: randomUUID(),
+          method: "host.info",
+          params: {},
+        }),
+      ),
+    );
+    for await (const value of readFrames(socket)) {
+      const info = parseResponse("host.info", value);
+      if (info.ok && info.result.connectionScope === "loopback") {
+        process.exitCode = 1;
+        throw new Error(
+          text(
+            "この PCからは接続できます。ほかのデバイスから接続するには、設定の「接続」で「ほかのデバイスからの接続を許可する」を押してください。",
+            "This PC can connect. To connect from other devices, select “Allow connections from other devices” in Connection settings.",
+          ),
+        );
+      }
+    }
+    socket.destroy();
+    socket = await connectLocal(control.port);
     const operationId = randomUUID();
     socket.end(
       Buffer.from(

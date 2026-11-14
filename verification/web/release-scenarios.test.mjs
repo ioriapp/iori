@@ -11,14 +11,12 @@ test("scoped acceptance recognizes a web workflow", () => {
 test("scoped acceptance also runs workflows containing the selected child", () => {
   assert.deepEqual(releaseScenarios(["--scenarios=terminal-retention"]), [
     "terminal-retention",
-    "web-terminal",
   ]);
   assert.deepEqual(releaseScenarios(["--scenarios=clipboard-image:codex"]), [
     "clipboard-image:codex",
     "clipboard",
   ]);
-  assert.deepEqual(releaseScenarios(["--scenarios=claude-status,web-cli"]), [
+  assert.deepEqual(releaseScenarios(["--scenarios=claude-status"]), [
     "claude-status",
-    "web-cli",
   ]);
 });

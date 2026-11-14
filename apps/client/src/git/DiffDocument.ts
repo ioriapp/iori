@@ -35,6 +35,7 @@ export class DiffDocument implements TextSource {
   #running?: AbortController;
   #opening?: AbortController;
   #failed?: number;
+  #refreshFailed = false;
   #paused = false;
   #expanded = new Set<number>();
   revision: string | undefined;
@@ -62,6 +63,7 @@ export class DiffDocument implements TextSource {
   open(refresh: boolean) {
     this.#paused = false;
     this.#opening?.abort();
+    this.#running?.abort();
     const controller = new AbortController();
     this.#opening = controller;
     void this.#transport
@@ -70,11 +72,29 @@ export class DiffDocument implements TextSource {
         { root: this.#root, source: this.#source, refresh },
         controller.signal,
       )
-      .then((result) => {
+      .then(async (result) => {
         if (controller.signal.aborted) return;
+        if (result.revision !== this.revision) {
+          const pages = new Map<number, Page>();
+          // Recalculate after each read: the user may scroll while refreshing.
+          for (;;) {
+            const wanted = this.#pagesFor(result.totalRows, result.collapsed);
+            const page = wanted.find((key) => !pages.has(key));
+            if (page === undefined) break;
+            const data = await this.#readPage(page, controller.signal);
+            if (controller.signal.aborted) return;
+            if (data.revision !== result.revision) {
+              this.open(false);
+              return;
+            }
+            pages.set(page, data);
+          }
+          this.#pages = pages;
+        }
         this.#apply(result);
         this.error = undefined;
         this.#failed = undefined;
+        this.#refreshFailed = false;
       })
       .catch((error: unknown) => {
         if (
@@ -84,6 +104,7 @@ export class DiffDocument implements TextSource {
         )
           return;
         this.error = error;
+        this.#refreshFailed = true;
       })
       .finally(() => {
         if (this.#opening === controller) this.#opening = undefined;
@@ -157,7 +178,9 @@ export class DiffDocument implements TextSource {
 
   #rowData(row: number): GitDiffRow | undefined {
     const page = this.#pages.get(Math.floor(row / PAGE_ROWS));
-    return page?.rows[row % PAGE_ROWS];
+    return page && page.revision === this.revision
+      ? page.rows[row % PAGE_ROWS]
+      : undefined;
   }
 
   row(index: number): TextRow | undefined {
@@ -199,22 +222,49 @@ export class DiffDocument implements TextSource {
   }
 
   #wantPages() {
+    this.#wantedPages = this.#pagesFor(
+      this.totalRows,
+      this.collapsed,
+      this.#expanded,
+    );
+  }
+
+  #pagesFor(
+    totalRows: number,
+    collapsed: Array<[number, number]>,
+    expanded = new Set<number>(),
+  ): number[] {
+    let count = totalRows;
+    collapsed.forEach(([, length], run) => {
+      if (!expanded.has(run)) count -= length - 1;
+    });
     const pages = new Set<number>();
     for (
-      let index = this.#wanted.first;
-      index <= this.#wanted.last && index < this.count;
+      let index = Math.min(this.#wanted.first, Math.max(0, count - 1));
+      index <= this.#wanted.last && index < count;
       index += 1
     ) {
-      const shown = this.#shown(index);
-      if ("row" in shown) pages.add(Math.floor(shown.row / PAGE_ROWS));
+      let row = index;
+      let omitted = false;
+      for (let run = 0; run < collapsed.length; run += 1) {
+        const [start, length] = collapsed[run]!;
+        if (row < start) break;
+        if (expanded.has(run)) continue;
+        if (row === start) {
+          omitted = true;
+          break;
+        }
+        row += length - 1;
+      }
+      if (!omitted) pages.add(Math.floor(row / PAGE_ROWS));
     }
-    this.#wantedPages = [...pages].sort((a, b) => a - b);
+    return [...pages].sort((a, b) => a - b);
   }
 
   retry() {
     this.error = undefined;
     this.#failed = undefined;
-    if (!this.revision) this.open(false);
+    if (!this.revision || this.#refreshFailed) this.open(false);
     else this.#kick();
     this.#changed();
   }
@@ -245,6 +295,7 @@ export class DiffDocument implements TextSource {
     this.#running = controller;
     void this.#readPage(page, controller.signal)
       .then(({ revision, rows }) => {
+        if (controller.signal.aborted) return;
         if (revision !== this.revision) {
           // The Host diffed again for another view; take its new shape.
           this.open(false);
@@ -297,7 +348,9 @@ export class DiffDocument implements TextSource {
       start + rows.length < result.totalRows
     ) {
       const more = await read(rows.at(-1)!.row + 1);
-      if (more.revision !== result.revision || !more.rows.length) break;
+      if (more.revision !== result.revision)
+        return { revision: more.revision, rows: more.rows };
+      if (!more.rows.length) break;
       rows.push(...more.rows);
     }
     return { revision: result.revision, rows };

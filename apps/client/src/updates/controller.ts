@@ -26,6 +26,7 @@ type State = {
     | "verification"
     | "download"
     | "install"
+    | "host-preparation"
     | "cancelled"
     | "appimagelocation";
   progress?: { received: number; total: number };
@@ -161,8 +162,14 @@ export async function installUpdate(resume = false) {
     confirmationAvailable: false,
   });
   try {
-    if (!resume && updateVersion)
-      await saveConnectedHostUpdate(updateVersion, hostKeys).catch(() => {});
+    if (!resume && updateVersion) {
+      try {
+        await saveConnectedHostUpdate(updateVersion, hostKeys);
+      } catch {
+        change({ phase: "ready", error: "host-preparation" });
+        return;
+      }
+    }
     const result = await native.updateInstall(resume);
     if (result !== "installing" && result !== "permission")
       await clearConnectedHostUpdate().catch(() => {});

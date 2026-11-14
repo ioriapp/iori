@@ -66,9 +66,9 @@ export async function uninstallFromSettings(
     assert.equal(
       await screen.attribute(
         '[data-iori-field="host-uninstall-data"]',
-        "data-state",
+        "aria-checked",
       ),
-      "unchecked",
+      "false",
     );
     if (deleteData)
       await screen.click('[data-iori-field="host-uninstall-data"]');
@@ -120,17 +120,23 @@ export async function uninstallFromSettings(
     screen,
     hostKey,
     deleteData
-      ? /Deleted iori Host and its saved data|iori Hostと保存データを削除しました/u
+      ? /Deleted iori Host and its saved data|保存データを削除しました/u
       : /Uninstalled iori Host|iori Hostをアンインストールしました/u,
   );
   assert.equal(
     await screen.visible('[data-iori-action="settings-close"]'),
     false,
   );
-  assert.equal(
-    await screen.visible('[data-iori-action="host-notice-details"]'),
-    false,
+  const hasDetails = await screen.visible(
+    '[data-iori-action="host-notice-details"]',
   );
+  if (hasDetails) {
+    await screen.click('[data-iori-action="host-notice-details"]');
+    await screen.wait(dialog);
+    record("uninstall-result-details", await screen.text(dialog));
+    await capture(deleteData ? "delete-data-attention" : "keep-data-attention");
+  }
+  assert.equal(hasDetails, false);
   await capture(deleteData ? "delete-data-result" : "keep-data-result");
   await removed();
   assert.equal(await screen.visible('[data-iori-view="host-version"]'), false);

@@ -125,9 +125,18 @@ pub fn status() -> Result<Value, String> {
 pub fn firewall_status() -> Result<bool, String> {
     powershell(include_str!("firewall.ps1"), Some(true)).map(|v| v == "true")
 }
-pub fn firewall(app: &tauri::AppHandle) -> Result<bool, String> {
+fn firewall_permission(app: &tauri::AppHandle) -> Result<bool, String> {
     let result = powershell(include_str!("firewall.ps1"), Some(false)).map(|v| v == "true");
     crate::windows_notifications::show_window(app);
+    result
+}
+pub fn firewall(app: &tauri::AppHandle) -> Result<bool, String> {
+    let result = firewall_permission(app);
+    if result.as_ref().is_ok_and(|allowed| *allowed)
+        && local_request("host.info")?["connectionScope"] == "loopback"
+    {
+        local_request("host.connections.allow")?;
+    }
     result
 }
 fn stage(app: &tauri::AppHandle, value: &str) {
@@ -152,6 +161,21 @@ async fn get(client: &reqwest::Client, url: String) -> Result<reqwest::Response,
         .map_err(|_| "download")?
         .error_for_status()
         .map_err(|_| "download".into())
+}
+fn write_connection_scope(scope: &str) -> Result<(), String> {
+    let root = local_root()?.join("iori-host");
+    std::fs::create_dir_all(&root).map_err(|_| "install")?;
+    let temporary = root.join("network.json.tmp");
+    let result = (|| {
+        let mut file = std::fs::File::create(&temporary).map_err(|_| "install")?;
+        file.write_all(&serde_json::to_vec(&json!({"scope": scope})).map_err(|_| "install")?)
+            .map_err(|_| "install")?;
+        file.sync_all().map_err(|_| "install")?;
+        drop(file);
+        std::fs::rename(&temporary, root.join("network.json")).map_err(|_| "install".into())
+    })();
+    let _ = std::fs::remove_file(&temporary);
+    result
 }
 pub async fn install(app: tauri::AppHandle, allow_connections: bool) -> Result<bool, String> {
     let running = tauri::async_runtime::spawn_blocking(|| local_exchange("host.info").is_ok())
@@ -203,16 +227,21 @@ pub async fn install(app: tauri::AppHandle, allow_connections: bool) -> Result<b
             tauri::async_runtime::spawn_blocking(move || powershell(&script, None)).await.map_err(|_| "install")??;
         }
         if !already {
+            // Persist the restricted scope before registering logon startup.
+            write_connection_scope("loopback")?;
             // Windows PowerShell reads a BOM-less file using the system code
             // page. Decode UTF-8 explicitly, as the command installer does.
-            let script = format!("$ErrorActionPreference='Stop';& ([scriptblock]::Create([IO.File]::ReadAllText({}))) -Bundle {} -InstallOnly", ps_literal(&installer.to_string_lossy()), ps_literal(&work.join("host").to_string_lossy()));
+            let script = format!("$ErrorActionPreference='Stop';& ([scriptblock]::Create([IO.File]::ReadAllText({}))) -Bundle {} -InstallOnly -KeepConnectionScope", ps_literal(&installer.to_string_lossy()), ps_literal(&work.join("host").to_string_lossy()));
             tauri::async_runtime::spawn_blocking(move || powershell(&script, None)).await.map_err(|_| "install")??;
         }
         let allowed = if !already && allow_connections {
             stage(&app, "firewall");
             let handle = app.clone();
-            tauri::async_runtime::spawn_blocking(move || firewall(&handle)).await.map_err(|_| "install")?.unwrap_or(false)
+            tauri::async_runtime::spawn_blocking(move || firewall_permission(&handle)).await.map_err(|_| "install")?.unwrap_or(false)
         } else { false };
+        if allowed {
+            write_connection_scope("network")?;
+        }
         stage(&app, "start");
         if !running {
             let script = format!("$ErrorActionPreference='Stop';& ([scriptblock]::Create([IO.File]::ReadAllText({}))) -Bundle {} -StartOnly", ps_literal(&installer.to_string_lossy()), ps_literal(&work.join("host").to_string_lossy()));

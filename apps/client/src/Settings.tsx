@@ -381,19 +381,27 @@ function Devices({
   ]);
   return (
     <Section data-iori-view="devices">
-      <FieldRow label={t("Invite a new device")}>
-        <Button
-          data-iori-action="invite"
-          disabled={Boolean(busy)}
-          pending={busy === "invite"}
-          onClick={() => {
-            setBusy("invite");
-            void connection.createInvite().finally(() => setBusy(undefined));
-          }}
-        >
-          {t("Invite a new device")}
-        </Button>
-      </FieldRow>
+      {state.host?.connectionScope === "loopback" ? (
+        <p className="settings-note">
+          {t(
+            "This PC can connect. To connect from other devices, select “Allow connections from other devices” in Connection settings.",
+          )}
+        </p>
+      ) : (
+        <FieldRow label={t("Invite a new device")}>
+          <Button
+            data-iori-action="invite"
+            disabled={Boolean(busy)}
+            pending={busy === "invite"}
+            onClick={() => {
+              setBusy("invite");
+              void connection.createInvite().finally(() => setBusy(undefined));
+            }}
+          >
+            {t("Invite a new device")}
+          </Button>
+        </FieldRow>
+      )}
       {state.error && <ErrorMessage message={t(state.error)} />}
       <div className="section-rows" role="list" data-iori-list="devices">
         {state.devices.map((device) => (
@@ -441,7 +449,7 @@ function Devices({
           </FieldRow>
         ))}
       </div>
-      {state.invitation && (
+      {state.host?.connectionScope !== "loopback" && state.invitation && (
         <Invitation
           invite={state.invitation}
           status={state.invitationStatus}
@@ -2009,7 +2017,11 @@ export function SettingsDialog({
                     t={t}
                     registerEditor={registerEditor}
                   />
-                  <LocalHostConnections hostKey={host.publicKey} t={t} />
+                  <LocalHostConnections
+                    hostKey={host.publicKey}
+                    connectionScope={host.connectionScope}
+                    t={t}
+                  />
                   <div className="connection-actions">
                     <Button
                       variant="outline"

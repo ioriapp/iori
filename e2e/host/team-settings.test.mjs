@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { runHostTest } from "../../verification/host/process.mjs";
+import { connectClient } from "../../verification/host/client.mjs";
 import { registerScriptedCli } from "../../verification/host/scripted-definition.mjs";
 
 test("チームの編集、履歴、メモと復元を再起動後も保持する", (t) =>
@@ -182,4 +183,109 @@ test("チーム候補の優先順を保存し再起動後も保持する", (t) =
         { cli: "codex", model: "gpt-6.1-sol" },
       ],
     );
+  }));
+
+test("別の端末の保存との競合を検出し、上書きの履歴を編集元との差で残す", (t) =>
+  runHostTest(t, async ({ client, dataRoot, stage }) => {
+    const other = await connectClient(dataRoot);
+    try {
+      const created = await client.request("teams.create", {
+        template: "development",
+        language: "ja",
+      });
+      const teamId = created.saved.id;
+      const first = await client.request("teams.read", { teamId });
+      const second = await other.request("teams.read", { teamId });
+      const theirs = { ...first.saved, name: "別端末の名前" };
+      const mine = { ...second.saved, description: "自分の説明" };
+      stage("別端末が保存した後、古い編集を保存しようとする");
+      const saved = await client.request("teams.save", {
+        teamId,
+        definition: theirs,
+        baseVersion: first.saved.version,
+      });
+      const conflict = await other.request("teams.save", {
+        teamId,
+        definition: mine,
+        baseVersion: second.saved.version,
+      });
+      assert.deepEqual(conflict, { conflict: "changed", current: saved });
+      assert.deepEqual(await other.request("teams.read", { teamId }), saved);
+      stage("上書き前にさらに保存されると再び競合する");
+      const later = await client.request("teams.save", {
+        teamId,
+        definition: { ...theirs, instruction: "更新" },
+        baseVersion: saved.saved.version,
+      });
+      const again = await other.request("teams.save", {
+        teamId,
+        definition: mine,
+        baseVersion: conflict.current.saved.version,
+        editedFrom: second.saved.version,
+      });
+      assert.deepEqual(again, { conflict: "changed", current: later });
+      stage("現在のバージョンで再送すると編集元との差を履歴に残す");
+      const overwritten = await other.request("teams.save", {
+        teamId,
+        definition: mine,
+        baseVersion: again.current.saved.version,
+        editedFrom: second.saved.version,
+      });
+      assert.equal(overwritten.saved.description, "自分の説明");
+      const entry = overwritten.history.find(
+        (item) => item.team.version === overwritten.saved.version,
+      );
+      assert.equal(entry.overwrote, later.saved.version);
+      assert.deepEqual(entry.changes, [
+        { item: "Description", action: "changed" },
+      ]);
+      stage(
+        "存在しない編集元は直前との差として記録し、不正なバージョンは拒否する",
+      );
+      const fallback = await client.request("teams.save", {
+        teamId,
+        definition: theirs,
+        baseVersion: overwritten.saved.version,
+        editedFrom: 999,
+      });
+      const fallbackEntry = fallback.history.find(
+        (item) => item.team.version === fallback.saved.version,
+      );
+      assert.equal(fallbackEntry.overwrote, overwritten.saved.version);
+      assert.deepEqual(fallbackEntry.changes, [
+        { item: "Name", action: "changed" },
+        { item: "Description", action: "changed" },
+      ]);
+      for (const field of ["baseVersion", "editedFrom"]) {
+        await assert.rejects(
+          client.request("teams.save", {
+            teamId,
+            definition: mine,
+            [field]: 0,
+          }),
+          /invalid_request/,
+        );
+      }
+      stage("古いClientは従来どおり保存できる");
+      const legacy = await client.request("teams.save", {
+        teamId,
+        definition: theirs,
+      });
+      assert.equal(legacy.saved.name, "別端末の名前");
+      await client.request("teams.delete", { teamId });
+      assert.deepEqual(
+        await other.request("teams.save", {
+          teamId,
+          definition: mine,
+          baseVersion: legacy.saved.version,
+        }),
+        { conflict: "deleted" },
+      );
+      await assert.rejects(
+        client.request("teams.save", { teamId, definition: mine }),
+        /invalid_request/,
+      );
+    } finally {
+      await other.close();
+    }
   }));

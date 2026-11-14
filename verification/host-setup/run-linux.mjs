@@ -241,6 +241,28 @@ try {
     record("default port already occupied");
   }
   await client.screen.click(act("setup-submit"));
+  if (scenario === "local") {
+    await waitFor(() =>
+      client.screen.evaluate(
+        `document.querySelector(${JSON.stringify(act("setup-submit"))})?.disabled === true`,
+      ),
+    );
+    await client.screen.click(act("ssh-cancel"));
+    const uid = result.createdUsers.find(
+      (account) => account.name === user,
+    ).uid;
+    await waitFor(
+      () =>
+        linux(
+          asUser(
+            `XDG_RUNTIME_DIR=/run/user/${uid} DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/${uid}/bus systemctl --user is-active iori-host.service 2>/dev/null || true`,
+            user,
+          ),
+        ) === "active",
+    );
+    await client.screen.wait('[data-iori-view="workspace"]');
+    record("local installation registered after closing setup");
+  }
   await registered();
   await client.screenshot("registered");
   record("installed, registered and Direct connected");

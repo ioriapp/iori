@@ -1,5 +1,6 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { homedir } from "node:os";
 import { createSocket } from "node:dgram";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -26,7 +27,7 @@ const evidence = resolve(
 );
 await mkdir(evidence, { recursive: true });
 await mkdir(resolve(".local"), { recursive: true });
-const root = await mkdtemp(resolve(".local/host-update-linux-"));
+const root = await mkdtemp(join(homedir(), ".cache/iori-host-update-linux-"));
 const hostRoot = join(root, "data/iori-host");
 const result = {
   passed: false,
@@ -80,7 +81,6 @@ try {
     cliHome = await prepareCliHome(root, {
       clis: ["claude", "codex"],
       repositories: [root],
-      trustedFolders: [root],
     });
     process.env.VOLTA_HOME ??= join(process.env.HOME, ".volta");
     process.env.HOME = cliHome.home;

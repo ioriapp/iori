@@ -72,12 +72,131 @@ function writeFrame(stream, json) {
   return stream.write(Buffer.concat([header, bytes]));
 }
 
+function requestFaults() {
+  const active = new Map();
+  const keyFor = (method, hostKey) => JSON.stringify([method, hostKey ?? null]);
+  const install = async (method, hostKey, fault) => {
+    const key = keyFor(method, hostKey);
+    await active.get(key)?.clear();
+    fault.clear = async () => {
+      if (active.get(key) === fault) active.delete(key);
+      fault.unblock?.();
+    };
+    active.set(key, fault);
+    return fault;
+  };
+  const faults = {
+    async failNative(command, { scope } = {}) {
+      return install("native:" + command, scope, { kind: "fail", count: 0 });
+    },
+    async fail(method, { hostKey } = {}) {
+      return install(method, hostKey, { kind: "fail", count: 0 });
+    },
+    async count(method, { hostKey } = {}) {
+      return install(method, hostKey, { kind: "count", count: 0 });
+    },
+    async hold(method, { hostKey } = {}) {
+      let unblock;
+      const ready = new Promise((resolve) => {
+        unblock = resolve;
+      });
+      const hold = await install(method, hostKey, {
+        kind: "hold",
+        ready,
+        unblock,
+      });
+      hold.release = () => hold.clear();
+      return hold;
+    },
+    async holdResponse(method, { hostKey } = {}) {
+      let notify, unblock;
+      const ready = new Promise((resolve) => {
+        notify = resolve;
+      });
+      const released = new Promise((resolve) => {
+        unblock = resolve;
+      });
+      const hold = await install(method, hostKey, {
+        kind: "holdResponse",
+        ready,
+        released,
+        notify,
+        unblock,
+      });
+      hold.release = () => hold.clear();
+      return hold;
+    },
+    async dropResponse(method, { hostKey } = {}) {
+      return install(method, hostKey, { kind: "dropResponse" });
+    },
+    async holdNative(command) {
+      let notify, unblock;
+      const ready = new Promise((resolve) => {
+        notify = resolve;
+      });
+      const released = new Promise((resolve) => {
+        unblock = resolve;
+      });
+      const hold = await install(`native:${command}`, undefined, {
+        kind: "holdNative",
+        ready,
+        released,
+        notify,
+        unblock,
+      });
+      hold.release = () => hold.clear();
+      return hold;
+    },
+    async clear() {
+      await Promise.all([...active.values()].map((fault) => fault.clear()));
+    },
+  };
+  return {
+    faults,
+    async interceptNative(command, { scope } = {}) {
+      const fault =
+        active.get(keyFor("native:" + command, scope)) ??
+        active.get(keyFor("native:" + command));
+      if (!fault) return;
+      if (fault.kind === "holdNative") {
+        fault.notify();
+        await fault.released;
+        return;
+      }
+      fault.count++;
+      // Match a rejected native command, rather than a Host response envelope.
+      throw new Error("view database is unavailable");
+    },
+    async intercept(method, hostKey) {
+      const fault =
+        active.get(keyFor(method, hostKey)) ?? active.get(keyFor(method));
+      if (!fault) return {};
+      if (fault.kind === "hold") await fault.ready;
+      if (fault.kind === "fail") {
+        fault.count++;
+        // host.ts sends this envelope when request handling throws.
+        return {
+          failure: JSON.stringify({
+            ok: false,
+            error: { code: "internal_error" },
+          }),
+        };
+      }
+      if (fault.kind === "count") fault.count++;
+      if (fault.kind === "dropResponse") await fault.clear();
+      return { fault };
+    },
+  };
+}
+
 // One browser connection owns its iroh connections/streams. Page closure detaches,
 // but never closes the Host's PTYs. Storage/identity are shared by this dev Client.
 function session(
   ws,
   endpoint,
   storage,
+  interceptRequest,
+  interceptNative,
   onRequest,
   onResponse,
   transformResponse,
@@ -220,8 +339,10 @@ function session(
       storage.saveHost(host, Boolean(select));
     },
     native_load_view: ({ scope }) => storage.load("view:" + string(scope)),
-    native_save_view: ({ scope, value }) =>
-      storage.save("view:" + string(scope), value),
+    native_save_view: async ({ scope, value }) => {
+      await interceptNative("native_save_view", { scope });
+      storage.save("view:" + string(scope), value);
+    },
     native_load_workspace_layout: ({ scopeKey }) =>
       storage.load("layout:" + string(scopeKey)),
     native_save_workspace_layout: ({ scopeKey, layout }) =>
@@ -307,6 +428,9 @@ function session(
     },
     native_request: async ({ connectionId, json, cancelKey }) => {
       const { method, params } = JSON.parse(json);
+      const hostKey = connection(connectionId).remotePublicKeyHex;
+      const { failure, fault } = await interceptRequest(method, hostKey);
+      if (failure !== undefined) return failure;
       const replacement = onRequest?.(method, params);
       if (replacement !== undefined) return replacement;
       const id = cancelKey === undefined ? randomUUID() : string(cancelKey);
@@ -316,7 +440,13 @@ function session(
         if (response === null)
           throw new Error("the response stream ended before a frame arrived");
         await onResponse?.(method, response);
-        return transformResponse?.(method, response) ?? response;
+        if (fault?.kind === "dropResponse")
+          throw new Error("the response stream ended before a frame arrived");
+        if (fault?.kind === "holdResponse") {
+          fault.notify();
+          await fault.released;
+        }
+        return transformResponse?.(method, response, hostKey) ?? response;
       } finally {
         await stop(entry);
         if (streams.get(id) === entry) streams.delete(id);
@@ -387,6 +517,7 @@ function session(
         id = message.id;
         if (!Object.hasOwn(commands, message.command))
           throw new Error("unsupported bridge command");
+        await interceptNative(message.command);
         const result = await commands[message.command](record(message.args));
         if (ws.readyState === WebSocket.OPEN)
           ws.send(JSON.stringify({ id, result }));
@@ -436,6 +567,7 @@ export async function startBridge({
   hostUninstall = false,
 }) {
   const storage = await openStorage(storageRoot);
+  const { faults, intercept, interceptNative } = requestFaults();
   const addon = loadNativeAddon();
   let endpoint;
   const server = createServer((_request, response) => {
@@ -484,6 +616,8 @@ export async function startBridge({
           ws,
           endpoint,
           storage,
+          intercept,
+          interceptNative,
           onRequest,
           onResponse,
           transformResponse,
@@ -511,6 +645,7 @@ export async function startBridge({
     throw error;
   }
   return {
+    faults,
     url: `ws://127.0.0.1:${server.address().port}/bridge/${token}`,
     async sendTerminalInput(hostKey, addresses, terminalId, data) {
       const peer = await endpoint.connect(
@@ -588,6 +723,7 @@ export async function startBridge({
       }
     },
     async close() {
+      await faults.clear();
       for (const ws of wss.clients) ws.terminate();
       try {
         await Promise.all([...sessions].map((close) => close()));

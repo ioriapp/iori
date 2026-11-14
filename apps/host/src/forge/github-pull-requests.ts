@@ -5,7 +5,7 @@ import {
   GhUnavailable,
   withGitHubAccount,
 } from "./github.ts";
-import { array, forgeUrl, object, string } from "./response.ts";
+import { array, object, pullRequestUrl, string } from "./response.ts";
 import {
   PullRequestFailure,
   pullRequestBody,
@@ -54,11 +54,7 @@ export const githubPullRequests: PullRequestWriter = async (
       throw error;
     }
   };
-  const url = (value: unknown) => {
-    const url = forgeUrl(target.origin, object(value).html_url);
-    if (!url) throw new Error("Invalid Forge response");
-    return url;
-  };
+  const url = (value: unknown) => pullRequestUrl(target.origin, value);
   return {
     defaultBranch,
     async existing(branch) {

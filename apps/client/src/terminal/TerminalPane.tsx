@@ -268,7 +268,10 @@ async function copySelection(
   if (!terminal?.hasSelection()) return;
   try {
     await native.clipboardWrite(
-      trimTerminalCopyMargin(terminal.getSelection()),
+      trimTerminalCopyMargin(
+        terminal.getSelection(),
+        terminal.getSelectionPosition()?.start.x,
+      ),
     );
     terminal.clearSelection();
   } catch {
@@ -358,6 +361,8 @@ export function TerminalPane({
   const streamOpenedRef = useRef(false);
   const streamOpeningRef = useRef<Promise<void>>(Promise.resolve());
   const connectedRef = useRef(connected);
+  const pendingDroppedPathsRef = useRef<string[]>([]);
+  if (!connected) pendingDroppedPathsRef.current = [];
   const allowedInputRef = useRef(
     summary.state !== "exited" && summary.state !== "error",
   );
@@ -512,6 +517,8 @@ export function TerminalPane({
   const [desktopScale, setDesktopScale] = useState(1);
   const [batchText, setLocalBatchText] = useState(savedInput?.draft ?? "");
   const batchTextRef = useRef(batchText);
+  const submitResultRef = useRef(false);
+  const pendingBatchesRef = useRef(new Map<string, string>());
   const updateInput = (change: { live?: boolean; draft?: string }) => {
     onInputPreferences((current) => {
       const next = { ...current.terminals?.[hostKey]?.[summary.id], ...change };
@@ -533,18 +540,35 @@ export function TerminalPane({
   const draftSaveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
+  const savedBatchText = useCallback(
+    () =>
+      [...pendingBatchesRef.current.values(), batchTextRef.current]
+        .filter(Boolean)
+        .join("\n"),
+    [],
+  );
   const flushBatchText = useCallback(() => {
     if (draftSaveTimer.current === undefined) return;
     clearTimeout(draftSaveTimer.current);
     draftSaveTimer.current = undefined;
-    updateInputRef.current({ draft: batchTextRef.current });
-  }, []);
-  const setBatchText = (draft: string) => {
-    batchTextRef.current = draft;
-    setLocalBatchText(draft);
-    clearTimeout(draftSaveTimer.current);
-    draftSaveTimer.current = setTimeout(flushBatchText, 400);
-  };
+    updateInputRef.current({ draft: savedBatchText() });
+  }, [savedBatchText]);
+  const setBatchText = useCallback(
+    (draft: string) => {
+      batchTextRef.current = draft;
+      setLocalBatchText(draft);
+      clearTimeout(draftSaveTimer.current);
+      draftSaveTimer.current = setTimeout(flushBatchText, 400);
+    },
+    [flushBatchText],
+  );
+  const restorePendingBatches = useCallback(() => {
+    if (!pendingBatchesRef.current.size) return;
+    const draft = savedBatchText();
+    pendingBatchesRef.current.clear();
+    setBatchText(draft);
+    flushBatchText();
+  }, [flushBatchText, savedBatchText, setBatchText]);
   useEffect(() => {
     window.addEventListener("pagehide", flushBatchText);
     return () => {
@@ -582,6 +606,7 @@ export function TerminalPane({
       value: object | Promise<object[]>,
       allowStopped = false,
       input = false,
+      onFailure?: () => void,
     ) => {
       const streamId = streamIdRef.current;
       const kind = (value as { kind?: string }).kind;
@@ -622,6 +647,7 @@ export function TerminalPane({
             sizeOwnerViewIdRef.current = viewId;
         })
         .catch(() => {
+          onFailure?.();
           if (streamIdRef.current === streamId) {
             if (claimsSize && sizeOwnerViewIdRef.current === viewId)
               sizeOwnerViewIdRef.current = undefined;
@@ -778,9 +804,23 @@ export function TerminalPane({
   );
 
   useEffect(
-    () => registerTerminalInput(summary.id, sendInput),
+    () =>
+      registerTerminalInput(summary.id, (text) => {
+        if (!connectedRef.current || !allowedInputRef.current) return false;
+        if (visibleRef.current && streamOpenedRef.current)
+          return sendInput(text);
+        pendingDroppedPathsRef.current.push(text);
+        return true;
+      }),
     [summary.id, sendInput],
   );
+
+  useEffect(() => {
+    if (!visible || !connected || !streamOpened) return;
+    const pending = pendingDroppedPathsRef.current;
+    pendingDroppedPathsRef.current = [];
+    for (const text of pending) sendInput(text);
+  }, [visible, connected, streamOpened, sendInput]);
 
   const runSearch = useCallback((forward: boolean) => {
     const query = searchTextRef.current;
@@ -797,6 +837,7 @@ export function TerminalPane({
       const terminal = terminalRef.current;
       if (!terminal) return;
       if (message.kind === "terminal.snapshot") {
+        submitResultRef.current = message.submitResult === true;
         sizeOwnerViewIdRef.current = message.sizeOwnerViewId;
         const desktopSize = desktopDimensions(message.terminal);
         desktopDimensionsRef.current = desktopSize;
@@ -885,6 +926,22 @@ export function TerminalPane({
         await writeTerminal(terminal, message.data);
         return;
       }
+      if (message.kind === "terminal.submitted") {
+        if (!pendingBatchesRef.current.has(message.id)) return;
+        if (message.success) {
+          pendingBatchesRef.current.delete(message.id);
+          setBatchText(batchTextRef.current);
+          flushBatchText();
+        } else {
+          restorePendingBatches();
+          setTransportError(
+            tRef.current(
+              "Input could not be sent. Check the connection before continuing.",
+            ),
+          );
+        }
+        return;
+      }
       if (message.kind === "terminal.size") {
         sizeOwnerViewIdRef.current = message.sizeOwnerViewId;
         const desktopSize = message.lastDesktopSize;
@@ -896,19 +953,28 @@ export function TerminalPane({
         return;
       }
       if (message.kind === "terminal.exit") {
+        restorePendingBatches();
         terminalEndedRef.current = true;
         setTerminalEnded(true);
         if (message.code === 0 && !summary.teamConversation)
           onClosedRef.current(summary.id);
         return;
       }
+      restorePendingBatches();
       terminalEndedRef.current = true;
       setTerminalEnded(true);
       setTransportError(
         tRef.current("Could not display this terminal. Reopen it to continue."),
       );
     },
-    [runSearch, summary.id, summary.teamConversation],
+    [
+      flushBatchText,
+      runSearch,
+      restorePendingBatches,
+      setBatchText,
+      summary.id,
+      summary.teamConversation,
+    ],
   );
 
   const openStream = useCallback(
@@ -1150,7 +1216,10 @@ export function TerminalPane({
       if (!terminal.hasSelection() || !event.clipboardData) return;
       event.clipboardData.setData(
         "text/plain",
-        trimTerminalCopyMargin(terminal.getSelection()),
+        trimTerminalCopyMargin(
+          terminal.getSelection(),
+          terminal.getSelectionPosition()?.start.x,
+        ),
       );
       event.preventDefault();
       event.stopImmediatePropagation();
@@ -1547,6 +1616,8 @@ export function TerminalPane({
       !visible ||
       !receiving
     ) {
+      restorePendingBatches();
+      submitResultRef.current = false;
       streamIdRef.current = undefined;
       streamOpenedRef.current = false;
       setStreamOpened(false);
@@ -1600,6 +1671,8 @@ export function TerminalPane({
     }) => {
       if (!active || frame.connectionId !== connectionId) return;
       if (frame.streamId !== streamIdRef.current) return;
+      restorePendingBatches();
+      submitResultRef.current = false;
       detachAfterInput(frame.streamId);
       streamIdRef.current = undefined;
       streamOpenedRef.current = false;
@@ -1691,6 +1764,8 @@ export function TerminalPane({
     void opening.catch(() => undefined);
     return () => {
       active = false;
+      restorePendingBatches();
+      submitResultRef.current = false;
       const streamId = streamIdRef.current;
       streamIdRef.current = undefined;
       streamOpenedRef.current = false;
@@ -1712,6 +1787,7 @@ export function TerminalPane({
     summary.id,
     visible,
     receiving,
+    restorePendingBatches,
   ]);
 
   useEffect(() => {
@@ -2362,14 +2438,28 @@ export function TerminalPane({
           onBatchText={setBatchText}
           onBatchBlur={flushBatchText}
           onBatchSend={() => {
-            const value = batchText;
+            const value = batchTextRef.current;
             if (!value) return false;
             focusTerminal();
-            const sent = sendMessage({ kind: "terminal.submit", data: value });
+            const id = submitResultRef.current
+              ? crypto.randomUUID()
+              : undefined;
+            if (id) pendingBatchesRef.current.set(id, value);
+            const sent = sendMessage(
+              { kind: "terminal.submit", data: value, ...(id ? { id } : {}) },
+              false,
+              false,
+              () => {
+                if (id && pendingBatchesRef.current.has(id))
+                  restorePendingBatches();
+              },
+            );
             if (sent) {
               terminalRef.current?.scrollToBottom();
               setBatchText("");
               flushBatchText();
+            } else if (id) {
+              pendingBatchesRef.current.delete(id);
             }
             return sent;
           }}

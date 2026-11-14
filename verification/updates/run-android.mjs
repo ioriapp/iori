@@ -33,7 +33,12 @@ const state = JSON.parse(
 const root = state.updateRoot;
 const output = path.join(evidence, "updates", `android-${Date.now()}`);
 await mkdir(output, { recursive: true });
-const result = { passed: false, steps: [], cleanupErrors: [] };
+const result = {
+  passed: false,
+  androidVersion: adb(["shell", "getprop", "ro.build.version.release"]),
+  steps: [],
+  cleanupErrors: [],
+};
 const clientPids = new Set();
 async function navigationHost(screen) {
   await screen.wait('[data-iori-view="workspace"]');
@@ -82,6 +87,10 @@ try {
     "window.__TAURI_INTERNALS__.invoke('native_initial_state').then(s=>s.publicKey)",
   );
   const hostName = await navigationHost(client.screen);
+  const installedVersion = () =>
+    adb(["shell", "dumpsys", "package", androidPackage]).match(
+      /versionName=([^\s]+)/u,
+    )?.[1];
   result.steps.push("old Client registered a Host through invitation UI");
   result.stage = "check for update";
   distribution.publish();
@@ -93,6 +102,9 @@ try {
     await client.screen.text('[data-iori-state="update-version"]'),
     state.updateVersions.next,
   );
+  const updateHosts = '[data-iori-field="update-connected-hosts"]';
+  if (await client.screen.visible(updateHosts))
+    await client.screen.click(updateHosts);
   await client.screen.click(action("update-install"));
   result.stage = "allow this install source";
   await setAndroidInstallPermission(verificationConfig.productName, true);
@@ -105,16 +117,21 @@ try {
   await client.screen.wait('[data-iori-state="update-error"]');
   assert.match(
     await client.screen.text('[data-iori-state="update-error"]'),
-    /取り消し|cancelled/u,
+    /取り消し|キャンセル|cancelled/u,
   );
   result.steps.push("OS cancellation is shown and installation can be retried");
   const waitForCancellation = async () => {
     await client.screen.wait('[data-iori-state="update-error"]');
     assert.match(
       await client.screen.text('[data-iori-state="update-error"]'),
-      /取り消し|cancelled/u,
+      /取り消し|キャンセル|cancelled/u,
     );
     await waitForAndroidForeground(androidPackage);
+    assert.equal(installedVersion(), state.updateVersions.current);
+    assert.equal(
+      adb(["shell", "pidof " + androidPackage + " || true"]),
+      client.pid,
+    );
   };
   const confirmation = () =>
     androidInstallerControl(
@@ -163,12 +180,42 @@ try {
   );
   tapAndroidSystemControl(confirm);
   result.stage = "wait for update without repeated confirmation";
-  const installedVersion = () =>
-    adb(["shell", "dumpsys", "package", androidPackage]).match(
-      /versionName=([^\s]+)/u,
-    )?.[1];
   result.continuationChecksAfterAccept = 0;
+  result.foregroundAfterAccept = [];
+  const acceptedAt = Date.now();
+  const observeForeground = () => {
+    const activity = adb(["shell", "dumpsys", "activity", "activities"])
+      .split(/\r?\n/u)
+      .filter((line) => /mResumedActivity|topResumedActivity/u.test(line))
+      .map((line) => line.match(/\b([\w.]+\/[\w.$]+)/u)?.[1])
+      .filter(Boolean)
+      .join(",");
+    const version = installedVersion();
+    const previous = result.foregroundAfterAccept.at(-1);
+    result.foregroundObservedThroughMs = Date.now() - acceptedAt;
+    if (previous?.activity !== activity || previous?.version !== version)
+      result.foregroundAfterAccept.push({
+        elapsedMs: Date.now() - acceptedAt,
+        activity,
+        version,
+      });
+    if (
+      version !== state.updateVersions.next ||
+      !activity
+        .split(",")
+        .includes(
+          androidPackage +
+            "/" +
+            verificationConfig.identifier +
+            ".MainActivity",
+        )
+    )
+      return false;
+    const pid = adb(["shell", "pidof " + androidPackage + " || true"]);
+    return Boolean(pid) && pid !== client.pid;
+  };
   await waitFor(async () => {
+    observeForeground();
     const controls = androidInstallerControls();
     assert.equal(
       controls.some((node) =>
@@ -206,9 +253,26 @@ try {
   result.steps.push(
     "downloaded and verified the APK; allowed this source and confirmed the Android update",
   );
-  await client.stop();
-  result.stage = "launch new Client";
-  client = await startAndroidClient(undefined, { install: false });
+  result.stage = "observe automatic return after update";
+  try {
+    await waitFor(observeForeground);
+    result.reopenedAutomatically = true;
+  } catch (error) {
+    if (error.message !== "画面の待機が観測期限を超過しました") throw error;
+    result.reopenedAutomatically = false;
+  }
+  await client.disconnect();
+  client = undefined;
+  if (!result.reopenedAutomatically) {
+    result.stage = "open new Client from launcher";
+    await openAndroidLauncherApp(verificationConfig.productName);
+    await waitForAndroidForeground(androidPackage);
+  }
+  result.stage = "connect to new Client";
+  client = await startAndroidClient(undefined, {
+    install: false,
+    launch: false,
+  });
   clientPids.add(client.pid);
   const after = await client.screen.evaluate(
     "window.__TAURI_INTERNALS__.invoke('native_initial_state').then(s=>s.publicKey)",
@@ -231,6 +295,44 @@ try {
   result.passed = true;
 } catch (error) {
   result.error = error.stack;
+  if (
+    result.steps.includes("old Client registered a Host through invitation UI")
+  ) {
+    for (const [name, capture] of [
+      [
+        "screenshot",
+        async () =>
+          writeFile(
+            path.join(output, "failure.png"),
+            adb(["exec-out", "screencap", "-p"], { encoding: null }),
+          ),
+      ],
+      [
+        "hierarchy",
+        async () => {
+          const dump = `/data/local/tmp/iori-update-failure-${process.pid}.xml`;
+          try {
+            adb(["shell", "uiautomator", "dump", dump]);
+            await writeFile(
+              path.join(output, "failure.xml"),
+              adb(["exec-out", "cat", dump]),
+            );
+          } finally {
+            adb(["shell", "rm", "-f", dump]);
+          }
+        },
+      ],
+    ]) {
+      try {
+        await capture();
+      } catch (captureError) {
+        (result.captureErrors ??= []).push({
+          name,
+          message: captureError.message,
+        });
+      }
+    }
+  }
   if (client)
     result.views = await client.screen
       .evaluate(

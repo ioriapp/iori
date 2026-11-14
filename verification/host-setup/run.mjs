@@ -15,8 +15,9 @@ import {
   activeRemovalEvidence,
 } from "./active-terminal.mjs";
 import assert from "node:assert/strict";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
+import { loadNativeAddon } from "../../apps/host/src/native.ts";
 import {
   windowsFirewallBaseline,
   removeWindowsProgramRules,
@@ -25,13 +26,14 @@ import { waitForOwnerReady } from "../native/owner-ready.mjs";
 import { waitFor } from "../ui.mjs";
 import path from "node:path";
 import { lockEntry } from "../native/locks.mjs";
-import { gate, windows, ps, adb } from "../native/remote.mjs";
+import { gate, windows, ps, adb, verificationPort } from "../native/remote.mjs";
 import {
   windowsDesktop,
   windowsConsentOperation,
 } from "../native/windows-desktop.mjs";
 import { stopOwnedWindowsProcesses } from "../native/processes.mjs";
 import { evidence } from "../connection/build.mjs";
+import { verificationIdentifier } from "../config.mjs";
 import {
   prepareWindowsClientStorage,
   cleanupWindowsClientStorage,
@@ -49,6 +51,17 @@ import {
 } from "../../e2e/connection/scenario.mjs";
 await lockEntry(import.meta.url);
 const windowsOnly = process.argv.includes("--windows-only");
+const loopbackOnly = process.argv.includes("--loopback-only");
+const skipRestart = process.argv.includes("--skip-restart");
+const restartScope =
+  process.argv.find((arg) => arg.startsWith("--restart-scope="))?.slice(16) ??
+  "empty";
+if (!["loopback", "empty", "network"].includes(restartScope))
+  throw new Error("--restart-scope must be loopback, empty or network");
+if (loopbackOnly && !windowsOnly)
+  throw new Error("--loopback-only requires --windows-only");
+if (skipRestart && !loopbackOnly)
+  throw new Error("--skip-restart requires --loopback-only");
 const manualReapply = process.argv.includes("--manual-reapply");
 gate({
   devices: windowsOnly
@@ -58,7 +71,7 @@ gate({
 const state = JSON.parse(
   await readFile(path.join(evidence, "build-state.json"), "utf8"),
 );
-const uninstall = process.argv.includes("--uninstall");
+const uninstall = process.argv.includes("--uninstall") || loopbackOnly;
 const retainedProgram = process.argv.includes("--retained-program");
 const activeTerminal =
   process.argv.includes("--active-terminal") || retainedProgram;
@@ -72,7 +85,13 @@ await mkdir(root, { recursive: true });
 const uninstallerSource = process.argv
   .find((arg) => arg.startsWith("--uninstaller-source="))
   ?.slice(21);
-const result = { steps: [], cleanup: {}, uninstallerSource };
+const result = {
+  steps: [],
+  cleanup: {},
+  uninstallerSource,
+  restartScope,
+  skipRestart,
+};
 const data = state.windowsRoot + "\\client-local";
 const bundle = data + "\\Programs\\iori-host";
 const program = bundle + "\\runtime\\node.exe";
@@ -100,10 +119,127 @@ const record = (step, value) => {
   result.steps.push({ step, value });
   console.log(JSON.stringify({ step, value }));
 };
+const allowConnections =
+  '[data-iori-view="host-setup"] .ssh-setup-check [role="checkbox"]';
 const capture = (name) =>
   windowsDesktop(state, "window-capture", {
     screenshot: path.join(root, name + ".png"),
   });
+async function settingsStep(operation) {
+  try {
+    return await operation();
+  } catch (error) {
+    for (const [name, collect] of [
+      [
+        "settings-failure-image",
+        async () => {
+          const hasInvitation = await client.screen.evaluate(
+            `Boolean(document.querySelector('[data-iori-field="issued-invitation"], [data-iori-field="invitation"], .invitation-qr-container'))`,
+          );
+          if (hasInvitation) return { state: "omitted-invitation" };
+          await writeFile(
+            path.join(root, "settings-failure.png"),
+            Buffer.from(await client.browser.screenshot(), "base64"),
+          );
+          return "settings-failure.png";
+        },
+      ],
+      [
+        "settings-failure-dom",
+        () =>
+          client.screen.evaluate(`(() => {
+        const settings = document.querySelector('[data-iori-view="settings"]');
+        const selected = settings?.querySelector('[data-iori-action="settings-host-select"]');
+        const button = settings?.querySelector('[data-iori-action="allow-host-connections"]');
+        return { current: settings?.querySelector('[aria-current="page"]')?.getAttribute('data-iori-action') ?? null,
+          hostKey: selected?.getAttribute('data-iori-host-key') ?? null,
+          buttonPresent: Boolean(button), buttonVisible: Boolean(button?.getClientRects().length),
+          text: (settings?.innerText ?? '').replace(/iori:\\/\\/pair\\S+/gi, '[invitation redacted]').replace(/[A-Za-z0-9+/_-]{40,}={0,2}/g, '[redacted]') };
+      })()`),
+      ],
+      [
+        "repeated-native-host-setup-status",
+        () =>
+          client.browser.evaluateAsync(
+            `window.__TAURI_INTERNALS__.invoke('native_host_setup_status').then(value => ({state:'resolved', canAllowConnections:value?.canAllowConnections ?? null, installed:value?.installed ?? null, host:value?.host ? {publicKey:value.host.publicKey ?? null, connectionScope:value.host.connectionScope ?? null} : null}), () => ({state:'rejected'}))`,
+          ),
+      ],
+      [
+        "repeated-native-host-firewall-status",
+        () =>
+          client.browser.evaluateAsync(
+            `window.__TAURI_INTERNALS__.invoke('native_host_firewall_status').then(value => ({state:'resolved', value}), () => ({state:'rejected'}))`,
+          ),
+      ],
+    ]) {
+      try {
+        record(name, await collect());
+      } catch {
+        record(name, { state: "unavailable" });
+      }
+    }
+    throw error;
+  }
+}
+async function waitForLoopbackInstall() {
+  await waitFor(async () => {
+    const desktop = await windowsDesktop(state, "foreground-capture", {
+      screenshot: path.join(root, "windows-security-warning.png"),
+    });
+    if (desktop.windowsSecurityWarning)
+      throw new Error("Windows Security warning appeared during installation");
+    const setup = '[data-iori-view="host-setup"]';
+    if (!(await client.screen.visible(setup)))
+      return client.screen.visible('[data-iori-view="workspace"]');
+    const text = await client.screen.text(setup);
+    return (
+      text.includes("このデバイスを登録しました。") &&
+      text.includes("この PCからは接続できます。") &&
+      !(await client.screen.visible('[data-iori-action="setup-submit"]'))
+    );
+  });
+  if (await client.screen.visible('[data-iori-view="host-setup"]')) {
+    await client.screen.click('[data-iori-action="ssh-cancel"]');
+    await waitFor(
+      () => client.screen.visible('[data-iori-view="host-setup"]'),
+      (visible) => !visible,
+    );
+  }
+}
+function loopbackEndpoints() {
+  const endpoints = JSON.parse(
+    windows(
+      `$processes=@(Get-CimInstance Win32_Process | Where-Object {$_.ExecutablePath -ieq ${ps(program)}} | Select-Object -ExpandProperty ProcessId);@{endpoints=@(Get-NetUDPEndpoint | Where-Object {$_.OwningProcess -in $processes -and $_.LocalPort -eq ${verificationPort}} | Select-Object LocalAddress,LocalPort,OwningProcess)} | ConvertTo-Json -Depth 4 -Compress`,
+    ),
+  ).endpoints;
+  assert.ok(endpoints.some((entry) => entry.LocalAddress === "127.0.0.1"));
+  if (
+    windows(
+      "[bool](Get-NetIPAddress -AddressFamily IPv6 -IPAddress '::1' -ErrorAction SilentlyContinue)",
+    ) === "True"
+  )
+    assert.ok(endpoints.some((entry) => entry.LocalAddress === "::1"));
+  assert.ok(
+    endpoints.every((entry) =>
+      ["127.0.0.1", "::1"].includes(entry.LocalAddress),
+    ),
+  );
+  return endpoints;
+}
+async function restartDiagnostics(step) {
+  const snapshot = JSON.parse(
+    windows(
+      `$root=${ps(data + "\\iori-host")};$processes=@(Get-CimInstance Win32_Process | Where-Object {$_.ExecutablePath -ieq ${ps(program)} -or $_.ExecutablePath -ieq ${ps(bundle + "\\iori-host-background.exe")}});$pids=@($processes | Select-Object -ExpandProperty ProcessId);$maintenance=Join-Path $root 'maintenance';$operations=@();if(Test-Path -LiteralPath $maintenance){$operations=@(Get-ChildItem -LiteralPath $maintenance -Filter '*.json' | ForEach-Object {try{$v=Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json;@{name=$_.Name;kind=$v.kind;phase=$v.phase;reason=$v.reason;stage=$v.stage}}catch{@{name=$_.Name;unreadable=$true}}})};$control=Join-Path $root 'control.json';$controlPort=$null;if(Test-Path -LiteralPath $control){$controlPort=(Get-Content -LiteralPath $control -Raw | ConvertFrom-Json).port};@{processes=@($processes | Select-Object Name,ProcessId,ParentProcessId,CreationDate,SessionId);endpoints=@(Get-NetUDPEndpoint | Where-Object {$_.OwningProcess -in $pids} | Select-Object LocalAddress,LocalPort,OwningProcess);maintenance=$operations;controlPort=$controlPort;logFiles=@(Get-ChildItem -LiteralPath $root -File | Where-Object {$_.Extension -in '.log','.txt'} | ForEach-Object {$_.FullName.Substring($root.Length)})} | ConvertTo-Json -Depth 8 -Compress`,
+    ),
+  );
+  snapshot.ui = await client.screen.text('[data-iori-view="settings"]');
+  snapshot.logs = windows(
+    `$files=@(${ps(state.windowsRoot + "\\driver.log")});$cache=Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) ${ps(verificationIdentifier)};if(Test-Path -LiteralPath $cache){$files+=@(Get-ChildItem -LiteralPath $cache -Recurse -Filter 'startup-error.txt' -File | Select-Object -ExpandProperty FullName)};foreach($file in $files){if(Test-Path -LiteralPath $file){[IO.Path]::GetFileName($file);Get-Content -LiteralPath $file -Tail 80}}`,
+  )
+    .replace(/iori:\/\/pair\S+/giu, "[invitation redacted]")
+    .replace(/[A-Za-z0-9+/_-]{40,}={0,2}/gu, "[redacted]");
+  record(step, snapshot);
+}
 try {
   const baseline = windowsFirewallBaseline(ruleName);
   record("firewall-before", baseline);
@@ -117,7 +253,7 @@ try {
   );
   prepareWindowsClientStorage(state);
   storagePrepared = true;
-  if (previousArchive || activeTerminal) {
+  if (previousArchive || activeTerminal || uninstallerSource) {
     await prepareRemovalEvidence(
       state,
       evidence,
@@ -126,7 +262,7 @@ try {
         : process.argv.includes("--fail-after-terminals")
           ? "rollback"
           : undefined,
-      activeTerminal,
+      activeTerminal || Boolean(uninstallerSource),
       uninstallerSource,
     );
   }
@@ -139,7 +275,7 @@ try {
     );
   }
   distribution = await startDistribution(path.join(evidence, "distribution"), {
-    keepCredentials: process.argv.includes("--keep-build"),
+    keepCredentials: true,
   });
   distribution.publish();
   client = await startWindowsClient(state);
@@ -154,15 +290,11 @@ try {
   await capture("setup-dialog");
   if (!previousArchive)
     assert.equal(
-      await client.screen.attribute(
-        '[data-iori-field="setup-allow-connections"]',
-        "data-state",
-      ),
-      "checked",
+      await client.screen.attribute(allowConnections, "aria-checked"),
+      "true",
     );
   if (uninstall) {
-    if (!previousArchive)
-      await client.screen.click('[data-iori-field="setup-allow-connections"]');
+    if (!previousArchive) await client.screen.click(allowConnections);
     installationAttempted = true;
     await client.screen.click('[data-iori-action="setup-submit"]');
   } else {
@@ -179,13 +311,123 @@ try {
     assert.equal(installedUac.consentObserved, true);
     assert.equal(installedUac.rules.length, 1);
   }
-  await waitFor(
-    async () =>
-      (await client.screen.visible('[data-iori-view="workspace"]')) &&
-      !(await client.screen.visible('[data-iori-view="host-setup"]')),
-  );
+  if (loopbackOnly) await waitForLoopbackInstall();
+  else
+    await waitFor(
+      async () =>
+        (await client.screen.visible('[data-iori-view="workspace"]')) &&
+        !(await client.screen.visible('[data-iori-view="host-setup"]')),
+    );
   record("installed-and-registered", true);
-  await openSettingsSection(client.screen, "settings-general");
+  if (loopbackOnly) {
+    assert.equal(
+      JSON.parse(
+        windows(
+          `Get-Content -LiteralPath ${ps(data + "\\iori-host\\network.json")} -Raw`,
+        ),
+      ).scope,
+      "loopback",
+    );
+    record("loopback-endpoints", loopbackEndpoints());
+    await settingsStep(() =>
+      openSettingsSection(client.screen, "open-devices"),
+    );
+    const devices = '[data-iori-view="devices"]';
+    await settingsStep(() => client.screen.wait(devices));
+    assert.equal(
+      await client.screen.visible('[data-iori-action="invite"]'),
+      false,
+    );
+    assert.equal(
+      await client.screen.visible('[data-iori-field="issued-invitation"]'),
+      false,
+    );
+    assert.equal(
+      await client.screen.visible(
+        '[data-iori-view="invitation"] .invitation-qr-container',
+      ),
+      false,
+    );
+    assert.ok(
+      (await client.screen.text(devices)).includes(
+        "この PCからは接続できます。ほかのデバイスから接続するには、設定の「接続」で「ほかのデバイスからの接続を許可する」を押してください。",
+      ),
+    );
+    await capture("loopback-devices");
+    const publicKey = await client.screen.attribute(
+      '[data-iori-action="settings-host-select"]',
+      "data-iori-host-key",
+    );
+    const addon = loadNativeAddon();
+    const identity = addon.generateIdentity();
+    const endpoint = await addon.Endpoint.bind(identity.secretKey, [
+      "0.0.0.0:0",
+    ]);
+    identity.secretKey.fill(0);
+    try {
+      await assert.rejects(
+        endpoint.connect(Buffer.from(publicKey, "hex"), [
+          `${verificationLocal.windows.address}:${verificationPort}`,
+        ]),
+      );
+      record("lan-connection-rejected", true);
+    } finally {
+      endpoint.close();
+    }
+    await settingsStep(() =>
+      openSettingsSection(client.screen, "open-connection"),
+    );
+    assert.equal(
+      (await client.screen.text('[data-iori-view="settings"]')).includes(
+        "許可済み",
+      ),
+      false,
+    );
+    if (!skipRestart) {
+      windows(
+        `[IO.File]::WriteAllText(${ps(data + "\\iori-host\\network.json")},${ps(restartScope === "empty" ? "" : JSON.stringify({ scope: restartScope }))})`,
+      );
+      await settingsStep(() =>
+        openSettingsSection(client.screen, "open-host-version"),
+      );
+      await restartDiagnostics("before-restart");
+      await client.screen.click('[data-iori-action="host-restart"]');
+      await settingsStep(() =>
+        client.screen.wait('[data-iori-action="host-maintenance-confirm"]'),
+      );
+      await client.screen.click(
+        '[data-iori-action="host-maintenance-confirm"]',
+      );
+      try {
+        await settingsStep(() =>
+          waitFor(async () => {
+            const desktop = await windowsDesktop(state, "foreground-capture", {
+              screenshot: path.join(root, "windows-security-warning.png"),
+            });
+            if (desktop.windowsSecurityWarning)
+              throw new Error(
+                "Windows Security warning appeared during restart",
+              );
+            return client.screen.visible('[data-iori-state="host-succeeded"]');
+          }),
+        );
+      } finally {
+        await restartDiagnostics("after-restart");
+      }
+      await settingsStep(() =>
+        openSettingsSection(client.screen, "open-devices"),
+      );
+      await settingsStep(() =>
+        client.screen.wait('[data-iori-state="connected"]'),
+      );
+      if (restartScope !== "network")
+        record("loopback-restart-endpoints", loopbackEndpoints());
+    }
+    await client.screen.click('[data-iori-action="settings-close"]');
+  }
+  await settingsStep(() =>
+    openSettingsSection(client.screen, "settings-general"),
+  );
   assert.equal(
     await client.screen.visible('[data-iori-action="general-close-to-exit"]'),
     true,
@@ -319,16 +561,15 @@ try {
       record("terminal-process-stopped", true);
     }
     if (!previousArchive && !activeTerminal) {
-      await client.screen.click('[data-iori-action="settings-close"]');
-      await openSettingsSection(client.screen, "open-connection");
-      await client.screen.click('[data-iori-action="register-new-host"]');
       await client.screen.click('[data-iori-action="setup-host"]');
-      await client.screen.click('[data-iori-field="setup-allow-connections"]');
+      await client.screen.click(allowConnections);
       await client.screen.click('[data-iori-action="setup-submit"]');
-      await waitFor(
-        () => client.screen.visible('[data-iori-view="host-setup"]'),
-        (value) => !value,
-      );
+      if (loopbackOnly) await waitForLoopbackInstall();
+      else
+        await waitFor(
+          () => client.screen.visible('[data-iori-view="host-setup"]'),
+          (value) => !value,
+        );
       assert.equal(
         windows(
           `(Get-FileHash -Algorithm SHA256 -LiteralPath ${ps(data + "\\iori-host\\host-key")}).Hash`,
@@ -340,8 +581,12 @@ try {
     }
   } else {
     record("after-uac-window", await capture("registered"));
-    await openSettingsSection(client.screen, "open-connection");
-    await client.screen.wait('[data-iori-action="allow-host-connections"]');
+    await settingsStep(() =>
+      openSettingsSection(client.screen, "open-connection"),
+    );
+    await settingsStep(() =>
+      client.screen.reveal('[data-iori-action="allow-host-connections"]'),
+    );
     await capture("connection-settings");
     if (manualReapply) {
       // Leave the Client open. The Owner operates the button, UAC and the UI.
@@ -358,16 +603,26 @@ try {
       );
     } else {
       await client.screen.click('[data-iori-action="register-new-host"]');
-      await client.screen.wait('[data-iori-view="host-choices"]');
+      await settingsStep(() =>
+        client.screen.wait('[data-iori-view="host-choices"]'),
+      );
       await capture("settings-choices");
       await client.screen.click('[data-iori-action="connect-invitation"]');
-      await client.screen.wait('[data-iori-field="invitation"]');
+      await settingsStep(() =>
+        client.screen.wait('[data-iori-field="invitation"]'),
+      );
       await capture("settings-invitation");
       await client.screen.click('[data-iori-action="back"]');
-      await client.screen.wait('[data-iori-view="host-choices"]');
+      await settingsStep(() =>
+        client.screen.wait('[data-iori-view="host-choices"]'),
+      );
       await client.screen.key("Escape");
-      await openSettingsSection(client.screen, "open-connection");
-      await client.screen.wait('[data-iori-action="allow-host-connections"]');
+      await settingsStep(() =>
+        openSettingsSection(client.screen, "open-connection"),
+      );
+      await settingsStep(() =>
+        client.screen.reveal('[data-iori-action="allow-host-connections"]'),
+      );
       await approval("reapply-firewall");
       const reapplied = await windowsConsentOperation(
         state,
@@ -388,9 +643,11 @@ try {
       assert.equal(rule.action, "Allow");
       assert.equal(rule.direction, "Inbound");
       assert.equal(rule.enabled, "True");
-      await waitFor(() =>
-        client.screen.evaluate(
-          `document.querySelector('[data-iori-action="allow-host-connections"]')?.disabled === false`,
+      await settingsStep(() =>
+        waitFor(() =>
+          client.screen.evaluate(
+            `document.querySelector('[data-iori-action="allow-host-connections"]')?.disabled === false`,
+          ),
         ),
       );
       await capture("reapplied");
@@ -407,13 +664,38 @@ try {
         record("android-connected", true);
       }
       // Do not photograph the Windows invitation or its QR code.
-      await openSettingsSection(client.screen, "open-connection");
+      await settingsStep(() =>
+        openSettingsSection(client.screen, "open-connection"),
+      );
       await capture("completed");
     }
   }
   result.passed = true;
 } catch (error) {
   result.error = error.stack;
+  if (
+    loopbackOnly &&
+    client &&
+    !error.message.includes("Windows Security warning")
+  ) {
+    try {
+      const desktop = await windowsDesktop(state, "foreground-capture", {
+        screenshot: path.join(root, "windows-security-warning.png"),
+      });
+      if (desktop.windowsSecurityWarning) {
+        result.error = "Windows Security warning appeared during installation";
+      } else if (
+        !(await client.screen.visible('[data-iori-field="issued-invitation"]'))
+      ) {
+        await writeFile(
+          path.join(root, "loopback-setup-failure.png"),
+          Buffer.from(await client.browser.screenshot(), "base64"),
+        );
+      }
+    } catch (captureError) {
+      record("failure-capture-error", captureError.message);
+    }
+  }
   if (previousArchive || activeTerminal) {
     record("removal-diagnostics", removalDiagnostics(state));
     if (activeTerminal) record("active-removal", activeRemovalEvidence(state));
@@ -466,7 +748,22 @@ try {
         assert.equal(cleanup.remaining, 0);
       },
     ],
-    ["distribution", async () => distribution?.close()],
+    [
+      "distribution",
+      async () => {
+        await distribution?.close();
+        if (result.passed && !process.argv.includes("--keep-build")) {
+          await rm(path.join(evidence, "distribution/tls"), {
+            recursive: true,
+            force: true,
+          });
+          await rm(path.join(evidence, "distribution/signing"), {
+            recursive: true,
+            force: true,
+          });
+        }
+      },
+    ],
   ]) {
     try {
       await operation();

@@ -1,3 +1,4 @@
+import { translator } from "../i18n.ts";
 import {
   parseResult,
   parseReadingChangedEvent,
@@ -211,36 +212,15 @@ export function readErrorCopy(
   locale: string,
 ): string | undefined {
   if (!(error instanceof ReadError)) return undefined;
-  const ja = locale.startsWith("ja");
-  const copy: Record<string, [string, string]> = {
-    path_outside_root: [
-      "This path is outside the open folder.",
-      "このパスは開いたフォルダーの外にあります。",
-    ],
-    path_not_found: [
-      "This file was deleted or moved.",
-      "ファイルが削除または移動されました。",
-    ],
-    not_a_directory: [
-      "This path is not a folder.",
-      "このパスはフォルダーではありません。",
-    ],
-    not_a_file: ["Choose a file to read.", "ファイルを選択してください。"],
-    not_git_repository: [
-      "This folder is not in a Git repository.",
-      "このフォルダーはGitリポジトリに含まれていません。",
-    ],
-    git_failed: [
-      "Git could not read this repository.",
-      "Gitでこのリポジトリを読み込めませんでした。",
-    ],
-    permission_denied: [
-      "Permission to read this was denied.",
-      "読み取る権限がありません。",
-    ],
+  const t = translator(locale);
+  const copy: Record<string, string> = {
+    path_outside_root: "This path is outside the open folder.",
+    path_not_found: "This file was deleted or moved.",
+    not_a_directory: "This path is not a folder.",
+    not_a_file: "Choose a file to read.",
+    not_git_repository: "This folder is not in a Git repository.",
+    git_failed: "Git could not read this repository.",
+    permission_denied: "Permission to read this was denied.",
   };
-  return (
-    copy[error.code]?.[ja ? 1 : 0] ??
-    (ja ? "読み込めませんでした。" : "Could not read this.")
-  );
+  return t(copy[error.code] ?? "Could not read this.");
 }

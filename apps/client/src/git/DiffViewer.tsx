@@ -1,3 +1,4 @@
+import { translator } from "../i18n.ts";
 import {
   useEffect,
   useMemo,
@@ -56,7 +57,7 @@ export function DiffViewer({
   active?: boolean;
   onBackHandler?: (handler: (() => boolean) | undefined) => void;
 }) {
-  const ja = locale.startsWith("ja");
+  const t = translator(locale);
   const [, render] = useReducer((value: number) => value + 1, 0);
   const [findRequest, setFindRequest] = useState(0);
   const key = JSON.stringify(source);
@@ -99,29 +100,24 @@ export function DiffViewer({
     !Object.values(images).every((image) => image.info || image.error);
   const shown: string[] = [...notes];
   if (info?.binary && !isImage && !probingImage)
-    shown.push(
-      ja
-        ? "バイナリのため、行の差分はありません。"
-        : "Binary file: there is no line diff.",
-    );
+    shown.push(t("Binary file: there is no line diff."));
   if (info?.directory)
     shown.push(
-      ja
-        ? "フォルダーです（入れ子のリポジトリなど）。行の差分はありません。"
-        : "This is a folder (such as a nested repository); there is no line diff.",
+      t(
+        "This is a folder (such as a nested repository); there is no line diff.",
+      ),
     );
   if (
     info?.newFile &&
     !(source.kind === "change" && source.area === "untracked")
   )
-    shown.push(ja ? "新しく追加されたファイルです。" : "This file was added.");
-  if (info?.deletedFile)
-    shown.push(ja ? "削除されたファイルです。" : "This file was deleted.");
+    shown.push(t("This file was added."));
+  if (info?.deletedFile) shown.push(t("This file was deleted."));
   if (info?.oldMode && info.newMode && info.oldMode !== info.newMode)
     shown.push(
-      ja
-        ? `モードの変更: ${info.oldMode} → ${info.newMode}`
-        : `Mode changed: ${info.oldMode} → ${info.newMode}`,
+      t("Mode changed: {value1} → {value2}")
+        .replace("{value1}", () => String(info.oldMode))
+        .replace("{value2}", () => String(info.newMode)),
     );
   if (
     document.revision &&
@@ -129,13 +125,11 @@ export function DiffViewer({
     !info?.binary &&
     !info?.directory
   )
-    shown.push(
-      ja ? "内容の差分はありません。" : "There are no content changes.",
-    );
+    shown.push(t("There are no content changes."));
   const actions: MenuAction[] = onFileHistory
     ? [
         {
-          label: ja ? "ファイル履歴" : "File history",
+          label: t("File history"),
           icon: <History />,
           action: "file-history",
           run: onFileHistory,
@@ -158,8 +152,8 @@ export function DiffViewer({
             size="icon-sm"
             data-iori-action="git-diff-wrap"
             aria-pressed={position.wrap}
-            aria-label={ja ? "折り返す" : "Wrap lines"}
-            title={ja ? "折り返す" : "Wrap lines"}
+            aria-label={t("Wrap lines")}
+            title={t("Wrap lines")}
             onClick={() => onPosition({ ...position, wrap: !position.wrap })}
           >
             <WrapText />
@@ -170,8 +164,8 @@ export function DiffViewer({
             variant="ghost"
             size="icon-sm"
             data-iori-action="git-file-history"
-            aria-label={ja ? "ファイル履歴" : "File history"}
-            title={ja ? "ファイル履歴" : "File history"}
+            aria-label={t("File history")}
+            title={t("File history")}
             onClick={onFileHistory}
           >
             <History />
@@ -182,8 +176,8 @@ export function DiffViewer({
             variant="ghost"
             size="icon-sm"
             data-iori-action="open-find"
-            aria-label={ja ? "差分を検索" : "Find in diff"}
-            title={ja ? "差分を検索（Ctrl+F）" : "Find in diff (Ctrl+F)"}
+            aria-label={t("Find in diff")}
+            title={t("Find in diff (Ctrl+F)")}
             onClick={() => setFindRequest((value) => value + 1)}
           >
             <Search />
@@ -200,7 +194,7 @@ export function DiffViewer({
       {!document.revision && document.error ? (
         <ReadingError
           centered
-          retryLabel={ja ? "再試行" : "Retry"}
+          retryLabel={t("Retry")}
           onRetry={() => document.retry()}
         >
           {readErrorCopy(document.error, locale)}

@@ -122,6 +122,7 @@ import { useI18n } from "./context.tsx";
 import { ModelPicker } from "./ModelPicker.tsx";
 import { AgentSettings } from "./AgentSettings.tsx";
 import { AgentsPage } from "./AgentsPage.tsx";
+import { historySummary } from "./team-history.ts";
 import { TeamHistoryEntry } from "./TeamHistoryEntry.tsx";
 import { connection } from "../connection.ts";
 import { native } from "../native.ts";
@@ -1039,6 +1040,11 @@ export function TeamEditor({
   const [agentExpanded, setAgentExpanded] = useState<Record<string, boolean>>(
     {},
   );
+  const [saveConflict, setSaveConflict] = useState<{
+    current: SavedRecord | null;
+    editedFrom: number;
+  } | null>(null);
+  const [conflictError, setConflictError] = useState(false);
   const [saveMessage, setSaveMessage] = useState("");
   const [message, setMessage] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -1101,14 +1107,19 @@ export function TeamEditor({
     }).format(new Date(value));
   const updateHost = (fn: (value: HostTeams) => HostTeams) =>
     setHosts((current) => ({ ...current, [host]: fn(current[host]) }));
-  const editTeam = (fn: (value: Team) => Team) => {
-    if (!team) return;
+  const updateTeamDraft = (
+    teamId: string,
+    fn: (draft: Team, saved: Team) => Team,
+  ) =>
     updateHost((d) => ({
       ...d,
       teams: d.teams.map((r) =>
-        r.draft.id === team.id ? { ...r, draft: fn(r.draft) } : r,
+        r.draft.id === teamId ? { ...r, draft: fn(r.draft, r.saved) } : r,
       ),
     }));
+  const editTeam = (fn: (value: Team) => Team) => {
+    if (!team) return;
+    updateTeamDraft(team.id, fn);
     setSaveMessage("");
   };
   const editRole = (changes: Partial<Role>) =>
@@ -1130,13 +1141,7 @@ export function TeamEditor({
         teamId: selectedRecord.saved.id,
         detail: "overview",
       });
-    if (team)
-      updateHost((d) => ({
-        ...d,
-        teams: d.teams.map((r) =>
-          r.draft.id === team.id ? { ...r, draft: clone(r.saved) } : r,
-        ),
-      }));
+    if (team) updateTeamDraft(team.id, (_draft, saved) => clone(saved));
     setSaveMessage("");
   };
   const editors = useRef(new Set<SettingsEditor>());
@@ -1182,7 +1187,21 @@ export function TeamEditor({
       guard(change);
     else change();
   };
-  const save = async () => {
+  const cancelConflict = () => {
+    if (working) return;
+    setSaveConflict(null);
+    setConflictError(false);
+    cancelLeave();
+  };
+  const finishConflict = (navigate = true) => {
+    const action = navigate ? savingLeave.current : null;
+    setSaveConflict(null);
+    setConflictError(false);
+    cancelLeave();
+    action?.();
+  };
+  // A restored draft retains the version it was edited from, even after reconnecting.
+  const save = async (baseVersion = team?.version, editedFrom?: number) => {
     if (!team || !dirty) return false;
     const submitted = clone(team);
     if (!team.name.trim()) {
@@ -1194,12 +1213,34 @@ export function TeamEditor({
       return false;
     }
     setWorkingOn("save");
+    setConflictError(false);
     try {
       const response = await connection.requestHost(host, "teams.save", {
         teamId: team.id,
         definition: submitted,
+        baseVersion,
+        ...(editedFrom === undefined ? {} : { editedFrom }),
       });
-      if (response?.ok) {
+      const result = response?.ok ? response.result : undefined;
+      const saved =
+        result && "conflict" in result
+          ? result.conflict === "changed" &&
+            JSON.stringify({
+              ...result.current.saved,
+              version: submitted.version,
+              updated: submitted.updated,
+            }) === JSON.stringify(submitted)
+            ? result.current
+            : undefined
+          : result;
+      if (result && "conflict" in result && !saved) {
+        setSaveConflict({
+          current: result.conflict === "changed" ? result.current : null,
+          editedFrom: editedFrom ?? submitted.version,
+        });
+        return "conflict";
+      }
+      if (saved) {
         setHosts((current) => ({
           ...current,
           [host]: {
@@ -1207,25 +1248,27 @@ export function TeamEditor({
             teams: current[host].teams.map((record) =>
               record.saved.id === submitted.id
                 ? {
-                    ...response.result,
+                    ...saved,
                     draft:
                       JSON.stringify(record.draft) === JSON.stringify(submitted)
-                        ? clone(response.result.saved)
+                        ? clone(saved.saved)
                         : {
                             ...record.draft,
-                            version: response.result.saved.version,
-                            updated: response.result.saved.updated,
+                            version: saved.saved.version,
+                            updated: saved.saved.updated,
                           },
                   }
                 : record,
             ),
           },
         }));
-        setSaveMessage("Saved");
+        setSaveMessage(editedFrom === undefined ? "Saved" : "");
         return true;
-      } else setSaveMessage("Could not save team. Check the values and retry.");
+      } else if (editedFrom !== undefined) setConflictError(true);
+      else setSaveMessage("Could not save team. Check the values and retry.");
     } catch {
-      setSaveMessage("Could not save team. Reconnect and retry.");
+      if (editedFrom !== undefined) setConflictError(true);
+      else setSaveMessage("Could not save team. Reconnect and retry.");
     } finally {
       setWorkingOn(undefined);
     }
@@ -1399,13 +1442,9 @@ export function TeamEditor({
       t("Purpose\nScope\nCompletion criteria\nConstraints"),
       t("Changes\nVerification results\nRemaining issues\nQuestions to parent"),
     );
-    updateHost((d) => ({
-      ...d,
-      teams: d.teams.map((r) =>
-        r.draft.id === teamId
-          ? { ...r, draft: { ...r.draft, roles: [...r.draft.roles, fresh] } }
-          : r,
-      ),
+    updateTeamDraft(teamId, (draft) => ({
+      ...draft,
+      roles: [...draft.roles, fresh],
     }));
     setExpanded((e) => ({ ...e, [teamId]: true }));
     go({ page: "team", teamId, detail: fresh.id });
@@ -1449,19 +1488,9 @@ export function TeamEditor({
               .forEach((c) => {
                 c.id = crypto.randomUUID();
               });
-            updateHost((d) => ({
-              ...d,
-              teams: d.teams.map((record) =>
-                record.draft.id === teamId
-                  ? {
-                      ...record,
-                      draft: {
-                        ...record.draft,
-                        roles: [...record.draft.roles, fresh],
-                      },
-                    }
-                  : record,
-              ),
+            updateTeamDraft(teamId, (draft) => ({
+              ...draft,
+              roles: [...draft.roles, fresh],
             }));
             selectTeamDetail(teamId, fresh.id);
           })
@@ -1478,21 +1507,9 @@ export function TeamEditor({
               title: "Delete role?",
               text: `${r.name} — ${t("Started conversations and records will remain.")}`,
               action: () => {
-                updateHost((d) => ({
-                  ...d,
-                  teams: d.teams.map((record) =>
-                    record.draft.id === teamId
-                      ? {
-                          ...record,
-                          draft: {
-                            ...record.draft,
-                            roles: record.draft.roles.filter(
-                              (v) => v.id !== r.id,
-                            ),
-                          },
-                        }
-                      : record,
-                  ),
+                updateTeamDraft(teamId, (draft) => ({
+                  ...draft,
+                  roles: draft.roles.filter((v) => v.id !== r.id),
                 }));
                 selectTeamDetail(teamId, "overview");
               },
@@ -2433,6 +2450,186 @@ export function TeamEditor({
         </div>
       </div>
       <Dialog
+        open={!!saveConflict}
+        onOpenChange={(open) => {
+          if (!open) cancelConflict();
+        }}
+      >
+        <DialogContent
+          className="team-dialog"
+          showCloseButton={false}
+          data-iori-view="team-save-conflict"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            document
+              .querySelector<HTMLButtonElement>(
+                ".team-surface:not([hidden]) .team-save-button",
+              )
+              ?.focus();
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>
+              {t(
+                saveConflict?.current
+                  ? "This team was changed on another device"
+                  : "This team was deleted on another device",
+              )}
+            </DialogTitle>
+            {saveConflict?.current && (
+              <p className="page-description">
+                {[
+                  t("Version {version}").replace(
+                    "{version}",
+                    String(saveConflict.current.saved.version),
+                  ),
+                  date(saveConflict.current.saved.updated),
+                  historySummary(saveConflict.current.history[0], t),
+                ].join(" · ")}
+              </p>
+            )}
+            <DialogDescription>
+              {t(
+                saveConflict?.current
+                  ? "Reloading discards your unsaved changes on this device. Overwriting saves your changes as a new version, and the other device’s changes stay in History."
+                  : "To keep your changes, save them as a new team.",
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          {(saveConflict?.current || conflictError) && (
+            <SaveResult
+              message={
+                conflictError ? t("Could not save the team. Try again.") : ""
+              }
+              error={conflictError}
+            />
+          )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              data-iori-action="team-conflict-cancel"
+              disabled={working}
+              onClick={cancelConflict}
+            >
+              {t("Cancel")}
+            </Button>
+            {saveConflict?.current ? (
+              <>
+                <Button
+                  variant="outline"
+                  data-iori-action="team-conflict-reload"
+                  disabled={working}
+                  onClick={() => {
+                    const current = saveConflict.current!;
+                    putRecord(current);
+                    if (
+                      selection.page === "team" &&
+                      !["overview", "parent"].includes(selection.detail) &&
+                      !current.saved.roles.some(
+                        (role) => role.id === selection.detail,
+                      )
+                    )
+                      setSelection({
+                        page: "team",
+                        teamId: current.saved.id,
+                        detail: "overview",
+                      });
+                    setSaveMessage("");
+                    finishConflict();
+                  }}
+                >
+                  {t("Reload")}
+                </Button>
+                <Button
+                  variant="outline"
+                  data-iori-action="team-conflict-overwrite"
+                  disabled={working}
+                  pending={workingOn === "save"}
+                  onClick={async () => {
+                    const saved = await save(
+                      saveConflict.current!.saved.version,
+                      saveConflict.editedFrom,
+                    );
+                    if (saved === true) finishConflict();
+                  }}
+                >
+                  {t("Overwrite")}
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  variant="outline"
+                  data-iori-action="team-conflict-discard"
+                  disabled={working}
+                  onClick={() => {
+                    if (!team) return;
+                    updateHost((d) => ({
+                      ...d,
+                      defaultTeam:
+                        d.defaultTeam === team.id ? "" : d.defaultTeam,
+                      teams: d.teams.filter((r) => r.saved.id !== team.id),
+                    }));
+                    setSelection({ page: "teams" });
+                    setMobileDetail(true);
+                    setSaveMessage("");
+                    finishConflict(false);
+                  }}
+                >
+                  {t("Discard Changes")}
+                </Button>
+                <Button
+                  data-iori-action="team-conflict-create"
+                  disabled={working}
+                  pending={workingOn === "create"}
+                  onClick={async () => {
+                    if (!team) return;
+                    setWorkingOn("create");
+                    setConflictError(false);
+                    try {
+                      const response = await connection.requestHost(
+                        host,
+                        "teams.create",
+                        { definition: clone(team) },
+                      );
+                      if (!response?.ok) {
+                        setConflictError(true);
+                        return;
+                      }
+                      updateHost((d) => ({
+                        ...d,
+                        defaultTeam:
+                          d.defaultTeam === team.id ? "" : d.defaultTeam,
+                        teams: d.teams.filter((r) => r.saved.id !== team.id),
+                      }));
+                      putRecord(response.result);
+                      setExpanded((e) => ({
+                        ...e,
+                        [response.result.saved.id]: true,
+                      }));
+                      setSelection({
+                        page: "team",
+                        teamId: response.result.saved.id,
+                        detail: "overview",
+                      });
+                      setMobileDetail(true);
+                      setSaveMessage("");
+                      finishConflict(false);
+                    } catch {
+                      setConflictError(true);
+                    } finally {
+                      setWorkingOn(undefined);
+                    }
+                  }}
+                >
+                  {t("Save as New Team")}
+                </Button>
+              </>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog
         open={!!pending}
         onOpenChange={(yes) => {
           if (!yes) cancelLeave();
@@ -2490,6 +2687,10 @@ export function TeamEditor({
                   savingLeave.current = action;
                   const saved = await save();
                   if (savingLeave.current !== action) return;
+                  if (saved === "conflict") {
+                    setPending(null);
+                    return;
+                  }
                   cancelLeave();
                   if (saved) action?.();
                 }}

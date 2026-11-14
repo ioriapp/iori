@@ -332,6 +332,20 @@ function AppContent({
       (result) => {
         const live = uninstallFlow.getSnapshot()[result.hostKey];
         if (
+          result.phase.type === "sshLost" &&
+          live?.phase.type === "sshLost" &&
+          live.operationId === result.operationId
+        ) {
+          const removal = connection.getSnapshot().removals[result.hostKey];
+          if (removal)
+            void connection
+              .setRemoval(result.hostKey, {
+                ...removal,
+                sshLostNoticeDismissed: true,
+              })
+              .catch(() => {});
+        }
+        if (
           result.phase.type === "failed" &&
           live?.phase.type === "failed" &&
           live.operationId === result.operationId
@@ -366,14 +380,19 @@ function AppContent({
         !["tokensRemaining", "filesRemaining"].includes(phase.outcome.type);
       if (
         normal ||
-        (flow.closed && ["done", "failed", "sshLost"].includes(phase.type))
+        (flow.closed &&
+          ["done", "failed", "sshLost"].includes(phase.type) &&
+          !(
+            phase.type === "sshLost" &&
+            state.removals[flow.hostKey]?.sshLostNoticeDismissed
+          ))
       ) {
         notifyUninstall(flow);
         if (phase.type === "done") setSettingsOpen(false);
         if (normal) uninstallFlow.close(flow.hostKey);
       }
     }
-  }, [uninstallFlows, t]);
+  }, [uninstallFlows, t, state.removals]);
   const detailFlow = uninstallDetail
     ? (uninstallFlows.find(
         (flow) => flow.hostKey === uninstallDetail.hostKey,

@@ -18,6 +18,8 @@ export async function checkWrittenText(entries) {
     if (
       typeof file !== "string" ||
       !file.endsWith(".md") ||
+      // Briefs, reports and handovers are working notes, not kept documents.
+      path.resolve(file).includes(`${path.sep}.local${path.sep}`) ||
       path.resolve(file) ===
         fileURLToPath(new URL("../../docs/design/wording.md", import.meta.url))
     )

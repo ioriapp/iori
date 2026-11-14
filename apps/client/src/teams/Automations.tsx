@@ -1,5 +1,6 @@
 import { pickerClis } from "../cli-list.ts";
 import { pickerTeams } from "./team-data.ts";
+import { webhookScopes, type WebhookScope } from "./webhook-scope.ts";
 import { ErrorMessage } from "../Settings.tsx";
 import { FolderPicker } from "../FolderPicker.tsx";
 import { ForgeFailure } from "../forge/ForgeFailure.tsx";
@@ -15,6 +16,7 @@ import {
   useEffect,
   useState,
   useRef,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
 import { ArrowLeft, Plus, MoreHorizontal } from "lucide-react";
@@ -132,6 +134,11 @@ export function Automations({
   registerBack: (back: () => boolean) => void;
 }) {
   const { t, language, clis } = useI18n();
+  const hostOs = useSyncExternalStore(
+    connection.subscribe,
+    () => connection.getSnapshot().observedHosts[host]?.os,
+  );
+  const scopes = webhookScopes(hostOs);
   const selectableTeams = pickerTeams(teams);
   const selectableClis = pickerClis(clis);
   const [data, setData] = useState<AutomationList>();
@@ -674,7 +681,7 @@ export function Automations({
               )}
               <Button
                 type="button"
-                disabled={working || !draftChanged}
+                disabled={!data || working || !draftChanged}
                 pending={workingOn === "save"}
                 data-iori-action="automation-save"
                 onClick={() => void save()}
@@ -1016,7 +1023,9 @@ export function Automations({
                 data-iori-field="automation-webhook"
                 checked={!!draft.webhook}
                 onCheckedChange={(enabled) =>
-                  edit({ webhook: enabled ? { scope: "lan" } : undefined })
+                  edit({
+                    webhook: enabled ? { scope: scopes[0] } : undefined,
+                  })
                 }
               />,
               t(
@@ -1040,10 +1049,17 @@ export function Automations({
                     label={t("Accept from")}
                     field="automation-webhook-scope"
                     value={draft.webhook.scope}
-                    options={[
-                      ["lan", t("LAN and VPN")],
-                      ["local", t("This machine only")],
-                    ]}
+                    selectedLabel={t(
+                      draft.webhook.scope === "lan"
+                        ? "LAN and VPN"
+                        : "This machine only",
+                    )}
+                    options={(
+                      [
+                        ["lan", t("LAN and VPN")],
+                        ["local", t("This machine only")],
+                      ] satisfies [WebhookScope, string][]
+                    ).filter(([scope]) => scopes.includes(scope))}
                     change={(scope) =>
                       edit({ webhook: { scope: scope as "lan" | "local" } })
                     }

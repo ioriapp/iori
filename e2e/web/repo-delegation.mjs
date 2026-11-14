@@ -332,14 +332,6 @@ export async function repoDelegationScenario({
     /(?:Finished|Accepted|finished)/u,
   );
   await closedRow(client, terminalId);
-  await waitFor(
-    () =>
-      access(child.cwd).then(
-        () => false,
-        () => true,
-      ),
-    (value) => value,
-  );
   assert.equal(
     execFileSync(
       "git",

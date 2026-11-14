@@ -110,10 +110,12 @@ function observation(stream, select) {
 }
 
 /** A native iroh client paired through the same invite flow as the Client. */
-export async function connectClient(dataRoot) {
+export async function connectClient(dataRoot, secretKey) {
   const invite = await localInvite(dataRoot);
   const addon = loadNativeAddon();
-  const identity = addon.generateIdentity();
+  const identity = secretKey
+    ? { secretKey: Buffer.from(secretKey) }
+    : addon.generateIdentity();
   const endpoint = await addon.Endpoint.bind(identity.secretKey, [
     "127.0.0.1:0",
   ]);
@@ -237,6 +239,10 @@ export async function connectClient(dataRoot) {
         input: (data) =>
           stream.write(
             Buffer.from(encodeFrame({ kind: "terminal.input", data })),
+          ),
+        submit: (data, id) =>
+          stream.write(
+            Buffer.from(encodeFrame({ kind: "terminal.submit", data, id })),
           ),
         // A RegExp waits for the whole match, e.g. a line through its newline.
         output: async (text) =>

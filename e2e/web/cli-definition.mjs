@@ -538,7 +538,7 @@ export async function cliDefinitionScenario({
       helperText,
       "JSONのアイコンだけの編集で補助ファイルを消さない",
     );
-    await editDefinitionIcon({ screen, id: cliId, pictures, record });
+    await editDefinitionIcon({ client, screen, id: cliId, pictures, record });
     assert.equal(
       await readFile(jsonHelper, "utf8"),
       helperText,

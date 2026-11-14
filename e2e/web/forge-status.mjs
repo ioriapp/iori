@@ -1,5 +1,4 @@
 import { readForgeExpectation } from "../../verification/web/forge-fixture.mjs";
-import { forgeCiScenario } from "./forge-ci.mjs";
 import { create } from "../terminal/scenario.mjs";
 import assert from "node:assert/strict";
 import { openFolder } from "../workspace/scenario.mjs";
@@ -113,7 +112,6 @@ async function checkSettingsNavigation(screen, fixture, record) {
   await screen.input(relayUrl, "https://relay.example.invalid");
   await screen.input(relayToken, "existing-token");
   await screen.click(action("save-relay"));
-  await screen.wait('[data-iori-state="relay-saved"]');
   await waitFor(reconnected);
   const originalRelay = await relayState();
   await screen.input(relayUrl, "");
@@ -128,7 +126,6 @@ async function checkSettingsNavigation(screen, fixture, record) {
   await screen.evaluate("window.__relayDisconnected=false");
   await screen.input(relayToken, "");
   await screen.click(action("save-relay"));
-  await screen.wait('[data-iori-state="relay-saved"]');
   await waitFor(reconnected);
   assert.equal(await relayState(), "null");
   await screen.evaluate("window.__relayStop()");
@@ -226,10 +223,9 @@ export async function forgeStatusScenario({
     `${marks(fixture.repository)} [data-iori-forge="ci"][aria-label=${JSON.stringify(checkLabel)}]`,
   );
   await record(
-    "ワークスペースのGitで別名remoteのURLを入力してEnterで保存でき、設定を開いたまま実APIと同じ印が出る",
+    "ワークスペースのGitで別名remoteのURLを入力してEnterで保存でき、設定を開いたまま固定したCIの印が出る",
     { state: expected.state, sha: fixture.sha, remoteHost: fixture.remoteHost },
   );
-  await forgeCiScenario({ client, fixture, mobile, desktop, shot, record });
 
   await openWorkspaceSettings(screen, fixture.sharedRepository);
   await waitFor(

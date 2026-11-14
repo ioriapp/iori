@@ -1,3 +1,5 @@
+import { translator } from "../i18n.ts";
+import { useNarrowBack } from "../reading/useNarrowBack.ts";
 import { useCallback, useEffect, useRef, useState } from "react";
 import "./git.css";
 import {
@@ -132,6 +134,7 @@ function GitWorkspace({
   onFileHistoryShown,
 }: GitPaneProps) {
   const ja = locale.startsWith("ja");
+  const t = translator(locale);
   const [view, setView] = useState(() => readViewState(viewState));
   const [narrow, setNarrow] = useState(false);
   const [repository, setRepository] = useState<GitRepositoryStatus>();
@@ -165,30 +168,26 @@ function GitWorkspace({
 
   // On a narrow screen, going back leaves a commit's file for the commit, and
   // the detail for the list.
-  const back = useRef(onBackHandler);
-  back.current = onBackHandler;
   const imageBack = useRef<(() => boolean) | undefined>(undefined);
   const setImageBack = useCallback((handler: (() => boolean) | undefined) => {
     imageBack.current = handler;
   }, []);
   const inCommitFile = view.mode === "history" && Boolean(view.commitFile);
   const showsDetail = narrow && view.detailOpen;
-  useEffect(() => {
-    back.current?.(
-      showsDetail
-        ? () => {
-            if (imageBack.current?.()) return true;
-            setView((value) =>
-              value.mode === "history" && value.commitFile
-                ? { ...value, commitFile: undefined }
-                : { ...value, detailOpen: false },
-            );
-            return true;
-          }
-        : undefined,
-    );
-  }, [showsDetail, inCommitFile]);
-  useEffect(() => () => back.current?.(undefined), []);
+  useNarrowBack(
+    onBackHandler,
+    showsDetail,
+    () => {
+      if (imageBack.current?.()) return true;
+      setView((value) =>
+        value.mode === "history" && value.commitFile
+          ? { ...value, commitFile: undefined }
+          : { ...value, detailOpen: false },
+      );
+      return true;
+    },
+    inCommitFile,
+  );
 
   const status = usePagedList<GitChangeEntry>(
     `status:${root}`,
@@ -302,19 +301,14 @@ function GitWorkspace({
     <Button
       variant="ghost"
       size="icon-sm"
+      className={narrow ? "reading-back" : undefined}
       data-iori-action={narrow ? "reading-back" : "toggle-git-list"}
       aria-label={
         narrow
-          ? ja
-            ? "一覧へ戻る"
-            : "Back to list"
+          ? t("Back to list")
           : view.listOpen
-            ? ja
-              ? "一覧を非表示"
-              : "Hide list"
-            : ja
-              ? "一覧を表示"
-              : "Show list"
+            ? t("Hide list")
+            : t("Show list")
       }
       aria-pressed={narrow ? undefined : view.listOpen}
       onClick={() => {
@@ -332,22 +326,18 @@ function GitWorkspace({
     <>
       {isRepository === false && (
         <p className="reading-empty">
-          {ja
-            ? "このフォルダーにはGitリポジトリがありません。"
-            : "There is no Git repository in this folder."}
+          {t("There is no Git repository in this folder.")}
         </p>
       )}
       {isRepository && counts && changeRows === 0 && (
-        <p className="reading-empty">
-          {ja ? "変更はありません。" : "There are no changes."}
-        </p>
+        <p className="reading-empty">{t("There are no changes.")}</p>
       )}
       <VirtualRows
         count={changeRows}
         rowHeight={row.height}
         dataId="git-changes"
         className="git-list-rows"
-        label={ja ? "変更" : "Changes"}
+        label={t("Changes")}
         onRange={(first, last) => {
           const a = rowAt(first);
           const b = rowAt(last);
@@ -389,11 +379,7 @@ function GitWorkspace({
             view.mode === "changes" &&
             view.change?.area === entry.area &&
             view.change.path === entry.path;
-          const issue = entry.error
-            ? ja
-              ? "読み取れません"
-              : "Unreadable"
-            : undefined;
+          const issue = entry.error ? t("Unreadable") : undefined;
           return (
             <PathMenu path={entry.absolutePath} locale={locale}>
               <button
@@ -463,9 +449,7 @@ function GitWorkspace({
           <Button
             variant="ghost"
             size="icon-xs"
-            aria-label={
-              ja ? "ファイルの絞り込みを解除" : "Clear the file filter"
-            }
+            aria-label={t("Clear the file filter")}
             data-iori-action="git-history-clear-filter"
             onClick={() =>
               update({
@@ -480,16 +464,14 @@ function GitWorkspace({
         </div>
       )}
       {history.loaded && history.count === 0 && (
-        <p className="reading-empty">
-          {ja ? "履歴はありません。" : "There is no history."}
-        </p>
+        <p className="reading-empty">{t("There is no history.")}</p>
       )}
       <VirtualRows
         count={history.count}
         rowHeight={row.height * 2 - 4}
         dataId="git-history"
         className="git-list-rows"
-        label={ja ? "commitの履歴" : "Commit history"}
+        label={t("Commit history")}
         onRange={(first, last) => history.ensure(first, last)}
         renderRow={(index) => {
           const commit = history.get(index);
@@ -527,7 +509,10 @@ function GitWorkspace({
   const failure = view.mode === "changes" ? status.error : history.error;
   const list = (
     <>
-      <div className="reading-header" data-iori-part="git-list-header">
+      <div
+        className="reading-header reading-list-header"
+        data-iori-part="git-list-header"
+      >
         <WorktreePicker
           label={repository?.branch ?? label}
           root={root}
@@ -538,14 +523,21 @@ function GitWorkspace({
         {repository && (
           <span
             className="git-branch-state"
-            title={repository.upstream ?? (ja ? "upstreamなし" : "No upstream")}
+            title={repository.upstream ?? t("No upstream")}
             data-iori-part="git-branch-state"
           >
             {repository.upstream === undefined
-              ? ja
-                ? "upstreamなし"
-                : "no upstream"
-              : `↑${repository.ahead ?? 0} ↓${repository.behind ?? 0}`}
+              ? t("no upstream")
+              : [
+                  repository.ahead === undefined
+                    ? undefined
+                    : `↑${repository.ahead}`,
+                  repository.behind === undefined
+                    ? undefined
+                    : `↓${repository.behind}`,
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
           </span>
         )}
       </div>
@@ -556,16 +548,16 @@ function GitWorkspace({
       >
         <TabsList variant="line">
           <TabsTrigger value="changes" data-iori-action="git-mode-changes">
-            {ja ? "変更" : "Changes"}
+            {t("Changes")}
           </TabsTrigger>
           <TabsTrigger value="history" data-iori-action="git-mode-history">
-            {ja ? "履歴" : "History"}
+            {t("History")}
           </TabsTrigger>
         </TabsList>
       </Tabs>
       {Boolean(failure) && (
         <ReadingError
-          retryLabel={ja ? "再試行" : "Retry"}
+          retryLabel={t("Retry")}
           action="git-list-retry"
           onRetry={() =>
             view.mode === "changes" ? status.retry() : history.retry()
@@ -633,7 +625,7 @@ function GitWorkspace({
                   <span
                     className="git-stage-switch"
                     role="group"
-                    aria-label={ja ? "競合の段階" : "Conflict stage"}
+                    aria-label={t("Conflict stage")}
                   >
                     {(change.stages ?? []).map((stage) => (
                       <Button
@@ -649,16 +641,10 @@ function GitWorkspace({
                         }
                       >
                         {stage === 1
-                          ? ja
-                            ? "ベース"
-                            : "Base"
+                          ? t("Base")
                           : stage === 2
-                            ? ja
-                              ? "現在の変更"
-                              : "Ours"
-                            : ja
-                              ? "入力側の変更"
-                              : "Theirs"}
+                            ? t("Ours")
+                            : t("Theirs")}
                       </Button>
                     ))}
                   </span>
@@ -669,9 +655,9 @@ function GitWorkspace({
           notes={
             change.area === "untracked"
               ? [
-                  ja
-                    ? "Gitがまだ追跡していないファイルです。全体が追加として表示されます。"
-                    : "Git does not track this file yet; all of it shows as added.",
+                  t(
+                    "Git does not track this file yet; all of it shows as added.",
+                  ),
                 ]
               : []
           }
@@ -681,9 +667,7 @@ function GitWorkspace({
         <>
           <div className="reading-header">{listToggle}</div>
           <p className="reading-empty">
-            {ja
-              ? "一覧から変更を選んでください"
-              : "Select a change to see its diff"}
+            {t("Select a change to see its diff")}
           </p>
         </>
       )
@@ -715,7 +699,7 @@ function GitWorkspace({
               variant="ghost"
               size="icon-sm"
               data-iori-action={narrow ? "reading-back" : "git-commit-back"}
-              aria-label={ja ? "commitに戻る" : "Back to the commit"}
+              aria-label={t("Back to the commit")}
               onClick={() => update({ commitFile: undefined })}
             >
               <ArrowLeft />
@@ -760,9 +744,7 @@ function GitWorkspace({
       <>
         <div className="reading-header">{listToggle}</div>
         <p className="reading-empty">
-          {ja
-            ? "一覧からcommitを選んでください"
-            : "Select a commit to see its details"}
+          {t("Select a commit to see its details")}
         </p>
       </>
     );
@@ -773,7 +755,7 @@ function GitWorkspace({
       <div ref={row.probe} className="reading-row-probe" aria-hidden="true" />
       {watchError && (
         <ReadingError
-          retryLabel={ja ? "再試行" : "Retry"}
+          retryLabel={t("Retry")}
           action="git-watch-retry"
           onRetry={() => setWatchRetry((value) => value + 1)}
         >

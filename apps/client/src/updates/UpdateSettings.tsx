@@ -241,17 +241,19 @@ export function UpdateSettings({
           data-iori-state="update-error"
         >
           {t(
-            update.error === "appimagelocation"
-              ? "Cannot update the AppImage in this location. Move it to a folder you can write to, then open it again."
-              : update.error === "verification"
-                ? "The update could not be verified. Try checking for updates again."
-                : update.error === "cancelled"
-                  ? "Installation cancelled. You can try again."
-                  : update.error === "source"
-                    ? "Could not reach the update source. Check your connection and try again."
-                    : update.error === "download"
-                      ? "Could not download the update. Try again."
-                      : "Could not install the update. Try again.",
+            update.error === "host-preparation"
+              ? "Could not prepare the iori Host update. Try again."
+              : update.error === "appimagelocation"
+                ? "Cannot update the AppImage in this location. Move it to a folder you can write to, then open it again."
+                : update.error === "verification"
+                  ? "The update could not be verified. Try checking for updates again."
+                  : update.error === "cancelled"
+                    ? "Installation cancelled. You can try again."
+                    : update.error === "source"
+                      ? "Could not reach the update source. Check your connection and try again."
+                      : update.error === "download"
+                        ? "Could not download the update. Try again."
+                        : "Could not install the update. Try again.",
           )}
         </p>
       )}

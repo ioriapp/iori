@@ -1,4 +1,22 @@
+import { parseGitWorktrees } from "./worktree-list.ts";
 import { lstat, rm } from "node:fs/promises";
+import { relative } from "node:path";
+import { collectGit } from "./git-process.ts";
+
+export async function worktreeRegistered(
+  repository: string,
+  path: string,
+): Promise<boolean> {
+  const { stdout } = await collectGit(repository, [
+    "worktree",
+    "list",
+    "--porcelain",
+    "-z",
+  ]);
+  return parseGitWorktrees(stdout.toString("utf8")).some(
+    (entry) => relative(entry.path, path) === "",
+  );
+}
 
 async function exists(path: string): Promise<boolean> {
   try {

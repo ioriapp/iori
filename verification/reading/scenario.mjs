@@ -71,6 +71,7 @@ export async function readingScenario({
     );
   const backToList = async (view) => {
     if (mobile) {
+      await client().browser.dismissKeyboard();
       for (let step = 0; step < 3 && (await detailShown(view)); step++) {
         const before = await screen.evaluate(
           `document.querySelector('[data-iori-view="${view}"] .reading-detail')?.innerText.slice(0,200)`,
@@ -84,6 +85,7 @@ export async function readingScenario({
             )) !== before,
         );
       }
+      await waitFor(async () => !(await detailShown(view)));
       return;
     }
     const selector = `[data-iori-view="${view}"] [data-iori-action="reading-back"]`;
@@ -592,6 +594,7 @@ export async function readingScenario({
     () => screen.text('[data-iori-new-line="500"]'),
     (text) => text.includes("context line 500"),
   );
+  await screen.click(inView('[data-iori-action="find-close"]'));
   await screen.scroll('[data-iori-scroll="git-diff"]', { top: 0 });
   await screen.click('[data-iori-action="git-expand-context"]', {
     scroll: false,
@@ -655,6 +658,7 @@ export async function readingScenario({
       screen.evaluate(
         `(()=>{const v=document.querySelector('[data-iori-view="files"]');return Boolean(v)&&!v.querySelector('.reading-list').hidden&&v.querySelector('.reading-detail').hidden&&!document.querySelector(${JSON.stringify(mobileView("files"))}).hidden})()`,
       );
+    await client().browser.dismissKeyboard();
     await back();
     await waitFor(listShown, Boolean);
     await back();

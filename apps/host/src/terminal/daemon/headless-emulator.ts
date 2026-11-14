@@ -14,7 +14,7 @@ import type { TerminalViewAttributes } from "../shared/terminal-view-attributes.
 import { collectHeadlessOscLinkRanges } from "./headless-osc-link-ranges.ts";
 import { readTerminalModes } from "./headless-emulator-modes.ts";
 import { buildRehydrateSequences } from "./terminal-mode-rehydrate-sequences.ts";
-import { TerminalOscCwdTitleScanner } from "./terminal-osc-cwd-title-scanner.ts";
+import { ParserEvents } from "./parser-events.ts";
 import { buildFrameRestoreSnapshotFields } from "./terminal-frame-restore-sequences.ts";
 import { splitTerminalSnapshotAnsi } from "./terminal-snapshot-ansi-buffers.ts";
 import {
@@ -33,26 +33,19 @@ export type HeadlessEmulatorOptions = {
   cols: number;
   rows: number;
   scrollback?: number;
-  /** Query reply sink (terminal-query-authority.md); only `forwardQueryReplies` writes emit here. Only the authoritative PTY emulator supplies this; a Host projection never does. */
+  /** Query reply sink (terminal-query-authority.md); only `forwardQueryReplies` writes emit here. The daemon writes replies directly to its PTY. */
   onQueryReply?: (reply: string) => void;
   reflowCursorLine?: boolean;
-  pathFlavor?: "posix" | "win32";
-  remotePosixFileUriAuthority?: boolean;
-  wslDistro?: string;
 };
 
 export type HeadlessEmulatorWriteOptions = {
-  /** Reply ownership for this exact chunk; default false so seed/hydration/snapshot writes never forward (main-side replay guard; twin of renderer replay-guard.ts). */
+  /** Reply ownership for this exact chunk; default false so seed/hydration/snapshot writes never forward (daemon replay guard). */
   forwardQueryReplies?: boolean;
 };
 
 type TerminalWithSynchronousWrite = Terminal & {
   _core?: {
     writeSync?: (data: string) => void;
-    // Why: kitty keyboard flags aren't on the public IModes; read the core service the CSI u handlers mutate.
-    coreService?: {
-      kittyKeyboard?: { flags?: number };
-    };
   };
 };
 
@@ -63,9 +56,7 @@ const CONPTY_DA1_RESPONSE = "\x1b[?61;4c";
 export class HeadlessEmulator {
   protected terminal: Terminal;
   protected serializer: SerializeAddon;
-  private oscText: TerminalOscCwdTitleScanner;
-  private readonly pathFlavor?: "posix" | "win32";
-  private readonly remotePosixFileUriAuthority: boolean;
+  readonly parserEvents: ParserEvents;
   private restoredOscLinks: TerminalOscLinkRange[] = [];
   private disposed = false;
   private onQueryReply: ((reply: string) => void) | null;
@@ -77,14 +68,6 @@ export class HeadlessEmulator {
   private partialEscapeTail = "";
 
   constructor(opts: HeadlessEmulatorOptions) {
-    this.pathFlavor = opts.pathFlavor;
-    this.remotePosixFileUriAuthority =
-      opts.remotePosixFileUriAuthority === true;
-    this.oscText = new TerminalOscCwdTitleScanner({
-      pathFlavor: this.pathFlavor,
-      remotePosixAuthority: this.remotePosixFileUriAuthority,
-      wslDistro: opts.wslDistro,
-    });
     this.terminal = new HeadlessTerminal({
       cols: opts.cols,
       rows: opts.rows,
@@ -98,6 +81,7 @@ export class HeadlessEmulator {
       vtExtensions: { kittyKeyboard: true },
     });
 
+    this.parserEvents = new ParserEvents(this.terminal);
     this.serializer = new SerializeAddon();
     this.terminal.loadAddon(this.serializer);
 
@@ -126,13 +110,7 @@ export class HeadlessEmulator {
     });
   }
 
-  /** Why exposed: responder modules install handlers here (see the view-attribute and
-   *  device-attributes responders); the caller owns disposal. */
-  get responderParser(): Terminal["parser"] {
-    return this.terminal.parser;
-  }
-
-  /** Headless core has no theme service, so OSC 4/10/11/12 and DSR ?996n answer from the renderer's pushed attributes; daemon Session must never call this. */
+  /** Headless core has no theme service, so OSC 4/10/11/12 and DSR ?996n answer from the renderer's pushed attributes; the daemon uses the attributes selected by the Host. */
   installViewAttributeResponder(
     getBaseAttributes: () => TerminalViewAttributes | null,
   ): void {
@@ -157,23 +135,10 @@ export class HeadlessEmulator {
     this.viewAttributeResponder?.clearColorOverrides();
   }
 
-  /** Re-seeds snapshot kitty flags via the live-push parse, routed unflagged so it can never answer a query (terminal-query-authority.md). */
-  applyKittyKeyboardFlags(flags: number): Promise<void> {
-    if (!Number.isInteger(flags) || flags <= 0) {
-      return Promise.resolve();
-    }
-    return this.write(`\x1b[=${flags};1u`);
-  }
-
   private emitQueryReply(reply: string): void {
     if (this.queryReplyForwardingDepth > 0 && this.onQueryReply) {
       this.onQueryReply(reply);
     }
-  }
-
-  /** Severs the reply sink so a post-dispose reply can't reach a successor PTY (respawns reuse session ids). */
-  disableQueryReplyForwarding(): void {
-    this.onQueryReply = null;
   }
 
   write(data: string, opts: HeadlessEmulatorWriteOptions = {}): Promise<void> {
@@ -185,7 +150,6 @@ export class HeadlessEmulator {
     if (this.tryWriteSync(data, { forwardQueryReplies })) {
       return Promise.resolve();
     }
-    this.oscText.scan(data);
     // Why the sentinel: xterm parses writes async, so its zero-byte callback fires in FIFO order to open the window at exactly this chunk.
     if (forwardQueryReplies) {
       this.terminal.write("", () => {
@@ -206,14 +170,6 @@ export class HeadlessEmulator {
     });
   }
 
-  /** Synchronous write for cold-restore replay (async would snapshot a half-applied stream); false when writeSync is unavailable. */
-  writeSync(data: string): boolean {
-    if (this.disposed) {
-      return false;
-    }
-    return this.tryWriteSync(data);
-  }
-
   private tryWriteSync(
     data: string,
     opts: HeadlessEmulatorWriteOptions = {},
@@ -223,7 +179,6 @@ export class HeadlessEmulator {
     if (typeof writeSync !== "function") {
       return false;
     }
-    this.oscText.scan(data);
     const forwardQueryReplies = opts.forwardQueryReplies === true;
     if (forwardQueryReplies) {
       this.queryReplyForwardingDepth += 1;
@@ -263,11 +218,6 @@ export class HeadlessEmulator {
     this.terminal.resize(cols, rows);
   }
 
-  // Why: these dims proxy the child's real size, so they stay stale on a dropped resize the renderer must detect.
-  getAppliedSize(): { cols: number; rows: number } {
-    return { cols: this.terminal.cols, rows: this.terminal.rows };
-  }
-
   getSnapshot(opts: { scrollbackRows?: number } = {}): TerminalSnapshot {
     const modes = this.getModes();
     // Why absolute: relative cursor restore is off by a column after a wrap-pending final row; saved-cursor rides along for DECRC.
@@ -291,45 +241,16 @@ export class HeadlessEmulator {
       ),
       rehydrateSequences: buildRehydrateSequences(modes),
       ...buildFrameRestoreSnapshotFields(this.serializer, this.terminal, modes),
-      cwd: this.oscText.cwd,
       modes,
       cols: this.terminal.cols,
       rows: this.terminal.rows,
       scrollbackLines: this.terminal.buffer.normal.length - this.terminal.rows,
-      lastTitle: this.oscText.lastTitle ?? undefined,
       // Why written LAST by the restorer: the next live chunk must complete this dangling sequence, not render it literally (Bug E / #7329).
       ...(this.partialEscapeTail.length > 0
         ? { pendingEscapeTailAnsi: this.partialEscapeTail }
         : {}),
     };
     return snapshot;
-  }
-
-  get isAlternateScreen(): boolean {
-    return this.terminal.buffer.active.type === "alternate";
-  }
-
-  /** Dangling incomplete escape at the stream position; handoffs seed the other side so a split sequence isn't lost. */
-  get partialEscapeTailAnsi(): string {
-    return this.partialEscapeTail;
-  }
-
-  /** PSReadLine's Ctrl+L repaint is only safe at an empty prompt; '>>' is PowerShell's continuation prompt, not empty. */
-  isCursorOnEmptyPromptLine(): boolean {
-    const buffer = this.terminal.buffer.active;
-    const line = buffer.getLine(buffer.baseY + buffer.cursorY);
-    if (!line) {
-      return false;
-    }
-    const upToCursor = line
-      .translateToString(true, 0, buffer.cursorX)
-      .trimEnd();
-    const fullLine = line.translateToString(true).trimEnd();
-    return (
-      fullLine === upToCursor &&
-      upToCursor.endsWith(">") &&
-      !upToCursor.endsWith(">>")
-    );
   }
 
   getVisibleLines(): string[] {
@@ -345,58 +266,17 @@ export class HeadlessEmulator {
     return lines;
   }
 
-  getVisibleBufferRange(): {
-    start: number;
-    endExclusive: number;
-    totalLength: number;
-  } {
-    const buffer = this.terminal.buffer.active;
-    const start = buffer.viewportY;
-    return {
-      start,
-      endExclusive: Math.min(buffer.length, start + this.terminal.rows),
-      totalLength: buffer.length,
-    };
-  }
-
   /** Zero-based row of the active xterm buffer cursor. */
   getCursorRow(): number {
     return this.terminal.buffer.active.cursorY;
   }
 
-  getBufferTailLines(limit: number): string[] {
-    const buffer = this.terminal.buffer.active;
-    const start = Math.max(0, buffer.length - Math.max(0, Math.floor(limit)));
-    const lines: string[] = [];
-    for (let row = start; row < buffer.length; row += 1) {
-      lines.push(buffer.getLine(row)?.translateToString(true) ?? "");
-    }
-    return lines;
-  }
-
-  getCwd(): string | null {
-    return this.oscText.cwd;
-  }
-
-  getLastTitle(): string | undefined {
-    return this.oscText.lastTitle ?? undefined;
-  }
-
-  setCwd(cwd: string | null): void {
-    this.oscText.cwd = cwd;
-  }
-
-  setLastTitle(title: string): void {
-    this.oscText.lastTitle = title;
+  get showCursor(): boolean {
+    return this.terminal.modes.showCursor;
   }
 
   setRestoredOscLinks(links: TerminalOscLinkRange[] | undefined): void {
     this.restoredOscLinks = links?.slice() ?? [];
-  }
-
-  clearScrollback(): void {
-    this.restoredOscLinks = [];
-    this.terminal.clear();
   }
 
   dispose(): void {

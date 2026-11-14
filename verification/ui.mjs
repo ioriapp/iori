@@ -528,6 +528,8 @@ export class Cdp {
     return new Cdp(socket);
   }
   call(method, params = {}) {
+    if (this.socket.readyState !== WebSocket.OPEN)
+      return Promise.reject(new Error("CDP connection closed"));
     return new Promise((resolve, reject) => {
       const id = ++this.sequence;
       this.pending.set(id, { resolve, reject, method });

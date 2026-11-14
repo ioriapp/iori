@@ -6,6 +6,7 @@ export type HostRemoval = {
   sshDestination?: string;
   hostName?: string;
   os?: string;
+  sshLostNoticeDismissed?: boolean;
 };
 let records: Record<string, HostRemoval> = {};
 let saving = Promise.resolve();

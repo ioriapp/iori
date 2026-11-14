@@ -1,3 +1,4 @@
+import { translator } from "../i18n.ts";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Maximize, Minus, Plus } from "lucide-react";
 import { Button } from "../components/ui/button";
@@ -59,7 +60,7 @@ export function ImageViewport({
   canvasSize?: ImageSize;
   alt?: string;
 }) {
-  const ja = locale.startsWith("ja");
+  const t = translator(locale);
   const [decoded, setDecoded] = useState<{ url?: string; size: ImageSize }>();
   const [failedUrl, setFailedUrl] = useState<string>();
   const natural = decoded?.url === image.url ? decoded?.size : image.natural;
@@ -175,7 +176,7 @@ export function ImageViewport({
           variant="ghost"
           size="icon-sm"
           data-iori-action="image-zoom-out"
-          aria-label={ja ? "縮小" : "Zoom out"}
+          aria-label={t("Zoom out")}
           onClick={() => zoom(1 / ZOOM_STEP)}
         >
           <Minus />
@@ -187,7 +188,7 @@ export function ImageViewport({
           variant="ghost"
           size="icon-sm"
           data-iori-action="image-zoom-in"
-          aria-label={ja ? "拡大" : "Zoom in"}
+          aria-label={t("Zoom in")}
           onClick={() => zoom(ZOOM_STEP)}
         >
           <Plus />
@@ -201,13 +202,13 @@ export function ImageViewport({
             setScale(1);
           }}
         >
-          {ja ? "等倍" : "100%"}
+          {t("100%")}
         </Button>
         <Button
           variant="ghost"
           size="icon-sm"
           data-iori-action="image-fit"
-          aria-label={ja ? "全体を表示" : "Fit image"}
+          aria-label={t("Fit image")}
           aria-pressed={fit}
           onClick={() => setFit(true)}
         >

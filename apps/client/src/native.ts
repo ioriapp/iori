@@ -289,7 +289,7 @@ export const native = {
     invoke<{ connectionId: string }>("native_connect", {
       publicKey: host.publicKey,
       addresses: host.addresses,
-      relay: host.relay ?? null,
+      relay: host.connectionScope === "loopback" ? null : (host.relay ?? null),
     }),
   request: (connectionId: string, json: string, cancelKey?: string) =>
     invoke<string>("native_request", { connectionId, json, cancelKey }),

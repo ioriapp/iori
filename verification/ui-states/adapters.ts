@@ -1,3 +1,4 @@
+import { readingCi, readingLog } from "./reading-fixtures.ts";
 import { current, stateId } from "./runtime.ts";
 import { host, version, terminalFontNames } from "./fixtures.ts";
 
@@ -29,7 +30,15 @@ const snapshot = {
 export const connection = {
   subscribe: () => () => {},
   subscribeHostEvents: () => () => {},
-  requestHost: async () => ({ ok: true, result: { folders: [] } }),
+  requestHost: async (_host: string, method: string) => ({
+    ok: true,
+    result:
+      stateId.startsWith("reading-") && method === "forge.ci"
+        ? readingCi(stateId === "reading-6")
+        : stateId.startsWith("reading-") && method === "forge.ci.log"
+          ? readingLog
+          : { folders: [] },
+  }),
   getSnapshot: () => snapshot,
   connectionIdOf: () => "ui-state",
 };

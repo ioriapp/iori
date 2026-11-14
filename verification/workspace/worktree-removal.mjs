@@ -15,7 +15,11 @@ import {
   cleanupWindowsRuntime,
   waitUntil,
 } from "../native/remote.mjs";
-import { writeWindows, windowsEnvironment } from "../connection/build.mjs";
+import {
+  writeWindows,
+  windowsEnvironment,
+  runWindowsBuild,
+} from "../connection/build.mjs";
 import { createSourceArchive, windowsSourceMtimes } from "../native/source.mjs";
 import { windowsCache } from "../native/cache.mjs";
 import {
@@ -62,8 +66,10 @@ try {
   windows(`[IO.Directory]::CreateDirectory(${ps(root)}) | Out-Null`);
   allocated = true;
   await writeWindows(root + "\\source.tar", await readFile(archive));
-  windows(
+  await runWindowsBuild(
+    root,
     `${windowsEnvironment}tar -mxf ${ps(root + "\\source.tar")} -C ${ps(root)};if($LASTEXITCODE -ne 0){throw 'extract failed'};Set-Location ${ps(root)};${windowsSourceMtimes}$env:CARGO_TARGET_DIR=${ps(windowsCache + "\\cargo-target")};$env:CARGO_BUILD_JOBS='2';& ${ps(windowsBuildNode)} ${ps(windowsPnpm)} install --frozen-lockfile --store-dir ${ps(windowsCache + "\\pnpm-store")};if($LASTEXITCODE -ne 0){throw 'install failed'};node verification/native/node-pty.mjs;if($LASTEXITCODE -ne 0){throw 'node-pty build failed'};& ${ps(windowsBuildNode)} ${ps(windowsPnpm)} --filter @iori/host build:native;if($LASTEXITCODE -ne 0){throw 'native build failed'}`,
+    path.join(evidence, "build.log"),
   );
   const repository = root + "\\repository",
     worktree = root + "\\task";

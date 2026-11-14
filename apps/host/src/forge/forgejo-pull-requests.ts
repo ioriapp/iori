@@ -1,7 +1,7 @@
 import { http, pages } from "./forgejo.ts";
 import { ForgeReadError, forgejoFailure } from "./failure.ts";
 import { forgeSites } from "./sites.ts";
-import { array, forgeUrl, object, string } from "./response.ts";
+import { array, object, pullRequestUrl, string } from "./response.ts";
 import {
   PullRequestFailure,
   draftTitle,
@@ -85,11 +85,7 @@ export const forgejoPullRequests: PullRequestWriter = async (
     object((await http(`${target.origin}${endpoint}`, signal)).value)
       .default_branch,
   );
-  const url = (value: unknown) => {
-    const url = forgeUrl(target.origin, object(value).html_url);
-    if (!url) throw new Error("Invalid Forge response");
-    return url;
-  };
+  const url = (value: unknown) => pullRequestUrl(target.origin, value);
   return {
     defaultBranch,
     async existing(branch) {

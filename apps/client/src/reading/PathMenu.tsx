@@ -1,3 +1,4 @@
+import { translator } from "../i18n.ts";
 import { useState, type ReactNode } from "react";
 import {
   ContextMenu,
@@ -50,7 +51,7 @@ export function PathMenu({
   const [error, setError] = useState(false);
   const [open, setOpen] = useState(false);
   const [touch, setTouch] = useState(false);
-  const ja = locale.startsWith("ja");
+  const t = translator(locale);
   const run = async (task: () => void | Promise<void>) => {
     try {
       await task();
@@ -118,7 +119,7 @@ export function PathMenu({
           data-iori-action="copy-path"
         >
           {showIcons && <Copy />}
-          {ja ? "パスをコピー" : "Copy path"}
+          {t("Copy path")}
         </ContextMenuItem>
         {lines && (
           <ContextMenuItem
@@ -133,16 +134,14 @@ export function PathMenu({
             data-iori-action="copy-line-path"
           >
             {showIcons && <ListTree />}
-            {ja ? "行番号付きのパスをコピー" : "Copy path with line"}
+            {t("Copy path with line")}
           </ContextMenuItem>
         )}
         {actions.length > 0 && separateActions && <ContextMenuSeparator />}
         {actions.map((item) => renderAction(item))}
         {error && (
           <p className="reading-menu-error" role="alert">
-            {ja
-              ? "操作できませんでした。もう一度お試しください。"
-              : "That did not work. Select it again."}
+            {t("That did not work. Select it again.")}
           </p>
         )}
       </ContextMenuContent>

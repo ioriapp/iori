@@ -1,3 +1,4 @@
+import { ReadingPreview } from "./ReadingPreview.tsx";
 import { UsageStatus } from "../../apps/client/src/usage/UsageStatus.tsx";
 import { UsagePreferences } from "../../apps/client/src/usage/preferences.tsx";
 import { AgentsPage } from "../../apps/client/src/teams/AgentsPage.tsx";
@@ -504,6 +505,12 @@ function UsagePreview() {
   );
 }
 function Frame() {
+  if (current.kind === "reading")
+    return (
+      <TooltipProvider>
+        <ReadingPreview state={stateId} />
+      </TooltipProvider>
+    );
   if (current.kind === "usage") return <UsagePreview />;
   if (current.kind === "child-states")
     return (

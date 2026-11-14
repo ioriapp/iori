@@ -5,7 +5,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { lockEntry } from "../native/locks.mjs";
 import { gate, windows, ps, windowsBuildNode } from "../native/remote.mjs";
-import { writeWindows, windowsEnvironment } from "../connection/build.mjs";
+import {
+  writeWindows,
+  windowsEnvironment,
+  runWindowsBuild,
+} from "../connection/build.mjs";
 import { createSourceArchive } from "../native/source.mjs";
 import { windowsCache } from "../native/cache.mjs";
 import {
@@ -74,11 +78,11 @@ try {
   windows(`[IO.Directory]::CreateDirectory(${ps(root)}) | Out-Null`);
   await writeWindows(root + "\\source.tar", await readFile(archive));
   await writeWindows(root + "\\bundle-probe.mjs", probe);
-  const build = windows(
+  await runWindowsBuild(
+    root,
     `${windowsEnvironment}tar -mxf ${ps(root + "\\source.tar")} -C ${ps(root)};if($LASTEXITCODE -ne 0){throw 'extract failed'};Set-Location ${ps(root)};pnpm install --frozen-lockfile --store-dir ${ps(windowsCache + "\\pnpm-store")};if($LASTEXITCODE -ne 0){throw 'install failed'};node verification/native/node-pty.mjs;if($LASTEXITCODE -ne 0){throw 'node-pty build failed'};& ${ps(windowsBuildNode)} scripts/release/host.mjs ${ps(bundle)};if($LASTEXITCODE -ne 0){throw 'bundle failed'}`,
-    { timeout: 900_000 },
+    path.join(evidence, "build.log"),
   );
-  await writeFile(path.join(evidence, "build.log"), build);
   const bundled = windows(
     `Test-Path -LiteralPath ${ps(bundle + "\\node_modules\\@napi-rs\\keyring-win32-x64-msvc\\keyring.win32-x64-msvc.node")}`,
   );

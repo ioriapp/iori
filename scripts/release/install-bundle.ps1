@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][string]$Bundle, [switch]$StartOnly, [switch]$InstallOnly, [switch]$Ssh)
+param([Parameter(Mandatory=$true)][string]$Bundle, [switch]$StartOnly, [switch]$InstallOnly, [switch]$Ssh, [switch]$KeepConnectionScope)
 $ErrorActionPreference = 'Stop'
 $destination = Join-Path $env:LOCALAPPDATA 'Programs\iori-host'
 $first = -not (Test-Path -LiteralPath (Join-Path $destination 'iori-host.cmd'))
@@ -23,6 +23,12 @@ try {
         & "$work\node.exe" "$work\move-bundle.mjs" $bundle $destination
         if ($LASTEXITCODE -ne 0) { throw 'iori Hostの新しいバージョンを配置できませんでした。' }
         if (Test-Path -LiteralPath "$work\previous") { Remove-Item -LiteralPath "$work\previous" -Recurse -Force }
+        # Command installs and reinstalls use the network default. Updates keep
+        # the existing choice; the local Client has saved its choice already.
+        if ($first -and -not $KeepConnectionScope) {
+            $network = Join-Path $env:LOCALAPPDATA 'iori-host\network.json'
+            if (Test-Path -LiteralPath $network) { Remove-Item -LiteralPath $network -Force }
+        }
         $run = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
         New-Item -Path $run -Force | Out-Null
         New-ItemProperty -Path $run -Name 'iori Host' -Value ('"' + $destination + '\iori-host-background.exe"') -PropertyType String -Force | Out-Null

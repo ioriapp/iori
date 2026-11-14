@@ -49,7 +49,7 @@ fn exchange(directory: &Path, envelope: &Value) -> io::Result<Value> {
     let mut output = options.open(&files.temporary)?;
     output.write_all(&serde_json::to_vec(envelope)?)?;
     drop(output);
-    fs::rename(&files.temporary, request)?;
+    fs::rename(&files.temporary, &request)?;
     loop {
         match fs::read(&files.response) {
             Ok(bytes) => {
@@ -57,8 +57,13 @@ fn exchange(directory: &Path, envelope: &Value) -> io::Result<Value> {
                     .map_err(|_| failure("Could not read the iori command response."));
             }
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                if !directory.try_exists()? {
-                    return Err(failure("The iori team CLI session has ended."));
+                if !request.try_exists()? {
+                    // Publication can finish between the first read and the
+                    // request check. Read the response after observing removal.
+                    let bytes = fs::read(&files.response)
+                        .map_err(|_| failure("The iori team CLI session has ended."))?;
+                    return serde_json::from_slice(&bytes)
+                        .map_err(|_| failure("Could not read the iori command response."));
                 }
             }
             Err(_) => return Err(failure("Could not read the iori command response.")),

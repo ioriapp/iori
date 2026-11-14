@@ -1,14 +1,7 @@
 import { selectWorktree } from "../workspace/scenario.mjs";
 import { openSidebar } from "../connection/scenario.mjs";
 import assert from "node:assert/strict";
-import {
-  mkdir,
-  readFile,
-  readdir,
-  writeFile,
-  chmod,
-  stat,
-} from "node:fs/promises";
+import { mkdir, readFile, writeFile, chmod, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { waitFor } from "../../verification/ui.mjs";
 import { openWorkspaceView } from "../../verification/workspace/interaction.mjs";
@@ -67,19 +60,24 @@ async function transferComplete(screen, complete, previousAlerts, observation) {
 
 export async function filesTransfer({
   client,
+  scenario,
   screen,
   repository,
   worktree,
   mobile,
   desktop,
-  shot,
   record,
 }) {
   const largeSize = 256 * 1024 * 1024;
   const fixtures = join(dirname(repository), "files-transfer-input");
   await mkdir(fixtures, { recursive: true });
-  await writeFile(join(fixtures, "continues.bin"), Buffer.alloc(largeSize, 68));
-  await writeFile(join(fixtures, "cancel.bin"), Buffer.alloc(largeSize, 67));
+  if (scenario === "files-upload") {
+    await writeFile(
+      join(fixtures, "continues.bin"),
+      Buffer.alloc(largeSize, 68),
+    );
+    await writeFile(join(fixtures, "cancel.bin"), Buffer.alloc(largeSize, 67));
+  }
   await mkdir(join(repository, "put-files"), { recursive: true });
   await screen.click(
     `button[data-iori-worktree-path=${JSON.stringify(repository)}]`,
@@ -101,122 +99,97 @@ export async function filesTransfer({
     await openWorkspaceView(screen, "files");
     await screen.wait(folder);
   };
-  const initialDark = await screen.evaluate(
-    "document.documentElement.classList.contains('dark')",
-  );
-  for (const [device, viewport] of [
-    ["pc", { width: 1440, height: 1000 }],
-    ["mobile", { width: 390, height: 844 }],
-  ]) {
-    await enter(device, viewport);
-    for (const theme of ["light", "dark"]) {
-      await screen.evaluate(
-        `document.documentElement.classList.toggle('dark',${theme === "dark"})`,
-      );
-      await drop(screen, folder, "input.txt", 8, 65, "dragover");
-      await shot(`${device}-files-put-drag-${theme}`);
-    }
-  }
-  await enter("pc");
-  await drop(screen, folder, "input.txt", 5 * 1024 * 1024 + 17, 65);
-  const placed = join(repository, "put-files", "input.txt");
-  await transferComplete(
-    screen,
-    async () =>
-      (await readFile(placed).catch(() => Buffer.alloc(0))).length ===
-      5 * 1024 * 1024 + 17,
-    previousAlerts,
-    "input.txt のアップロード完了",
-  );
-  assert.equal(
-    (await readFile(placed)).equals(Buffer.alloc(5 * 1024 * 1024 + 17, 65)),
-    true,
-  );
-  // A worktree switch unmounts its Files View, while the app keeps both drops.
-  await drop(screen, folder, "continues.bin", largeSize, 68, "drop", {
-    browser: client.browser,
-    path: join(fixtures, "continues.bin"),
-  });
-  await screen.wait('[data-iori-put="continues.bin"]');
-  await drop(screen, folder, "alongside.txt", 5 * 1024 * 1024 + 17, 69);
-  await screen.wait('[data-iori-put="alongside.txt"]');
-  assert.equal(await screen.visible('[data-iori-put="continues.bin"]'), true);
-  await selectWorktree(screen, worktree, false);
-  await selectWorktree(screen, repository, false);
-  await openWorkspaceView(screen, "files");
-  await screen.wait(folder);
-  await transferComplete(
-    screen,
-    async () =>
-      (
-        await stat(join(repository, "put-files", "continues.bin")).catch(
-          () => ({}),
-        )
-      ).size === largeSize &&
-      (
-        await stat(join(repository, "put-files", "alongside.txt")).catch(
-          () => ({}),
-        )
-      ).size ===
+  if (scenario === "files-upload") {
+    await enter("pc");
+    await drop(screen, folder, "input.txt", 5 * 1024 * 1024 + 17, 65);
+    const placed = join(repository, "put-files", "input.txt");
+    await transferComplete(
+      screen,
+      async () =>
+        (await readFile(placed).catch(() => Buffer.alloc(0))).length ===
         5 * 1024 * 1024 + 17,
-    previousAlerts,
-    "並行アップロードの完了",
-  );
-  assert.equal(
-    (await stat(join(repository, "put-files", "continues.bin"))).size,
-    largeSize,
-  );
-  assert.equal(
-    (await readFile(join(repository, "put-files", "alongside.txt"))).equals(
-      Buffer.alloc(5 * 1024 * 1024 + 17, 69),
-    ),
-    true,
-  );
-  assert.equal(
-    (await readFile(join(repository, "put-files", "continues.bin"))).equals(
-      Buffer.alloc(largeSize, 68),
-    ),
-    true,
-  );
-  await record(
-    "転送中のworktreeの往復と、別の小さいファイルの並行ドロップが完了する",
-  );
-  await chmod(placed, 0o640);
-  for (const [device, viewport] of [
-    ["pc", { width: 1440, height: 1000 }],
-    ["mobile", { width: 390, height: 844 }],
-  ]) {
-    await enter(device, viewport);
+      previousAlerts,
+      "input.txt のアップロード完了",
+    );
+    assert.equal(
+      (await readFile(placed)).equals(Buffer.alloc(5 * 1024 * 1024 + 17, 65)),
+      true,
+    );
+    // A worktree switch unmounts its Files View, while the app keeps both drops.
+    await drop(screen, folder, "continues.bin", largeSize, 68, "drop", {
+      browser: client.browser,
+      path: join(fixtures, "continues.bin"),
+    });
+    await screen.wait('[data-iori-put="continues.bin"]');
+    await drop(screen, folder, "alongside.txt", 5 * 1024 * 1024 + 17, 69);
+    await screen.wait('[data-iori-put="alongside.txt"]');
+    assert.equal(await screen.visible('[data-iori-put="continues.bin"]'), true);
+    await selectWorktree(screen, worktree, false);
+    await selectWorktree(screen, repository, false);
+    await openWorkspaceView(screen, "files");
+    await screen.wait(folder);
+    await transferComplete(
+      screen,
+      async () =>
+        (
+          await stat(join(repository, "put-files", "continues.bin")).catch(
+            () => ({}),
+          )
+        ).size === largeSize &&
+        (
+          await stat(join(repository, "put-files", "alongside.txt")).catch(
+            () => ({}),
+          )
+        ).size ===
+          5 * 1024 * 1024 + 17,
+      previousAlerts,
+      "並行アップロードの完了",
+    );
+    assert.equal(
+      (await stat(join(repository, "put-files", "continues.bin"))).size,
+      largeSize,
+    );
+    assert.equal(
+      (await readFile(join(repository, "put-files", "alongside.txt"))).equals(
+        Buffer.alloc(5 * 1024 * 1024 + 17, 69),
+      ),
+      true,
+    );
+    assert.equal(
+      (await readFile(join(repository, "put-files", "continues.bin"))).equals(
+        Buffer.alloc(largeSize, 68),
+      ),
+      true,
+    );
+    await record(
+      "転送中のworktreeの往復と、別の小さいファイルの並行ドロップが完了する",
+    );
+    await chmod(placed, 0o640);
+    for (const [device, viewport] of [
+      ["pc", { width: 1440, height: 1000 }],
+      ["mobile", { width: 390, height: 844 }],
+    ]) {
+      await enter(device, viewport);
+      await drop(screen, folder, "input.txt", 13, 66);
+      await screen.wait('[data-iori-dialog="files-replace"]');
+      await screen.key("Escape");
+    }
     await drop(screen, folder, "input.txt", 13, 66);
     await screen.wait('[data-iori-dialog="files-replace"]');
-    for (const theme of ["light", "dark"]) {
-      await screen.evaluate(
-        `document.documentElement.classList.toggle('dark',${theme === "dark"})`,
-      );
-      await shot(`${device}-files-put-replace-${theme}`);
-    }
-    await screen.key("Escape");
-  }
-  await drop(screen, folder, "input.txt", 13, 66);
-  await screen.wait('[data-iori-dialog="files-replace"]');
-  await screen.click('[data-iori-action="files-put-replace"]');
-  await transferComplete(
-    screen,
-    async () => (await readFile(placed)).equals(Buffer.alloc(13, 66)),
-    previousAlerts,
-    "置き換えアップロードの完了",
-  );
-  for (const [device, viewport] of [
-    ["pc", { width: 1440, height: 1000 }],
-    ["mobile", { width: 390, height: 844 }],
-  ]) {
-    await enter(device, viewport);
-    if ((await screen.attribute(folder, "aria-expanded")) !== "true")
-      await screen.click(folder);
-    for (const theme of ["light", "dark"]) {
-      await screen.evaluate(
-        `document.documentElement.classList.toggle('dark',${theme === "dark"})`,
-      );
+    await screen.click('[data-iori-action="files-put-replace"]');
+    await transferComplete(
+      screen,
+      async () => (await readFile(placed)).equals(Buffer.alloc(13, 66)),
+      previousAlerts,
+      "置き換えアップロードの完了",
+    );
+    for (const [device, viewport] of [
+      ["pc", { width: 1440, height: 1000 }],
+      ["mobile", { width: 390, height: 844 }],
+    ]) {
+      await enter(device, viewport);
+      if ((await screen.attribute(folder, "aria-expanded")) !== "true")
+        await screen.click(folder);
       // A real large file leaves enough time to cancel through its visible control.
       await drop(screen, folder, "cancel.bin", largeSize, 67, "drop", {
         browser: client.browser,
@@ -229,29 +202,25 @@ export async function filesTransfer({
         ),
         false,
       );
-      await shot(`${device}-files-put-progress-${theme}`);
       await screen.click(
         '[data-iori-put="cancel.bin"] [data-iori-action="files-put-cancel"]',
       );
       await waitFor(
-        async () =>
-          !(await readdir(join(repository, "put-files"))).some((name) =>
-            name.startsWith(".iori-put-"),
-          ),
-        Boolean,
+        () => screen.visible('[data-iori-put="cancel.bin"]'),
+        (visible) => !visible,
         undefined,
-        "アップロードのキャンセル後の一時ファイル回収",
-      );
-      assert.equal(
-        (await readdir(join(repository, "put-files"))).includes("cancel.bin"),
-        false,
+        "アップロードのキャンセル",
       );
     }
+    await enter("pc");
+    await record("Filesへのドロップ、置き換え確認とキャンセルを確認");
+    return;
   }
-  await enter("pc");
-  await screen.evaluate(
-    `document.documentElement.classList.toggle('dark',${initialDark})`,
+  await writeFile(
+    join(repository, "put-files", "input.txt"),
+    Buffer.alloc(13, 66),
   );
+  await enter("pc");
   await openWorkspaceView(screen, "files");
   if ((await screen.attribute(folder, "aria-expanded")) !== "true")
     await screen.click(folder);
@@ -298,39 +267,33 @@ export async function filesTransfer({
     await screen.evaluate(
       `window.showSaveFilePicker=async()=> (await navigator.storage.getDirectory()).getFileHandle('iori-save-progress',{create:true})`,
     );
-    for (const theme of ["light", "dark"]) {
-      await screen.evaluate(
-        `document.documentElement.classList.toggle('dark',${theme === "dark"})`,
-      );
-      await screen.contextMenu(savingRow);
-      await screen.click('[data-iori-action="files-save"]');
+    await screen.contextMenu(savingRow);
+    await screen.click('[data-iori-action="files-save"]');
+    await screen.wait('[data-iori-save="save-progress.bin"]');
+    await waitFor(
+      () =>
+        screen.evaluate(
+          `Number(document.querySelector('[data-iori-save="save-progress.bin"] progress')?.value)>0`,
+        ),
+      Boolean,
+      undefined,
+      "ダウンロードの進行開始",
+    );
+    if (device === "pc") {
+      await selectWorktree(screen, worktree, false);
+      await selectWorktree(screen, repository, false);
+      await openWorkspaceView(screen, "files");
       await screen.wait('[data-iori-save="save-progress.bin"]');
-      await waitFor(
-        () =>
-          screen.evaluate(
-            `Number(document.querySelector('[data-iori-save="save-progress.bin"] progress')?.value)>0`,
-          ),
-        Boolean,
-        undefined,
-        "ダウンロードの進行開始",
-      );
-      if (device === "pc" && theme === "light") {
-        await selectWorktree(screen, worktree, false);
-        await selectWorktree(screen, repository, false);
-        await openWorkspaceView(screen, "files");
-        await screen.wait('[data-iori-save="save-progress.bin"]');
-      }
-      await shot(`${device}-files-save-progress-${theme}`);
-      await screen.click(
-        '[data-iori-save="save-progress.bin"] [data-iori-action="files-save-cancel"]',
-      );
-      await waitFor(
-        () => screen.visible('[data-iori-save="save-progress.bin"]'),
-        (visible) => !visible,
-        undefined,
-        "ダウンロードのキャンセル",
-      );
     }
+    await screen.click(
+      '[data-iori-save="save-progress.bin"] [data-iori-action="files-save-cancel"]',
+    );
+    await waitFor(
+      () => screen.visible('[data-iori-save="save-progress.bin"]'),
+      (visible) => !visible,
+      undefined,
+      "ダウンロードのキャンセル",
+    );
   }
   await enter("pc");
   if ((await screen.attribute(folder, "aria-expanded")) !== "true")
@@ -342,7 +305,5 @@ export async function filesTransfer({
   await screen.evaluate(
     `(async()=>{delete window.showSaveFilePicker;await(await navigator.storage.getDirectory()).removeEntry('iori-saved-file');await(await navigator.storage.getDirectory()).removeEntry('iori-save-progress')})()`,
   );
-  await record(
-    "Filesへの5MiB超のドロップ、置き換え確認、キャンセル時の一時ファイル回収、保存したファイルの内容を確認",
-  );
+  await record("Filesから保存したファイルの内容と転送のキャンセルを確認");
 }

@@ -83,7 +83,6 @@ export function HostSetupDialog({
   localInfo.current = local;
   const loggedStep = useRef<number | undefined>(undefined);
   const active = useRef(false);
-  const cancelled = useRef(false);
   const listener = useRef<Promise<() => void> | undefined>(undefined);
   const callbacks = useRef({ onCompleted, onClose, t });
   callbacks.current = { onCompleted, onClose, t };
@@ -197,7 +196,6 @@ export function HostSetupDialog({
       await load();
       return;
     }
-    cancelled.current = false;
     setError(undefined);
     setBusy(true);
     setProgress(true);
@@ -216,7 +214,6 @@ export function HostSetupDialog({
         const permitted = await native.hostSetupInstall(allow);
         if (!local.installed && local.canAllowConnections)
           setAllowed(permitted);
-        if (cancelled.current) return;
         setStage("register");
         invitation = inviteSchema.parse(
           (await native.hostSetupInvite()).invite,
@@ -256,7 +253,6 @@ export function HostSetupDialog({
   function close() {
     if (warning && registered)
       onCompleted?.({ type: "closedAfterWarning", hostKey: registered });
-    if (busy) cancelled.current = true;
     onClose();
   }
   if (remote)
@@ -455,9 +451,11 @@ export function HostSetupDialog({
 }
 export function LocalHostConnections({
   hostKey,
+  connectionScope,
   t,
 }: {
   hostKey: string;
+  connectionScope?: HostInfo["connectionScope"];
   t: (s: string) => string;
 }) {
   const [local, setLocal] = useState<LocalHost>();
@@ -483,7 +481,9 @@ export function LocalHostConnections({
     <>
       <Separator />
       <section className="settings-section connection-form">
-        {allowed && <p>{t("Connections from other devices are allowed")}</p>}
+        {allowed && connectionScope !== "loopback" && (
+          <p>{t("Connections from other devices are allowed")}</p>
+        )}
         <p className="settings-note">
           {t(
             "Windows will ask for administrator approval to allow other devices to connect.",

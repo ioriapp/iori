@@ -67,6 +67,9 @@ export function WorktreeCreator({
   const [clis, setClis] = useState<CliListResult>();
   const [teams, setTeams] = useState<TeamList>();
   const [terminals, setTerminals] = useState<ResultByMethod["terminal.list"]>();
+  const [terminalStatus, setTerminalStatus] = useState<
+    "loading" | "loaded" | "error"
+  >("loading");
   const [name, setName] = useState(prefill?.name ?? "");
   const [instruction, setInstruction] = useState(prefill?.instruction ?? "");
   const [setupCommand, setSetupCommand] = useState("");
@@ -88,6 +91,7 @@ export function WorktreeCreator({
     if (!open) return;
     let current = true;
     setLoading(true);
+    setTerminalStatus("loading");
     void Promise.all([
       connection.requestHost(host.publicKey, "cli.list", {}),
       connection.requestHost(host.publicKey, "teams.list", {}),
@@ -98,10 +102,16 @@ export function WorktreeCreator({
         : Promise.resolve(undefined),
       git
         ? Promise.resolve(undefined)
-        : connection.requestHost(host.publicKey, "terminal.list", {}),
+        : connection
+            .requestHost(host.publicKey, "terminal.list", {})
+            .catch(() => undefined),
     ])
       .then(([cli, team, opts, terminal]) => {
         if (!current) return;
+        if (!git) {
+          setTerminals(terminal?.ok ? terminal.result : undefined);
+          setTerminalStatus(terminal?.ok ? "loaded" : "error");
+        }
         if (!cli?.ok || !team?.ok || (git && !opts?.ok)) {
           setError("Could not load choices. Retry.");
           return;
@@ -114,7 +124,6 @@ export function WorktreeCreator({
           setSetupCommand(opts.result.setupCommand);
           setBase((value) => value || opts.result.defaultBranch);
         }
-        if (terminal?.ok) setTerminals(terminal.result);
         const launchable = pickerClis(cli.result.clis);
         const defaultCli =
           launchable.find((item) => item.id === cli.result.lastUsedId) ??
@@ -463,7 +472,7 @@ export function WorktreeCreator({
                 clis={pickerClis(clis.clis)}
                 shells={terminals?.shells ?? []}
                 defaultShellId={terminals?.defaultShell}
-                status={terminals ? "loaded" : "loading"}
+                status={terminalStatus}
                 onRetry={() => setReload((v) => v + 1)}
                 pending={pressed}
                 onCli={(cli) =>

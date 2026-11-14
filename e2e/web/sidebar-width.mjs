@@ -74,6 +74,15 @@ export async function sidebarWidth({ client, terminalId, record, reload }) {
   await checkWidth(520);
   await closeSidebar(screen);
   await waitFor(async () => !(await screen.visible(handle)));
+  await reload();
+  await waitFor(() =>
+    screen.evaluate(`Boolean(document.querySelector('[data-slot="sidebar"]'))`),
+  );
+  assert.equal(
+    await screen.attribute('[data-slot="sidebar"]', "data-state"),
+    "collapsed",
+    "閉じたサイドバーは再読み込み後も閉じたまま",
+  );
   await openSidebar(screen);
   await screen.wait(handle);
   await checkWidth(520);
@@ -86,6 +95,15 @@ export async function sidebarWidth({ client, terminalId, record, reload }) {
   await checkWidth(240);
   await dragTo(1400);
   await checkWidth(720);
+  await screen.click('[data-iori-action="workspace-add-tab"]');
+  await screen.wait(".cli-launcher-search input");
+  await screen.evaluate(
+    `document.querySelector('.cli-launcher-search input').focus()`,
+  );
+  await screen.key("Control+b");
+  assert.equal(await screen.visible(handle), true);
+  await screen.key("Escape");
+  await record("入力欄でCtrl+Bを押してもサイドバーは閉じない");
   await browser.viewport({ width: 390, height: 844 });
   await waitFor(async () => !(await screen.visible(handle)));
   await record("幅の復元・既定値・上下限・スマホの表示を確認");

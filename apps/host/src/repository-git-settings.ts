@@ -14,14 +14,17 @@ export async function repositoryMainPath(path: string): Promise<string> {
   return realpath(main.path);
 }
 
-function displayRemoteUrl(value: string): string {
+export function displayRemoteUrl(value: string): string {
   try {
     const url = new URL(value);
-    if (url.protocol === "http:" || url.protocol === "https:") {
-      url.username = "";
-      url.password = "";
-      return url.href;
-    }
+    // An SSH address needs its user name (ssh://git@host/...) and that name
+    // is not a secret. In every other scheme the user name may be a token.
+    const ssh = ["ssh:", "git+ssh:", "ssh+git:"].includes(url.protocol);
+    const web = url.protocol === "http:" || url.protocol === "https:";
+    if (!web && !url.password && (ssh || !url.username)) return value;
+    if (!ssh) url.username = "";
+    url.password = "";
+    return url.href;
   } catch {
     /* Git also accepts scp-style and local paths. */
   }

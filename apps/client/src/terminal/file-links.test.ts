@@ -1,6 +1,39 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { pathCandidates } from "./file-links.ts";
+import { pathCandidates, terminalUrlRegex } from "./file-links.ts";
+
+test("Japanese punctuation separates terminal paths and URLs from prose", () => {
+  const path =
+    "/root/projects/iori/.local/design-drafts/374-daemon-only-emulator.md";
+  for (const [before, after] of [
+    ["- 全文: #374 のコメントと ", "。"],
+    ["参照 ", "、"],
+    ["（", "）"],
+    ["「", "」"],
+    ["『", "』"],
+    ["【", "】"],
+    ["“", "”"],
+  ]) {
+    const text = `${before}${path}${after}`;
+    const candidate = pathCandidates(text).find((item) => item.path === path);
+    assert.ok(candidate, text);
+    assert.equal(text.slice(candidate.start, candidate.end), path);
+    const url = "https://example.com/file";
+    assert.equal(`${before}${url}${after}`.match(terminalUrlRegex)?.[0], url);
+  }
+  const candidates = pathCandidates(`${path}:12:4。`);
+  assert.deepEqual(
+    candidates.map(({ path, line, column }) => ({ path, line, column })),
+    [
+      { path: `${path}:12:4。`, line: undefined, column: undefined },
+      { path, line: 12, column: 4 },
+    ],
+  );
+  assert.deepEqual(
+    pathCandidates(`"${path}。"`).map((item) => item.path),
+    [`${path}。`],
+  );
+});
 
 test("path candidates retain terminal string offsets and compiler line/column suffixes", () => {
   const text =

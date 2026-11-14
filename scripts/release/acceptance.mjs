@@ -305,6 +305,37 @@ export async function acceptance(
     );
     await mkdir(host);
     await command("tar", ["-xzf", archive, "-C", host]);
+    const previous = await previousAndroidRelease();
+    if (!previous)
+      throw new Error("更新互換の確認に必要な前のReleaseがありません");
+    const download = await fetch(
+      `${releaseSource}/download/${encodeURIComponent(previous.tag_name)}/iori-host-linux-x64.tar.gz`,
+    );
+    if (!download.ok)
+      throw new Error(`前のReleaseのHostの取得に失敗: HTTP ${download.status}`);
+    const previousArchive = path.join(temporary, "previous-host.tar.gz");
+    const previousHost = path.join(temporary, "previous-host");
+    await writeFile(previousArchive, Buffer.from(await download.arrayBuffer()));
+    await mkdir(previousHost);
+    await command("tar", ["-xzf", previousArchive, "-C", previousHost]);
+    await command(
+      process.execPath,
+      [
+        "scripts/run-bounded-check.mjs",
+        process.execPath,
+        "--test",
+        "--test-timeout=60000",
+        "e2e/host/terminal-daemon-upgrade.test.mjs",
+      ],
+      {
+        cwd,
+        env: {
+          ...env,
+          IORI_PREVIOUS_HOST_BUNDLE: previousHost,
+          IORI_TARGET_HOST_BUNDLE: host,
+        },
+      },
+    );
     await command(
       process.execPath,
       [

@@ -1,3 +1,4 @@
+import { translator } from "../i18n.ts";
 import {
   FileDiff,
   FileInput,
@@ -18,13 +19,13 @@ export const areaOrder: GitChangeArea[] = [
 ];
 
 export function areaName(area: GitChangeArea, ja: boolean): string {
-  const names: Record<GitChangeArea, [string, string]> = {
-    staged: ["Staged", "ステージ済み"],
-    unstaged: ["Changes", "変更"],
-    untracked: ["Untracked", "未追跡"],
-    conflict: ["Conflicts", "競合"],
+  const names: Record<GitChangeArea, string> = {
+    staged: "Staged",
+    unstaged: "Changes",
+    untracked: "Untracked",
+    conflict: "Conflicts",
   };
-  return names[area][ja ? 1 : 0];
+  return translator(ja ? "ja" : "en")(names[area]);
 }
 
 export function kindName(kind: GitChangeKind, ja: boolean): string {

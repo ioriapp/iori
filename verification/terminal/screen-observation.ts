@@ -1,6 +1,6 @@
 import type { TerminalServerMessage } from "../../packages/protocol/src/index.ts";
+import { buildTerminalSnapshotRestoreSequence } from "../../packages/protocol/src/index.ts";
 import { HeadlessEmulator } from "../../apps/host/src/terminal/daemon/headless-emulator.ts";
-import { replayTerminalSnapshot } from "../../apps/host/src/terminal/daemon/terminal-snapshot-replay.ts";
 
 class ObservedScreen extends HeadlessEmulator {
   logicalLines(): string[] {
@@ -39,7 +39,10 @@ export class TerminalScreenObservation {
         text: "",
       };
       this.#streams.set(stream, state);
-      await replayTerminalSnapshot(state.screen, frame.snapshot);
+      state.screen.setRestoredOscLinks(frame.snapshot.oscLinks);
+      await state.screen.write(
+        buildTerminalSnapshotRestoreSequence(frame.snapshot),
+      );
     } else {
       // A partial stream cannot establish what is actually on the screen.
       if (!state) return;

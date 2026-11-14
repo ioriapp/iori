@@ -170,6 +170,7 @@ export function Command({
   t: (key: string) => string;
 }) {
   const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState(false);
   const cleanup = useRef<(() => void) | undefined>(undefined);
   const measure = (element: HTMLElement | null) => {
     cleanup.current?.();
@@ -200,6 +201,7 @@ export function Command({
   };
   useEffect(() => {
     setCopied(false);
+    setCopyError(false);
   }, [children]);
   return (
     <div className="host-command">
@@ -211,14 +213,25 @@ export function Command({
         size="sm"
         onClick={() => {
           void native.clipboardWrite(children).then(
-            () => setCopied(true),
-            () => setCopied(false),
+            () => {
+              setCopied(true);
+              setCopyError(false);
+            },
+            () => {
+              setCopied(false);
+              setCopyError(true);
+            },
           );
         }}
       >
         {copied && <Check />}
         {t("Copy")}
       </Button>
+      {copyError && (
+        <p role="alert" style={{ gridColumn: "1 / -1" }}>
+          {t("Could not copy. Select the text and copy it.")}
+        </p>
+      )}
     </div>
   );
 }

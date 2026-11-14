@@ -151,10 +151,6 @@
   white-space: nowrap;
   font-size: 12px;
 }
-.dock-tab [data-slot="tabs-trigger"] > button.is-unread .data-tab-label {
-  color: var(--foreground);
-  font-weight: 650;
-}
 .dock-tab-header {
   position: relative;
   display: flex;

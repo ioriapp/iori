@@ -52,6 +52,30 @@ export async function writeWindows(file, content) {
     await rm(temporary, { recursive: true, force: true });
   }
 }
+export async function runWindowsBuild(root, script, logPath) {
+  const buildScript = root + "\\build.ps1";
+  const buildLog = root + "\\build.log";
+  await writeWindows(buildScript, script);
+  const buildCommand = `$ErrorActionPreference='Stop';$PSNativeCommandUseErrorActionPreference=$false;$ProgressPreference='SilentlyContinue';& pwsh -NoProfile -ExecutionPolicy Bypass -File ${ps(buildScript)} *> ${ps(buildLog)};exit $LASTEXITCODE`;
+  try {
+    await command("ssh", [
+      "-o",
+      "BatchMode=yes",
+      verificationLocal.windows.host,
+      "pwsh",
+      "-NoProfile",
+      "-EncodedCommand",
+      Buffer.from(buildCommand, "utf16le").toString("base64"),
+    ]);
+  } finally {
+    await writeFile(
+      logPath,
+      windows(
+        `if(Test-Path -LiteralPath ${ps(buildLog)}){Get-Content -LiteralPath ${ps(buildLog)} -Raw}`,
+      ),
+    );
+  }
+}
 export async function prepareBuild(sourceRoot = process.cwd()) {
   await lockEntry(import.meta.url);
   // Transferring/building source does not launch a Host or consume its port.

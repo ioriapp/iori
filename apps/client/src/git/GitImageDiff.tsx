@@ -1,3 +1,4 @@
+import { translator } from "../i18n.ts";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import type { GitImageSide } from "@iori/protocol";
@@ -32,27 +33,13 @@ function ImageSide({
   onOpen: (keyboard: boolean) => void;
   onRetry: () => void;
 }) {
-  const ja = locale.startsWith("ja");
-  const label = single
-    ? undefined
-    : side === "old"
-      ? ja
-        ? "変更前"
-        : "Before"
-      : ja
-        ? "変更後"
-        : "After";
+  const t = translator(locale);
+  const label = single ? undefined : side === "old" ? t("Before") : t("After");
   const openLabel = single
-    ? ja
-      ? "画像を開く"
-      : "Open image"
+    ? t("Open image")
     : side === "old"
-      ? ja
-        ? "変更前を開く"
-        : "Open before"
-      : ja
-        ? "変更後を開く"
-        : "Open after";
+      ? t("Open before")
+      : t("Open after");
   const [failedUrl, setFailedUrl] = useState<string>();
   const unavailable =
     Boolean(image.url && failedUrl === image.url) ||
@@ -73,7 +60,7 @@ function ImageSide({
         aria-busy={loading || undefined}
       >
         {image.error && !image.url ? (
-          <ReadingError retryLabel={ja ? "再試行" : "Retry"} onRetry={onRetry}>
+          <ReadingError retryLabel={t("Retry")} onRetry={onRetry}>
             {image.error}
           </ReadingError>
         ) : loading ? (
@@ -113,7 +100,7 @@ function ImageSide({
         )}
       </div>
       {image.error && image.url && (
-        <ReadingError retryLabel={ja ? "再試行" : "Retry"} onRetry={onRetry}>
+        <ReadingError retryLabel={t("Retry")} onRetry={onRetry}>
           {image.error}
         </ReadingError>
       )}
@@ -142,7 +129,7 @@ export function GitImageDiff({
   retry: (side: GitImageSide) => void;
   onBackHandler?: (handler: (() => boolean) | undefined) => void;
 }) {
-  const ja = locale.startsWith("ja");
+  const t = translator(locale);
   const [sizes, setSizes] = useState<Record<string, ImageSize>>({});
   const [opened, setOpened] = useState<GitImageSide>();
   const [scale, setScale] = useState(1);
@@ -298,10 +285,10 @@ export function GitImageDiff({
                   value="old"
                   data-iori-action="git-image-before"
                 >
-                  {ja ? "変更前" : "Before"}
+                  {t("Before")}
                 </ToggleGroupItem>
                 <ToggleGroupItem value="new" data-iori-action="git-image-after">
-                  {ja ? "変更後" : "After"}
+                  {t("After")}
                 </ToggleGroupItem>
               </ToggleGroup>
             )}
@@ -311,8 +298,8 @@ export function GitImageDiff({
               variant="ghost"
               size="icon-sm"
               data-iori-action="git-image-close"
-              aria-label={ja ? "閉じる" : "Close"}
-              title={ja ? "閉じる" : "Close"}
+              aria-label={t("Close")}
+              title={t("Close")}
               onClick={close}
             >
               <X />
@@ -325,7 +312,7 @@ export function GitImageDiff({
             alt={
               single
                 ? images[opened].path
-                : `${opened === "old" ? (ja ? "変更前" : "Before") : ja ? "変更後" : "After"} ${images[opened].path}`
+                : `${opened === "old" ? t("Before") : t("After")} ${images[opened].path}`
             }
           />
         </div>

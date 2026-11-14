@@ -3,26 +3,64 @@ export { waitForOperation } from "../ui.mjs";
 export const operationFailure = (screen, selector) => () =>
   screen.text(selector);
 
-export const cliFailure = (screen, terminalId) => async () => {
-  const result = await screen.evaluate(`(async () => {
+export const cliFailure = (screen, terminalId, native = false) => {
+  let seenCli = false;
+  return async () => {
+    const result = native
+      ? await screen.evaluate(`(()=>{
+        const terminal=window.__nativeCliTerminals?.[${JSON.stringify(terminalId)}];
+        if(!terminal)return null;
+        const pane=document.querySelector('[data-iori-terminal-id="${terminalId}"]');
+        const cli=Boolean(terminal.cli),resumePending=Boolean(terminal.cliResumePending);
+        if(terminal.cliStatus?.outcome==='failure')return {cli,resumePending,failure:terminal.cliStatus.failure??'CLIが失敗しました'};
+        const error=pane?.querySelector('[role="alert"]');
+        if(error)return {cli,resumePending,failure:error.textContent};
+        return {cli,resumePending,failure:['exited','error'].includes(terminal.state)?'CLIが終了しました':false};
+      })()`)
+      : await screen.evaluate(`(async () => {
     const { connection } = await import('/src/connection.ts');
     const pane = document.querySelector('[data-iori-terminal-id="${terminalId}"]');
     const hostKey = pane?.dataset.ioriHostKey ?? connection.getSnapshot().host?.publicKey;
-    if (!hostKey) return false;
+    if (!hostKey) return null;
     const response = await connection.requestHost(hostKey, 'terminal.list', {});
-    if (!response?.ok) return false;
+    if (!response?.ok) return null;
     const terminal = response.result.terminals.find(t => t.id === ${JSON.stringify(terminalId)});
-    if (!terminal) return false;
-    if (terminal.cliStatus?.outcome === 'failure') return terminal.cliStatus.failure ?? 'CLIが失敗しました';
+    if (!terminal) return { cli: false, resumePending: false, failure: false };
+    const cli = Boolean(terminal.cli);
+    const resumePending = Boolean(terminal.cliResumePending);
+    if (terminal.cliStatus?.outcome === 'failure') return { cli, resumePending, failure: terminal.cliStatus.failure ?? 'CLIが失敗しました' };
     const error = pane?.querySelector('[role="alert"]');
-    if (error) return error.textContent;
-    return ['exited','error'].includes(terminal.state) ? 'CLIが終了しました' : false;
+    if (error) return { cli, resumePending, failure: error.textContent };
+    return { cli, resumePending, failure: ['exited','error'].includes(terminal.state) ? 'CLIが終了しました' : false };
   })()`);
-  return result;
+    if (!result) return false;
+    if (result.cli) seenCli = true;
+    return (
+      result.failure ||
+      (seenCli && !result.cli && !result.resumePending
+        ? "CLIが終了しました"
+        : false)
+    );
+  };
 };
 
-export const observeCliCompletion = async (screen, terminalId) => {
-  await screen.evaluate(`(async () => {
+export const observeCliCompletion = async (
+  screen,
+  terminalId,
+  native = false,
+) => {
+  if (native)
+    await screen.evaluate(`(async()=>{
+      window.__cliCompletions??={};
+      const observation=window.__cliCompletions[${JSON.stringify(terminalId)}]={};
+      observation.stop=await window.__TAURI__.event.listen('native://stream',({payload})=>{
+        const event=JSON.parse(payload.json);
+        const status=event.type==='terminal.updated'&&event.terminal.id===${JSON.stringify(terminalId)}&&event.terminal.cliStatus;
+        if(status?.state==='done'&&status.outcome!=='failure')observation.response=status.response??'';
+      });
+    })()`);
+  else
+    await screen.evaluate(`(async () => {
     const { connection } = await import('/src/connection.ts');
     window.__cliCompletions ??= {};
     const observation = window.__cliCompletions[${JSON.stringify(terminalId)}] = {};

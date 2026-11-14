@@ -1,7 +1,7 @@
 import type { TeamHistory } from "@iori/protocol";
 export type { TeamHistory } from "@iori/protocol";
 type Translate = (text: string) => string;
-export function historySummary(
+function changeSummary(
   entry: Pick<TeamHistory, "summary" | "changes" | "restoredFrom">,
   t: Translate,
 ) {
@@ -34,4 +34,25 @@ export function historySummary(
       t("{count} more changes").replace("{count}", String(parts.length - 3)),
     ].join(t(" · "));
   return parts.join(t(" · "));
+}
+
+export function historySummary(
+  entry: Pick<
+    TeamHistory,
+    "summary" | "changes" | "restoredFrom" | "overwrote"
+  >,
+  t: Translate,
+) {
+  const summary = changeSummary(entry, t);
+  return entry.overwrote === undefined
+    ? summary
+    : [
+        t("Overwrote version {version}").replace(
+          "{version}",
+          String(entry.overwrote),
+        ),
+        summary,
+      ]
+        .filter(Boolean)
+        .join(t(" · "));
 }

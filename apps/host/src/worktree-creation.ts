@@ -1,3 +1,4 @@
+import { parseGitWorktrees } from "./worktree-list.ts";
 import { recordWorktreeBase } from "./worktree-state.ts";
 import { basename, dirname, join, relative } from "node:path";
 import { lstat, realpath } from "node:fs/promises";
@@ -14,19 +15,7 @@ export async function inventory(cwd: string) {
     "--porcelain",
     "-z",
   ]);
-  return stdout
-    .toString("utf8")
-    .split("\0\0")
-    .flatMap((record) => {
-      const fields = record.split("\0");
-      const path = fields
-        .find((field) => field.startsWith("worktree "))
-        ?.slice(9);
-      const branch = fields
-        .find((field) => field.startsWith("branch refs/heads/"))
-        ?.slice(18);
-      return path ? [{ path, branch }] : [];
-    });
+  return parseGitWorktrees(stdout.toString("utf8"));
 }
 
 export async function worktreeOptions(

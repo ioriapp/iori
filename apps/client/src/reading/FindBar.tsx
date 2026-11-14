@@ -1,3 +1,4 @@
+import { translator } from "../i18n.ts";
 import { useEffect, useRef } from "react";
 import { ArrowDown, ArrowUp, X } from "lucide-react";
 import { Button } from "../components/ui/button";
@@ -25,7 +26,7 @@ export function FindBar({
   /** Changes whenever the box is asked to take focus again. */
   focusKey: number;
 }) {
-  const ja = locale.startsWith("ja");
+  const t = translator(locale);
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => {
     input.current?.focus({ preventScroll: true });
@@ -37,8 +38,8 @@ export function FindBar({
         ref={input}
         value={query}
         data-iori-field="find-query"
-        aria-label={ja ? "検索" : "Find"}
-        placeholder={ja ? "検索" : "Find"}
+        aria-label={t("Find")}
+        placeholder={t("Find")}
         onChange={(event) => onQuery(event.target.value)}
         onKeyDown={(event) => {
           if (event.key === "Enter") {
@@ -55,10 +56,8 @@ export function FindBar({
       <Button
         variant="ghost"
         size="icon-sm"
-        aria-label={ja ? "前の一致項目" : "Previous match"}
-        title={
-          ja ? "前の一致項目（Shift+Enter）" : "Previous match (Shift+Enter)"
-        }
+        aria-label={t("Previous match")}
+        title={t("Previous match (Shift+Enter)")}
         data-iori-action="find-previous"
         onClick={onPrevious}
       >
@@ -67,8 +66,8 @@ export function FindBar({
       <Button
         variant="ghost"
         size="icon-sm"
-        aria-label={ja ? "次の一致項目" : "Next match"}
-        title={ja ? "次の一致項目（Enter）" : "Next match (Enter)"}
+        aria-label={t("Next match")}
+        title={t("Next match (Enter)")}
         data-iori-action="find-next"
         onClick={onNext}
       >
@@ -77,7 +76,7 @@ export function FindBar({
       <Button
         variant="ghost"
         size="icon-sm"
-        aria-label={ja ? "閉じる" : "Close"}
+        aria-label={t("Close")}
         data-iori-action="find-close"
         onClick={onClose}
       >
@@ -99,7 +98,7 @@ export function GoToLineBar({
   onClose: () => void;
   locale: string;
 }) {
-  const ja = locale.startsWith("ja");
+  const t = translator(locale);
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => input.current?.focus({ preventScroll: true }), []);
   return (
@@ -116,8 +115,10 @@ export function GoToLineBar({
         ref={input}
         inputMode="numeric"
         data-iori-field="go-to-line"
-        aria-label={ja ? "行へ移動" : "Go to line"}
-        placeholder={ja ? `行番号（1–${max}）` : `Line (1–${max})`}
+        aria-label={t("Go to line")}
+        placeholder={t("Line (1–{value1})").replace("{value1}", () =>
+          String(max),
+        )}
         onKeyDown={(event) => {
           if (event.key === "Escape") {
             event.preventDefault();
@@ -128,7 +129,7 @@ export function GoToLineBar({
       <Button
         variant="ghost"
         size="icon-sm"
-        aria-label={ja ? "閉じる" : "Close"}
+        aria-label={t("Close")}
         onClick={onClose}
         type="button"
       >

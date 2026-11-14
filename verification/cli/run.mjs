@@ -1,3 +1,7 @@
+import { startFakeModel } from "../fake-model/server.mjs";
+import { cliStatusScripts } from "../../e2e/fake-model/cli-status.mjs";
+import { windowsCliScripts } from "../../e2e/fake-model/windows-cli.mjs";
+import { setRealModels } from "../../e2e/fake-model/marker.mjs";
 import { local as verificationLocal } from "../native/local.mjs";
 import { powerShellHistoryBaseline } from "./history.mjs";
 import { cliStatusScenario } from "../../e2e/cli-screen/status.mjs";
@@ -33,6 +37,7 @@ import { register } from "../../e2e/connection/scenario.mjs";
 import { openFolder } from "../../e2e/workspace/scenario.mjs";
 import { create, observe } from "../../e2e/terminal/scenario.mjs";
 import { cliScenario } from "../../e2e/cli-screen/scenario.mjs";
+import { returnToWorktree } from "../../e2e/web/agents-navigation.mjs";
 import { cliResumeScenario } from "../../e2e/cli-screen/resume.mjs";
 import { claudeStatusScenario } from "../../e2e/cli-screen/claude-status.mjs";
 import { readClaudeToken } from "./claude-token.mjs";
@@ -58,12 +63,24 @@ const keepBuild = process.argv.includes("--keep-build");
 result.shellOnly = shellOnly;
 let storage, runtime, client, host, invite, cliHome, rules, hooksBefore;
 const realCliHome = process.argv.includes("--real-cli-home");
+const realModels = process.argv.includes("--real-models");
+setRealModels(realModels);
+result.realModels = realModels;
+let fakeModel;
 const recordsSince = Date.now();
 let hooksInstalled = false;
 try {
   gate();
+  if (!realModels && realCliHome)
+    throw new Error("--real-cli-home requires --real-models");
+  if (!realModels) {
+    fakeModel = await startFakeModel({
+      host: verificationLocal.network.hostAddress,
+      scripts: { ...cliStatusScripts, ...windowsCliScripts },
+    });
+  }
   if (claudeStatus) {
-    const token = await readClaudeToken();
+    const token = realModels ? await readClaudeToken() : undefined;
     cliHome = state.windowsRoot + "\\cli-home";
     const directory = windowsClaudeDirectory(state.windowsRoot);
     windows(
@@ -94,6 +111,15 @@ try {
     storage = prepareWindowsClientStorage(state);
     runtime = prepareWindowsRuntime();
     client = await startWindowsClient(state);
+    client.nativeCliObservation = true;
+    await client.screen
+      .evaluate(`window.__TAURI__.event.listen('native://stream',({payload})=>{
+      const event=JSON.parse(payload.json);
+      if(event.type==='terminal.updated'){
+        window.__nativeCliTerminals??={};
+        window.__nativeCliTerminals[event.terminal.id]=event.terminal;
+      }
+    })`);
     host = await startHost("windows", state.windowsRoot, "cli-data", {
       windowsPathEntries: [
         directory,
@@ -101,6 +127,7 @@ try {
       ],
       windowsCliHome: cliHome,
       windowsClaudeToken: token,
+      windowsFakeModel: fakeModel,
     });
     invite = await inviteCli("windows", state.windowsRoot, host.dataHome);
     await register(client.screen, invite.invitation, "CLI検証 Windows");
@@ -155,11 +182,20 @@ try {
       : state.windowsRoot + "\\cli-home";
     if (!realCliHome) {
       windows(
-        `[IO.Directory]::CreateDirectory(${ps(cliHome + "\\.codex")}) | Out-Null;New-Item -ItemType HardLink -Path ${ps(cliHome + "\\.codex\\auth.json")} -Target '${verificationLocal.windows.home}\\.codex\\auth.json' -ErrorAction Stop | Out-Null`,
+        `[IO.Directory]::CreateDirectory(${ps(cliHome + "\\.codex")}) | Out-Null` +
+          (realModels
+            ? `;New-Item -ItemType HardLink -Path ${ps(cliHome + "\\.codex\\auth.json")} -Target '${verificationLocal.windows.home}\\.codex\\auth.json' -ErrorAction Stop | Out-Null`
+            : ""),
       );
       await writeWindows(
         cliHome + "\\.codex\\config.toml",
-        'check_for_update_on_startup = false\ncli_auth_credentials_store = "file"\nmodel = "gpt-6-luna"\nmodel_reasoning_effort = "low"\napproval_policy = "on-request"\nsandbox_mode = "read-only"\napprovals_reviewer = "user"\n[projects.' +
+        'check_for_update_on_startup = false\ncli_auth_credentials_store = "file"\nmodel = "gpt-6-luna"\nmodel_reasoning_effort = "low"\napproval_policy = "on-request"\nsandbox_mode = "read-only"\napprovals_reviewer = "user"\n' +
+          (fakeModel
+            ? 'model_provider = "verification"\n[model_providers.verification]\nname = "Verification"\nwire_api = "responses"\nrequires_openai_auth = false\nenv_key = "IORI_FAKE_MODEL_KEY"\nbase_url = ' +
+              JSON.stringify(fakeModel.baseURL + "/v1") +
+              "\n"
+            : "") +
+          "[projects." +
           JSON.stringify(state.windowsRoot) +
           ']\ntrust_level = "trusted"\n',
       );
@@ -201,13 +237,23 @@ exit /b %errorlevel%
       state.windowsRoot + "\\verification\\cli\\records.mjs",
       await readFile(new URL("./records.mjs", import.meta.url), "utf8"),
     );
-    windows(
-      `$env:CODEX_HOME=${ps(cliHome + "\\.codex")};$env:PATH=${ps(pathEntries.join(";") + ";")}+$env:PATH;& ${ps(probe.path)} login status;if($LASTEXITCODE -ne 0){throw 'Codex authentication is unavailable'}`,
-    );
+    if (realModels)
+      windows(
+        `$env:CODEX_HOME=${ps(cliHome + "\\.codex")};$env:PATH=${ps(pathEntries.join(";") + ";")}+$env:PATH;& ${ps(probe.path)} login status;if($LASTEXITCODE -ne 0){throw 'Codex authentication is unavailable'}`,
+      );
     hooksInstalled = true;
     storage = prepareWindowsClientStorage(state);
     runtime = prepareWindowsRuntime();
     client = await startWindowsClient(state);
+    client.nativeCliObservation = true;
+    await client.screen
+      .evaluate(`window.__TAURI__.event.listen('native://stream',({payload})=>{
+      const event=JSON.parse(payload.json);
+      if(event.type==='terminal.updated'){
+        window.__nativeCliTerminals??={};
+        window.__nativeCliTerminals[event.terminal.id]=event.terminal;
+      }
+    })`);
     for (const name of ["click", "wait", "input"]) {
       const operation = client.screen[name].bind(client.screen);
       client.screen[name] = async (selector, ...args) => {
@@ -218,6 +264,7 @@ exit /b %errorlevel%
     host = await startHost("windows", state.windowsRoot, "cli-data", {
       windowsPathEntries: pathEntries,
       windowsCliHome: cliHome,
+      windowsFakeModel: fakeModel,
     });
     invite = await inviteCli("windows", state.windowsRoot, host.dataHome);
     await register(client.screen, invite.invitation, "CLI検証 Windows");
@@ -248,7 +295,7 @@ exit /b %errorlevel%
     await client.screen.click('[data-iori-action="workspace-add-tab"]');
     await client.screen.click('[data-iori-action="add-cli"]');
     await client.screen.wait('[data-iori-cli-version="codex"]');
-    await client.screen.click('[data-iori-action="settings-close"]');
+    await returnToWorktree(client.screen);
     if (shell === "cmd" && !resumeOnly) {
       await client.screen.click('[data-iori-action="workspace-add-tab"]');
       await client.screen.wait('[data-iori-cli-id="codex"]');
@@ -269,7 +316,7 @@ exit /b %errorlevel%
           ),
         Boolean,
       );
-      await client.screen.click('[data-iori-action="settings-close"]');
+      await returnToWorktree(client.screen);
       result.steps.push(
         "cmdの既定shellでCodexを検出し、引用した.cmdの起動コマンドを登録",
       );
@@ -349,6 +396,7 @@ exit /b %errorlevel%
           host = await startHost("windows", state.windowsRoot, "cli-data", {
             windowsPathEntries: pathEntries,
             windowsCliHome: cliHome,
+            windowsFakeModel: fakeModel,
           });
         },
         records: async () =>
@@ -367,6 +415,15 @@ exit /b %errorlevel%
             Buffer.from(await client.browser.screenshot(), "base64"),
           ),
       });
+      if (fakeModel)
+        assert.ok(
+          fakeModel.requests.some(
+            (request) =>
+              request.marker === "windows-resume-after" &&
+              request.tokensPresent["Remember IORI_WINDOWS_RESUME_MEMORY"],
+          ),
+          "再開後のモデル要求に以前の依頼が含まれること",
+        );
       result.resumeRecords = JSON.parse(
         windows(
           `Set-Location ${ps(state.windowsRoot)};& ${ps(windowsBuildNode)} --input-type=module -e ${ps(`import {resumeRecords} from './verification/cli/resume-records.mjs';console.log(JSON.stringify(await resumeRecords(${JSON.stringify(cliHome.replaceAll("\\", "/") + "/.codex/sessions")},${recordsSince})));`)}`,
@@ -444,7 +501,7 @@ exit /b %errorlevel%
           `$env:USERPROFILE=${ps(cliHome)};$env:HOME=${ps(cliHome)};$env:CODEX_HOME=${ps(cliHome + "\\.codex")};$env:LOCALAPPDATA=${ps(host.dataHome)};Set-Location ${ps(state.windowsRoot)};& ${ps(windowsBuildNode)} apps/host/src/cli/remove-hooks.ts;if($LASTEXITCODE -ne 0){throw 'hook removal failed'};if(Test-Path -LiteralPath ${ps(cliHome + "\\.codex\\hooks.json")}){$c=Get-Content -LiteralPath ${ps(cliHome + "\\.codex\\hooks.json")} -Raw | ConvertFrom-Json;if(($c | ConvertTo-Json -Depth 30) -match 'iori-cli-hook'){throw 'iori hooks remain'}}`,
         );
         windows(
-          `Set-Location ${ps(state.windowsRoot)};& ${ps(windowsBuildNode)} --input-type=module -e ${ps(`import assert from 'node:assert/strict';import {readConfig,removeOwned} from './apps/host/src/cli/hook-config.ts';const expected=await readConfig(${JSON.stringify(hooksBefore.replaceAll("\\", "/"))});for(const [event,entries] of Object.entries(expected.hooks??{})){if(!Array.isArray(entries))continue;const clean=removeOwned(entries);if(clean.length)expected.hooks[event]=clean;else delete expected.hooks[event];}if(expected.hooks&&!Object.keys(expected.hooks).length)delete expected.hooks;assert.deepEqual(await readConfig(${JSON.stringify((cliHome + "\\.codex\\hooks.json").replaceAll("\\", "/"))}),expected);`)};if($LASTEXITCODE -ne 0){throw 'User hook preservation failed'}`,
+          `Set-Location ${ps(state.windowsRoot)};& ${ps(windowsBuildNode)} --input-type=module -e ${ps(`import assert from 'node:assert/strict';import {readConfig} from './apps/host/src/cli/hook-config.ts';import {editHookDocument} from './apps/host/src/cli/hook-documents.ts';const before=await readConfig(${JSON.stringify(hooksBefore.replaceAll("\\", "/"))});const expected=JSON.parse(editHookDocument(JSON.stringify(before),'json','codex'));assert.deepEqual(await readConfig(${JSON.stringify((cliHome + "\\.codex\\hooks.json").replaceAll("\\", "/"))}),expected);`)};if($LASTEXITCODE -ne 0){throw 'User hook preservation failed'}`,
         );
         result.userHooksPreserved = true;
         result.realCliHome = realCliHome;
@@ -452,6 +509,7 @@ exit /b %errorlevel%
       },
     ],
     ["client", () => client?.stop()],
+    ["fake model", () => fakeModel?.close()],
     ["task", () => stopWindowsClientTask(state)],
     ["processes", () => stopOwnedWindowsProcesses(state.windowsRoot)],
     ["runtime", () => cleanupWindowsRuntime(runtime)],
@@ -489,6 +547,7 @@ exit /b %errorlevel%
       process.exitCode = 1;
     }
   }
+  if (fakeModel) result.fakeModelRequests = fakeModel.requests;
   await writeFile(
     join(runRoot, "result.json"),
     JSON.stringify(result, null, 2),

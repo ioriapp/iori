@@ -12,6 +12,7 @@ export async function registerScriptedCli(
     noReady = false,
     resumable = false,
     observeEnvironment = false,
+    waiting = false,
   } = {},
 ) {
   const id = requestedId ?? (noReady ? "scripted-no-ready" : "scripted-parent");
@@ -44,6 +45,16 @@ export async function registerScriptedCli(
               rules: [
                 { event: "SessionStart", state: "idle" },
                 { event: "UserPromptSubmit", state: "active" },
+                ...(waiting
+                  ? [
+                      {
+                        event: "PermissionRequest",
+                        state: "waiting",
+                        attention: "approval",
+                        tool: "tool_name",
+                      },
+                    ]
+                  : []),
                 { event: "Stop", state: "done" },
               ],
             },

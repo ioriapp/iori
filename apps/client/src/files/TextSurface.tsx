@@ -14,6 +14,7 @@ import {
 import {
   decodeBytes,
   isAbort,
+  ReadConnectionLost,
   type ReadingTransport,
 } from "../reading/transport.ts";
 import type { MenuAction } from "../reading/PathMenu.tsx";
@@ -39,6 +40,8 @@ class FileLines implements TextSource {
   #path: string;
   #pages = new Map<number, Page>();
   #revision: string | undefined;
+  #refreshVersion = 0;
+  #connectionFailed = false;
   #wanted = { first: 0, last: 0 };
   #running?: AbortController;
   #syntaxRunning = new Map<number, AbortController>();
@@ -78,6 +81,7 @@ class FileLines implements TextSource {
     this.#syntaxRunning.clear();
     this.count = info.lineCount ?? this.count;
     this.#failed = undefined;
+    this.#connectionFailed = false;
     this.error = undefined;
     this.#changed();
     this.#kick();
@@ -117,8 +121,17 @@ class FileLines implements TextSource {
 
   retry() {
     this.#failed = undefined;
+    this.#connectionFailed = false;
     this.error = undefined;
     this.#changed();
+    this.#kick();
+  }
+
+  refresh() {
+    this.#refreshVersion += 1;
+    if (!this.#connectionFailed) return;
+    this.#connectionFailed = false;
+    this.#failed = undefined;
     this.#kick();
   }
 
@@ -148,6 +161,7 @@ class FileLines implements TextSource {
     const page = target;
     const controller = new AbortController();
     this.#running = controller;
+    const refreshVersion = this.#refreshVersion;
     void this.#readPage(page, controller.signal)
       .then((result) => {
         const stored: Page = {
@@ -181,8 +195,15 @@ class FileLines implements TextSource {
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted || isAbort(error)) return;
-        this.error = error;
-        this.#failed = page;
+        if (error instanceof ReadConnectionLost) {
+          if (refreshVersion === this.#refreshVersion) {
+            this.#failed = page;
+            this.#connectionFailed = true;
+          }
+        } else {
+          this.#failed = page;
+          this.error = error;
+        }
       })
       .finally(() => {
         if (this.#running === controller) this.#running = undefined;
@@ -328,6 +349,7 @@ class FileLines implements TextSource {
 
   copy: TextSource["copy"] = async (first, last, signal) => {
     const parts: string[] = [];
+    const revision = this.#revision;
     let line = first + 1;
     let continuation: { line: number; byteOffset: number } | undefined;
     while (line <= last + 1) {
@@ -343,6 +365,9 @@ class FileLines implements TextSource {
         },
         signal,
       );
+      // eslint-disable-next-line iori/no-stored-value-rejection -- External file contents can change while the selection is read.
+      if (result.revision !== revision)
+        throw new Error("File revision changed");
       if (!result.lines.length) break;
       for (const chunk of result.lines) {
         if (continuation && chunk.line === continuation.line)
@@ -370,6 +395,7 @@ export function TextSurface({
   findRequest,
   goToRequest,
   extraActions,
+  refresh,
 }: {
   transport: ReadingTransport;
   root: string;
@@ -381,6 +407,7 @@ export function TextSurface({
   findRequest?: number;
   goToRequest?: number;
   extraActions?: MenuAction[];
+  refresh: number;
 }) {
   const [, render] = useReducer((value: number) => value + 1, 0);
   const [, setLatest] = useState<string>();
@@ -394,6 +421,7 @@ export function TextSurface({
   );
   useEffect(() => () => source.dispose(), [source]);
   useEffect(() => source.update(info), [source, info]);
+  useEffect(() => source.refresh(), [source, refresh]);
   return (
     <TextRows
       source={source}
@@ -411,6 +439,7 @@ export function TextSurface({
       findRequest={findRequest}
       goToRequest={goToRequest}
       extraActions={extraActions}
+      refresh={refresh}
     />
   );
 }

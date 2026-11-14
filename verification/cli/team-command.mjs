@@ -37,7 +37,7 @@ async function argumentProbe() {
     resolveShellCommands,
     cliResumeCommand,
   } = await import("../../bundle/src/cli/shell-command.js");
-  const { managedCommandArguments } =
+  const { managedCommandArguments, TERMINAL_PARSER_SUBSCRIPTIONS } =
     await import("../../bundle/src/terminal/runtime.js");
   const { ptyEnvironment, getWindowsPtySpawnOptions } =
     await import("../../bundle/src/terminal/platform.js");
@@ -113,7 +113,7 @@ async function argumentProbe() {
     if (method === "event") return remote.event(args[0]);
     throw new Error("Unexpected probe request");
   };
-  await channel.call("attach");
+  await channel.call("attach", TERMINAL_PARSER_SUBSCRIPTIONS);
   await channel.call("activate");
   await channel.call("commandsReady");
   const cases = [];
@@ -130,9 +130,11 @@ async function argumentProbe() {
     passing,
     form = "arguments",
   ) {
+    const startedAt = new Date().toISOString();
     console.log(
       JSON.stringify({
         stage: "argument-case",
+        startedAt,
         shell: shell.label,
         target,
         payload: payload.name,
@@ -142,6 +144,10 @@ async function argumentProbe() {
       }),
     );
     const id = randomUUID();
+    const stage = (stage, details = {}) =>
+      console.log(
+        JSON.stringify({ stage, at: new Date().toISOString(), id, ...details }),
+      );
     const output = path.join(directory, id + ".json");
     const resumeStateFile = path.join(directory, id + ".resume.json");
     const readyMarker = "IORI_RESUME_READY_" + id;
@@ -201,6 +207,7 @@ async function argumentProbe() {
           ]
         : managedCommandArguments(command, shell);
     await channel.call("screen", id, 160, 32, "", []);
+    stage("argument-pty-spawning");
     const child = await remote.spawn({
       id,
       executable: shell.executable,
@@ -229,16 +236,21 @@ async function argumentProbe() {
         ...getWindowsPtySpawnOptions(),
       },
     });
+    stage("argument-pty-spawned", { pid: child.pid });
     let text = "",
       exit;
-    child.onData((chunk) => {
-      text += chunk;
+    child.onData((batch) => {
+      if (!text)
+        stage("argument-output-received", { dataType: typeof batch.data });
+      text += batch.data;
     });
     child.onExit((value) => {
       exit = value;
+      stage("argument-pty-exited", value);
     });
     try {
       if (input !== undefined) {
+        stage("argument-prompt-waiting");
         await waitForOperation(
           "argument resume prompt " + shell.label,
           () => ({
@@ -248,7 +260,11 @@ async function argumentProbe() {
           (state) => state.ready || state.exited,
           () => false,
         );
-        if (exit === undefined) child.write(input + "\r");
+        if (exit === undefined) {
+          stage("argument-prompt-ready");
+          child.write(input + "\r");
+          stage("argument-resume-sent");
+        }
       }
       await waitForOperation(
         "argument probe " + shell.label + "/" + target + "/" + route,
@@ -265,6 +281,7 @@ async function argumentProbe() {
       const received = await ifPresent(() =>
         readFile(output, "utf8").then(JSON.parse),
       );
+      stage("argument-argv-recorded", { recorded: received !== undefined });
       const resumeState =
         route === "resume"
           ? await ifPresent(() =>
@@ -272,6 +289,8 @@ async function argumentProbe() {
             )
           : undefined;
       cases.push({
+        startedAt,
+        finishedAt: new Date().toISOString(),
         shell: shell.label,
         target,
         payload: payload.name,
@@ -317,6 +336,7 @@ async function argumentProbe() {
       console.log(
         JSON.stringify({
           stage: "argument-result",
+          finishedAt: cases.at(-1).finishedAt,
           equal: cases.at(-1).equal,
         }),
       );
@@ -1656,7 +1676,7 @@ if (process.platform === "win32") {
   await lockEntry(import.meta.url);
   const { gate, windows, ps, windowsBuildNode, windowsPnpm } =
     await import("../native/remote.mjs");
-  const { writeWindows, windowsEnvironment } =
+  const { writeWindows, windowsEnvironment, runWindowsBuild } =
     await import("../connection/build.mjs");
   const { createSourceArchive, windowsSourceMtimes } =
     await import("../native/source.mjs");
@@ -1701,8 +1721,10 @@ if (process.platform === "win32") {
     );
     windows(`[IO.Directory]::CreateDirectory(${ps(root)}) | Out-Null`);
     await writeWindows(root + "\\source.tar", await readFile(archive));
-    windows(
+    await runWindowsBuild(
+      root,
       `${windowsEnvironment}tar -mxf ${ps(root + "\\source.tar")} -C ${ps(root)};if($LASTEXITCODE -ne 0){throw 'extract failed'};Set-Location ${ps(root)};${windowsSourceMtimes}$env:CARGO_TARGET_DIR=${ps(windowsCache + "\\cargo-target")};$env:CARGO_BUILD_JOBS='2';& ${ps(windowsBuildNode)} ${ps(windowsPnpm)} install --frozen-lockfile --store-dir ${ps(windowsCache + "\\pnpm-store")};if($LASTEXITCODE -ne 0){throw 'install failed'};node verification/native/node-pty.mjs;if($LASTEXITCODE -ne 0){throw 'node-pty build failed'};& ${ps(windowsBuildNode)} ${ps(windowsPnpm)} --filter @iori/host build:native;if($LASTEXITCODE -ne 0){throw 'native build failed'};& ${ps(windowsBuildNode)} scripts/release/host.mjs bundle;if($LASTEXITCODE -ne 0){throw 'bundle failed'}`,
+      path.join(evidence, "build.log"),
     );
     const packaged = JSON.parse(
       windows(
@@ -1876,9 +1898,14 @@ if (process.platform === "win32") {
         }
       }
     }
-    windows(
-      `if(Test-Path -LiteralPath ${ps(root)}){Remove-Item -LiteralPath ${ps(root)} -Recurse -Force}`,
-    );
+    try {
+      windows(
+        `if(Test-Path -LiteralPath ${ps(root)}){cmd.exe /c ${ps('rd /s /q "\\\\?\\' + root + '"')};if(Test-Path -LiteralPath ${ps(root)}){throw 'Windows verification folder remains'}}`,
+      );
+    } catch (error) {
+      console.error("Windows verification cleanup failed:", error);
+      process.exitCode = 1;
+    }
     await rm(temporary, { recursive: true, force: true });
   }
 }

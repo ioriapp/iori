@@ -1,3 +1,4 @@
+import { translator } from "../i18n.ts";
 import { useEffect, useState, type ReactNode } from "react";
 import type { GitCommitFile, ReadResultByMethod } from "@iori/protocol";
 import {
@@ -52,6 +53,7 @@ export function CommitDetail({
   lead?: ReactNode;
 }) {
   const ja = locale.startsWith("ja");
+  const t = translator(locale);
   const [commit, setCommit] = useState<Commit>();
   const [error, setError] = useState<string>();
   const [retry, setRetry] = useState(0);
@@ -122,7 +124,7 @@ export function CommitDetail({
       {error && (
         <ReadingError
           centered={!commit}
-          retryLabel={ja ? "再試行" : "Retry"}
+          retryLabel={t("Retry")}
           onRetry={() => setRetry((value) => value + 1)}
         >
           {error}
@@ -141,34 +143,31 @@ export function CommitDetail({
           )}
           <div className="git-commit-parents">
             {commit.parents.length === 0 && (
-              <span>
-                {ja ? "最初のcommit（親なし）" : "Root commit (no parent)"}
-              </span>
+              <span>{t("Root commit (no parent)")}</span>
             )}
             {commit.parents.length === 1 && (
               <span>
-                {ja ? "親" : "Parent"}{" "}
-                <code>{commit.parents[0]!.slice(0, 10)}</code>
+                {t("Parent")} <code>{commit.parents[0]!.slice(0, 10)}</code>
               </span>
             )}
             {merge && (
               <>
-                <span>{ja ? "親と比較" : "Compare with parent"}</span>
+                <span>{t("Compare with parent")}</span>
                 <Select value={parent ?? ""} onValueChange={onParent}>
                   <SelectTrigger
                     size="sm"
-                    aria-label={ja ? "比較する親" : "Parent to compare"}
+                    aria-label={t("Parent to compare")}
                     data-iori-action="git-parent-select"
                   >
-                    <SelectValue
-                      placeholder={ja ? "親を選ぶ" : "Choose a parent"}
-                    />
+                    <SelectValue placeholder={t("Choose a parent")} />
                   </SelectTrigger>
                   <SelectContent>
                     {commit.parents.map((value, index) => (
                       <SelectItem key={value} value={value}>
-                        {ja ? `親${index + 1}` : `Parent ${index + 1}`} ·{" "}
-                        {value.slice(0, 10)}
+                        {t("Parent {value1}").replace("{value1}", () =>
+                          String(index + 1),
+                        )}{" "}
+                        · {value.slice(0, 10)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -180,24 +179,19 @@ export function CommitDetail({
       )}
       {commit && merge && !compared && (
         <p className="reading-empty">
-          {ja
-            ? "比較する親を選んでください。"
-            : "Choose a parent to see the changes."}
+          {t("Choose a parent to see the changes.")}
         </p>
       )}
       {ready && (
         <div className="git-commit-files">
           <div className="git-section-heading" data-static="true">
-            <span>{ja ? "変更されたファイル" : "Changed files"}</span>
+            <span>{t("Changed files")}</span>
             {files.total !== undefined && (
               <span className="git-count">{files.total}</span>
             )}
           </div>
           {Boolean(files.error) && (
-            <ReadingError
-              retryLabel={ja ? "再試行" : "Retry"}
-              onRetry={() => files.retry()}
-            >
+            <ReadingError retryLabel={t("Retry")} onRetry={() => files.retry()}>
               {readErrorCopy(files.error, locale)}
             </ReadingError>
           )}
@@ -206,7 +200,7 @@ export function CommitDetail({
             rowHeight={row.height}
             dataId="git-commit-files"
             className="git-list-rows"
-            label={ja ? "commit内のファイル" : "Files in the commit"}
+            label={t("Files in the commit")}
             onRange={(first, last) => files.ensure(first, last)}
             renderRow={(index) => {
               const file = files.get(index);

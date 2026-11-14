@@ -128,7 +128,8 @@ if (process.platform === "win32" || process.argv.includes("--probe")) {
   const { gate, windows, ps, windowsBuildNode, windowsPnpm } =
     await import("../native/remote.mjs");
   const { windowsCache } = await import("../native/cache.mjs");
-  const { writeWindows } = await import("../connection/build.mjs");
+  const { writeWindows, runWindowsBuild } =
+    await import("../connection/build.mjs");
   const { createSourceArchive } = await import("../native/source.mjs");
   const { stopOwnedWindowsProcesses } = await import("../native/processes.mjs");
   const { readClaudeToken } = await import("./claude-token.mjs");
@@ -149,7 +150,8 @@ if (process.platform === "win32" || process.argv.includes("--probe")) {
     await createSourceArchive(repo, archive);
     windows(`[IO.Directory]::CreateDirectory(${ps(root)}) | Out-Null`);
     await writeWindows(root + "\\source.tar", await readFile(archive));
-    windows(
+    await runWindowsBuild(
+      root,
       `tar -xf ${ps(root + "\\source.tar")} -C ${ps(root)};if($LASTEXITCODE -ne 0){throw 'source extraction failed'};Set-Location ${ps(root)};$env:PATH=${ps(path.win32.dirname(windowsBuildNode) + ";")}+$env:PATH;` +
         // The Host modules this probe imports need their dependencies. Install
         // from the lockfile into the shared store like the other Windows verification machine
@@ -157,8 +159,7 @@ if (process.platform === "win32" || process.argv.includes("--probe")) {
         // not needed.
         `& ${ps(windowsBuildNode)} ${ps(windowsPnpm)} install --frozen-lockfile --ignore-scripts --store-dir ${ps(path.win32.join(windowsCache, "pnpm-store"))};if($LASTEXITCODE -ne 0){throw 'pnpm install failed'};` +
         `$workspace=${ps(root + "\\apps\\host\\node_modules\\@iori")};if(-not(Test-Path -LiteralPath (Join-Path $workspace 'protocol'))){[IO.Directory]::CreateDirectory($workspace) | Out-Null;New-Item -ItemType Junction -Path (Join-Path $workspace 'protocol') -Target ${ps(root + "\\packages\\protocol")} | Out-Null}`,
-      // pnpm resolves the workspace and the store, which outlasts the default ssh wait.
-      { timeout: 900_000 },
+      path.join(evidence, "build.log"),
     );
     const home = root + "\\cli-home";
     const installClaude = process.argv.includes("--install-claude")

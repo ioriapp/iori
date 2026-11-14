@@ -34,11 +34,8 @@ export function useIssueRepositories(
   const wanted = JSON.stringify(
     repositories
       .filter((item) => connectedHosts.includes(item.host))
-      .map((item) => [
-        item.host,
-        item.workspacePath,
-        revisions[item.host] ?? 0,
-      ]),
+      .map((item) => [item.host, item.workspacePath, revisions[item.host] ?? 0])
+      .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
   );
   useEffect(() => {
     let active = true;

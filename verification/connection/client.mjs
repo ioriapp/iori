@@ -238,10 +238,13 @@ export async function startWindowsClient(
     executable,
   };
 }
-export async function startAndroidClient(apk, { install = true } = {}) {
+export async function startAndroidClient(
+  apk,
+  { install = true, launch = true } = {},
+) {
   // A failed OS notification operation can leave the shade over the app.
   // Launch into the visible Activity rather than interacting with a hidden DOM.
-  adb(["shell", "cmd", "statusbar", "collapse"]);
+  if (launch) adb(["shell", "cmd", "statusbar", "collapse"]);
   if (install) adb(["install", "-r", apk], { timeout: 120000 });
   else if (
     !adb(["shell", "pm", "list", "packages", androidPackage]).includes(
@@ -249,13 +252,14 @@ export async function startAndroidClient(apk, { install = true } = {}) {
     )
   )
     throw new Error("検証用APKが導入されていません");
-  adb([
-    "shell",
-    "am",
-    "start",
-    "-n",
-    androidPackage + "/" + verificationIdentifier + ".MainActivity",
-  ]);
+  if (launch)
+    adb([
+      "shell",
+      "am",
+      "start",
+      "-n",
+      androidPackage + "/" + verificationIdentifier + ".MainActivity",
+    ]);
   const pid = await waitFor(() =>
     adb(["shell", "pidof " + androidPackage + " || true"]),
   );
@@ -294,9 +298,12 @@ export async function startAndroidClient(apk, { install = true } = {}) {
     }
     throw error;
   }
-  const stop = async () => {
+  const disconnect = async () => {
     browser.close();
     adb(["forward", "--remove", "tcp:" + port]);
+  };
+  const stop = async () => {
+    await disconnect();
     adb(["shell", "am", "force-stop", androidPackage]);
   };
   // A real finger on the screen, so the OS keyboard opens as it does for a
@@ -383,6 +390,7 @@ export async function startAndroidClient(apk, { install = true } = {}) {
     nativeBack,
     nativeHome,
     nativeForeground,
+    disconnect,
     stop,
     pid,
     port,

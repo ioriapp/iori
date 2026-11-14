@@ -45,8 +45,13 @@ export async function usageStatusScenario({
   await screen.click('[data-iori-action="settings-open"]');
   await screen.click('[data-iori-action="settings-display"]');
   await screen.click('[data-iori-action="usage-display"]');
+  await screen.wait('[role="option"][data-state]');
   await screen.key("Home");
   await screen.key("Enter");
+  await waitFor(
+    () => screen.text('[data-iori-action="usage-display"]'),
+    (text) => text === "残量",
+  );
   await screen.click('[data-iori-action="settings-close"]');
   await waitFor(
     () => screen.text(`${item} .usage-number`),

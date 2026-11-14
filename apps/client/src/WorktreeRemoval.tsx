@@ -89,6 +89,7 @@ type Props = {
   onRemoved: (paths: string[]) => void;
   onStarted: (paths: string[]) => void;
   failures?: RemovalFailure[];
+  initialPreviews?: WorktreeRemovalPreview[];
 };
 export function WorktreeRemoval({
   host,
@@ -100,21 +101,43 @@ export function WorktreeRemoval({
   onRemoved,
   onStarted,
   failures,
+  initialPreviews,
 }: Props) {
   const [previews, setPreviews] = useState<WorktreeRemovalPreview[]>([]);
   const preview = previews[0];
   const items = previews.flatMap((item) => item.items);
-  const multiple = cleanup || Boolean(failures && failures.length > 1);
+  const multiple =
+    cleanup ||
+    Boolean(failures && failures.length > 1) ||
+    Boolean(
+      initialPreviews &&
+      initialPreviews.flatMap((entry) => entry.items).length > 1,
+    );
   const cancel = useRef<HTMLButtonElement>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [branches, setBranches] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [failedPreviews, setFailedPreviews] = useState<RemovalFailure[]>([]);
 
   const [reload, setReload] = useState(0);
   useEffect(() => {
     let current = true;
     setLoading(true);
+    if (initialPreviews) {
+      setPreviews(initialPreviews);
+      setSelected(
+        initialPreviews.flatMap((entry) =>
+          entry.items.map((item) => item.path),
+        ),
+      );
+      setBranches([]);
+      setError("");
+      setLoading(false);
+      return () => {
+        current = false;
+      };
+    }
     const reads =
       failures && multiple
         ? failures.map((failure) =>
@@ -134,6 +157,14 @@ export function WorktreeRemoval({
       const loaded = responses.flatMap((response) =>
         response.status === "fulfilled" && response.value?.ok
           ? [response.value.result]
+          : [],
+      );
+      setFailedPreviews(
+        failures && multiple
+          ? failures.filter((_, index) => {
+              const response = responses[index];
+              return response.status !== "fulfilled" || !response.value?.ok;
+            })
           : [],
       );
       setPreviews(loaded);
@@ -164,7 +195,15 @@ export function WorktreeRemoval({
     return () => {
       current = false;
     };
-  }, [host.publicKey, path, cleanup, failures, multiple, reload]);
+  }, [
+    host.publicKey,
+    path,
+    cleanup,
+    failures,
+    multiple,
+    reload,
+    initialPreviews,
+  ]);
   const remove = () => {
     if (!preview) return;
     const paths = removalTree(
@@ -299,7 +338,7 @@ export function WorktreeRemoval({
                     : "Loading…",
                 )}
               </p>
-            ) : items.length === 0 ? (
+            ) : items.length === 0 && !error && failedPreviews.length === 0 ? (
               <p>{t("No merged worktrees to delete.")}</p>
             ) : multiple ? (
               <div className="section-body">
@@ -361,6 +400,30 @@ export function WorktreeRemoval({
                 </div>
               </div>
             ) : null}
+            {!loading && failedPreviews.length > 0 && (
+              <div className="section-body">
+                {failedPreviews.map((failure) => (
+                  <div
+                    key={failure.path}
+                    className="field-row removal-merged-item"
+                  >
+                    <Name middle>
+                      {worktreeLabel(undefined, failure.path, path)}
+                    </Name>
+                    <PreviousFailure failure={failure} t={t} />
+                  </div>
+                ))}
+                <p role="alert">
+                  {t("Could not load worktrees. Check Git and retry.")}
+                </p>
+                <Button
+                  variant="outline"
+                  onClick={() => setReload((value) => value + 1)}
+                >
+                  {t("Retry")}
+                </Button>
+              </div>
+            )}
             {(!cleanup || failures) && !loading && (
               <>
                 {changed.length > 0 && (

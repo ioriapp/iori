@@ -129,6 +129,7 @@ export type TeamHistory = {
   summary: string;
   changes?: TeamChange[];
   restoredFrom?: number;
+  overwrote?: number;
   memo?: string;
 };
 export type TeamRecord = {
@@ -177,7 +178,12 @@ export interface TeamParamsByMethod {
     definition?: TeamDefinition;
     name?: string;
   };
-  "teams.save": { teamId: string; definition: TeamDefinition };
+  "teams.save": {
+    teamId: string;
+    definition: TeamDefinition;
+    baseVersion?: number;
+    editedFrom?: number;
+  };
   "teams.memo": { teamId: string; version: number; memo: string };
   "teams.restore": { teamId: string; version: number };
   "teams.duplicate": { teamId: string; name?: string };
@@ -197,7 +203,10 @@ export interface TeamResultByMethod {
   "teams.list": TeamList;
   "teams.read": TeamRecord;
   "teams.create": TeamRecord;
-  "teams.save": TeamRecord;
+  "teams.save":
+    | TeamRecord
+    | { conflict: "changed"; current: TeamRecord }
+    | { conflict: "deleted" };
   "teams.memo": TeamRecord;
   "teams.restore": TeamRecord;
   "teams.duplicate": TeamRecord;
@@ -461,7 +470,15 @@ export function parseTeamParams<M extends TeamMethod>(
       result = {
         teamId: id(v.teamId),
         ...(method === "teams.save"
-          ? { definition: parseTeamDefinition(v.definition) }
+          ? {
+              definition: parseTeamDefinition(v.definition),
+              ...(v.baseVersion === undefined
+                ? {}
+                : { baseVersion: version(v.baseVersion) }),
+              ...(v.editedFrom === undefined
+                ? {}
+                : { editedFrom: version(v.editedFrom) }),
+            }
           : {}),
         ...(method === "teams.duplicate" && v.name !== undefined
           ? { name: id(v.name) }
@@ -482,6 +499,11 @@ export function parseTeamParams<M extends TeamMethod>(
       }
   }
   return result as TeamParamsByMethod[M];
+}
+function version(value: unknown): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1)
+    throw new Error("Expected a version");
+  return value;
 }
 /** Host responses are already produced by iori; do not reject saved definitions. */
 export const teamResultSchemas = Object.fromEntries(

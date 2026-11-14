@@ -1,6 +1,5 @@
 import { newWorktreeLayout } from "./new-worktree-layout.mjs";
 import { sidebarWidth } from "./sidebar-width.mjs";
-import { terminalFit } from "./terminal-fit.mjs";
 import { terminalSend } from "./terminal-send.mjs";
 import { filesTransfer } from "./files-transfer.mjs";
 import { openWorkspaceView } from "../../verification/workspace/interaction.mjs";
@@ -12,6 +11,7 @@ import {
   forgeStatusScenario,
   forgeSettingsWithoutWorkspace,
 } from "./forge-status.mjs";
+import { forgeCiScenario } from "./forge-ci.mjs";
 import { forgeTokenScenario } from "./forge-token.mjs";
 import { forgeIssuesScenario } from "./forge-issues.mjs";
 import { forgeIssueStartScenario } from "./forge-issue-start.mjs";
@@ -33,10 +33,16 @@ import {
   clipboardTransferScenario,
 } from "./clipboard-image.mjs";
 import { gitImageDiff } from "./git-image-diff.mjs";
-import { readingWorktrees } from "./reading-worktrees.mjs";
+import { readingWorktrees, readingSurfaces } from "./reading-worktrees.mjs";
 import { readingTextCopy } from "./reading-text-copy.mjs";
 import { filesReading } from "./files-reading.mjs";
-import { terminalPreferences } from "./terminal-preferences.mjs";
+import {
+  terminalFitScenario,
+  terminalFont,
+  terminalRightClick,
+  mobileTerminalTouch,
+  mobileCliSelection,
+} from "./terminal-preferences.mjs";
 import { teamNotificationsScenario } from "./team-notifications.mjs";
 import { prepareTeamScenario } from "./team-fixture.mjs";
 import { teamCommandRouteScenario } from "./team-command-route.mjs";
@@ -49,6 +55,7 @@ import {
   childLifecycleScenarios,
   cliDefinitionScenarios,
 } from "../../verification/web/scenarios.mjs";
+import { teamSaveConflictScenario } from "./team-save-conflict.mjs";
 import { teamsScenario } from "./teams.mjs";
 import { terminalRetention, eventTolerance } from "./terminal-recovery.mjs";
 import { longApproval } from "../cli-screen/claude-status.mjs";
@@ -58,15 +65,28 @@ import { commitReconnection } from "./commit-reconnection.mjs";
 import { terminalSizeOwnership } from "./terminal-size-ownership.mjs";
 import { terminalWidthHandoff } from "./terminal-width-handoff.mjs";
 import { cliStatusScenario } from "../cli-screen/status.mjs";
-import { cliScenario, modelFailureScenario } from "../cli-screen/scenario.mjs";
+import {
+  cliScenario,
+  cliFirstOpen,
+  cliSettings,
+  modelFailureScenario,
+} from "../cli-screen/scenario.mjs";
 import { cliLauncherScenario } from "./cli-launcher.mjs";
 import { cliDefinitionScenario } from "./cli-definition.mjs";
 import { cliDefinitionPluginScenario } from "./cli-definition-plugin.mjs";
 import { usageStatusScenario } from "./usage-status.mjs";
 import { cliOrderScenario } from "./cli-order.mjs";
 import { cliOmpScenario } from "./cli-omp.mjs";
-import { paneActions, paneResize, paneMaximize } from "./panes.mjs";
+import {
+  paneSplit,
+  paneFileDrop,
+  paneExit,
+  paneResize,
+  paneMaximize,
+} from "./panes.mjs";
 import assert from "node:assert/strict";
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { waitFor } from "../../verification/ui.mjs";
 import { register, forgetHostFromSettings } from "../connection/scenario.mjs";
 import { openFolder, selectWorktree } from "../workspace/scenario.mjs";
@@ -120,6 +140,7 @@ export async function webScenario({
   teamDelivery,
   teamCommand,
   withConnectionOffline,
+  releaseRetentionOutput,
   malformedEvent,
   oversizedAttention,
   replayCliUpdate,
@@ -245,6 +266,47 @@ export async function webScenario({
       shot,
       record,
     });
+  if (only === "forge-ci")
+    return forgeCiScenario({
+      client,
+      fixture: forgeFixture,
+      mobile,
+      desktop,
+      shot,
+      record,
+    });
+  if (
+    [
+      "automation-draft",
+      "automation-run",
+      "automation-schedule",
+      "automation-recovery",
+      "automation-webhook-setup",
+      "automation-webhook-receive",
+    ].includes(only)
+  ) {
+    await openFolder(screen, repository, false);
+    await screen.click(
+      `button[data-iori-worktree-path=${JSON.stringify(worktree)}]`,
+    );
+    const options = {
+      fakeModelRequests,
+      client,
+      worktree,
+      record,
+      desktop,
+      mobile,
+      session,
+      assistantReply,
+      restartPreservingHost,
+      automationDatabase,
+      ptyDimensions,
+      workflow: only,
+    };
+    return only.startsWith("automation-webhook-")
+      ? automationWebhookScenario(options)
+      : automationsScenario(options);
+  }
   if (only === "automation-issue")
     return automationIssueScenario({
       client,
@@ -296,8 +358,15 @@ export async function webScenario({
       shot,
       record,
     });
-  if (only === "sidebar-order")
+  if (
+    [
+      "sidebar-worktree-state",
+      "sidebar-workspace-order",
+      "sidebar-host-order",
+    ].includes(only)
+  )
     return sidebarOrderScenario({
+      workflow: only,
       client,
       repository,
       worktree,
@@ -321,6 +390,120 @@ export async function webScenario({
       ),
     (value) => value === worktree,
   );
+  if (
+    [
+      "terminal-nerd-font",
+      "terminal-retention",
+      "event-tolerance",
+      "terminal-size-ownership",
+      "pane-resize",
+      "pane-split",
+      "pane-file-drop",
+      "pane-exit",
+      "terminal-send",
+      "terminal-fit",
+      "terminal-font",
+      "terminal-right-click",
+      "mobile-terminal-touch",
+      "mobile-cli-selection",
+    ].includes(only)
+  ) {
+    await observe(
+      client,
+      "(await import('/src/native-platform-web.ts')).listen",
+    );
+    await observeTerminalInstances(client);
+    await create(client);
+    await screen.wait(
+      '[data-iori-view="terminal"][data-iori-stream-state="ready"]',
+    );
+    const terminalId = await screen.attribute(
+      '[data-iori-view="terminal"]',
+      "data-iori-terminal-id",
+    );
+    if (only === "terminal-nerd-font") {
+      await typeTerminal(
+        client,
+        "printf '\\357\\220\\230 \\356\\227\\277 \\357\\201\\273\\n'\r",
+      );
+      await observed(client, "\uf418 \ue5ff \uf07b");
+      await waitFor(() =>
+        screen.evaluate(`(() => {
+        const font = '14px "Symbols Nerd Font Mono"';
+        const text = "\uf418 \ue5ff \uf07b";
+        return [...document.fonts].some(face => face.family === "Symbols Nerd Font Mono" && face.status === "loaded") && document.fonts.check(font, text);
+      })()`),
+      );
+      const fontFamily = await screen.evaluate(
+        `document.querySelector('[data-iori-view="terminal"][data-iori-displayed="true"] [data-iori-part="terminal-screen"]').__e2eTerminal.options.fontFamily`,
+      );
+      assert.ok(fontFamily.includes('"Symbols Nerd Font Mono"'));
+      await record("TerminalのNerd Fontの記号とフォントの読込");
+      return;
+    }
+    if (only === "terminal-size-ownership") {
+      await terminalSizeOwnership({
+        desktop: client,
+        phone: await phone(),
+        worktree,
+        terminalId,
+        record,
+      });
+      return;
+    }
+    if (
+      [
+        "terminal-fit",
+        "terminal-send",
+        "terminal-font",
+        "terminal-right-click",
+        "mobile-terminal-touch",
+        "mobile-cli-selection",
+      ].includes(only)
+    ) {
+      await {
+        "terminal-fit": terminalFitScenario,
+        "terminal-send": terminalSend,
+        "terminal-font": terminalFont,
+        "terminal-right-click": terminalRightClick,
+        "mobile-terminal-touch": mobileTerminalTouch,
+        "mobile-cli-selection": mobileCliSelection,
+      }[only]({
+        client,
+        record,
+        shot,
+        worktree,
+        mobile,
+        desktop,
+        clipboardFiles,
+        reload,
+      });
+      return;
+    }
+    if (only === "terminal-retention")
+      await terminalRetention({
+        client,
+        terminalId,
+        withConnectionOffline,
+        releaseRetentionOutput,
+        record,
+      });
+    if (only === "event-tolerance")
+      await eventTolerance({ client, terminalId, malformedEvent, record });
+    if (
+      ["pane-resize", "pane-split", "pane-file-drop", "pane-exit"].includes(
+        only,
+      )
+    ) {
+      await {
+        "pane-resize": paneResize,
+        "pane-split": paneSplit,
+        "pane-file-drop": paneFileDrop,
+        "pane-exit": paneExit,
+      }[only]({ client, terminalId, record, finishBackgroundTerminal });
+    }
+    return;
+  }
   const initialKinds = () =>
     screen.evaluate(
       `Array.from(document.querySelectorAll('button[data-iori-tab-kind]'), tab => tab.dataset.ioriTabKind)`,
@@ -490,8 +673,17 @@ export async function webScenario({
     });
     return;
   }
-  if (only === "worktree-removal") {
+  if (
+    [
+      "removal-indicators",
+      "removal-single",
+      "removal-cleanup",
+      "removal-mobile",
+      "removal-parent-child",
+    ].includes(only)
+  ) {
     await worktreeRemoval({
+      scenario: only,
       client,
       createPlainFolder,
       repository,
@@ -517,8 +709,9 @@ export async function webScenario({
     });
     return;
   }
-  if (only === "files-transfer") {
+  if (["files-upload", "files-download"].includes(only)) {
     await filesTransfer({
+      scenario: only,
       client,
       screen,
       repository,
@@ -543,7 +736,7 @@ export async function webScenario({
     });
     return;
   }
-  if (only === "reading-worktrees") {
+  if (only === "reading-worktree-switch") {
     await readingWorktrees({
       client,
       screen,
@@ -554,6 +747,21 @@ export async function webScenario({
       shot,
       record,
     });
+    return;
+  }
+  if (only === "reading-surfaces") {
+    await readingSurfaces({
+      client,
+      screen,
+      worktree,
+      desktop,
+      mobile,
+      shot,
+      record,
+    });
+    return;
+  }
+  if (only === "files-reading") {
     await filesReading({
       client,
       screen,
@@ -584,7 +792,15 @@ export async function webScenario({
       record,
       shot,
     });
-  if (["team-notifications", "child-running", "child-rows"].includes(only)) {
+  if (
+    [
+      "team-notifications",
+      "child-board",
+      "child-board-mobile",
+      "child-sidebar-navigation",
+      "child-rows",
+    ].includes(only)
+  ) {
     await teamNotificationsScenario({
       client,
       worktree,
@@ -595,7 +811,13 @@ export async function webScenario({
       notificationBeforeChildrenSnapshot,
       notificationSourceFault,
       childDisplayFixture,
-      childRunningOnly: only === "child-running",
+      childRunningOnly: [
+        "child-board",
+        "child-board-mobile",
+        "child-sidebar-navigation",
+      ].includes(only)
+        ? only
+        : false,
       childrenOnly: only === "child-rows",
       mobile,
       shot,
@@ -610,33 +832,10 @@ export async function webScenario({
     await modelFailureScenario({ client, record });
     return;
   }
-  if (only === "automation-webhook")
-    return automationWebhookScenario({
-      fakeModelRequests,
-      client,
-      worktree,
-      record,
-      shot,
-      desktop,
-      session,
-      assistantReply,
-      restartPreservingHost,
-    });
-  if (only === "automations")
-    return automationsScenario({
-      fakeModelRequests,
-      client,
-      worktree,
-      record,
-      shot,
-      desktop,
-      mobile,
-      session,
-      assistantReply,
-      restartPreservingHost,
-      automationDatabase,
-      ptyDimensions,
-    });
+  if (only === "team-save-conflict") {
+    await teamSaveConflictScenario({ client, phone, record, shot });
+    return;
+  }
   if (only === "teams") {
     await teamsScenario({
       client,
@@ -680,16 +879,6 @@ export async function webScenario({
     });
     return;
   }
-  if (only === "terminal-size-ownership") {
-    await terminalSizeOwnership({
-      desktop: client,
-      phone: await phone(),
-      worktree,
-      terminalId,
-      record,
-    });
-    return;
-  }
   if (only === "terminal-width-handoff") {
     await terminalWidthHandoff({
       desktop: client,
@@ -706,75 +895,22 @@ export async function webScenario({
     return;
   }
   if (only === "mobile-batch-input") {
-    await mobileBatchInput({ client, mobile, fakeModelRequests, record, shot });
-    return;
-  }
-  if (["pane-resize", "pane-actions", "pane-maximize"].includes(only)) {
-    await {
-      "pane-resize": paneResize,
-      "pane-actions": paneActions,
-      "pane-maximize": paneMaximize,
-    }[only]({
+    await mobileBatchInput({
       client,
-      terminalId,
+      mobile,
+      fakeModelRequests,
       record,
       shot,
-      finishBackgroundTerminal,
+      withConnectionOffline,
     });
     return;
   }
-  if (only === "web-terminal") {
-    await typeTerminal(
-      client,
-      "printf '\\357\\220\\230 \\356\\227\\277 \\357\\201\\273\\n'\r",
-    );
-    await observed(client, "\uf418 \ue5ff \uf07b");
-    await waitFor(() =>
-      screen.evaluate(`(() => {
-        const font = '14px "Symbols Nerd Font Mono"';
-        const text = "\uf418 \ue5ff \uf07b";
-        return [...document.fonts].some(face => face.family === "Symbols Nerd Font Mono" && face.status === "loaded") && document.fonts.check(font, text);
-      })()`),
-    );
-    const fontFamily = await screen.evaluate(
-      `document.querySelector('[data-iori-view="terminal"][data-iori-displayed="true"] [data-iori-part="terminal-screen"]').__e2eTerminal.options.fontFamily`,
-    );
-    assert.ok(fontFamily.includes('"Symbols Nerd Font Mono"'));
-    await shot("terminal-nerd-font");
-    await record("TerminalのNerd Fontの記号とフォントの読込");
-    await paneResize({ client, terminalId, record });
-    terminalId = await paneActions({
-      client,
-      terminalId,
-      record,
-      shot,
-      finishBackgroundTerminal,
-    });
+  if (only === "pane-maximize") {
+    await paneMaximize({ client, terminalId, record });
+    return;
   }
   if (only === "terminal-clipboard") {
     await terminalClipboard({ client, record });
-    return;
-  }
-  if (only === "terminal-fit" || only === "terminal-send") {
-    await (only === "terminal-fit" ? terminalFit : terminalSend)({
-      client,
-      record,
-      worktree,
-      clipboardFiles,
-    });
-    return;
-  }
-  if (only === "terminal-preferences") {
-    await terminalPreferences({
-      client,
-      record,
-      shot,
-      worktree,
-      mobile,
-      desktop,
-      clipboardFiles,
-      reload,
-    });
     return;
   }
   if (only === "mobile-images") {
@@ -841,15 +977,6 @@ export async function webScenario({
     });
     return;
   }
-  if (only === "terminal-retention" || only === "web-terminal")
-    await terminalRetention({
-      client,
-      terminalId,
-      withConnectionOffline,
-      record,
-    });
-  if (only === "event-tolerance" || only === "web-terminal")
-    await eventTolerance({ client, terminalId, malformedEvent, record });
   if (only === "claude-status") {
     await verifyUnusedHooks();
     await claudeStatusScenario({ client, record, preventHookInstall });
@@ -857,63 +984,31 @@ export async function webScenario({
   }
   if (only === "long-approval")
     await longApproval({ client, record, oversizedAttention });
-  if (only === "cli-settings") await cliScenario({ client, record, shot });
+  if (only === "cli-settings") await cliSettings({ client, record });
   if (only === "cli-resize")
     await cliScenario({
       client,
       record,
-      shot,
       cliId: "codex",
       registrationCommand: "codex",
       settings: false,
       resize: true,
       resizeOnly: true,
     });
-  if (only === "web-terminal") {
-    await terminalSizeOwnership({
-      desktop: client,
-      phone: await phone(),
-      worktree,
-      terminalId,
-      record,
-    });
+  if (only === "cli-first-open") {
+    await cliFirstOpen({ client, record, verifyUnusedHooks });
     return;
   }
-  if (only === "web-cli") {
-    await cliScenario({
-      client,
-      record,
-      shot,
-      resize: true,
-      beforeFirstOpen: async () => {
-        await verifyUnusedHooks();
-        await record("CLI一覧を開いても、ioriで未使用のCLIの設定は変わらない");
-      },
-    });
-    await screen.click(`[data-iori-tab-id="terminal:${terminalId}"]`);
-    // Pane maximize opens a real CLI, so it runs after the first-open checks.
-    await paneMaximize({ client, terminalId, record, shot });
+  if (only === "cli-status") {
     await cliStatusScenario({
       client,
       record,
-      shot,
       mobile,
       desktop,
       firstUse: true,
       notifications: true,
       missedWaiting,
     });
-    await claudeStatusScenario({ client, record, preventHookInstall });
-    await cliLauncherScenario({
-      client,
-      terminalId,
-      replayCliUpdate,
-      record,
-      shot,
-      mobile,
-      desktop,
-    });
-    await longApproval({ client, record, oversizedAttention });
     return;
   }
   if (only !== "web-recovery") return;
@@ -938,10 +1033,32 @@ export async function webScenario({
   );
   await record("FilesでHostのファイル本文を読む");
   await shot("desktop-files");
-  // CLI split operations can leave Files narrow and showing only the detail.
-  // Return through its normal Back control before testing an unread folder.
+  await writeFile(
+    join(worktree, "recovery-lines.txt"),
+    Array.from(
+      { length: 500 },
+      (_, index) => `recovery line ${index + 1}`,
+    ).join("\n"),
+  );
   const filesBack =
     '[data-iori-view="files"] [data-iori-action="reading-back"]';
+  if (await screen.visible(filesBack)) await screen.click(filesBack);
+  await screen.wait('[data-iori-file="recovery-lines.txt"]');
+  await screen.click('[data-iori-file="recovery-lines.txt"]');
+  await screen.wait('[data-iori-view="files"] [data-iori-line="1"]');
+  await disconnectedReads(async () => {
+    await screen.scroll('[data-iori-view="files"] .reading-lines', {
+      top: "end",
+    });
+    assert.equal(
+      await screen.visible('[data-iori-view="files"] [role="alert"]'),
+      false,
+    );
+  });
+  await screen.wait('[data-iori-view="files"] [data-iori-line="500"]');
+  await record("切断中に本文の未読部分へ移動しても再接続後に続きを読める");
+  // CLI split operations can leave Files narrow and showing only the detail.
+  // Return through its normal Back control before testing an unread folder.
   if (await screen.visible(filesBack)) await screen.click(filesBack);
   await screen.wait('[data-iori-file="offline-folder"]');
   // 通信断で読み取りが空回りしないこと: request an unloaded directory
@@ -951,6 +1068,18 @@ export async function webScenario({
   );
   await screen.wait('[data-iori-file="offline-folder/reconnected.txt"]');
   await record("通信断で読み取りが空回りせず、再接続後にFilesの一覧が読める");
+  await disconnectedReads(async () => {
+    await screen.click('[data-iori-field="files-worktree"]');
+    await screen.click(
+      `[data-iori-worktree-choice=${JSON.stringify(repository)}]`,
+    );
+    await screen.click('[data-iori-field="files-worktree"]');
+    await screen.click(
+      `[data-iori-worktree-choice=${JSON.stringify(worktree)}]`,
+    );
+  });
+  await screen.wait('[data-iori-file="offline-folder/reconnected.txt"]');
+  await record("切断中に保存済みのフォルダーへ戻っても再接続後に展開を復元");
   await openWorkspaceView(screen, "git");
   await screen.click(
     '[data-iori-action="git-change-select"][data-path="sample.txt"]',

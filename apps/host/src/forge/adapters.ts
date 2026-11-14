@@ -8,7 +8,10 @@ const adapters: ForgeAdapter[] = [github, forgejo];
 /** Share detection facts from marks with settings; settings only detects unseen origins. */
 export class ForgeDetection {
   readonly #known = new Map<string, ForgeAdapter | undefined>();
-  readonly #pending = new Map<string, Promise<ForgeAdapter | undefined>>();
+  readonly #pending = new Map<
+    string,
+    { request: Promise<ForgeAdapter | undefined>; refresh: boolean }
+  >();
   readonly onChange: () => void;
   constructor(onChange: () => void) {
     this.onChange = onChange;
@@ -28,7 +31,7 @@ export class ForgeDetection {
     const pending = this.#pending.get(origin);
     if (pending) {
       try {
-        await pending;
+        await pending.request;
       } catch {
         // Another view may have stopped its observation. This caller still
         // owns a read if its own signal has not been cancelled.
@@ -36,6 +39,7 @@ export class ForgeDetection {
       }
       signal?.throwIfAborted();
       if (
+        (!refresh || pending.refresh) &&
         this.#known.has(origin) &&
         (!reportFailure || this.#known.get(origin))
       )
@@ -67,7 +71,7 @@ export class ForgeDetection {
       if (changed) this.onChange();
       return found;
     })();
-    this.#pending.set(origin, request);
+    this.#pending.set(origin, { request, refresh });
     try {
       return await request;
     } finally {

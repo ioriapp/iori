@@ -4,7 +4,7 @@ import { createServer, connect, type Socket } from "node:net";
 import { setImmediate as nextTurn } from "node:timers/promises";
 import { DaemonChannel } from "./daemon/channel.ts";
 import { RemotePtys } from "./remote-pty.ts";
-import type { PtyEvent, SpawnPty } from "./daemon/protocol.ts";
+import type { PtyEvent, SpawnPty, PtyOutput } from "./daemon/protocol.ts";
 
 const frame = (message: unknown) => {
   const payload = Buffer.from(JSON.stringify(message));
@@ -30,7 +30,7 @@ test("a shell's output and exit that arrive with its spawn answer reach the Host
   const remote = new RemotePtys(channel);
   // As TerminalManager hands the daemon's requests to the Host's processes.
   channel.handle = async (method, args) => {
-    if (method === "data") return remote.data(...(args as [number, string]));
+    if (method === "data") return remote.data(...(args as [number, PtyOutput]));
     if (method === "event") return remote.event(args[0] as PtyEvent);
   };
   const output = "\u001b[?2004hiori-test# ";
@@ -45,7 +45,7 @@ test("a shell's output and exit that arrive with its spawn answer reach the Host
           kind: "request",
           id: "data",
           method: "data",
-          args: [4242, output],
+          args: [4242, { sequence: 1, data: output, events: [] }],
         }),
         frame({
           kind: "request",
@@ -60,7 +60,7 @@ test("a shell's output and exit that arrive with its spawn answer reach the Host
     const child = await remote.spawn({ id: "terminal" } as SpawnPty);
     const received: string[] = [];
     const exits: number[] = [];
-    child.onData((data) => received.push(data));
+    child.onData((data) => received.push(data.data));
     child.onExit((event) => exits.push(event.exitCode));
     await nextTurn();
     assert.deepEqual(received, [output]);

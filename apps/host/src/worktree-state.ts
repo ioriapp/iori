@@ -283,10 +283,8 @@ async function matchesTarget(
   return lines.length > 0 && lines.every((line) => line.startsWith("-"));
 }
 /**
- * Whether every commit the child made has a counterpart in the target: `git
- * range-diff` pairs them even when the parent had to change their content
- * (`!`). Each pair must also have the same author identity and date. A commit
- * only on the child's side (`<`) or a failure means not taken in.
+ * Whether every child commit has a distinct target counterpart with the same
+ * author name, email, date and subject and at least one changed path in common.
  */
 async function pairsWithTarget(
   path: string,
@@ -294,58 +292,80 @@ async function pairsWithTarget(
   head: string,
   sha: string,
 ): Promise<boolean> {
-  // An empty range is an error for `git range-diff`; that is "not taken in",
-  // not a reason to forget the worktree's commit counts.
-  const diff = await collectGit(
-    path,
-    [
-      "range-diff",
-      "--no-color",
-      "--no-abbrev",
-      "--no-patch",
-      `${base}..${head}`,
-      `${base}..${sha}`,
-    ],
-    undefined,
-    [0, 1],
-  ).catch(() => undefined);
-  if (!diff || diff.code !== 0) return false;
-  const lines = diff.stdout
-    .toString("utf8")
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-  const headers = lines.filter((line) =>
-    /^(?:\d+|-):\s+\S+\s+[=!<>]\s+(?:\d+|-):\s+\S+/u.test(line),
-  );
-  const pairs = headers.filter((line) => /^\d+:\s+\S+\s+[=!]/u.test(line));
-  if (
-    headers.length !== lines.length ||
-    pairs.length === 0 ||
-    headers.some((line) => /^\d+:\s+\S+\s+</u.test(line))
-  )
-    return false;
   try {
-    const authors = await Promise.all(
-      pairs.map(async (line) => {
-        const match = /^\d+:\s+([0-9a-f]+)\s+[=!]\s+\d+:\s+([0-9a-f]+)/u.exec(
-          line,
+    const readCommits = async (end: string) => {
+      const result = await collectGit(path, [
+        "log",
+        "--no-merges",
+        "-z",
+        "--format=%H%x00%an%x00%ae%x00%aI%x00%s",
+        `${base}..${end}`,
+      ]);
+      const fields = result.stdout.toString("utf8").split("\0");
+      fields.pop();
+      const commits: { sha: string; identity: string }[] = [];
+      for (let i = 0; i < fields.length; i += 5)
+        commits.push({
+          sha: fields[i]!,
+          identity: JSON.stringify(fields.slice(i + 1, i + 5)),
+        });
+      return commits;
+    };
+    const [children, targets] = await Promise.all([
+      readCommits(head),
+      readCommits(sha),
+    ]);
+    if (children.length === 0 || children.length > targets.length) return false;
+    const paths = new Map<string, Promise<Set<string>>>();
+    const changedPaths = (commit: string) => {
+      if (!paths.has(commit))
+        paths.set(
+          commit,
+          collectGit(path, [
+            "diff-tree",
+            "--no-commit-id",
+            "--no-renames",
+            "--name-only",
+            "-r",
+            "-z",
+            commit,
+          ]).then((result) => {
+            const names = result.stdout.toString("utf8").split("\0");
+            names.pop();
+            return new Set(names);
+          }),
         );
-        if (!match) return false;
-        const [left, right] = await Promise.all(
-          [match[1]!, match[2]!].map((commit) =>
-            collectGit(path, [
-              "show",
-              "-s",
-              "--format=%an%x00%ae%x00%aI",
-              commit,
-            ]),
-          ),
+      return paths.get(commit)!;
+    };
+    const candidates = await Promise.all(
+      children.map(async (child) => {
+        const childPaths = await changedPaths(child.sha);
+        const matches = await Promise.all(
+          targets.map(async (target, index) => {
+            if (child.identity !== target.identity) return -1;
+            const targetPaths = await changedPaths(target.sha);
+            return [...childPaths].some((name) => targetPaths.has(name))
+              ? index
+              : -1;
+          }),
         );
-        return left.stdout.equals(right.stdout);
+        return matches.filter((index) => index !== -1);
       }),
     );
-    return authors.every(Boolean);
+    const owners = new Map<number, number>();
+    const pair = (child: number, visited: Set<number>): boolean => {
+      for (const target of candidates[child]!) {
+        if (visited.has(target)) continue;
+        visited.add(target);
+        const owner = owners.get(target);
+        if (owner === undefined || pair(owner, visited)) {
+          owners.set(target, child);
+          return true;
+        }
+      }
+      return false;
+    };
+    return children.every((_, index) => pair(index, new Set()));
   } catch {
     return false;
   }

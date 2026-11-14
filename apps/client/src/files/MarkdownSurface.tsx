@@ -1,4 +1,13 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { translator } from "../i18n.ts";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { Streamdown, defaultRehypePlugins, type Components } from "streamdown";
 import { ClipboardCopy } from "lucide-react";
 import GithubSlugger from "github-slugger";
@@ -9,7 +18,6 @@ import { FindBar } from "../reading/FindBar.tsx";
 import { PathMenu, type MenuAction } from "../reading/PathMenu.tsx";
 import {
   ReadConnectionLost,
-  decodeBytes,
   isAbort,
   readErrorCopy,
   type ReadingTransport,
@@ -17,10 +25,12 @@ import {
 import { InlineImage } from "./ImageSurface.tsx";
 import { markdownRemarkPlugins } from "../reading/markdown-plugins.ts";
 import { ReadingError } from "../reading/ReadingError.tsx";
+import { readFileChunks } from "./read-file-chunks.ts";
+import { useConnectionRetry } from "../reading/useConnectionRetry.ts";
 
 /** Larger documents open as source; drawing them whole would stall scrolling. */
 export const MAX_RENDERED_MARKDOWN_BYTES = 2 * 1024 * 1024;
-const CHUNK_BYTES = 1_048_576;
+const RefreshContext = createContext(0);
 
 /** Relative Markdown targets stay in the open folder and pass through the Host path boundary. */
 export function markdownPath(base: string, target: string): string | undefined {
@@ -73,10 +83,13 @@ function LocalImage({
   alt?: string;
   locale: string;
 }) {
+  const refresh = useContext(RefreshContext);
   const [info, setInfo] = useState<FileInfo>();
   const [imageRoot, setImageRoot] = useState(root);
+  const { attempt, begin } = useConnectionRetry(refresh);
   useEffect(() => {
     const controller = new AbortController();
+    const lost = begin();
     void (async () => {
       const target = standalone
         ? (
@@ -94,9 +107,12 @@ function LocalImage({
       );
       setImageRoot(target.root);
       setInfo(info);
-    })().catch(() => undefined);
+    })().catch((cause: unknown) => {
+      if (!controller.signal.aborted && cause instanceof ReadConnectionLost)
+        lost();
+    });
     return () => controller.abort();
-  }, [transport, root, path, standalone]);
+  }, [transport, root, path, standalone, attempt, begin]);
   return info?.kind === "image" ? (
     <InlineImage
       transport={transport}
@@ -104,6 +120,7 @@ function LocalImage({
       info={info}
       alt={alt}
       locale={locale}
+      refresh={refresh}
     />
   ) : (
     <span className="reading-inline-note">{alt}</span>
@@ -155,6 +172,7 @@ export function MarkdownSurface({
   locale,
   findRequest = 0,
   extraActions,
+  refresh,
 }: {
   transport: ReadingTransport;
   root: string;
@@ -167,8 +185,9 @@ export function MarkdownSurface({
   locale: string;
   findRequest?: number;
   extraActions?: MenuAction[];
+  refresh: number;
 }) {
-  const ja = locale.startsWith("ja");
+  const t = translator(locale);
   const [text, setText] = useState<string>();
   const [error, setError] = useState<string>();
   const [retry, setRetry] = useState(0);
@@ -181,22 +200,18 @@ export function MarkdownSurface({
   const latest = useRef(position);
   latest.current = position;
   const restored = useRef(false);
+  const { attempt, begin } = useConnectionRetry(refresh);
 
   useEffect(() => {
     const controller = new AbortController();
+    const lost = begin();
     void (async () => {
-      const parts: Uint8Array<ArrayBuffer>[] = [];
-      let offset = 0;
-      for (;;) {
-        const result = await transport.request(
-          "files.read",
-          { root, path: info.path, offset, length: CHUNK_BYTES },
-          controller.signal,
-        );
-        parts.push(decodeBytes(result.bytesBase64));
-        offset = result.nextOffset;
-        if (result.eof) break;
-      }
+      const parts = await readFileChunks(
+        transport,
+        root,
+        info.path,
+        controller.signal,
+      );
       const value = new TextDecoder().decode(
         await new Blob(parts).arrayBuffer(),
       );
@@ -205,16 +220,12 @@ export function MarkdownSurface({
       setText(value);
       setError(undefined);
     })().catch((cause: unknown) => {
-      if (
-        controller.signal.aborted ||
-        isAbort(cause) ||
-        cause instanceof ReadConnectionLost
-      )
-        return;
+      if (controller.signal.aborted || isAbort(cause)) return;
+      if (cause instanceof ReadConnectionLost) return lost();
       setError(readErrorCopy(cause, locale));
     });
     return () => controller.abort();
-  }, [transport, root, info.path, info.revision, retry]);
+  }, [transport, root, info.path, info.revision, retry, attempt, begin]);
 
   useEffect(() => {
     if (!findRequest) return;
@@ -275,7 +286,7 @@ export function MarkdownSurface({
   const step = (direction: 1 | -1) => {
     const count = ranges.current.length;
     if (!count) {
-      setStatus(ja ? "一致なし" : "No matches");
+      setStatus(t("No matches"));
       return;
     }
     setStatus(undefined);
@@ -322,7 +333,7 @@ export function MarkdownSurface({
         }
       }
     } catch {
-      setError(ja ? "リンクを開けませんでした。" : "Could not open the link.");
+      setError(t("Could not open the link."));
     }
   };
 
@@ -453,7 +464,7 @@ export function MarkdownSurface({
       {error && (
         <ReadingError
           centered={text === undefined}
-          retryLabel={ja ? "再試行" : "Retry"}
+          retryLabel={t("Retry")}
           onRetry={() => setRetry((value) => value + 1)}
         >
           {error}
@@ -467,7 +478,7 @@ export function MarkdownSurface({
           ...(selectedText
             ? [
                 {
-                  label: ja ? "コピー" : "Copy",
+                  label: t("Copy"),
                   icon: <ClipboardCopy />,
                   shortcut: "Ctrl+C",
                   action: "copy-text",
@@ -512,7 +523,9 @@ export function MarkdownSurface({
             className="reading-markdown"
             data-iori-part="markdown-rendered"
           >
-            {rendered}
+            <RefreshContext.Provider value={refresh}>
+              {rendered}
+            </RefreshContext.Provider>
           </div>
         </div>
       </PathMenu>

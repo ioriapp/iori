@@ -1,3 +1,4 @@
+import { translator } from "../i18n.ts";
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import { Button } from "../components/ui/button";
 import {
@@ -20,7 +21,7 @@ export function FileTransferDialogs() {
     fileTransfers.getSnapshot,
   );
   useEffect(() => fileTransfers.start(), []);
-  const ja = confirmation?.locale.startsWith("ja");
+  const t = translator(confirmation?.locale ?? "");
   return (
     <Dialog
       open={Boolean(confirmation)}
@@ -30,13 +31,9 @@ export function FileTransferDialogs() {
     >
       <DialogContent data-iori-dialog="files-replace">
         <DialogHeader>
-          <DialogTitle>
-            {ja ? "ファイルを置き換えますか？" : "Replace files"}
-          </DialogTitle>
+          <DialogTitle>{t("Replace files")}</DialogTitle>
           <DialogDescription>
-            {ja
-              ? "同じ名前のファイルがあります。"
-              : "Files with the same names already exist."}
+            {t("Files with the same names already exist.")}
           </DialogDescription>
         </DialogHeader>
         <ul className="files-replace-names">
@@ -46,13 +43,13 @@ export function FileTransferDialogs() {
         </ul>
         <DialogFooter>
           <Button variant="outline" onClick={() => confirmation?.answer(false)}>
-            {ja ? "キャンセル" : "Cancel"}
+            {t("Cancel")}
           </Button>
           <Button
             data-iori-action="files-put-replace"
             onClick={() => confirmation?.answer(true)}
           >
-            {ja ? "置き換える" : "Replace"}
+            {t("Replace")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -65,7 +62,7 @@ export function useFileUploads(
   root: string,
   locale: string,
 ) {
-  const ja = locale.startsWith("ja");
+  const t = translator(locale);
   const snapshot = useSyncExternalStore(
     fileTransfers.subscribe,
     fileTransfers.getSnapshot,
@@ -109,7 +106,7 @@ export function useFileUploads(
             failure.kind === "put" ? failureFolder(failure) : failure.path,
             failure.message,
           ])}
-          retryLabel={ja ? "再試行" : "Retry"}
+          retryLabel={t("Retry")}
           onRetry={() => {
             fileTransfers.clearFailure(failure);
             if (failure.kind === "save") save(failure.path);
@@ -153,7 +150,7 @@ export function useFileUploads(
               }
               onClick={() => fileTransfers.cancel(transfer)}
             >
-              {ja ? "キャンセル" : "Cancel"}
+              {t("Cancel")}
             </Button>
           </div>
         );
@@ -172,9 +169,7 @@ export function useFileUploads(
         path: directory.current,
         folder: directory.current,
         kind: "put",
-        message: ja
-          ? "フォルダーはアップロードできません。ファイルだけをアップロードしてください。"
-          : "Folders cannot be uploaded. Upload files only.",
+        message: t("Folders cannot be uploaded. Upload files only."),
       }),
   };
 }

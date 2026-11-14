@@ -1,3 +1,8 @@
+import {
+  readConnectionScope,
+  allowNetworkConnections,
+  type ConnectionScope,
+} from "./connection-scope.ts";
 import { FileUploads, FilePutFailure } from "./files-writing.ts";
 import { isFilesTransferMethod } from "@iori/protocol";
 import { AutomationManager } from "./automations/manager.ts";
@@ -214,12 +219,12 @@ function portFromEnvironment(): number | undefined {
   return port;
 }
 
-async function availablePort(): Promise<number> {
+async function availablePort(scope: ConnectionScope): Promise<number> {
   const socket = createSocket("udp4");
   try {
     await new Promise<void>((resolve, reject) => {
       socket.once("error", reject);
-      socket.bind(0, "0.0.0.0", resolve);
+      socket.bind(0, scope === "loopback" ? "127.0.0.1" : "0.0.0.0", resolve);
     });
     return socket.address().port;
   } finally {
@@ -247,7 +252,8 @@ function hostAddresses(port: number): string[] {
   return [...addresses].sort();
 }
 
-function bindAddresses(port: number): string[] {
+function bindAddresses(port: number, scope: ConnectionScope): string[] {
+  if (scope === "loopback") return [`127.0.0.1:${port}`, `[::1]:${port}`];
   return [`0.0.0.0:${port}`, `[::]:${port}`];
 }
 
@@ -477,20 +483,36 @@ export async function startHost(
     );
   }
 
+  let connectionScope = await readConnectionScope(storage.root);
+  const bind = async () => {
+    const addresses = bindAddresses(port, connectionScope);
+    const relayUrl = connectionScope === "network" ? relay?.url : undefined;
+    const relayToken = connectionScope === "network" ? relay?.token : undefined;
+    try {
+      return await addon.Endpoint.bind(
+        storage.identity.secretKey,
+        addresses,
+        relayUrl,
+        relayToken,
+      );
+    } catch (error) {
+      if (connectionScope !== "loopback") throw error;
+      // An OS with IPv6 disabled has no ::1 interface. Keep IPv4 local only.
+      return addon.Endpoint.bind(
+        storage.identity.secretKey,
+        [addresses[0]!],
+        relayUrl,
+        relayToken,
+      );
+    }
+  };
   let endpoint: NativeEndpoint;
   try {
-    const bind = () =>
-      addon.Endpoint.bind(
-        storage.identity.secretKey,
-        bindAddresses(port),
-        relay?.url,
-        relay?.token,
-      );
     try {
       endpoint = await bind();
     } catch (error) {
       if (specifiedPort !== undefined || savedPort !== undefined) throw error;
-      port = await availablePort();
+      port = await availablePort(connectionScope);
       endpoint = await bind();
     }
     if (specifiedPort === undefined && savedPort === undefined)
@@ -532,6 +554,7 @@ export async function startHost(
     (status) => events.publish({ type: "host.maintenance.changed", status }),
     {
       shellActivity: (id) => terminalManager.shellActivity(id),
+      workGeneration: (id) => terminalManager.workGeneration(id),
       child: (id) => store.teamChildren().find((child) => child.id === id),
     },
     {
@@ -588,6 +611,7 @@ export async function startHost(
     await maintenance.waitReady();
     return {
       ...store.hostInfo(identity, currentAddresses()),
+      connectionScope,
       relay,
       version,
       instanceId: maintenance.instanceId,
@@ -730,7 +754,7 @@ export async function startHost(
       currentAddresses(),
       randomBytes(32).toString("base64url"),
       Date.now(),
-      relay?.url,
+      connectionScope === "network" ? relay?.url : undefined,
     );
     const current = store.currentInvite();
     if (
@@ -758,7 +782,10 @@ export async function startHost(
 
   watchInvite(store.currentInvite());
 
-  const currentAddresses = () => hostAddresses(port);
+  const currentAddresses = () =>
+    connectionScope === "loopback"
+      ? endpoint.boundSockets
+      : hostAddresses(port);
   const refreshAddresses = async () => {
     const currentEndpoint = endpoint;
     const addresses = currentAddresses();
@@ -799,6 +826,15 @@ export async function startHost(
         return;
       }
       const fields = input as Record<string, unknown>;
+      if (fields.method === "host.connections.allow") {
+        const changed = connectionScope !== "network";
+        await allowNetworkConnections(storage.root);
+        connectionScope = "network";
+        await writeSocketFrame(socket, { ok: true, result: {} });
+        socket.end();
+        if (changed) await endpoint.close();
+        return;
+      }
       const request = parseRequest({
         kind: "request",
         operationId: fields.operationId,
@@ -922,6 +958,7 @@ export async function startHost(
           host: {
             ...info,
             ...store.hostInfo(identity, currentAddresses()),
+            connectionScope,
             relay,
           },
         } as Extract<Event, { type: "snapshot" }>);
@@ -1076,7 +1113,10 @@ export async function startHost(
           request.params.secret,
           Date.now(),
         );
-        if (mutation.response.ok) mutation.response.result.host.relay = relay;
+        if (mutation.response.ok) {
+          mutation.response.result.host.relay = relay;
+          mutation.response.result.host.connectionScope = connectionScope;
+        }
         response = mutation.response;
         mutationEvent = mutation.event;
         if (response.ok && session.preAuth) {
@@ -1089,7 +1129,10 @@ export async function startHost(
         response = store.devices(session.publicKey);
         break;
       case "invite.create":
-        response = createInvite(request.operationId, session.publicKey);
+        response =
+          connectionScope === "loopback"
+            ? responseError("invalid_request")
+            : createInvite(request.operationId, session.publicKey);
         break;
       case "devices.revoke": {
         const mutation = store.revoke(
@@ -1647,6 +1690,7 @@ export async function startHost(
               request.params.previewId,
               request.params.paths,
               request.params.branches,
+              request.params.recheck,
             ),
           };
           mutationEvent = { type: "folders.changed" };
@@ -2106,12 +2150,7 @@ export async function startHost(
     while (!stopping) {
       let replacement: NativeEndpoint;
       try {
-        replacement = await addon.Endpoint.bind(
-          storage.identity.secretKey,
-          bindAddresses(port),
-          relay?.url,
-          relay?.token,
-        );
+        replacement = await bind();
       } catch (bindError) {
         if (stopping) return;
         diagnostics.record("endpoint-rebind-failed", {

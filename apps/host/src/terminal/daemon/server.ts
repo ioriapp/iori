@@ -15,7 +15,10 @@ import {
   type SpawnPty,
   type PtyScreen,
   type PtyEvent,
+  type PtyState,
+  type PtyModes,
 } from "./protocol.ts";
+import type { ParserSubscriptions } from "./parser-events.ts";
 import terminalNative from "@iori/terminal-native";
 import type { TerminalViewAttributes } from "../shared/terminal-view-attributes.ts";
 
@@ -31,6 +34,8 @@ interface Session {
   parsed: Promise<void>;
   paused: boolean;
   attributes: TerminalViewAttributes | null;
+  sequence: number;
+  sentModes?: string;
 }
 export async function runTerminalDaemon(root: string, endpoint: string) {
   const token = randomBytes(32),
@@ -43,34 +48,43 @@ export async function runTerminalDaemon(root: string, endpoint: string) {
     string,
     Awaited<ReturnType<CommandReceiver["register"]>>
   >();
-  const events: PtyEvent[] = [];
+  const events = new Map<string, PtyEvent[]>();
+  const draining = new Set<string>();
   let host: DaemonChannel | undefined,
     active = false,
     eventsReady = false,
-    ending = false,
-    draining = false;
+    ending = false;
+  let subscriptions: ParserSubscriptions = { osc: [], csi: [] };
   const waiters = new Set<() => void>();
   function wake() {
     for (const done of waiters) done();
     waiters.clear();
   }
   function retain(event: PtyEvent) {
-    events.push(event);
-    void drain();
+    const queue = events.get(event.id) ?? [];
+    events.set(event.id, queue);
+    queue.push(event);
+    drain();
   }
-  async function drain() {
-    if (draining) return;
-    draining = true;
+  function drain() {
+    for (const id of events.keys()) if (!draining.has(id)) void deliver(id);
+  }
+  async function deliver(id: string) {
+    draining.add(id);
+    const queue = events.get(id)!;
+    const recipient = host;
     try {
-      while (eventsReady && host && events.length) {
-        const entry = events[0]!;
+      while (eventsReady && host && queue.length) {
+        const entry = queue[0]!;
         await host.call("event", entry);
-        events.shift();
+        queue.shift();
       }
     } catch {
       /* Unprocessed hooks and exits remain for the next Host. */
     } finally {
-      draining = false;
+      draining.delete(id);
+      if (!queue.length) events.delete(id);
+      if (host && host !== recipient && eventsReady) drain();
     }
   }
   const commands = new CommandReceiver(async (caller, argv) => {
@@ -90,14 +104,28 @@ export async function runTerminalDaemon(root: string, endpoint: string) {
   });
   await commands.listen(root);
   await hooks.listen();
+  const modes = (s: Session): PtyModes => ({
+    modes: s.emulator.getModes(),
+    showCursor: s.emulator.showCursor,
+  });
+  const state = (s: Session): PtyState => {
+    // A complete state is also delivered by attach and screenWrite. The next
+    // output must compare against the modes this Host actually received.
+    s.sentModes = undefined;
+    return {
+      ...modes(s),
+      sequence: s.sequence,
+      osc: [...s.emulator.parserEvents.latest.values()],
+    };
+  };
   const screen = (s: Session): PtyScreen => ({
     id: s.id,
     pid: s.child?.pid ?? 0,
     live: Boolean(s.child && !s.exit),
     exit: s.exit,
     snapshot: s.emulator.getSnapshot(),
-    title: s.emulator.getLastTitle(),
-    cwd: s.emulator.getCwd(),
+    cwd: null,
+    state: state(s),
   });
   async function snapshots() {
     for (const s of sessions.values()) s.child?.pause();
@@ -176,6 +204,10 @@ export async function runTerminalDaemon(root: string, endpoint: string) {
         return saved;
       }
       if (method === "attach") {
+        const requested = args[0] as ParserSubscriptions;
+        subscriptions = requested;
+        for (const s of sessions.values())
+          s.emulator.parserEvents.subscribe(subscriptions);
         host?.close();
         host = undefined;
         active = false;
@@ -199,7 +231,7 @@ export async function runTerminalDaemon(root: string, endpoint: string) {
         case "commandsReady":
           eventsReady = true;
           wake();
-          void drain();
+          drain();
           return;
         case "pauseCommands":
           eventsReady = false;
@@ -244,14 +276,13 @@ export async function runTerminalDaemon(root: string, endpoint: string) {
             string,
             Parameters<HeadlessEmulator["setRestoredOscLinks"]>[0],
           ];
-          if (sessions.has(id)) return;
+          if (sessions.has(id)) return state(sessions.get(id)!);
           let session!: Session;
           const windowsHost = process.platform === "win32";
           const emulator = new HeadlessEmulator({
             cols,
             rows,
             scrollback: 5000,
-            pathFlavor: windowsHost ? "win32" : "posix",
             ...(getWindowsPtyCompatibility()?.backend === "conpty"
               ? { reflowCursorLine: true }
               : {}),
@@ -262,6 +293,7 @@ export async function runTerminalDaemon(root: string, endpoint: string) {
           emulator.installViewAttributeResponder(
             () => session?.attributes ?? null,
           );
+          emulator.parserEvents.subscribe(subscriptions);
           emulator.setRestoredOscLinks(links);
           await emulator.write(seed);
           session = {
@@ -273,9 +305,10 @@ export async function runTerminalDaemon(root: string, endpoint: string) {
             paused: false,
             frozen: false,
             attributes: null,
+            sequence: 0,
           };
           sessions.set(id, session);
-          return;
+          return state(session);
         }
         case "snapshot": {
           const s = sessions.get(args[0] as string)!;
@@ -288,7 +321,7 @@ export async function runTerminalDaemon(root: string, endpoint: string) {
           const s = sessions.get(args[0] as string)!;
           s.parsed = s.emulator.write(args[1] as string);
           await s.parsed;
-          return;
+          return state(s);
         }
         case "screenCursor":
           return sessions.get(args[0] as string)!.emulator.getCursorRow();
@@ -339,12 +372,32 @@ export async function runTerminalDaemon(root: string, endpoint: string) {
                 )
                   await new Promise<void>((resolve) => waiters.add(resolve));
                 if (session.stopping) return;
+                emulator.parserEvents.take();
                 session.parsed = emulator.write(data, {
                   forwardQueryReplies: true,
                 });
                 await session.parsed;
-                if (host && active && !session.stopping)
-                  await host.call("data", child.pid, data).catch(() => {});
+                session.sequence++;
+                const events = emulator.parserEvents.take();
+                const currentModes = modes(session);
+                const encodedModes = JSON.stringify(currentModes);
+                if (host && active && !session.stopping) {
+                  await host
+                    .call("data", child.pid, {
+                      sequence: session.sequence,
+                      data,
+                      events,
+                      ...(session.sentModes === encodedModes
+                        ? {}
+                        : { modes: currentModes }),
+                    })
+                    .then(
+                      () => {
+                        session.sentModes = encodedModes;
+                      },
+                      () => {},
+                    );
+                }
               })
               .finally(() => {
                 if (!session.paused && !session.frozen && !ending)

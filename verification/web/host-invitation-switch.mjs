@@ -59,6 +59,8 @@ export async function hostInvitationSwitch({
   additionalHost,
   reload,
   record,
+  desktop,
+  mobile,
 }) {
   const screen = client.screen;
   const picker = '[data-iori-action="settings-host-select"]';
@@ -144,4 +146,29 @@ export async function hostInvitationSwitch({
   await select(hostB);
   await noInvitation();
   await record("Host切替後は前のHostの招待と登録案内を表示しない");
+  await desktop();
+  await register(
+    screen,
+    await additionalHost({ connectionScope: "loopback" }),
+    "このPCのChromium",
+  );
+  const localMessage =
+    "この PCからは接続できます。ほかのデバイスから接続するには、設定の「接続」で「ほかのデバイスからの接続を許可する」を押してください。";
+  await openSettingsSection(screen, "open-devices");
+  assert.equal(await screen.visible('[data-iori-action="invite"]'), false);
+  assert.ok(
+    (await screen.text('[data-iori-view="devices"]')).includes(localMessage),
+  );
+  await noInvitation();
+  await mobile({ width: 390, height: 844 });
+  await screen.wait('[data-iori-state="connected"]');
+  await openSettingsSection(screen, "open-devices");
+  assert.equal(await screen.visible('[data-iori-action="invite"]'), false);
+  assert.ok(
+    (await screen.text('[data-iori-view="devices"]')).includes(localMessage),
+  );
+  await noInvitation();
+  await record(
+    "このPCだけのHostではPC・Mobileとも招待の代わりに接続の設定を案内する",
+  );
 }

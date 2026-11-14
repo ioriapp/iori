@@ -1,4 +1,6 @@
+import { registerCleanup, registerVerificationDaemon } from "../lifecycle.mjs";
 import os from "node:os";
+import { mkdir, writeFile } from "node:fs/promises";
 import { syncBuiltinESMExports } from "node:module";
 import { join } from "node:path";
 import {
@@ -22,9 +24,18 @@ export async function startWebHost(
     onLog,
     cliEnvironment = {},
     fixtureHostName,
+    connectionScope,
   } = {},
 ) {
   const root = join(dataRoot, "iori-host");
+  if (connectionScope) {
+    await mkdir(root, { recursive: true });
+    await writeFile(
+      join(root, "network.json"),
+      JSON.stringify({ scope: connectionScope }),
+    );
+  }
+  await registerVerificationDaemon(root);
   const child = fork(
     distribution ? `${distribution}/service.mjs` : import.meta.filename,
     distribution
@@ -72,6 +83,14 @@ export async function startWebHost(
         : reject(new Error("検証Hostが正常に終了しませんでした")),
     );
   });
+  const close = registerCleanup(async ({ stopTerminals = true } = {}) => {
+    try {
+      if (child.connected) child.send("stop");
+      await exited;
+    } finally {
+      if (stopTerminals) await stopTerminalDaemon(root);
+    }
+  });
   // Observe early exits too; the runner still owns and stops this child on error.
   void exited.catch(() => {});
   try {
@@ -89,14 +108,7 @@ export async function startWebHost(
     throw error;
   }
   return {
-    async close({ stopTerminals = false } = {}) {
-      try {
-        if (child.connected) child.send("stop");
-        await exited;
-      } finally {
-        if (stopTerminals) await stopTerminalDaemon(root);
-      }
-    },
+    close: ({ stopTerminals = false } = {}) => close({ stopTerminals }),
   };
 }
 
@@ -112,12 +124,13 @@ if (process.argv.includes("--host")) {
     process.send({ kind: "pty-dimensions", entry }),
   );
   const host = await startHost();
+  const close = registerCleanup(() => host.close());
   process.send("ready");
   await new Promise((resolve) => {
     process.once("message", resolve);
     process.once("disconnect", resolve);
   });
-  await host.close();
+  await close();
   if (process.connected) process.disconnect();
   process.exit(0);
 }

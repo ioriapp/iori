@@ -2,6 +2,8 @@
 
 シェルの選択、入力、出力、閉じる操作を変える時に読む。配置は[画面の構成と移動](workspace-layout.md)、CLIとの会話は[CLIの画面](cli-screen.md)が持つ。
 
+Terminalの画面・履歴・VTのモードを持つemulatorはデーモンだけで動かす。Hostはデーモンから出力と解析済みのOSC・CSI、現在のモードを受け取り、作業ディレクトリ・タイトル・CLIの状態と入力を判断する。再接続での状態の受け渡しと問い合わせへの応答は[Terminalデーモン](terminal-daemon.md#状態と通信の責任)に従う。
+
 ## 開く
 
 既存のTerminalを選ぶか、新規作成でシェルを選ぶ。作成時の場所を記録したTerminalはそのworktreeまたはフォルダーに所属し、シェル内で別のフォルダーへ移動しても一覧と判断待ちの入口は同じ所属先に残る。作成時の場所の記録が無い既存Terminalは、現在のcwdで結び付ける。Linuxはbash / zsh / fish、WindowsはPowerShell / cmdなど、Hostで利用できるシェルを使う。既定はOSの既定で、Hostの設定から変更できる。WindowsでGit Bashも選べる。

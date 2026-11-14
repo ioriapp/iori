@@ -1,5 +1,19 @@
 export const teamJapanese: Record<string, string> = {
   Team: "Team",
+  "This team was changed on another device":
+    "このTeamは別のデバイスで変更されました",
+  "Reloading discards your unsaved changes on this device. Overwriting saves your changes as a new version, and the other device’s changes stay in History.":
+    "再読み込みすると、このデバイスでの未保存の変更は破棄されます。上書きすると、このデバイスでの変更が新しいバージョンになり、別のデバイスでの変更は履歴に残ります。",
+  Reload: "再読み込み",
+  "Overwrote version {version}": "バージョン{version}を上書き",
+  "Could not save the team. Try again.":
+    "Teamを保存できませんでした。もう一度お試しください。",
+  "This team was deleted on another device":
+    "このTeamは別のデバイスで削除されました",
+  "To keep your changes, save them as a new team.":
+    "このデバイスでの変更を残すには、新しいTeamとして保存してください。",
+  "Discard Changes": "変更を破棄",
+  "Save as New Team": "新しいTeamとして保存",
   "Hide from pickers": "選択肢に表示しない",
   "Show in pickers": "選択肢に表示",
   Hidden: "非表示",

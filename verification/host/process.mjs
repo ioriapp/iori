@@ -1,14 +1,21 @@
+import {
+  registerCleanup,
+  ownVerificationDirectory,
+  recoverStaleVerificationRuns,
+  registerVerificationDaemon,
+} from "../lifecycle.mjs";
 import { fork } from "node:child_process";
 import { createSocket } from "node:dgram";
 import { createServer } from "node:net";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startHost } from "../../apps/host/src/host.ts";
+import { pathToFileURL } from "node:url";
 import { verificationHostEnvironment } from "../cli/environment.mjs";
 import { stopTerminalDaemon } from "../terminal/daemon-process.mjs";
 import { connectClient } from "./client.mjs";
 import { prepareHostEnvironment } from "./environment.mjs";
+import { loadNativeAddon } from "../../apps/host/src/native.ts";
 
 /** A Host uses one number for its UDP endpoint and its TCP webhook listener. */
 async function availablePort() {
@@ -35,29 +42,33 @@ async function availablePort() {
 }
 
 /** A port can be taken between choosing and binding it; choose again then. */
-async function launch(isolatedEnvironment) {
+async function launch(isolatedEnvironment, distribution) {
   for (let attempt = 1; ; attempt++) {
     try {
-      return await launchOnce(isolatedEnvironment);
+      return await launchOnce(isolatedEnvironment, distribution);
     } catch (error) {
       if (!error.beforeReady || attempt === 3) throw error;
     }
   }
 }
 
-async function launchOnce(isolatedEnvironment) {
+async function launchOnce(isolatedEnvironment, distribution) {
   const port = await availablePort();
   const environment = verificationHostEnvironment();
   delete environment.CLAUDE_CODE_OAUTH_TOKEN;
   delete environment.IORI_HOST_PORT;
-  const child = fork(import.meta.filename, ["--host"], {
-    stdio: ["ignore", "ignore", "pipe", "ipc"],
-    env: {
-      ...environment,
-      ...isolatedEnvironment,
-      IORI_HOST_PORT: String(port),
+  const child = fork(
+    import.meta.filename,
+    ["--host", ...(distribution ? ["--distribution", distribution] : [])],
+    {
+      stdio: ["ignore", "ignore", "pipe", "ipc"],
+      env: {
+        ...environment,
+        ...isolatedEnvironment,
+        IORI_HOST_PORT: String(port),
+      },
     },
-  });
+  );
   let stderr = "";
   child.stderr.on("data", (chunk) => {
     stderr = (stderr + chunk).slice(-4096);
@@ -89,19 +100,32 @@ async function launchOnce(isolatedEnvironment) {
     throw error;
   }
   return {
-    async close() {
-      if (child.connected) child.send("stop");
-      await exited;
+    async close({ interrupt = false } = {}) {
+      if (interrupt) {
+        child.kill("SIGKILL");
+        await exited.catch((error) => {
+          if (child.signalCode !== "SIGKILL") throw error;
+        });
+      } else {
+        if (child.connected) child.send("stop");
+        await exited;
+      }
     },
   };
 }
 
 /** Each test owns its Host, identity, client and daemon, including on failure. */
-export async function startHostTest(t) {
+export async function startHostTest(
+  t,
+  { maintenance = false, distribution } = {},
+) {
+  await recoverStaleVerificationRuns();
   const dataRoot = await mkdtemp(join(tmpdir(), "iori-host-e2e-"));
+  await ownVerificationDirectory(dataRoot);
+  await registerVerificationDaemon(join(dataRoot, "iori-host"));
   const clients = new Set();
   let host;
-  t.after(async () => {
+  const cleanup = registerCleanup(async () => {
     try {
       try {
         await Promise.all([...clients].map((client) => client.close()));
@@ -109,41 +133,49 @@ export async function startHostTest(t) {
         try {
           await host?.close();
         } finally {
-          try {
-            await stopTerminalDaemon(join(dataRoot, "iori-host"));
-          } finally {
-            await rm(dataRoot, { recursive: true, force: true });
-          }
+          await stopTerminalDaemon(join(dataRoot, "iori-host"));
         }
       }
+      await rm(dataRoot, { recursive: true, force: true });
     } catch (error) {
       t.diagnostic("失敗時の段: 専用の接続・Host・Terminal・保存先を片付ける");
       throw error;
     }
   });
+  t.after(cleanup);
   const isolatedEnvironment = await prepareHostEnvironment(dataRoot);
-  host = await launch(isolatedEnvironment);
+  if (maintenance) isolatedEnvironment.IORI_E2E_MAINTENANCE = "1";
+  host = await launch(isolatedEnvironment, distribution);
+  const identity = maintenance
+    ? loadNativeAddon().generateIdentity()
+    : undefined;
+  if (identity) t.after(() => identity.secretKey.fill(0));
   const connect = async () => {
-    const client = await connectClient(dataRoot);
+    const client = await connectClient(dataRoot, identity?.secretKey);
     clients.add(client);
     return client;
   };
   return {
     dataRoot,
     client: await connect(),
-    async restart({ whileStopped } = {}) {
+    async restart({
+      whileStopped,
+      interrupt = false,
+      distribution: nextDistribution = distribution,
+    } = {}) {
       await Promise.all([...clients].map((client) => client.close()));
       clients.clear();
-      await host.close();
+      await host.close({ interrupt });
       await whileStopped?.();
-      host = await launch(isolatedEnvironment);
+      distribution = nextDistribution;
+      host = await launch(isolatedEnvironment, distribution);
       return connect();
     },
   };
 }
 
 /** Record the observable result being awaited, without imposing a deadline. */
-export async function runHostTest(t, body) {
+export async function runHostTest(t, body, options) {
   let current = "専用のHostを起動してClientを登録する";
   let reported = false;
   const report = () => {
@@ -152,7 +184,7 @@ export async function runHostTest(t, body) {
   };
   t.signal.addEventListener("abort", report, { once: true });
   try {
-    const host = await startHostTest(t);
+    const host = await startHostTest(t, options);
     await body({
       ...host,
       stage: (name) => {
@@ -168,13 +200,35 @@ export async function runHostTest(t, body) {
 }
 
 if (process.argv.includes("--host")) {
-  const host = await startHost();
+  const os = process.env.IORI_E2E_MAINTENANCE
+    ? await import("../../scripts/release/update-linux.mjs")
+    : undefined;
+  const service = os && {
+    bundle: process.cwd(),
+    unit: "iori-e2e.service",
+    restart: () => os.restart("iori-e2e.service"),
+    launchUpdate: os.launchUpdate,
+    ...(await import("../../scripts/release/uninstall-linux.mjs")),
+  };
+  const distributionIndex = process.argv.indexOf("--distribution");
+  const { startHost: start } = await import(
+    distributionIndex === -1
+      ? new URL("../../apps/host/src/host.ts", import.meta.url)
+      : pathToFileURL(join(process.argv[distributionIndex + 1], "src/host.js"))
+  );
+  const host = await start(
+    undefined,
+    service,
+    distributionIndex === -1 ? undefined : process.argv[distributionIndex + 1],
+  );
+  await host.maintenanceReady();
+  const close = registerCleanup(() => host.close());
   process.send("ready");
   await new Promise((resolve) => {
     process.once("message", resolve);
     process.once("disconnect", resolve);
   });
-  await host.close();
+  await close();
   if (process.connected) process.disconnect();
   process.exit(0);
 }

@@ -66,16 +66,47 @@ export async function runReleaseScenario({
   let clis;
   if (runningClis) {
     clis = [];
+    const screens = [];
     for (const [cliId, args, prompt] of [
-      ["claude", "--model claude-haiku-4-5", /❯/u],
-      ["codex", "--model gpt-6-luna", /›/u],
+      ["claude", "--model claude-haiku-4-5", /❯[\s\S]*(?:shortcuts|Try\s*")/iu],
+      ["codex", "--model gpt-6-luna", /Ask\s*Codex[\s\S]*GPT-6-Luna/iu],
     ]) {
       await client.request("cli.arguments.set", { cliId, arguments: args });
       if (checkpointCliWait) await checkpoint(`${cliId}-input-ready`);
       const cli = await client.request("cli.launch", { cwd: root, cliId });
       const screen = await client.open(cli.terminal.id);
+      let pressedAt = 0;
       try {
-        await waitFor(() => screen.snapshot && prompt.test(screen.text));
+        await waitFor(async () => {
+          if (cliId === "claude") {
+            const words = screen.text.replaceAll(/\s+/gu, "");
+            const trust = words.lastIndexOf("Yes,Itrustthisfolder");
+            const ready = Math.max(
+              words.lastIndexOf("forshortcuts"),
+              words.lastIndexOf('Try"'),
+            );
+            if (trust >= 0 && trust > ready) {
+              if (Date.now() - pressedAt >= 500) {
+                const no = words.lastIndexOf("❯No,exit");
+                const yes = words.lastIndexOf("❯Yes,Itrustthisfolder");
+                if (Math.max(no, yes) >= 0) {
+                  await screen.input(no > yes ? "\u001b[B" : "\r");
+                  pressedAt = Date.now();
+                }
+              }
+              return false;
+            }
+          }
+          const terminals = (await client.request("terminal.list")).terminals;
+          const current = terminals.find((item) => item.id === cli.terminal.id);
+          const status = current?.cliStatus;
+          return (
+            screen.snapshot &&
+            prompt.test(screen.text) &&
+            current?.cli?.id === cliId &&
+            (status?.state === "idle" || !status)
+          );
+        });
       } catch (error) {
         const token = process.env.CLAUDE_CODE_OAUTH_TOKEN;
         const text = screen.text.slice(-4000);
@@ -83,10 +114,31 @@ export async function runReleaseScenario({
         result.cliInputErrors[cliId] = token
           ? text.replaceAll(token, "[REDACTED]")
           : text;
+        result.cliInputStatus = (
+          await client.request("terminal.list")
+        ).terminals.find((item) => item.id === cli.terminal.id)?.cliStatus;
         throw error;
       }
       clis.push(cli);
+      screens.push({ cliId, cli, screen });
       await checkpoint(`${cliId}-input-ready`);
+    }
+    const terminals = (await client.request("terminal.list")).terminals;
+    result.cliInputReady = screens.map(({ cliId, cli, screen }) => {
+      const token = process.env.CLAUDE_CODE_OAUTH_TOKEN;
+      const text = screen.text.slice(-4000);
+      return {
+        cliId,
+        id: cli.terminal.id,
+        cli: terminals.find((item) => item.id === cli.terminal.id)?.cli,
+        cliStatus: terminals.find((item) => item.id === cli.terminal.id)
+          ?.cliStatus,
+        screen: token ? text.replaceAll(token, "[REDACTED]") : text,
+      };
+    });
+    for (const cli of result.cliInputReady) {
+      assert.equal(cli.cli?.id, cli.cliId);
+      if (cli.cliStatus) assert.equal(cli.cliStatus.state, "idle");
     }
   } else {
     const registration = await client.request("cli.definition.simple", {

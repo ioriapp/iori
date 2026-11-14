@@ -28,8 +28,9 @@ export function run(file, args, options = {}) {
     });
     return Buffer.isBuffer(result) ? result : result.trim();
   } catch (error) {
+    // A command stopped by the timeout has status null and a signal.
     const status =
-      error.status !== undefined
+      error.status != null
         ? `exit ${error.status}`
         : error.signal
           ? `signal ${error.signal}`

@@ -1,3 +1,4 @@
+import { translator } from "../i18n.ts";
 import {
   useCallback,
   useEffect,
@@ -189,7 +190,7 @@ export function CiLog({
   /** The CI View's ways to recover from a failed read besides a retry. */
   recovery: Omit<ForgeRecovery, "onRetry">;
 }) {
-  const ja = locale.startsWith("ja");
+  const t = translator(locale);
   const palette = usePalette();
   const [loaded, setLoaded] = useState<Loaded>();
   // A failed read, and why when the Host could tell.
@@ -381,15 +382,11 @@ export function CiLog({
       {failure}
       {loaded.notRun ? (
         <p className="reading-empty" data-iori-state="ci-log-not-run">
-          {ja ? "このジョブは実行されませんでした。" : "This job did not run."}
+          {t("This job did not run.")}
         </p>
       ) : loaded.availableWhenDone ? (
         <div className="ci-browser-only" data-iori-state="ci-log-when-done">
-          <p>
-            {ja
-              ? "ジョブが完了するまで、ログは表示されません。"
-              : "GitHub returns a job's log only after the job is done."}
-          </p>
+          <p>{t("GitHub returns a job's log only after the job is done.")}</p>
           {job.url && (
             <Button
               variant="outline"
@@ -398,13 +395,13 @@ export function CiLog({
               onClick={() => void native.openUrl(job.url!)}
             >
               <ExternalLink />
-              {ja ? "ブラウザーで開く" : "Open in browser"}
+              {t("Open in browser")}
             </Button>
           )}
         </div>
       ) : loaded.lines.length === 0 && loaded.start === 0 ? (
         <p className="reading-empty" data-iori-state="ci-log-empty">
-          {ja ? "ログはまだありません。" : "There is no log yet."}
+          {t("There is no log yet.")}
         </p>
       ) : (
         <div
@@ -422,7 +419,7 @@ export function CiLog({
             rowHeight={LINE_HEIGHT}
             wrap={wrap}
             dataId="ci-log"
-            label={ja ? "ジョブのログ" : "Job log"}
+            label={t("Job log")}
             // Turning wrapping on or off keeps the first row in view.
             initialIndex={shownRow.current}
             scrollRequest={scroll?.wrap === wrap ? scroll.request : undefined}

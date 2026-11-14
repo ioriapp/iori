@@ -155,7 +155,6 @@ export class CommandReceiver {
             route.pending.add(pending);
             void pending.finally(() => {
               route.pending.delete(pending);
-              route.reading.delete(file);
             });
           } else route.reading.delete(file);
         }
@@ -179,12 +178,14 @@ export class CommandReceiver {
       await file.close();
     }
     if (!authenticated) {
-      await rm(request);
-      // Keep the existing unauthorized response so an invalid caller finishes.
-      await this.#writeResponse(request, {
-        ok: false,
-        text: "Unauthorized iori call.",
-      });
+      try {
+        await this.#writeResponse(request, {
+          ok: false,
+          text: "Unauthorized iori call.",
+        });
+      } finally {
+        await rm(request);
+      }
     }
     return authenticated;
   }
@@ -202,12 +203,17 @@ export class CommandReceiver {
       const info = await lstat(request);
       if (!info.isFile() || info.isSymbolicLink()) return;
       const input = await readFile(request, "utf8");
-      await rm(request);
       const result = await this.#handle(input);
       await this.#writeResponse(request, result);
     } catch {
-      // Discard failed responses, including pre-existing temp files/symlinks
-      // and retired directories. Never dump the request envelope.
+      // Never dump the request envelope or overwrite a pre-existing temp file.
+    } finally {
+      // Absence of both request and response signals publish failure to iori.
+      // If removal fails, keep it marked as reading so it cannot execute again.
+      await rm(request, { force: true }).then(
+        () => route.reading.delete(file),
+        () => {},
+      );
     }
   }
   async #handle(input: string): Promise<CommandResult> {

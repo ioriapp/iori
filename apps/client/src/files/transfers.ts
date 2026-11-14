@@ -1,3 +1,4 @@
+import { translator } from "../i18n.ts";
 import { MAX_FRAME_BYTES } from "@iori/protocol";
 import { connection } from "../connection.ts";
 import {
@@ -42,21 +43,15 @@ type Snapshot = {
 };
 
 export function putErrorCopy(error: unknown, locale: string) {
-  const ja = locale.startsWith("ja");
+  const t = translator(locale);
   const code = error instanceof ReadError ? error.code : "";
   if (code === "path_outside_root")
-    return ja
-      ? "このパスは開いたフォルダーの外にあります。"
-      : "This path is outside the open folder.";
+    return t("This path is outside the open folder.");
   if (code === "put_not_a_file")
-    return ja
-      ? "同じ名前のフォルダーまたはリンクがあります。"
-      : "A folder or link with the same name already exists.";
+    return t("A folder or link with the same name already exists.");
   if (code === "permission_denied")
-    return ja
-      ? "フォルダーに書き込む権限がありません。"
-      : "You do not have permission to write to this folder.";
-  return ja ? "アップロードできませんでした。" : "Could not upload the file.";
+    return t("You do not have permission to write to this folder.");
+  return t("Could not upload the file.");
 }
 async function base64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {

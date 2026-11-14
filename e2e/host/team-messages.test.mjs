@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { watch } from "node:fs";
+import { readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import test from "node:test";
 import { runHostTest } from "../../verification/host/process.mjs";
 import {
@@ -20,18 +23,41 @@ async function launchChild(
   client,
   dataRoot,
   body = "Do the work.",
-  { muse = false } = {},
+  { muse = false, tokensScript } = {},
 ) {
   const parentCli = await registerScriptedCli(client, dataRoot, {
     noReady: true,
   });
-  const cli = muse
-    ? await registerScriptedCli(client, dataRoot, {
-        id: "muse-code",
-        resumable: true,
-        observeEnvironment: true,
-      })
-    : await registerResponseCli(client, dataRoot);
+  const cli =
+    muse || tokensScript
+      ? await registerScriptedCli(client, dataRoot, {
+          id: tokensScript ? "scripted-tokens" : "muse-code",
+          resumable: true,
+          observeEnvironment: true,
+        })
+      : await registerResponseCli(client, dataRoot);
+  if (tokensScript) {
+    const definition = JSON.parse(
+      await readFile(
+        join(dataRoot, "iori-host", "cli-definitions", cli, "definition.json"),
+        "utf8",
+      ),
+    );
+    const uploadId = crypto.randomUUID();
+    await client.request("cli.definition.file.write", {
+      uploadId,
+      first: true,
+      data: Buffer.from(tokensScript).toString("base64"),
+    });
+    const saved = await client.request("cli.definition.save", {
+      definition: JSON.stringify({
+        ...definition,
+        tokens: { script: "tokens.mjs" },
+      }),
+      files: [{ name: "tokens.mjs", uploadId }],
+    });
+    assert.equal(saved.cliId, cli, JSON.stringify(saved));
+  }
   const candidate = { id: "candidate", cli, model: "", tools: [], minimum: "" };
   const team = await client.request("teams.create", {
     definition: {
@@ -90,7 +116,7 @@ async function launchChild(
       event.child.terminalId,
   );
   const child = await client.terminal(started.child.terminalId);
-  if (muse) await child.output("ACTOR_READY");
+  if (muse || tokensScript) await child.output("ACTOR_READY");
   else {
     await child.output("RESPONSE_READY");
     await responseTurn(child, 1);
@@ -192,6 +218,85 @@ test("子の質問を親が読み、回答を子へ届ける", (t) =>
     const output = await responseTurn(child, 2);
     const bodies = [...output.matchAll(/RESPONSE_BODY:([^\r\n]+)/gu)];
     assert.equal(JSON.parse(bodies.at(-1)[1]), "Yes, finish.");
+  }));
+
+test("トークン量のスクリプトが終了しなくても子の質問と報告が親へ届く", (t) =>
+  runHostTest(t, async ({ client, dataRoot, stage }) => {
+    const release = join(dataRoot, "tokens-release");
+    const unblock = () => writeFile(release, "done");
+    const onAbort = () => void unblock().catch(() => {});
+    t.signal.addEventListener("abort", onAbort, { once: true });
+    let watcher;
+    const started = new Promise((resolve) => {
+      watcher = watch(dataRoot, (_event, name) => {
+        if (name === "tokens-started") resolve();
+      });
+    });
+    try {
+      stage("トークン量のスクリプトを持つCLIへ委譲する");
+      const { parent, child, childId, events } = await launchChild(
+        client,
+        dataRoot,
+        "Do the work.",
+        {
+          tokensScript: `
+import { existsSync, watch, writeFileSync } from "node:fs";
+import { join } from "node:path";
+let input = "";
+for await (const chunk of process.stdin) input += chunk;
+const { cwd } = JSON.parse(input);
+await new Promise(resolve => {
+  const watcher = watch(cwd, () => {
+    if (existsSync(join(cwd, "tokens-release"))) {
+      watcher.close();
+      resolve();
+    }
+  });
+  writeFileSync(join(cwd, "tokens-started"), "started");
+  if (existsSync(join(cwd, "tokens-release"))) {
+    watcher.close();
+    resolve();
+  }
+});
+console.log(JSON.stringify({ input: 27, output: 9 }));
+`,
+        },
+      );
+      stage("計測が終了しない間も質問の応答と親への通知が届く");
+      const asked = actorCommand(child, "ask", [
+        "ask",
+        "--body",
+        "May I finish?",
+      ]);
+      await started;
+      await asked;
+      await parent.output("asked a question");
+      stage("同じ子の報告も応答し、親が本文を読める");
+      await actorCommand(child, "report", [
+        "report",
+        "--body",
+        "Completed the work.",
+      ]);
+      await parent.output("reported");
+      await events.waitFor(
+        (event) =>
+          event.type === "teams.child.updated" &&
+          event.child.id === childId &&
+          event.child.state === "reported",
+      );
+      const children = await client.request("teams.children", {});
+      assert.equal(
+        children.children.find((entry) => entry.id === childId).state,
+        "reported",
+      );
+      const result = await actorCommand(parent, "read", ["read", childId]);
+      assert.deepEqual(result.data.questions, ["May I finish?"]);
+      assert.deepEqual(result.data.reports, ["Completed the work."]);
+    } finally {
+      await unblock();
+      watcher.close();
+      t.signal.removeEventListener("abort", onAbort);
+    }
   }));
 
 test("受け入れた子の依頼、差し戻しと報告を次の子に引き継ぐ", (t) =>

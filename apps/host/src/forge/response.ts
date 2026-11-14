@@ -53,6 +53,12 @@ export function forgeUrl(origin: string, value: unknown): string | undefined {
   return undefined;
 }
 
+export function pullRequestUrl(origin: string, value: unknown): string {
+  const url = forgeUrl(origin, object(value).html_url);
+  if (!url) throw new Error("Invalid Forge response");
+  return url;
+}
+
 export type Check = {
   state: "passed" | "failed" | "running" | "other";
   url?: string;

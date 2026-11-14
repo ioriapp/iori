@@ -1,0 +1,16 @@
+export const allStates = [
+  { id: "reading-1", label: "Files" },
+  { id: "reading-2", label: "Files" },
+  { id: "reading-3", label: "Files" },
+  { id: "reading-4", label: "Git" },
+  { id: "reading-5", label: "CI" },
+  { id: "reading-6", label: "CI" },
+  { id: "reading-8", label: "Files" },
+  { id: "reading-9", label: "Files" },
+  { id: "reading-10-git-list", label: "Git" },
+  { id: "reading-10-git-detail", label: "Git" },
+  { id: "reading-10-ci-list", label: "CI" },
+  { id: "reading-10-ci-detail", label: "CI" },
+  { id: "reading-14", label: "Files" },
+  { id: "reading-17", label: "Files" },
+];

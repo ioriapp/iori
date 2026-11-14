@@ -10,10 +10,7 @@ import { WorktreeEntrances } from "./WorktreeEntrances.tsx";
 import { MiddleEllipsis } from "./MiddleEllipsis.tsx";
 import { ForgeMarks } from "./ForgeMarks.tsx";
 import { useForgeStatus, forgeKey } from "./forge-status.ts";
-import {
-  useIssueRepositories,
-  issueRepositoryKey,
-} from "./issues/issue-repositories.ts";
+import { issueRepositoryKey } from "./issues/issue-repositories.ts";
 import {
   SidebarSort,
   SortableSidebarItem,
@@ -106,6 +103,10 @@ type Props = {
   teamsHostKey?: string;
   onTeams: (host: HostInfo) => void;
   connectedHosts: string[];
+  issueRepositories: Record<
+    string,
+    import("@iori/protocol").ForgeIssueRepository | null
+  >;
   folders: SidebarFolder[];
   selected?: { hostKey: string; workspacePath: string; worktreePath: string };
   historyError: Record<string, string>;
@@ -319,6 +320,7 @@ export function Navigation({
   teamsHostKey,
   onTeams,
   connectedHosts,
+  issueRepositories,
   folders,
   selected,
   historyError,
@@ -392,15 +394,6 @@ export function Navigation({
     selected?.worktreePath,
     selected?.hostKey,
     showForgeStatus && (isMobile ? openMobile : sidebarOpen),
-  );
-  const issueRepositories = useIssueRepositories(
-    folders
-      .filter((entry) => entry.folder.kind === "git")
-      .map((entry) => ({
-        host: entry.host.publicKey,
-        workspacePath: entry.folder.workspacePath,
-      })),
-    connectedHosts,
   );
   const [query, setQuery] = useState("");
   const collapsed = new Set(collapsedKeys);

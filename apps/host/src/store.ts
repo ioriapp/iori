@@ -415,6 +415,23 @@ export class HostStore {
         .all(id) as { value_json: string }[]
     ).map((row) => JSON.parse(row.value_json));
   }
+  latestAutomationRun(
+    id: string,
+  ): import("@iori/protocol").AutomationRun | undefined {
+    const row = this.#database
+      .prepare(
+        "SELECT value_json FROM automation_runs WHERE automation_id = ? ORDER BY scheduled_at DESC, rowid DESC LIMIT 1",
+      )
+      .get(id) as { value_json: string } | undefined;
+    return row ? JSON.parse(row.value_json) : undefined;
+  }
+  automationHasTerminalRun(id: string, terminalId: string): boolean {
+    return !!this.#database
+      .prepare(
+        "SELECT 1 FROM automation_runs WHERE automation_id = ? AND json_extract(value_json, '$.terminalId') = ? LIMIT 1",
+      )
+      .get(id, terminalId);
+  }
   automationRun(
     id: string,
   ): import("@iori/protocol").AutomationRun | undefined {
@@ -620,10 +637,19 @@ export class HostStore {
       } else {
         const record = this.readTeam(p.teamId);
         if (!record) {
-          this.#database.exec("ROLLBACK");
-          return failure("invalid_request");
-        }
-        if (method === "teams.hidden.set") {
+          if (method === "teams.save" && p.baseVersion !== undefined)
+            result = { conflict: "deleted" };
+          else {
+            this.#database.exec("ROLLBACK");
+            return failure("invalid_request");
+          }
+        } else if (
+          method === "teams.save" &&
+          p.baseVersion !== undefined &&
+          p.baseVersion !== record.saved.version
+        ) {
+          result = { conflict: "changed", current: record };
+        } else if (method === "teams.hidden.set") {
           this.#database
             .prepare("UPDATE teams SET hidden = ? WHERE id = ?")
             .run(p.hidden ? 1 : 0, p.teamId);
@@ -632,7 +658,13 @@ export class HostStore {
             this.#saveTeamSettings({ ...settings, defaultTeam: "" });
           result = { teamId: p.teamId, hidden: p.hidden };
         } else if (method === "teams.save")
-          result = this.#writeTeam(p.teamId, p.definition, record);
+          result = this.#writeTeam(
+            p.teamId,
+            p.definition,
+            record,
+            undefined,
+            p.editedFrom,
+          );
         else if (method === "teams.delete") {
           this.#database
             .prepare("DELETE FROM teams WHERE id = ?")
@@ -675,6 +707,7 @@ export class HostStore {
     definition: TeamDefinition,
     before?: TeamRecord,
     restoredFrom?: number,
+    editedFrom?: number,
   ): TeamRecord {
     const { name, description, parent, instruction, roles } = definition;
     const clean = structuredClone({
@@ -700,12 +733,22 @@ export class HostStore {
       version: (before?.saved.version ?? 0) + 1,
       updated: new Date().toISOString(),
     };
+    const original =
+      editedFrom !== undefined
+        ? before?.history.find((entry) => entry.team.version === editedFrom)
+            ?.team
+        : undefined;
     const history = {
       team,
       summary: before ? "" : "Team created",
       ...(restoredFrom === undefined
         ? before
-          ? { changes: teamChanges(before.saved, team) }
+          ? {
+              changes: teamChanges(original ?? before.saved, team),
+              ...(editedFrom === undefined
+                ? {}
+                : { overwrote: before.saved.version }),
+            }
           : {}
         : { restoredFrom }),
     };

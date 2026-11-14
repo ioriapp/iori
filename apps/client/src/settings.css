@@ -185,86 +185,6 @@
   gap: var(--space-2);
 }
 
-.v9-folder-list {
-  display: grid;
-  max-width: 650px;
-}
-
-.v9-folder-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-height: 36px;
-  border-bottom: 1px solid var(--border);
-}
-
-.v9-folder-row svg {
-  color: var(--muted-foreground);
-}
-
-.v9-settings-note {
-  max-width: 520px;
-  margin: 0;
-  color: var(--muted-foreground);
-  font-size: 0.93rem;
-}
-
-.v9-agents-settings {
-  max-width: 650px;
-}
-
-.v9-agents-settings > p {
-  margin: 0 0 var(--space-2);
-  color: var(--muted-foreground);
-  font-size: 0.86rem;
-}
-
-.v9-agent-list {
-  display: grid;
-  margin-bottom: var(--space-4);
-}
-
-.v9-agent-row {
-  display: grid;
-  grid-template-columns: 24px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: var(--space-2);
-  min-height: 42px;
-  border-bottom: 1px solid var(--border);
-}
-
-.v9-agent-row .cli-icon {
-  flex-shrink: 0;
-}
-
-.v9-agent-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.v9-agent-version {
-  color: var(--muted-foreground);
-  font-size: 0.86rem;
-  white-space: nowrap;
-}
-
-.v9-agents-settings [data-slot="separator"] {
-  margin: var(--space-4) 0;
-}
-
-.v9-agent-add {
-  display: grid;
-  gap: var(--space-3);
-  max-width: 440px;
-}
-
-.v9-agent-add h3 {
-  margin-bottom: var(--space-2);
-}
-
-.v9-settings-content .v9-agent-add label,
 .v9-settings-content .v9-key-add-field {
   display: grid;
   align-items: start;
@@ -276,16 +196,11 @@
   font-weight: 500;
 }
 
-.v9-settings-content .v9-agent-add input,
 .v9-settings-content .v9-key-add input:not([type="checkbox"]) {
   width: 100%;
   min-width: 0;
   color: var(--foreground);
   font-size: 1rem;
-}
-
-.v9-agent-add > button {
-  justify-self: start;
 }
 
 .v9-key-settings {
@@ -478,12 +393,6 @@
   }
 }
 
-.settings-checkbox {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-
 /* 導入の欄と SSH の確認は承認済み v16 の寸法を使う。 */
 .ssh-setup-fields {
   display: grid;
@@ -609,24 +518,11 @@
   color: var(--muted-foreground);
 }
 
-.git-setting-field {
-  display: grid;
-  gap: var(--space-2);
-  min-width: 0;
-  margin-block: var(--space-4);
-}
-.git-setting-field label {
-  font-size: 0.875rem;
-}
-.git-setting-field [data-slot="select-trigger"] {
-  width: 100%;
-}
 .git-remote {
   margin-block: var(--space-4) var(--space-6);
   min-width: 0;
 }
-.git-remote p,
-.git-setting-field p {
+.git-remote p {
   margin-block: 0;
 }
 .git-remote-url {

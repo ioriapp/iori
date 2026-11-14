@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -114,9 +114,30 @@ export async function stopTerminalDaemon(root) {
   // Recover the owned verification service as a whole instead of waiting for
   // each PTY to acknowledge the product's graceful shutdown request.
   if (!current) {
-    const { stopTerminalDaemon: stopDaemon } =
-      await import("../../apps/host/src/terminal/daemon/launch.ts");
-    await stopDaemon(root);
+    if (process.platform === "linux") {
+      // The connection descriptor may already have been removed by shutdown.
+      // Without a user session the product starts a detached daemon instead.
+      // When a session is configured, propagate bus/stop failures so the owner
+      // record remains available for recovery on the next run.
+      if (process.env.DBUS_SESSION_BUS_ADDRESS || process.env.XDG_RUNTIME_DIR)
+        await stopTerminalDaemonsUnder(root);
+      try {
+        await run("flock", [
+          join(root, ".verification-daemon-cleanup.lock"),
+          process.execPath,
+          import.meta.filename,
+          "--stop-fallback",
+          root,
+        ]);
+      } catch (error) {
+        if (error.code !== 66) throw error;
+        // The owned directory has already been removed by another cleanup.
+      }
+    } else {
+      const { stopTerminalDaemon: stopDaemon } =
+        await import("../../apps/host/src/terminal/daemon/launch.ts");
+      await stopDaemon(root);
+    }
   }
   for (const entry of units.values()) {
     if (entry.root !== root) continue;
@@ -145,15 +166,44 @@ async function stopUnit(unit) {
       if (await loaded(unit)) throw error;
     }
   }
-  assert.equal(
-    await loaded(unit),
-    false,
-    "the owned daemon unit must be collected",
+  // Stopping a service and collecting its transient unit are separate states.
+  const { stdout } = await run("systemctl", [
+    "--user",
+    "show",
+    unit,
+    "--property=LoadState",
+    "--property=ActiveState",
+    "--property=SubState",
+    "--property=Result",
+  ]).catch((error) => {
+    if (error.stdout?.includes("LoadState=not-found"))
+      return { stdout: error.stdout };
+    throw error;
+  });
+  const state = Object.fromEntries(
+    stdout
+      .trim()
+      .split("\n")
+      .map((line) => line.split("=")),
+  );
+  assert.ok(
+    state.LoadState === "not-found" ||
+      (state.ActiveState === "inactive" &&
+        state.SubState === "dead" &&
+        state.Result === "success"),
+    `the owned daemon unit must be stopped: ${JSON.stringify(state)}`,
   );
 }
 
 /** Recover only daemons whose systemd working directory is inside this owned run. */
 export async function stopTerminalDaemonsUnder(directory) {
+  return stopVerificationUnitsUnder(directory, false);
+}
+
+export async function stopVerificationUnitsUnder(
+  directory,
+  includeHosts = true,
+) {
   if (process.platform !== "linux")
     throw new Error("Web runner daemon cleanup requires Linux systemd");
   const root = resolve(directory);
@@ -164,12 +214,59 @@ export async function stopTerminalDaemonsUnder(directory) {
     "--plain",
     "--no-legend",
     "iori-terminal-*.service",
+    ...(includeHosts ? ["iori-host-update-verification-*.service"] : []),
   ]);
   for (const line of stdout.trim().split("\n")) {
     const unit = line.trim().split(/\s+/u)[0];
-    if (!/^iori-terminal-[a-f0-9]+-[a-f0-9-]+\.service$/u.test(unit)) continue;
-    if (!(await unitIsUnder(unit, root))) continue;
-    await stopUnit(unit);
-    console.log(`検証用Terminal係を回収: ${unit}`);
+    const terminal = /^iori-terminal-[a-f0-9]+-[a-f0-9-]+\.service$/u.test(
+      unit,
+    );
+    const host = /^iori-host-update-verification-[a-f0-9-]+\.service$/u.test(
+      unit,
+    );
+    if (!terminal && !(includeHosts && host)) continue;
+    let owned = await unitIsUnder(unit, root);
+    if (!owned && host) {
+      const { stdout: command } = await run("systemctl", [
+        "--user",
+        "show",
+        unit,
+        "--property=ExecStart",
+        "--value",
+      ]);
+      const escapedRoot = root.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+      owned = new RegExp(
+        `(?:^|[\\s="'])${escapedRoot}(?=[/\\s;"'}]|$)`,
+        "u",
+      ).test(command);
+    }
+    if (!owned) continue;
+    if (terminal) await stopUnit(unit);
+    else {
+      await run("systemctl", ["--user", "stop", unit]);
+      await rm(join(process.env.XDG_RUNTIME_DIR, "systemd/user", unit), {
+        force: true,
+      });
+      await run("systemctl", ["--user", "daemon-reload"]);
+      await run("systemctl", ["--user", "reset-failed", unit]).catch(() => {});
+    }
+    console.log(`検証用unitを回収: ${unit}`);
+  }
+}
+
+if (process.argv[2] === "--stop-fallback") {
+  const root = process.argv[3];
+  let descriptor;
+  try {
+    descriptor = JSON.parse(
+      await readFile(join(root, "terminal-daemon/connection.json"), "utf8"),
+    );
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
+  if (descriptor) {
+    const { stopTerminalDaemon: stopDaemon } =
+      await import("../../apps/host/src/terminal/daemon/launch.ts");
+    await stopDaemon(root);
   }
 }

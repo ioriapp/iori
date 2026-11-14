@@ -1,4 +1,10 @@
-import { stopTerminalDaemon } from "../terminal/daemon/launch.ts";
+import { stopTerminalDaemon } from "../../../../verification/terminal/daemon-process.mjs";
+import {
+  ownVerificationDirectory,
+  registerVerificationDaemon,
+  recoverStaleVerificationRuns,
+  registerCleanup,
+} from "../../../../verification/lifecycle.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { execFileSync } from "node:child_process";
@@ -27,7 +33,10 @@ test(
   "a message sent during startup goes to delivery after startup instead of the request file",
   { skip: process.platform === "win32" },
   async () => {
+    await recoverStaleVerificationRuns();
     const root = await mkdtemp(join(tmpdir(), "iori-startup-send-"));
+    await ownVerificationDirectory(root);
+    await registerVerificationDaemon(root);
     const repository = join(root, "repository");
     await mkdir(repository);
     const git = (...args: string[]) =>
@@ -103,6 +112,17 @@ process.stdin.resume(); setInterval(()=>{},1000);
         }
       }
     };
+    const cleanup = registerCleanup(async () => {
+      await writeFile(join(root, "release"), "");
+      try {
+        await teams.close();
+        await terminals.close();
+      } finally {
+        await stopTerminalDaemon(root);
+        store.close();
+        await rm(root, { recursive: true, force: true });
+      }
+    });
     try {
       const parent = await terminals.saveSimpleCliDefinition(context(), {
         name: "Startup parent",
@@ -212,12 +232,7 @@ process.stdin.resume(); setInterval(()=>{},1000);
         "running",
       );
     } finally {
-      await writeFile(join(root, "release"), "");
-      await teams.close();
-      await terminals.close();
-      await stopTerminalDaemon(root);
-      store.close();
-      await rm(root, { recursive: true, force: true });
+      await cleanup();
     }
   },
 );

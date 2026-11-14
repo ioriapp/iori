@@ -15,7 +15,7 @@ export const scopedScenarios = [
   "terminal-daemon",
   "client-host-update",
   "host-uninstall",
-  "web-terminal",
+  "terminal-retention",
 ];
 
 export function acceptanceScope(files, daemonChanged) {

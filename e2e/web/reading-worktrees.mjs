@@ -1,7 +1,7 @@
 import { openWorkspaceView } from "../../verification/workspace/interaction.mjs";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { rm, writeFile } from "node:fs/promises";
+import { chmod, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { waitFor } from "../../verification/ui.mjs";
 import { pngBytes } from "../../verification/reading/png.mjs";
@@ -18,9 +18,21 @@ export async function readingWorktrees({
   worktree,
   desktop,
   mobile,
-  shot,
   record,
 }) {
+  // A deleted remote branch leaves its upstream configured, but Git cannot
+  // report how far ahead or behind it is.
+  execFileSync("git", ["remote", "add", "origin", "/unused"], {
+    cwd: repository,
+  });
+  execFileSync("git", ["config", "branch.browser.remote", "origin"], {
+    cwd: repository,
+  });
+  execFileSync(
+    "git",
+    ["config", "branch.browser.merge", "refs/heads/missing"],
+    { cwd: repository },
+  );
   const longWorktree = join(repository, "..", "reading-long-worktree");
   execFileSync(
     "git",
@@ -85,26 +97,6 @@ export async function readingWorktrees({
       fits.rows.every((row) => row.fits && row.oneLine),
       `${kind}の全ての名前は省略されず1行で見える`,
     );
-    if (process.env.IORI_READING_CAPTURE === "1") {
-      for (const theme of ["light", "dark"]) {
-        await screen.evaluate(
-          `document.documentElement.classList.toggle('dark', ${theme === "dark"})`,
-        );
-        await shot(`pc-${kind}-worktree-menu-${theme}`);
-      }
-      await screen.key("Escape");
-      await client.browser.viewport({ width: 2560, height: 1440 });
-      await screen.click(`[data-iori-field="${kind}-worktree"]`);
-      for (const theme of ["light", "dark"]) {
-        await screen.evaluate(
-          `document.documentElement.classList.toggle('dark', ${theme === "dark"})`,
-        );
-        await shot(`wqhd-${kind}-worktree-menu-${theme}`);
-      }
-      await screen.key("Escape");
-      await client.browser.viewport({ width: 1440, height: 1000 });
-      await screen.click(`[data-iori-field="${kind}-worktree"]`);
-    }
     if (kind === "files") {
       // The original working tree is first; choosing it shows its own files.
       await screen.click(
@@ -114,7 +106,10 @@ export async function readingWorktrees({
         `[data-iori-field="files-worktree"][title=${JSON.stringify(repository)}]`,
       );
       assert.equal(
-        (await screen.text('[data-iori-field="files-worktree"]')).trim(),
+        await screen.attribute(
+          '[data-iori-field="files-worktree"] [data-iori-full-name]',
+          "data-iori-full-name",
+        ),
         "main",
       );
       await screen.click('[data-iori-file="sample.txt"]');
@@ -123,8 +118,6 @@ export async function readingWorktrees({
           "変更前の行",
         ),
       );
-      if (process.env.IORI_READING_CAPTURE === "1")
-        await shot("pc-files-worktree-primary-selected");
       await screen.click(`[data-iori-field="files-worktree"]`);
       await screen.click(
         `[data-iori-worktree-choice=${JSON.stringify(worktree)}]`,
@@ -155,6 +148,13 @@ export async function readingWorktrees({
       `[data-iori-field="${kind}-worktree"][title=${JSON.stringify(worktree)}]`,
     );
     if (kind === "git") {
+      const branchState = '[data-iori-part="git-branch-state"]';
+      await waitFor(
+        () => screen.attribute(branchState, "title"),
+        (title) => title === "origin/missing",
+      );
+      assert.equal(await screen.text(branchState), "");
+      await record("追跡先が消えて差分の件数を取得できない時は0と表示しない");
       await screen.click(
         '[data-iori-action="git-change-select"][data-path="sample.txt"]',
       );
@@ -195,43 +195,34 @@ export async function readingWorktrees({
       true,
       `スマホの${kind}の一覧は画面内に収まる`,
     );
-    if (process.env.IORI_READING_CAPTURE === "1") {
-      for (const theme of ["light", "dark"]) {
-        await screen.evaluate(
-          `document.documentElement.classList.toggle('dark', ${theme === "dark"})`,
-        );
-        await shot(`mobile-${kind}-worktree-menu-${theme}`);
+    if (kind === "files") {
+      await screen.tap(
+        `[data-iori-worktree-choice=${JSON.stringify(repository)}]`,
+      );
+      // A narrow View shows the open file instead of the list.
+      await waitFor(async () =>
+        (await screen.text('[data-iori-view="files"] .reading-body')).includes(
+          "変更前の行",
+        ),
+      );
+      if (!(await screen.visible('[data-iori-field="files-worktree"]'))) {
+        if (await screen.visible('[data-iori-part="mobile-location"]'))
+          await screen.key("Alt+ArrowLeft");
+        else await screen.click(back);
       }
-      if (kind === "files") {
-        await screen.tap(
-          `[data-iori-worktree-choice=${JSON.stringify(repository)}]`,
-        );
-        // A narrow View shows the open file instead of the list.
-        await waitFor(async () =>
-          (
-            await screen.text('[data-iori-view="files"] .reading-body')
-          ).includes("変更前の行"),
-        );
-        if (!(await screen.visible('[data-iori-field="files-worktree"]'))) {
-          if (await screen.visible('[data-iori-part="mobile-location"]'))
-            await screen.key("Alt+ArrowLeft");
-          else await screen.click(back);
-        }
-        await screen.wait(
-          `[data-iori-field="files-worktree"][title=${JSON.stringify(repository)}]`,
-        );
-        await shot("mobile-files-worktree-primary-selected");
-        await screen.tap(`[data-iori-field="files-worktree"]`);
-        await screen.tap(
-          `[data-iori-worktree-choice=${JSON.stringify(worktree)}]`,
-        );
-        await waitFor(async () =>
-          (
-            await screen.text('[data-iori-view="files"] .reading-body')
-          ).includes("ブラウザーからファイルを読む"),
-        );
-        continue;
-      }
+      await screen.wait(
+        `[data-iori-field="files-worktree"][title=${JSON.stringify(repository)}]`,
+      );
+      await screen.tap(`[data-iori-field="files-worktree"]`);
+      await screen.tap(
+        `[data-iori-worktree-choice=${JSON.stringify(worktree)}]`,
+      );
+      await waitFor(async () =>
+        (await screen.text('[data-iori-view="files"] .reading-body')).includes(
+          "ブラウザーからファイルを読む",
+        ),
+      );
+      continue;
     }
     await screen.key("Escape");
   }
@@ -262,29 +253,47 @@ export async function readingWorktrees({
       ).includes("ブラウザーからファイルを読む"),
     );
   }
+  // A changed diff's metadata and visible rows must switch together.
+  const sample = join(worktree, "sample.txt");
+  const original = await readFile(sample, "utf8");
+  const mode = (await stat(sample)).mode & 0o777;
+  const oldText = "ブラウザーからファイルを読む";
+  const newText = "外部で更新した差分の行";
+  assert.ok(original.includes(oldText));
+  await screen.evaluate(`(()=>{
+    window.diffMixedRevision = false;
+    const view = document.querySelector('[data-iori-view="git"]');
+    window.diffObserver = new MutationObserver(() => {
+      if (view.querySelector('[data-iori-part="diff-notes"]')?.textContent.includes('モードの変更:') &&
+          view.querySelector('[data-iori-scroll="git-diff"]')?.textContent.includes(${JSON.stringify(oldText)}))
+        window.diffMixedRevision = true;
+    });
+    window.diffObserver.observe(view, { childList: true, subtree: true, characterData: true });
+  })()`);
+  await writeFile(sample, original.replace(oldText, newText));
+  await chmod(sample, mode ^ 0o111);
+  await waitFor(async () =>
+    (
+      await screen.text('[data-iori-view="git"] [data-iori-scroll="git-diff"]')
+    ).includes(newText),
+  );
+  assert.equal(
+    await screen.evaluate("window.diffMixedRevision"),
+    false,
+    "外部変更後の差分の情報と行は同じ版を表示する",
+  );
+  await screen.evaluate("window.diffObserver.disconnect()");
+  await writeFile(sample, original);
+  await chmod(sample, mode);
+  await waitFor(async () =>
+    (
+      await screen.text('[data-iori-view="git"] [data-iori-scroll="git-diff"]')
+    ).includes(oldText),
+  );
   await record(
     "Files・Gitの候補から兄弟worktreeを外し、表示中の親の本文・差分と再起動後の対象を確認",
   );
-  await wideMarkdown({
-    client,
-    screen,
-    worktree,
-    desktop,
-    mobile,
-    shot,
-  });
-  await record(
-    "描画したMarkdownは最大化してもペインの幅いっぱいに広がり（WQHDで最大化しても狭くならない）、広い表とコードの長い行は横のホイールで最後まで読める",
-  );
-  await imageZoom({
-    screen,
-    worktree,
-    desktop,
-    mobile,
-    shot,
-    record,
-  });
-  if (process.env.IORI_READING_CAPTURE === "1") {
+  {
     // The original working tree itself is shown: it is listed once.
     for (const narrow of [false, true]) {
       if (narrow) await mobile({ width: 390, height: 844 });
@@ -336,14 +345,6 @@ export async function readingWorktrees({
         0,
         "候補が1件だけの時は押しても一覧を開かない",
       );
-      for (const theme of ["light", "dark"]) {
-        await screen.evaluate(
-          `document.documentElement.classList.toggle('dark', ${theme === "dark"})`,
-        );
-        await shot(
-          `${narrow ? "mobile" : "pc"}-files-worktree-primary-shown-${theme}`,
-        );
-      }
     }
     await desktop();
     await selectWorktree(screen, worktree, false);
@@ -359,18 +360,39 @@ export async function readingWorktrees({
     );
     await rm(join(worktree, "sample.txt"));
     const failure = '[data-iori-view="files"]:not([hidden]) [role="alert"]';
-    const themes = async (name) => {
-      await screen.wait(failure);
-      for (const theme of ["light", "dark"]) {
-        await screen.evaluate(
-          `document.documentElement.classList.toggle('dark', ${theme === "dark"})`,
-        );
-        await shot(`${name}-${theme}`);
-      }
-    };
-    await desktop();
-    await themes("pc-files-read-error");
+    await screen.wait(failure);
   }
+  await screen.click(
+    `button[data-iori-worktree-path=${JSON.stringify(worktree)}]`,
+  );
+}
+
+export async function readingSurfaces({
+  client,
+  screen,
+  worktree,
+  desktop,
+  mobile,
+  record,
+}) {
+  await selectWorktree(screen, worktree, false);
+  await wideMarkdown({
+    client,
+    screen,
+    worktree,
+    desktop,
+    mobile,
+  });
+  await record(
+    "描画したMarkdownは最大化してもペインの幅いっぱいに広がり（WQHDで最大化しても狭くならない）、広い表とコードの長い行は横のホイールで最後まで読める",
+  );
+  await imageZoom({
+    screen,
+    worktree,
+    desktop,
+    mobile,
+    record,
+  });
   await screen.click(
     `button[data-iori-worktree-path=${JSON.stringify(worktree)}]`,
   );
@@ -396,33 +418,10 @@ const wideTable =
   "### 参照\n\n" +
   "https://example.com/docs/cli/reference/very/long/path/that/does/not/break/on/its/own/because/it/has/no/spaces/at/all/and/keeps/going\n";
 
-async function wideMarkdown({
-  client,
-  screen,
-  worktree,
-  desktop,
-  mobile,
-  shot,
-}) {
+async function wideMarkdown({ client, screen, worktree, desktop, mobile }) {
   const scroller =
     '[data-iori-view="files"]:not([hidden]) [data-iori-scroll="file-markdown"]';
   const restore = '[data-iori-action="workspace-restore"]';
-  const capture = process.env.IORI_READING_CAPTURE === "1";
-  const themes = async (name) => {
-    if (!capture) return;
-    const dark = await screen.evaluate(
-      "document.documentElement.classList.contains('dark')",
-    );
-    for (const theme of ["light", "dark"]) {
-      await screen.evaluate(
-        `document.documentElement.classList.toggle('dark', ${theme === "dark"})`,
-      );
-      await shot(`${name}-${theme}`);
-    }
-    await screen.evaluate(
-      `document.documentElement.classList.toggle('dark', ${dark})`,
-    );
-  };
   // The rendered text is as wide as its pane, and the pane never scrolls sideways.
   const fillsPane = (state) =>
     waitFor(
@@ -465,11 +464,9 @@ async function wideMarkdown({
   await screen.click('[data-iori-file="wide-table.md"]');
   await screen.wait(`${scroller} table`);
   await fillsPane("ふだんの幅");
-  await themes("pc-files-markdown-wide");
   await groupAction(screen, "files", "workspace-maximize");
   await screen.wait(restore);
   await fillsPane("最大化した時");
-  await themes("pc-files-markdown-wide-maximized");
   await wheelToEnd(
     `document.querySelector(${JSON.stringify(`${scroller} th:last-child`)})`,
     "広い表の最後の列",
@@ -478,7 +475,6 @@ async function wideMarkdown({
     `(()=>{const w=document.createTreeWalker(document.querySelector(${JSON.stringify(scroller)}),NodeFilter.SHOW_TEXT);for(let n=w.nextNode();n;n=w.nextNode()){const at=n.data.indexOf('LONG_CODE_END');if(at>=0){const r=document.createRange();r.setStart(n,at);r.setEnd(n,at+13);return r}}})()`,
     "コードの長い行の終わり",
   );
-  await themes("pc-files-markdown-wide-scrolled");
   await screen.click(restore);
   await screen.evaluate(
     `document.querySelectorAll(${JSON.stringify(`${scroller} *`)}).forEach(e=>{e.scrollLeft=0})`,
@@ -503,7 +499,6 @@ async function wideMarkdown({
     5000,
     "WQHDのふだんの幅",
   );
-  await themes("wqhd-files-markdown-wide");
   await groupAction(screen, "files", "workspace-maximize");
   await screen.wait(restore);
   await waitFor(
@@ -513,28 +508,8 @@ async function wideMarkdown({
     "WQHDで最大化した本文がふだんの幅より狭くならないこと",
   );
   await fillsPane("WQHDで最大化した時");
-  await themes("wqhd-files-markdown-wide-maximized");
   await screen.click(restore);
   await client.browser.viewport({ width: 1440, height: 1000 });
-  if (capture) {
-    await mobile({ width: 390, height: 844 });
-    await selectWorktree(screen, worktree, true);
-    await openSidebar(screen);
-    await openWorkspaceView(screen, "files");
-    const row = '[data-iori-file="wide-table.md"]';
-    // The restored file or the list, whichever the narrow View shows.
-    await waitFor(
-      async () =>
-        (await screen.visible(`${scroller} table`)) ||
-        (await screen.visible(row)),
-      Boolean,
-    );
-    if (!(await screen.visible(`${scroller} table`))) await screen.click(row);
-    await screen.wait(`${scroller} table`);
-    await themes("mobile-files-markdown-wide");
-    await desktop();
-    await openWorkspaceView(screen, "files");
-  }
   // Files goes back to the file the next steps read, without this one's tab.
   await screen.click('[data-iori-tab="wide-table.md"] .reading-tab-close');
   await screen.click('[data-iori-file="sample.txt"]');
@@ -547,27 +522,11 @@ async function wideMarkdown({
 }
 
 // An enlarged image keeps its own ratio and scrolls inside the frame (#177).
-async function imageZoom({ screen, worktree, desktop, mobile, shot, record }) {
+async function imageZoom({ screen, worktree, desktop, mobile, record }) {
   const view = '[data-iori-view="files"]:not([hidden])';
   const frame = `${view} .reading-image-frame`;
   const image = `${view} [data-iori-part="file-image"]`;
   const scale = `${view} [data-iori-part="image-scale"]`;
-  const capture = process.env.IORI_READING_CAPTURE === "1";
-  const themes = async (name) => {
-    if (!capture) return;
-    const dark = await screen.evaluate(
-      "document.documentElement.classList.contains('dark')",
-    );
-    for (const theme of ["light", "dark"]) {
-      await screen.evaluate(
-        `document.documentElement.classList.toggle('dark', ${theme === "dark"})`,
-      );
-      await shot(`${name}-${theme}`);
-    }
-    await screen.evaluate(
-      `document.documentElement.classList.toggle('dark', ${dark})`,
-    );
-  };
   // The drawn box, the source size and the frame's scroll range, read together.
   const drawn = () =>
     screen.evaluate(
@@ -653,13 +612,11 @@ async function imageZoom({ screen, worktree, desktop, mobile, shot, record }) {
   await writeFile(join(worktree, "zoom-image.png"), pngBytes(1600, 700));
   await openImage();
   const pc = await enlarge("PC 1440");
-  await themes("pc-files-image-zoomed");
   await mobile({ width: 390, height: 844 });
   await selectWorktree(screen, worktree, true);
   await openSidebar(screen);
   await openImage();
   const phone = await enlarge("スマホ 390");
-  await themes("mobile-files-image-zoomed");
   await desktop();
   await openWorkspaceView(screen, "files");
   await record(

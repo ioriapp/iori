@@ -1,3 +1,4 @@
+import { translator } from "../i18n.ts";
 import {
   useCallback,
   useEffect,
@@ -175,6 +176,7 @@ export function TextRows({
   onExpand,
   extraActions = [],
   rowHeight = 22,
+  refresh = 0,
 }: {
   source: TextSource;
   /** The absolute path for the menu's copy actions. */
@@ -194,8 +196,9 @@ export function TextRows({
   onExpand?: (index: number) => void;
   extraActions?: MenuAction[];
   rowHeight?: number;
+  refresh?: number;
 }) {
-  const ja = locale.startsWith("ja");
+  const t = translator(locale);
   const latest = useRef(position);
   latest.current = position;
   const [findOpen, setFindOpen] = useState(Boolean(position.query));
@@ -296,10 +299,7 @@ export function TextRows({
   }, [goToRequest]);
   const report = (error: unknown) => {
     if (isAbort(error) || error instanceof ReadConnectionLost) return;
-    setFailure(
-      readErrorCopy(error, locale) ??
-        (ja ? "読み込めませんでした。" : "Could not read this."),
-    );
+    setFailure(readErrorCopy(error, locale) ?? t("Could not read this."));
   };
 
   const find = async (direction: "forward" | "backward") => {
@@ -324,19 +324,15 @@ export function TextRows({
       if (controller.signal.aborted) return;
       setFailure(undefined);
       if (!result.match) {
-        setStatus(ja ? "一致なし" : "No matches");
+        setStatus(t("No matches"));
         update({ match: undefined });
         return;
       }
       setStatus(
         result.wrapped
           ? direction === "forward"
-            ? ja
-              ? "先頭に戻って検索しました"
-              : "Wrapped to the top"
-            : ja
-              ? "末尾に戻って検索しました"
-              : "Wrapped to the end"
+            ? t("Wrapped to the top")
+            : t("Wrapped to the end")
           : undefined,
       );
       update({ match: result.match });
@@ -615,7 +611,7 @@ export function TextRows({
     ...(characters
       ? [
           {
-            label: ja ? "コピー" : "Copy",
+            label: t("Copy"),
             icon: <ClipboardCopy />,
             shortcut: "Ctrl+C",
             action: "copy-text",
@@ -626,7 +622,7 @@ export function TextRows({
     ...(selected
       ? [
           {
-            label: ja ? "選択行をコピー" : "Copy selected lines",
+            label: t("Copy selected lines"),
             icon: <ClipboardCopy />,
             shortcut: "Ctrl+C",
             action: "copy-lines",
@@ -635,7 +631,7 @@ export function TextRows({
         ]
       : []),
     {
-      label: ja ? "検索" : "Find",
+      label: t("Find"),
       icon: <Search />,
       shortcut: "Ctrl+F",
       action: "open-find",
@@ -648,7 +644,7 @@ export function TextRows({
     ...(goTo
       ? [
           {
-            label: ja ? "行へ移動" : "Go to line",
+            label: t("Go to line"),
             icon: <CornerDownLeft />,
             shortcut: "Ctrl+G",
             action: "open-go-to-line",
@@ -700,9 +696,9 @@ export function TextRows({
             onClick={() => onExpand?.(index)}
           >
             <ChevronsUpDown />
-            {ja
-              ? `変更のない${row.omitted}行`
-              : `${row.omitted} unchanged lines`}
+            {t("{value1} unchanged lines").replace("{value1}", () =>
+              String(row.omitted),
+            )}
           </Button>
         </div>
       );
@@ -761,6 +757,7 @@ export function TextRows({
                 : []
             }
             onError={report}
+            refresh={refresh}
           />
         )}
       </div>
@@ -819,7 +816,7 @@ export function TextRows({
       {(failure || Boolean(source.error)) && (
         <ReadingError
           centered={Boolean(source.error) && !source.row(position.top)}
-          retryLabel={ja ? "再試行" : "Retry"}
+          retryLabel={t("Retry")}
           action="reading-retry"
           onRetry={() => {
             setFailure(undefined);
@@ -828,7 +825,7 @@ export function TextRows({
         >
           {failure ??
             readErrorCopy(source.error, locale) ??
-            (ja ? "読み込めませんでした。" : "Could not read this.")}
+            t("Could not read this.")}
         </ReadingError>
       )}
       <PathMenu

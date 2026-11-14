@@ -16,6 +16,7 @@ export type RemovalTarget = {
   cleanup: boolean;
   label?: string;
   failures?: RemovalFailure[];
+  initialPreviews?: WorktreeRemovalPreview[];
 };
 type Pending = {
   id: string;
@@ -205,6 +206,7 @@ export const worktreeRemovalFlow = {
         }),
       });
     const failures: RemovalFailure[] = [];
+    const updated: WorktreeRemovalPreview[] = [];
     // Each retry preview belongs to one selected row; preserve their order.
     for (const preview of requests) {
       const selected = preview.items.filter((item) =>
@@ -248,6 +250,7 @@ export const worktreeRemovalFlow = {
             previewId: preview.id,
             paths: selected.map((item) => item.path),
             branches,
+            recheck: true,
           },
         );
         if (!response) continue;
@@ -259,6 +262,11 @@ export const worktreeRemovalFlow = {
               name: worktreeLabel(item.branch, item.path, target.path),
             })),
           );
+          settle(selectedItems.map((item) => item.path));
+          continue;
+        }
+        if (response.result.preview) {
+          updated.push(response.result.preview);
           settle(selectedItems.map((item) => item.path));
           continue;
         }
@@ -288,6 +296,13 @@ export const worktreeRemovalFlow = {
     }
     settle(failures.map((item) => item.path));
     failedNotice(target, failures, t);
+    if (updated.length)
+      worktreeRemovalFlow.open({
+        ...target,
+        cleanup: false,
+        failures: undefined,
+        initialPreviews: updated,
+      });
   },
 };
 export function useWorktreeRemovalFlow() {

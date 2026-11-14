@@ -179,6 +179,13 @@ async function saveStatus(
   )
     return;
   await connection.setRemoval(key, {
+    ...(connection.getSnapshot().removals[key]?.status?.operationId ===
+    status.operationId
+      ? {
+          sshLostNoticeDismissed:
+            connection.getSnapshot().removals[key]?.sshLostNoticeDismissed,
+        }
+      : {}),
     local: flow.route === "local",
     sshDestination: flow.route === "ssh" ? run.destination : undefined,
     hostName: flow.hostName,
@@ -341,12 +348,32 @@ async function send(key: string) {
       {
         canContinue: run.plan.canContinue,
         targets: run.plan.targets.map((target) => target.id),
+        hasOpenTerminals: run.plan.hasOpenTerminals,
+        ...(run.plan.targets.every((target) => target.generation !== undefined)
+          ? {
+              generations: Object.fromEntries(
+                run.plan.targets.map((target) => [
+                  target.id,
+                  target.generation!,
+                ]),
+              ),
+            }
+          : {}),
         deleteData: flow.deleteData,
       },
       operationId,
     );
     if (runtime(key) !== run) return;
-    if (result?.ok) await saveStatus(key, result.result);
+    if (result?.ok && result.result.plan) {
+      await connection.clearRemoval(key);
+      if (runtime(key) !== run) return;
+      run.plan = result.result.plan;
+      run.status = undefined;
+      publish(key, {
+        operationId: undefined,
+        phase: { type: "confirming", plan: run.plan },
+      });
+    } else if (result?.ok) await saveStatus(key, result.result);
     else if (result)
       await saveStatus(key, { ...status, phase: "failed", stage: "request" });
   } catch {

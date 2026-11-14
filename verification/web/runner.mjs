@@ -1,8 +1,13 @@
+import {
+  ownVerificationDirectory,
+  registerCleanup,
+  recoverStaleVerificationRuns,
+} from "../lifecycle.mjs";
 import { basicWebScenarios } from "./scenarios.mjs";
 import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { stopTerminalDaemonsUnder } from "../terminal/daemon-process.mjs";
+import { stopVerificationUnitsUnder } from "../terminal/daemon-process.mjs";
 
 export class WebRunCleanupError extends Error {}
 
@@ -41,10 +46,13 @@ export async function runWebScenario({
 }) {
   await mkdir(evidence, { recursive: true });
   const definition = basicWebScenarios[scenario];
+  await recoverStaleVerificationRuns();
   const runsRoot = await mkdtemp("/var/tmp/iori-web-runs-");
+  await ownVerificationDirectory(runsRoot);
   const environment = { ...env };
   delete environment.FORGEJO_TOKEN;
   delete environment.IORI_MEMORY_EVIDENCE_PATH;
+  const cleanup = registerCleanup(() => stopVerificationUnitsUnder(runsRoot));
   try {
     await new Promise((resolve, reject) => {
       const child = spawn(
@@ -80,7 +88,7 @@ export async function runWebScenario({
   } finally {
     // Failure to stop an owned daemon leaves its data available for recovery.
     try {
-      await stopTerminalDaemonsUnder(runsRoot);
+      await cleanup();
       if (await preserveFailedCleanup(evidence))
         console.log(`[release] 後始末の調査用に保存先を保持: ${runsRoot}`);
       else await rm(runsRoot, { recursive: true, force: true });

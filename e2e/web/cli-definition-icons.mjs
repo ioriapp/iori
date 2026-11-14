@@ -85,7 +85,13 @@ export async function changeIcon(screen, id, name, bytes) {
   await assertIcon(screen, `[data-iori-cli-row="${id}"]`, bytes, "light");
   await assertIcon(screen, `[data-iori-cli-row="${id}"]`, bytes, "dark");
 }
-export async function editDefinitionIcon({ screen, id, pictures, record }) {
+export async function editDefinitionIcon({
+  client,
+  screen,
+  id,
+  pictures,
+  record,
+}) {
   const row = `[data-iori-cli-row="${id}"]`;
   await assertIcon(screen, row, definitionIconSvg);
   const light = await readFile(
@@ -116,14 +122,8 @@ export async function editDefinitionIcon({ screen, id, pictures, record }) {
     );
     await assertIcon(screen, row, light);
   }
-  // An upload transport failure must not be described as a bad image.
-  await screen.evaluate(`(async()=>{
-    const {connection}=await import('/src/connection.ts');
-    const original=connection.requestHost;
-    window.__restoreIconUpload=()=>{connection.requestHost=original;};
-    connection.requestHost=(...args)=>args[1]==='cli.definition.file.write'
-      ? Promise.reject(new Error('upload failed')) : original.apply(connection,args);
-  })()`);
+  // An upload failure must not be described as a bad image.
+  const uploadFailure = await client.faults.fail("cli.definition.file.write");
   try {
     await chooseFiles(screen, `${row} [data-iori-field="cli-icon-image"]`, [
       { name: "light.png", bytes: light, type: "image/png" },
@@ -132,10 +132,9 @@ export async function editDefinitionIcon({ screen, id, pictures, record }) {
       () => screen.text(`${row} .cli-def-icon-row [role="alert"]`),
       (text) => text === "Hostで処理できませんでした。もう一度お試しください。",
     );
+    assert.ok(uploadFailure.count > 0);
   } finally {
-    await screen.evaluate(
-      "window.__restoreIconUpload();delete window.__restoreIconUpload",
-    );
+    await uploadFailure.clear();
   }
   await screen.click(`${row} [data-iori-action="cli-icon-reset"]`);
   await waitFor(() =>

@@ -1,10 +1,8 @@
-import { local as verificationLocal } from "../../verification/native/local.mjs";
 import { fakeMarker } from "../fake-model/marker.mjs";
 import assert from "node:assert/strict";
 import { readFile, readdir, realpath } from "node:fs/promises";
 import { isAbsolute, join, relative } from "node:path";
 import { issueWorktreeName } from "../../packages/protocol/src/worktree-name.ts";
-import { readIssuesExpectation } from "../../verification/web/forge-fixture.mjs";
 import { waitFor } from "../../verification/ui.mjs";
 import { observe } from "../terminal/scenario.mjs";
 import { answerClaudeStartup } from "../cli-screen/claude-status.mjs";
@@ -213,12 +211,7 @@ export async function forgeIssueStartScenario({
   const known = new Set(
     (await request("terminal.list")).terminals.map((item) => item.id),
   );
-  const { newest } = await readIssuesExpectation(fixture);
-  const issue = await (
-    await fetch(
-      `${fixture.origin}/api/v1/repos/${verificationLocal.forge.repository}/issues/${newest}`,
-    )
-  ).json();
+  const issue = fixture.issue;
   const name = issueWorktreeName(issue.number, issue.title);
   const path = `${fixture.repository}-${name}`;
   await openFolder(screen, repository, false);
@@ -272,7 +265,7 @@ export async function forgeIssueStartScenario({
   await capture("pc-issue-start-creator");
   await wide("wqhd-issue-start-creator");
   await record(
-    "公開ForgejoのIssueの詳細の「このIssueで始める」で、worktreeの作成画面が名前と最初の指示を入れて開き、自動では始めない",
+    "固定資材のIssueの詳細の「このIssueで始める」で、worktreeの作成画面が名前と最初の指示を入れて開き、自動では始めない",
     { issue: issue.number, name },
   );
 

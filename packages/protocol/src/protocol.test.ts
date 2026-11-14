@@ -11,6 +11,7 @@ import {
   inviteToText,
   inviteToCode,
   parseRequest,
+  parseResponse,
 } from "./index.ts";
 
 const invite = {
@@ -178,4 +179,19 @@ test("外部からのRelay設定は不正なURLとトークンを拒否する", 
     assert.throws(() =>
       parseRequest(request({ url: "https://relay.example.com/", token })),
     );
+});
+
+// 将来のHostが追加した値を受け取っても、登録情報を失わず接続できる。
+test("古いClientは将来のconnectionScopeを省略と同じに扱い接続できる", () => {
+  const result = {
+    publicKey: invite.hostKey,
+    hostName: "dev-host",
+    addresses: invite.addresses,
+  };
+  const parsed = parseResponse("host.info", {
+    ok: true,
+    result: { ...result, connectionScope: "future-scope" },
+  });
+  assert.equal(parsed.ok, true);
+  if (parsed.ok) assert.deepEqual(parsed.result, result);
 });

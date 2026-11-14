@@ -9,7 +9,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { TerminalManager } from "./manager.ts";
-import { TerminalRuntime } from "./runtime.ts";
+import { TerminalRuntime, TERMINAL_PARSER_SUBSCRIPTIONS } from "./runtime.ts";
 import { RemotePtys } from "./remote-pty.ts";
 import { attachTerminalDaemon, stopTerminalDaemon } from "./daemon/launch.ts";
 import { HostStore } from "../store.ts";
@@ -125,7 +125,7 @@ test("opening a saved terminal during shutdown never requests a missing daemon s
   t.signal.throwIfAborted();
   store.markTerminalsForRestart();
   ({ channel } = await attachTerminalDaemon(root));
-  await channel.call("attach");
+  await channel.call("attach", TERMINAL_PARSER_SUBSCRIPTIONS);
   runtime = await TerminalRuntime.create(
     store,
     () => {},
@@ -238,7 +238,7 @@ test("failed team CLI restoration never leaves an unhandled screen rejection", a
     resumePending: true,
   });
   ({ channel } = await attachTerminalDaemon(root));
-  await channel.call("attach");
+  await channel.call("attach", TERMINAL_PARSER_SUBSCRIPTIONS);
   runtime = await TerminalRuntime.create(
     store,
     () => {},

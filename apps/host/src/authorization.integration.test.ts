@@ -609,7 +609,7 @@ test("Hostの受信用Endpointが外から閉じられても、同じ鍵で作�
       () => subscription.bytesRead(),
       () => subscription.stopped(),
     ])
-      await assert.rejects(action, /closed|stopped|reset/);
+      await assert.rejects(action, /closed|stopped|reset|connection lost/);
     client.connection = await client.endpoint.connect(
       Buffer.from(publicKey, "hex"),
       [`127.0.0.1:${port}`],

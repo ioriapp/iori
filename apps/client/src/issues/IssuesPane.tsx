@@ -1,3 +1,5 @@
+import { translator } from "../i18n.ts";
+import { useNarrowBack } from "../reading/useNarrowBack.ts";
 import {
   useCallback,
   useEffect,
@@ -179,7 +181,7 @@ function IssuesView({
   onOpenWorkspaceSettings,
   onStartIssue,
 }: Parameters<typeof IssuesPane>[0]) {
-  const ja = locale.startsWith("ja");
+  const t = translator(locale);
   const [view, setView] = useState(() => readViewState(viewState));
   const update = (value: Partial<IssuesViewState>) =>
     setView((current) => ({ ...current, ...value }));
@@ -270,6 +272,8 @@ function IssuesView({
   }, [active, filter, readList]);
 
   const [labels, setLabels] = useState<ForgeIssueLabel[]>([]);
+  const [labelsFailure, setLabelsFailure] = useState<{ error: unknown }>();
+  const [labelsRetry, setLabelsRetry] = useState(0);
   const [reload, setReload] = useState(0);
   useEffect(() => {
     if (!active) return;
@@ -285,12 +289,27 @@ function IssuesView({
         if (result.repository) setRepository(result.repository);
       })
       .catch(() => undefined);
-    requestIssues(hostKey, "forge.issues.labels", { path }, controller.signal)
-      .then((result) => setLabels(result.labels))
-      // The menu keeps the labels it had; the list shows a failure itself.
-      .catch(() => undefined);
     return () => controller.abort();
   }, [active, hostKey, path, reload]);
+  useEffect(() => {
+    if (!active) return;
+    const controller = new AbortController();
+    requestIssues(hostKey, "forge.issues.labels", { path }, controller.signal)
+      .then((result) => {
+        setLabels(result.labels);
+        setLabelsFailure(undefined);
+      })
+      .catch((error: unknown) => {
+        if (
+          controller.signal.aborted ||
+          isAbort(error) ||
+          error instanceof ReadConnectionLost
+        )
+          return;
+        setLabelsFailure({ error });
+      });
+    return () => controller.abort();
+  }, [active, hostKey, path, reload, labelsRetry]);
 
   const [detail, setDetail] = useState<{
     number: number;
@@ -347,20 +366,11 @@ function IssuesView({
   const detailOpen = !single && view.detailOpen && selected !== undefined;
 
   // On a narrow screen, going back leaves the Issue for the list.
-  const back = useRef(onBackHandler);
-  back.current = onBackHandler;
   const showsDetail = narrow && detailOpen;
-  useEffect(() => {
-    back.current?.(
-      showsDetail
-        ? () => {
-            setView((current) => ({ ...current, detailOpen: false }));
-            return true;
-          }
-        : undefined,
-    );
-  }, [showsDetail]);
-  useEffect(() => () => back.current?.(undefined), []);
+  useNarrowBack(onBackHandler, showsDetail, () => {
+    setView((current) => ({ ...current, detailOpen: false }));
+    return true;
+  });
 
   // The list reads the next page before its end comes into view. A hidden
   // list keeps its place: the WebView restores it when shown again.
@@ -410,7 +420,10 @@ function IssuesView({
   // A token registered, replaced or removed may let a failed read work now.
   useForgeTokenChange(
     hostKey,
-    active && (Boolean(listFailure) || detail?.failure !== undefined),
+    active &&
+      (Boolean(listFailure) ||
+        Boolean(labelsFailure) ||
+        detail?.failure !== undefined),
     reloadAll,
   );
   // A failed reload keeps the Issues already listed; otherwise it says why
@@ -452,8 +465,8 @@ function IssuesView({
           <Button
             variant="ghost"
             size="icon-sm"
-            aria-label={ja ? "再読み込み" : "Reload"}
-            title={ja ? "再読み込み" : "Reload"}
+            aria-label={t("Reload")}
+            title={t("Reload")}
             pending={listBusy === "reset" || listBusy === "refresh"}
             data-iori-action="issues-reload"
             onClick={reloadAll}
@@ -463,8 +476,8 @@ function IssuesView({
           <Button
             variant="ghost"
             size="icon-sm"
-            aria-label={ja ? "ブラウザーで開く" : "Open in browser"}
-            title={ja ? "ブラウザーで開く" : "Open in browser"}
+            aria-label={t("Open in browser")}
+            title={t("Open in browser")}
             disabled={!browserUrl}
             data-iori-action="issues-open-browser"
             onClick={() => browserUrl && void native.openUrl(browserUrl)}
@@ -483,7 +496,7 @@ function IssuesView({
             onValueChange={(value) =>
               value && update({ state: value as ForgeIssueState })
             }
-            aria-label={ja ? "Issueの状態" : "Issue state"}
+            aria-label={t("Issue state")}
           >
             <ToggleGroupItem value="open" data-iori-action="issues-open">
               Open
@@ -507,35 +520,47 @@ function IssuesView({
               >
                 <Tag />
                 <span className="issues-label-trigger-text">
-                  {chosen.length ? chosen.join(", ") : ja ? "ラベル" : "Labels"}
+                  {chosen.length ? chosen.join(", ") : t("Labels")}
                 </span>
                 <ChevronDown />
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="issues-label-menu">
-              {menuLabels.length === 0 && (
-                <p className="issues-label-none">
-                  {ja ? "ラベルはありません。" : "There are no labels."}
-                </p>
+              {labelsFailure && (
+                <IssuesFailure
+                  subject="labels"
+                  form="line"
+                  error={labelsFailure.error}
+                  locale={locale}
+                  recovery={{
+                    onRetry: () => setLabelsRetry((value) => value + 1),
+                    onOpenIntegrations,
+                    onOpenWorkspaceSettings,
+                  }}
+                />
               )}
-              {menuLabels.map((label) => (
-                <DropdownMenuCheckboxItem
-                  key={label.name}
-                  checked={view.labels.includes(label.name)}
-                  data-iori-action="issues-label"
-                  data-iori-label={label.name}
-                  onSelect={(event) => event.preventDefault()}
-                  onCheckedChange={(checked) =>
-                    update({
-                      labels: checked
-                        ? [...view.labels, label.name]
-                        : view.labels.filter((name) => name !== label.name),
-                    })
-                  }
-                >
-                  <LabelChip label={label} />
-                </DropdownMenuCheckboxItem>
-              ))}
+              {!labelsFailure && menuLabels.length === 0 && (
+                <p className="issues-label-none">{t("There are no labels.")}</p>
+              )}
+              {!labelsFailure &&
+                menuLabels.map((label) => (
+                  <DropdownMenuCheckboxItem
+                    key={label.name}
+                    checked={view.labels.includes(label.name)}
+                    data-iori-action="issues-label"
+                    data-iori-label={label.name}
+                    onSelect={(event) => event.preventDefault()}
+                    onCheckedChange={(checked) =>
+                      update({
+                        labels: checked
+                          ? [...view.labels, label.name]
+                          : view.labels.filter((name) => name !== label.name),
+                      })
+                    }
+                  >
+                    <LabelChip label={label} />
+                  </DropdownMenuCheckboxItem>
+                ))}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -554,25 +579,23 @@ function IssuesView({
       {failure}
       {listFailure && !kept ? null : shown && !shown.enabled ? (
         <ForgeNotice data-iori-state="issues-disabled">
-          <p>
-            {ja
-              ? "このリポジトリではIssueを使っていません。"
-              : "This repository does not use Issues."}
-          </p>
+          <p>{t("This repository does not use Issues.")}</p>
         </ForgeNotice>
       ) : empty ? (
         <ForgeNotice data-iori-state="issues-empty">
           <p>
-            {ja
-              ? `${view.state === "open" ? "Open" : "Closed"}のIssueはありません。`
-              : `There are no ${view.state} Issues.`}
+            {t(
+              view.state === "open"
+                ? "There are no open Issues."
+                : "There are no closed Issues.",
+            )}
           </p>
           {view.labels.length > 0 && (
             <ForgeAction
               data-iori-action="issues-clear-labels"
               onClick={() => update({ labels: [] })}
             >
-              {ja ? "絞り込みを解除" : "Clear filters"}
+              {t("Clear filters")}
             </ForgeAction>
           )}
         </ForgeNotice>
@@ -595,17 +618,15 @@ function IssuesView({
                 <span className="issues-row-meta">
                   #{issue.number}
                   {issue.author && ` · ${issue.author}`} ·{" "}
-                  {ja
-                    ? `${since(issue.updatedAt, now, locale)}に更新`
-                    : `updated ${since(issue.updatedAt, now, locale)}`}
+                  {t("updated {value1}").replace("{value1}", () =>
+                    String(since(issue.updatedAt, now, locale)),
+                  )}
                   {issue.comments > 0 && (
                     <span
                       className="issues-row-comments"
-                      title={
-                        ja
-                          ? `${issue.comments}件のコメント`
-                          : `${issue.comments} comments`
-                      }
+                      title={t("{value1} comments").replace("{value1}", () =>
+                        String(issue.comments),
+                      )}
                     >
                       <MessageSquare size={12} aria-hidden="true" />
                       {issue.comments}
@@ -644,8 +665,8 @@ function IssuesView({
           <Button
             variant="ghost"
             size="icon-sm"
-            aria-label={ja ? "一覧へ戻る" : "Back to list"}
-            title={ja ? "一覧へ戻る" : "Back to list"}
+            aria-label={t("Back to list")}
+            title={t("Back to list")}
             data-iori-action="issues-back"
             onClick={() => update({ detailOpen: false })}
           >
@@ -655,7 +676,7 @@ function IssuesView({
       )}
       {selected === undefined ? (
         <ForgeNotice>
-          <p>{ja ? "Issueを選択してください" : "Select an Issue to read it"}</p>
+          <p>{t("Select an Issue to read it")}</p>
         </ForgeNotice>
       ) : (
         <div className="issues-detail-body">
@@ -686,23 +707,23 @@ function IssuesView({
                     {author && (
                       <>
                         <span className="issues-detail-author">{author}</span>
-                        {ja ? "が" : " "}
+                        {t(" ")}
                       </>
                     )}
                     <span className="issues-detail-fact">
                       {author
-                        ? ja
-                          ? `${formatDate(summary.createdAt, locale)}に作成`
-                          : `opened on ${formatDate(summary.createdAt, locale)}`
-                        : ja
-                          ? `${formatDate(summary.createdAt, locale)}に作成`
-                          : `Opened on ${formatDate(summary.createdAt, locale)}`}
+                        ? t("opened on {value1}").replace("{value1}", () =>
+                            String(formatDate(summary.createdAt, locale)),
+                          )
+                        : t("Opened on {value1}").replace("{value1}", () =>
+                            String(formatDate(summary.createdAt, locale)),
+                          )}
                     </span>
                     {" · "}
                     <span className="issues-detail-fact">
-                      {ja
-                        ? `${summary.comments}件のコメント`
-                        : `${summary.comments} comments`}
+                      {t("{value1} comments").replace("{value1}", () =>
+                        String(summary.comments),
+                      )}
                     </span>
                   </span>
                 </div>
@@ -723,7 +744,7 @@ function IssuesView({
                       })
                     }
                   >
-                    {ja ? "このIssueで開始" : "Start with this Issue"}
+                    {t("Start with this Issue")}
                   </Button>
                 )}
                 <Button
@@ -734,7 +755,7 @@ function IssuesView({
                   onClick={() => summary && void native.openUrl(summary.url)}
                 >
                   <ExternalLink />
-                  {ja ? "ブラウザーで開く" : "Open in browser"}
+                  {t("Open in browser")}
                 </Button>
               </>
             }
@@ -744,7 +765,7 @@ function IssuesView({
               <dl className="issues-facts">
                 {summary.labels.length > 0 && (
                   <div>
-                    <dt>{ja ? "ラベル" : "Labels"}</dt>
+                    <dt>{t("Labels")}</dt>
                     <dd className="issues-labels">
                       {summary.labels.map((label) => (
                         <LabelChip key={label.name} label={label} />
@@ -754,7 +775,7 @@ function IssuesView({
                 )}
                 {issue && issue.assignees.length > 0 && (
                   <div>
-                    <dt>{ja ? "担当者" : "Assignees"}</dt>
+                    <dt>{t("Assignees")}</dt>
                     <dd>{issue.assignees.join(", ")}</dd>
                   </div>
                 )}
@@ -775,11 +796,7 @@ function IssuesView({
           )}
           {detail?.number === selected && detail.gone && (
             <ForgeNotice data-iori-state="issue-gone">
-              <p>
-                {ja
-                  ? "このIssueは見つかりません。"
-                  : "This Issue was not found."}
-              </p>
+              <p>{t("This Issue was not found.")}</p>
             </ForgeNotice>
           )}
           {issue && (

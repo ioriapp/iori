@@ -1,3 +1,4 @@
+import { translator } from "../i18n.ts";
 import { useMemo, type ReactNode } from "react";
 import { Streamdown, defaultRehypePlugins, type Components } from "streamdown";
 import { native } from "../native.ts";
@@ -31,7 +32,7 @@ export function IssueMarkdown({
   base: string;
   locale: string;
 }) {
-  const ja = locale.startsWith("ja");
+  const t = translator(locale);
   const rendered = useMemo(() => {
     const link = (href: string | undefined, children: ReactNode) => {
       const target = linkTarget(href, base);
@@ -73,7 +74,7 @@ export function IssueMarkdown({
           link(
             src,
             <span data-iori-part="issue-image">
-              {ja ? "画像" : "Image"}
+              {t("Image")}
               {alt ? `: ${alt}` : ""}
             </span>,
           )
@@ -94,7 +95,7 @@ export function IssueMarkdown({
         {text}
       </Streamdown>
     );
-  }, [text, base, ja]);
+  }, [text, base, locale]);
   return (
     <div
       className="reading-markdown issues-markdown"

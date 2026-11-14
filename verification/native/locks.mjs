@@ -167,9 +167,6 @@ export function devicePlan(file, args = []) {
       devices = order();
       shared = [verificationLocal.linux.host];
       break;
-    case "verification/connection/mobile-layout.mjs":
-      devices = ["android", verificationLocal.windows.host];
-      break;
     case "verification/connection/cleanup.mjs": {
       const evidence = path.resolve(
         process.env.IORI_VERIFICATION_EVIDENCE_ROOT ??

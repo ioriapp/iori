@@ -261,6 +261,7 @@ export function targets(line) {
         /(^|\/)(?:node|nodejs)$/.test(words[executable] ?? ""))
     ) {
       if (!script.endsWith("/notes.mjs")) result.release = true;
+      if (script.endsWith("/build.mjs")) result.build = true;
       if (script.endsWith("/build.mjs") && !words.length) {
         if (
           /(?:^|\s)--full(?=\s|$)/u.test(part.text) &&
@@ -297,6 +298,14 @@ export function targets(line) {
     }
   }
   return result;
+}
+
+// Changes that cannot alter what the screen E2E checks: documents and the
+// version file of a Release commit.
+export function screenE2eCovers(files) {
+  return files.every(
+    (file) => file.endsWith(".md") || file === "release-version.json",
+  );
 }
 
 export function unresolved(latest, quarantine, acknowledged) {

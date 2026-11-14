@@ -3,9 +3,17 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  allowWindowsVerificationProgram,
+  cleanupWindowsVerificationProgram,
+} from "../native/windows-firewall.mjs";
 import { lockEntry } from "../native/locks.mjs";
 import { gate, windows, ps, windowsBuildNode } from "../native/remote.mjs";
-import { writeWindows, windowsEnvironment } from "../connection/build.mjs";
+import {
+  command,
+  writeWindows,
+  windowsEnvironment,
+} from "../connection/build.mjs";
 import { createSourceArchive, windowsSourceMtimes } from "../native/source.mjs";
 import { windowsCache } from "../native/cache.mjs";
 import {
@@ -52,6 +60,7 @@ const task = previousZip
       sessionId: findWindowsInteractiveSession(),
     }
   : undefined;
+let firewall, result;
 try {
   const archive = path.join(temporary, "source.tar");
   await createSourceArchive(
@@ -87,7 +96,6 @@ try {
       JSON.stringify({
         hasCompletedOnboarding: true,
         theme: "dark",
-        projects: { [root]: { hasTrustDialogAccepted: true } },
       }),
     );
   }
@@ -95,10 +103,36 @@ try {
     await writeWindows(root + "\\previous.zip", await readFile(previousZip));
     await writeWindows(root + "\\target.zip", await readFile(targetZip));
   }
-  const output = windows(
+  const buildScript = root + "\\build.ps1";
+  const buildLog = root + "\\build.log";
+  await writeWindows(
+    buildScript,
     `${windowsEnvironment}tar -mxf ${ps(root + "\\source.tar")} -C ${ps(root)};if($LASTEXITCODE -ne 0){throw 'extract failed'};Set-Location ${ps(root)};${windowsSourceMtimes}$env:CARGO_TARGET_DIR=${ps(windowsCache + "\\cargo-target")};$env:CARGO_BUILD_JOBS='2';pnpm install --frozen-lockfile --store-dir ${ps(windowsCache + "\\pnpm-store")};if($LASTEXITCODE -ne 0){throw 'install failed'};node verification/native/node-pty.mjs;if($LASTEXITCODE -ne 0){throw 'node-pty build failed'};${previousZip ? `Add-Type -AssemblyName System.IO.Compression.FileSystem;[IO.Compression.ZipFile]::ExtractToDirectory(${ps(root + "\\previous.zip")}, ${ps(root + "\\native-input")});Copy-Item ${ps(root + "\\native-input\\node_modules\\@iori\\host-iroh-native\\iori_iroh_host_native.node")} ${ps(root + "\\apps\\host\\native\\iori_iroh_host_native.node")}` : "pnpm --filter @iori/host build:native;if($LASTEXITCODE -ne 0){throw 'native build failed'}"}`,
   );
-  await writeFile(path.join(evidence, "build.log"), output);
+  const buildCommand = `$ErrorActionPreference='Stop';$PSNativeCommandUseErrorActionPreference=$false;$ProgressPreference='SilentlyContinue';& pwsh -NoProfile -ExecutionPolicy Bypass -File ${ps(buildScript)} *> ${ps(buildLog)};exit $LASTEXITCODE`;
+  try {
+    await command("ssh", [
+      "-o",
+      "BatchMode=yes",
+      verificationLocal.windows.host,
+      "pwsh",
+      "-NoProfile",
+      "-EncodedCommand",
+      Buffer.from(buildCommand, "utf16le").toString("base64"),
+    ]);
+  } finally {
+    await writeFile(
+      path.join(evidence, "build.log"),
+      windows(
+        `if(Test-Path -LiteralPath ${ps(buildLog)}){Get-Content -LiteralPath ${ps(buildLog)} -Raw}`,
+      ),
+    );
+  }
+  firewall = allowWindowsVerificationProgram(
+    root + "\\host-updates\\bundle\\runtime\\node.exe",
+    `iori-verification-host-update-${Date.now()}-${process.pid}`,
+  );
+  result = { passed: false };
   let failure;
   try {
     if (task) {
@@ -142,7 +176,7 @@ try {
   } catch (error) {
     failure = error.message;
   }
-  const result = JSON.parse(
+  result = JSON.parse(
     windows(
       `if(Test-Path -LiteralPath ${ps(root + "\\host-update-result.json")}){Get-Content -LiteralPath ${ps(root + "\\host-update-result.json")} -Raw}elseif(Test-Path -LiteralPath ${ps(root + "\\host-update-progress.json")}){$value=Get-Content -LiteralPath ${ps(root + "\\host-update-progress.json")} -Raw | ConvertFrom-Json;$value | Add-Member -NotePropertyName error -NotePropertyValue ${ps(failure ?? "No result")} -Force;$value | ConvertTo-Json -Depth 12}else{@{passed=$false;error=${ps(failure ?? "No result")}} | ConvertTo-Json}`,
     ),
@@ -171,17 +205,32 @@ try {
       `$file=Join-Path ${ps(root)} 'host-stderr.log';if(Test-Path -LiteralPath $file){Get-Content -LiteralPath $file -Raw}`,
     );
   }
-  await writeFile(
-    path.join(evidence, "result.json"),
-    JSON.stringify(result, null, 2),
-  );
-  console.log(JSON.stringify({ evidence, ...result }));
-  assert.equal(result.passed, true);
 } finally {
-  if (task) stopWindowsInteractiveTask(task);
-  stopOwnedWindowsProcesses(root);
-  windows(
-    `if(Test-Path -LiteralPath ${ps(root)}){cmd.exe /c ${ps('rd /s /q "\\\\?\\' + root + '"')};if(Test-Path -LiteralPath ${ps(root)}){throw 'Windows verification folder remains'}}`,
-  );
-  await rm(temporary, { recursive: true, force: true });
+  try {
+    if (task) stopWindowsInteractiveTask(task);
+    stopOwnedWindowsProcesses(root);
+  } finally {
+    if (firewall) {
+      try {
+        firewall.cleanup = cleanupWindowsVerificationProgram(firewall);
+      } catch (error) {
+        firewall.cleanup = { error: error.message };
+      }
+    }
+    if (result) {
+      result.firewall = firewall;
+      await writeFile(
+        path.join(evidence, "result.json"),
+        JSON.stringify(result, null, 2),
+      );
+      console.log(JSON.stringify({ evidence, ...result }));
+    }
+    windows(
+      `if(Test-Path -LiteralPath ${ps(root)}){cmd.exe /c ${ps('rd /s /q "\\\\?\\' + root + '"')};if(Test-Path -LiteralPath ${ps(root)}){throw 'Windows verification folder remains'}}`,
+    );
+    await rm(temporary, { recursive: true, force: true });
+  }
 }
+
+assert.equal(result?.passed, true);
+if (firewall?.created) assert.equal(firewall.cleanup?.remaining, 0);

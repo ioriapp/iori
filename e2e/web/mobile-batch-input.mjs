@@ -17,6 +17,7 @@ export async function mobileBatchInput({
   fakeModelRequests,
   record,
   shot,
+  withConnectionOffline,
 }) {
   const screen = client.screen;
   // Complete the CLI's startup questions on desktop with the shared helper.
@@ -69,6 +70,58 @@ export async function mobileBatchInput({
     false,
   );
   await observedTerminalMode(client, "bracketedPaste", true);
+  const interruptedDraft = "UNSENT_BATCH_DRAFT";
+  const queuedDraft = "QUEUED_BATCH_DRAFT";
+  const nextDraft = "NEXT_BATCH_DRAFT";
+  const restoredDraft = `${interruptedDraft}\n${queuedDraft}\n${nextDraft}`;
+  await screen.input(batch, interruptedDraft);
+  const heldWrite = await client.faults.holdNative("native_terminal_write");
+  await screen.click('[data-iori-action="terminal-batch-send"]');
+  await heldWrite.ready;
+  assert.equal(
+    await screen.evaluate(
+      `document.querySelector(${JSON.stringify(batch)}).readOnly`,
+    ),
+    false,
+  );
+  assert.equal(await screen.value(batch), "");
+  await screen.input(batch, queuedDraft);
+  assert.equal(
+    await screen.evaluate(
+      `document.querySelector('[data-iori-action="terminal-batch-send"]').disabled`,
+    ),
+    false,
+  );
+  await screen.click('[data-iori-action="terminal-batch-send"]');
+  assert.equal(await screen.value(batch), "");
+  await screen.input(batch, nextDraft);
+  assert.equal(
+    await screen.evaluate(
+      `document.querySelector('[data-iori-key="ctrl"]').disabled`,
+    ),
+    false,
+  );
+  await withConnectionOffline(async () => {
+    await screen.wait('[data-iori-state="disconnected"]');
+    await heldWrite.release();
+    assert.equal(await screen.value(batch), restoredDraft);
+    assert.equal(
+      await screen.evaluate(
+        `document.querySelector(${JSON.stringify(batch)}).readOnly`,
+      ),
+      false,
+    );
+  });
+  await screen.wait(
+    `[data-iori-terminal-id="${id}"][data-iori-stream-state="ready"]`,
+  );
+  assert.equal(await screen.value(batch), restoredDraft);
+  assert.equal(
+    await screen.evaluate(
+      `(()=>{const b=document.querySelector('[data-iori-terminal-id="${id}"] [data-iori-part="terminal-screen"]').__e2eTerminal.buffer.active;return Array.from({length:b.length},(_,row)=>b.getLine(row).translateToString(true)).join('\\n').includes(${JSON.stringify(interruptedDraft)});})()`,
+    ),
+    false,
+  );
   await screen.input(batch, "ABC");
   await screen.key("End");
   await screen.key("ArrowLeft");
@@ -116,6 +169,8 @@ export async function mobileBatchInput({
     true,
     "送信後も続けて入力できる",
   );
+  assert.equal(await screen.value(batch), "");
+  await screen.input(batch, nextDraft);
   const cliBuffer = await waitFor(
     () =>
       screen.evaluate(`(()=>{
@@ -143,7 +198,7 @@ export async function mobileBatchInput({
     await screen.evaluate(
       `document.querySelector(${JSON.stringify(batch)}).value`,
     ),
-    "",
+    nextDraft,
   );
   await record(
     "MobileのCLIは焦点なしで開き、Enterで改行した2行がClaude Code（haiku）の1つの発言ブロックに表示され、結合した回答が返る",

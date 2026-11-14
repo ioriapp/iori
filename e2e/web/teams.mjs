@@ -529,29 +529,16 @@ export async function teamsScenario({
   await themes("ai-agents-limit-picker");
   await screen.input(".model-picker input", piModel.name);
   await screen.wait(`${modelItem("pi", piModel)}[data-selected="true"]`);
-  // Observe real save requests while the picker handles Enter; forward every request unchanged.
-  await screen.evaluate(`(async()=>{
-    const {connection}=await import('/src/connection.ts');
-    const original=connection.requestHost;
-    const probe={saves:0,restore:()=>{connection.requestHost=original;}};
-    window.__ioriLimitPickerProbe=probe;
-    connection.requestHost=(...args)=>{
-      if(['cli.arguments.set','teams.settings'].includes(args[1]))probe.saves++;
-      return original.apply(connection,args);
-    };
-  })()`);
+  const argumentSaves = await client.faults.count("cli.arguments.set");
+  const settingsSaves = await client.faults.count("teams.settings");
   const modelLimit = `${piRow} .team-setting-row.model input`;
   try {
     await screen.key("Enter");
     await screen.wait(modelLimit);
-    assert.equal(
-      await screen.evaluate("window.__ioriLimitPickerProbe.saves"),
-      0,
-    );
+    assert.equal(argumentSaves.count + settingsSaves.count, 0);
   } finally {
-    await screen.evaluate(
-      "window.__ioriLimitPickerProbe.restore();delete window.__ioriLimitPickerProbe",
-    );
+    await argumentSaves.clear();
+    await settingsSaves.clear();
   }
   assert.equal(
     await screen.visible(`${piRow} [data-iori-state="saved"]`),
@@ -584,21 +571,14 @@ export async function teamsScenario({
     const limit = failedMethod === "teams.settings" ? "4" : "3";
     await screen.input(piArguments, argument);
     await screen.input(modelLimit, limit);
-    await screen.evaluate(`(async()=>{
-      const {connection}=await import('/src/connection.ts');
-      const original=connection.requestHost;
-      let fail=true;
-      window.__restorePartialSave=()=>{connection.requestHost=original;};
-      connection.requestHost=(...args)=>{
-        if(args[1]===${JSON.stringify(failedMethod)} && fail){fail=false;return Promise.reject(new Error('save failed'));}
-        return original.apply(connection,args);
-      };
-    })()`);
+    const saveFailure = await client.faults.fail(failedMethod);
     try {
       await screen.click(`${piRow} [data-iori-action="save-cli-settings"]`);
       await screen.wait(`${piRow} .team-agent-settings [role="alert"]`);
       assert.equal(await screen.value(piArguments), argument);
       assert.equal(await screen.value(modelLimit), limit);
+      assert.equal(saveFailure.count, 1);
+      await saveFailure.clear();
       await screen.click(`${piRow} [data-iori-action="save-cli-settings"]`);
       await screen.wait(
         `${piRow} .team-agent-settings [data-iori-state="saved"]`,
@@ -606,9 +586,7 @@ export async function teamsScenario({
       assert.equal(await screen.value(piArguments), argument);
       assert.equal(await screen.value(modelLimit), limit);
     } finally {
-      await screen.evaluate(
-        "window.__restorePartialSave();delete window.__restorePartialSave",
-      );
+      await saveFailure.clear();
     }
   }
   await screen.input(piArguments, '--model "openai/gpt-6-luna"');
@@ -619,24 +597,14 @@ export async function teamsScenario({
     "CLIの引数と上限のどちらかの保存が失敗しても両方の入力を保ち、再試行する",
   );
   await screen.input(modelLimit, "3");
-  await screen.evaluate(`(async()=>{
-    const {connection}=await import('/src/connection.ts');
-    const original=connection.requestHost;
-    let fail=true;
-    window.__restoreTeamSettings=()=>{connection.requestHost=original;};
-    connection.requestHost=(...args)=>{
-      if(args[1]==='teams.settings' && fail){fail=false;return Promise.reject(new Error('save failed'));}
-      return original.apply(connection,args);
-    };
-  })()`);
+  const settingsFailure = await client.faults.fail("teams.settings");
   await screen.click(`${piRow} [data-iori-action="save-cli-settings"]`);
   await screen.wait(`${piRow} .team-agent-settings [role="alert"]`);
   assert.equal(await screen.value(modelLimit), "3");
+  assert.equal(settingsFailure.count, 1);
+  await settingsFailure.clear();
   await screen.click(`${piRow} [data-iori-action="save-cli-settings"]`);
   await screen.wait(`${piRow} .team-agent-settings [data-iori-state="saved"]`);
-  await screen.evaluate(
-    "window.__restoreTeamSettings();delete window.__restoreTeamSettings",
-  );
   await screen.input(modelLimit, "2");
   await screen.click(`${piRow} [data-iori-action="save-cli-settings"]`);
   await screen.wait(`${piRow} .team-agent-settings [data-iori-state="saved"]`);

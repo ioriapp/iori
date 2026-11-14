@@ -3,6 +3,15 @@
   padding: 0 6px;
   border-bottom: 1px solid var(--border);
 }
+.reading-list-header + .git-mode {
+  margin-top: 8px;
+}
+@media (pointer: coarse) {
+  .git-pane .reading-header {
+    height: 44px;
+    min-height: 44px;
+  }
+}
 .git-mode [data-slot="tabs-list"] {
   height: 30px;
 }

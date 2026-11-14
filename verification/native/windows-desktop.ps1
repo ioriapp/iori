@@ -136,14 +136,15 @@ try {
   $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS='--remote-debugging-port='+$port
   Start-Process -FilePath $shortcut
   $result.found=$true;$result.debugPort=$port;$result.shortcut=$shortcut
- } elseif($operation -eq 'foreground-read') {
+ } elseif($operation -in @('foreground-read','foreground-capture')) {
   [uint32]$foregroundPid=0
   $null=[IoriOsInput]::GetWindowThreadProcessId([IoriOsInput]::GetForegroundWindow(),[ref]$foregroundPid)
   $process=Get-CimInstance Win32_Process -Filter ('ProcessId='+$foregroundPid)
   $result.found=$process.ExecutablePath -eq $clientPath
   $result.processId=$foregroundPid
   $active=[System.Windows.Automation.AutomationElement]::FromHandle([IoriOsInput]::GetForegroundWindow())
-  $result.windowsSecurityWarning=$active.Current.Name -in @('Windows セキュリティ','Windows Security')
+  $result.windowsSecurityWarning=$active.Current.Name -like 'Windows セキュリティ*' -or $active.Current.Name -like 'Windows Security*'
+  if($operation -eq 'foreground-capture' -and $result.windowsSecurityWarning){$result.captured=Capture $active.Current.BoundingRectangle}
  } elseif($operation -eq 'window-health-read') {
   # Observe after an Owner's manual operation without UI Automation or WebDriver.
   $process=@(Get-CimInstance Win32_Process | Where-Object {$_.ExecutablePath -eq $clientPath})

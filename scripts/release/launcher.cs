@@ -4,6 +4,13 @@ using System.IO;
 using System.Threading;
 using Microsoft.Win32.SafeHandles;
 class Launcher {
+  static void WriteStartupError(string file, string message) {
+    if (file == null) return;
+    try { File.WriteAllText(file, message); }
+    // The installer owns this optional file. Reporting must not replace the
+    // original failure or interrupt launcher control when it is unavailable.
+    catch (Exception) { }
+  }
   static int Main(string[] args) {
     string errorFile = args.Length == 0 ? null : args[0];
     try {
@@ -26,6 +33,7 @@ class Launcher {
           while ((line = child.StandardOutput.ReadLine()) != null && line != "ready") { }
           var output = child.StandardOutput.BaseStream.CopyToAsync(Stream.Null);
           if (line == "ready") {
+            errorFile = null;
             ready.Set();
             using (var exited = new ManualResetEvent(false)) {
               exited.SafeWaitHandle = new SafeWaitHandle(child.Handle, false);
@@ -37,16 +45,17 @@ class Launcher {
           }
           child.WaitForExit();
           output.Wait();
-          if (child.ExitCode != 0 && errorFile != null) File.WriteAllText(errorFile, errors.Result);
           Console.Error.Write(errors.Result);
-          if (child.ExitCode == 75 && !stop.WaitOne(0)) continue;
+          if (child.ExitCode == 75) {
+            if (!stop.WaitOne(0)) continue;
+          } else if (child.ExitCode != 0) WriteStartupError(errorFile, errors.Result);
           return child.ExitCode;
         }
         }
       }
     } catch (Exception error) {
-      if (errorFile != null) File.WriteAllText(errorFile, error.Message);
       Console.Error.WriteLine(error.Message);
+      WriteStartupError(errorFile, error.Message);
       return 1;
     }
   }

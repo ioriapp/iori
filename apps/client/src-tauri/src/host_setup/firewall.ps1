@@ -29,7 +29,7 @@ function Start-IoriFirewallChild([switch]$Elevated) {
 if ($Remote) {
     # The caller has checked administrator privileges during the probe. Keep
     # installation running if policy refuses the rule; Direct verifies access.
-    try { & ([scriptblock]::Create($rules)) | Out-Null } catch { [Console]::WriteLine($_.Exception.Message) }
+    try { & ([scriptblock]::Create($rules)) | Out-Null; $true } catch { [Console]::Error.WriteLine($_.Exception.Message); $false }
     return
 }
 try {

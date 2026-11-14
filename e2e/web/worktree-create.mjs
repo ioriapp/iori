@@ -253,18 +253,7 @@ export async function worktreeCreate({
   await open();
   await screen.input('[data-iori-field="worktree-name"]', "response-recovery");
   await choose("cli:pi");
-  // Execute the real request through the real Host, then lose only its response
-  // at the Client transport facade. No Git or terminal result is fabricated.
-  await screen.evaluate(`(async()=>{
-    const {connection}=await import('/src/connection.ts');
-    const original=connection.requestHost;
-    connection.requestHost=async (...args)=>{
-      if(args[1]!=="worktrees.create")return original(...args);
-      connection.requestHost=original;
-      await original(...args);
-      return undefined;
-    };
-  })()`);
+  await client.faults.dropResponse("worktrees.create");
   await screen.click('[data-iori-action="worktree-create"]');
   await screen.wait('[data-iori-action="worktree-create-check"]');
   await waitForOperation(
@@ -350,27 +339,9 @@ export async function worktreeCreate({
       );
     });
   };
-  // Let the sidebar learn about the new worktree before launch returns, while
-  // retaining any folders.open response until navigation has been checked.
-  await screen.evaluate(`(async()=>{
-    const {connection}=await import('/src/connection.ts');
-    const original=connection.requestHost;
-    window.__restoreWorktreeNavigation=()=>{
-      connection.requestHost=original;
-      window.__releaseWorktreeLaunch?.();
-      window.__releaseWorktreeFolder?.();
-    };
-    connection.requestHost=async (...args)=>{
-      const response=await original(...args);
-      if(args[1]==='team.launch'){
-        window.__heldWorktreeLaunch=true;
-        await new Promise(resolve=>window.__releaseWorktreeLaunch=resolve);
-      }
-      if(args[1]==='folders.open' && response?.ok)
-        await new Promise(resolve=>window.__releaseWorktreeFolder=resolve);
-      return response;
-    };
-  })()`);
+  // Let the sidebar learn about the new worktree before launch returns.
+  const launchResponse = await client.faults.holdResponse("team.launch");
+  const folderResponse = await client.faults.holdResponse("folders.open");
   try {
     await screen.evaluate(
       `document.querySelector('[data-iori-field="worktree-instruction"]').focus()`,
@@ -380,17 +351,16 @@ export async function worktreeCreate({
     await screen.wait(
       `button[data-iori-worktree-path=${JSON.stringify(teamPath)}]`,
     );
-    await waitFor(() =>
-      screen.evaluate("Boolean(window.__heldWorktreeLaunch)"),
-    );
-    await screen.evaluate("window.__releaseWorktreeLaunch()");
+    await launchResponse.ready;
+    await launchResponse.release();
     const terminal = await started(teamPath, true);
     await screen.wait(
       `button[data-iori-worktree-path=${JSON.stringify(teamPath)}][aria-current="page"]`,
     );
     await waitForClaude(terminal);
   } finally {
-    await screen.evaluate("window.__restoreWorktreeNavigation()");
+    await launchResponse.clear();
+    await folderResponse.clear();
   }
   await record(
     "PCの作成フォームで選んだCLI・チームが始めるを置き換え、Files・GitとチームのBoardは見ていないタブで残り、同じ会話で続く",
@@ -426,6 +396,7 @@ export async function worktreeCreate({
   try {
     await openFolder(screen, plain, false);
     await openSidebar(screen);
+    const terminalFailure = await client.faults.fail("terminal.list");
     await screen.click(
       `[data-iori-action="folder-start-cli"][data-iori-folder-path=${JSON.stringify(plain)}]`,
     );
@@ -435,6 +406,26 @@ export async function worktreeCreate({
     assert.equal(
       await screen.visible('[data-iori-field="worktree-name"]'),
       false,
+    );
+    // A failed shell read leaves CLIs usable and offers recovery in Terminal.
+    const shellFailure =
+      '[data-iori-view="worktree-create"] .cli-launcher-shells [role="alert"]';
+    await screen.wait(shellFailure);
+    assert.ok(terminalFailure.count > 0);
+    assert.equal(
+      await screen.visible(
+        '[data-iori-view="worktree-create"] [data-iori-shell-id]',
+      ),
+      false,
+    );
+    await terminalFailure.clear();
+    await screen.click(`${shellFailure} button`);
+    await screen.wait(
+      '[data-iori-view="worktree-create"] [data-iori-shell-id]',
+    );
+    assert.equal(await screen.visible(shellFailure), false);
+    await record(
+      "Gitでないフォルダーの開始画面でTerminalの取得だけが失敗してもCLIを表示し、Terminalの再試行で一覧を表示する",
     );
     await screen.click(
       '[data-iori-view="worktree-create"] [data-iori-action="add-cli"]',

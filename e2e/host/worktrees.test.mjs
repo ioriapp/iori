@@ -14,6 +14,7 @@ import {
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { runHostTest } from "../../verification/host/process.mjs";
 import {
   actorCommand,
@@ -98,6 +99,24 @@ async function leaveResidualAfterGitRemoval(root, outside) {
   await writeFile(
     gitPath,
     `#!/bin/sh\n'${realGit}' "$@"\ncode=$?\nif [ "$code" -eq 0 ]; then\n  case "$*" in\n    *"worktree remove "*)\n      for last; do :; done\n      case "$last" in\n        *residual-link) '${ln}' -s '${outside}' "$last" ;;\n        *) '${mkdir}' -p "$last/.local/evidence" && printf 'record\\n' > "$last/.local/evidence/record.txt" ;;\n      esac\n      ;;\n  esac\nfi\nexit "$code"\n`,
+  );
+  await chmod(gitPath, 0o755);
+}
+
+// Deep paths make the real recursive deletion fail with ENAMETOOLONG, even
+// when the Host runs as root. GNU rm can later remove them using relative IO.
+async function injectDeepWorktree(root, when) {
+  const gitPath = join(root, "bin", "git");
+  const realGit = execFileSync("which", ["git"], { encoding: "utf8" }).trim();
+  const realRm = execFileSync("which", ["rm"], { encoding: "utf8" }).trim();
+  const makeDeep = `const fs=require("node:fs");const path=require("node:path");fs.mkdirSync(process.argv[1],{recursive:true});process.chdir(process.argv[1]);for(let i=0;i<45;i++){const n=String(i).padStart(2,"0")+"x".repeat(98);fs.mkdirSync(n);process.chdir(n)}fs.writeFileSync("file","x")`;
+  const gate = join(root, "writer-ready");
+  if (when === "before") execFileSync("mkfifo", [gate]);
+  const writer = `const fs=require("node:fs");fs.writeFileSync(process.argv[2],"ready\\n");setInterval(()=>{try{fs.writeFileSync(process.argv[1]+"/writing","x")}catch{}},0)`;
+  await rm(gitPath);
+  await writeFile(
+    gitPath,
+    `#!/bin/sh\ncase "$*" in\n  *"worktree remove "*)\n    for last; do :; done\n    ${when === "before" ? `'${process.execPath}' -e '${makeDeep}' "$last/deep"\n    '${process.execPath}' -e '${writer}' "$last" '${gate}' &\n    writer=$!\n    read -r ready < '${gate}'` : ""}\n    '${realGit}' "$@"\n    code=$?\n    ${when === "after" ? `'${process.execPath}' -e '${makeDeep}' "$last/deep"` : `kill "$writer"\n    wait "$writer" 2>/dev/null\n    '${realRm}' -rf "$last/deep"\n    printf '%s' "$code" > '${join(root, "git-removal-code")}'`}\n    exit "$code";;\nesac\nexec '${realGit}' "$@"\n`,
   );
   await chmod(gitPath, 0o755);
 }
@@ -318,6 +337,132 @@ test("未取り込みの変更とコミットを知らせ、ブランチを残�
     assert.equal(git(path, "branch", "--list", "task"), "task");
   }));
 
+test("確認後に増えた変更は再確認し、減っただけなら削除する", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    const { add } = await repository(dataRoot);
+    const worktree = add("recheck");
+    const preview = await client.request("worktrees.preview", {
+      path: worktree,
+    });
+    await writeFile(join(worktree, "new.txt"), "new\n");
+    const result = await client.request("worktrees.remove", {
+      previewId: preview.id,
+      paths: [worktree],
+      branches: [],
+      recheck: true,
+    });
+    assert.equal(await exists(worktree), true);
+    assert.deepEqual(result.outcomes, []);
+    assert.equal(result.preview.items[0].changes.files, 1);
+    await rm(join(worktree, "new.txt"));
+    await writeFile(join(worktree, "replacement.txt"), "replacement\n");
+    const replacement = await client.request("worktrees.remove", {
+      previewId: result.preview.id,
+      paths: [worktree],
+      branches: [],
+      recheck: true,
+    });
+    assert.equal(replacement.preview.items[0].changes.files, 1);
+    assert.equal(await exists(worktree), true);
+    await rm(join(worktree, "replacement.txt"));
+    const confirmed = await client.request("worktrees.remove", {
+      previewId: replacement.preview.id,
+      paths: [worktree],
+      branches: [],
+      recheck: true,
+    });
+    assert.equal(confirmed.outcomes[0].removed, true);
+    assert.equal(await exists(worktree), false);
+
+    const sameFile = add("same-file");
+    await writeFile(join(sameFile, "draft.txt"), "first\n");
+    const sameFilePreview = await client.request("worktrees.preview", {
+      path: sameFile,
+    });
+    await writeFile(join(sameFile, "draft.txt"), "first\nsecond\n");
+    const sameFileResult = await client.request("worktrees.remove", {
+      previewId: sameFilePreview.id,
+      paths: [sameFile],
+      branches: [],
+      recheck: true,
+    });
+    assert.equal(sameFileResult.outcomes[0].removed, true);
+  }));
+
+test("確認を記憶していない時は削除せず新しい確認を返す", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    const { add } = await repository(dataRoot);
+    const worktree = add("unknown-preview");
+    const result = await client.request("worktrees.remove", {
+      previewId: "unknown",
+      paths: [worktree],
+      branches: [],
+      recheck: true,
+    });
+    assert.deepEqual(result.outcomes, []);
+    assert.equal(result.preview.items[0].path, worktree);
+    assert.equal(await exists(worktree), true);
+  }));
+
+test("確認後に始まったCLIの作業は停止せず再確認する", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    const { add } = await repository(dataRoot);
+    const worktree = add("new-work");
+    const cliId = await registerScriptedCli(client, dataRoot);
+    const events = await client.events();
+    await events.waitFor((event) => event.type === "snapshot");
+    const { terminal: summary } = await client.request("cli.launch", {
+      cliId,
+      cwd: worktree,
+    });
+    const terminal = await client.terminal(summary.id);
+    await terminal.output("ACTOR_READY");
+    const preview = await client.request("worktrees.preview", {
+      path: worktree,
+    });
+    await terminal.input(
+      JSON.stringify({ id: "start", hook: "UserPromptSubmit" }) + "\r",
+    );
+    await events.waitFor(
+      (event) =>
+        event.type === "terminal.updated" &&
+        event.terminal.id === summary.id &&
+        event.terminal.cliStatus?.state === "active",
+    );
+    const result = await client.request("worktrees.remove", {
+      previewId: preview.id,
+      paths: [worktree],
+      branches: [],
+      recheck: true,
+    });
+    assert.equal(
+      result.preview.working.some((work) => work.id === summary.id),
+      true,
+    );
+    assert.equal(await exists(worktree), true);
+    await terminal.output("ACTOR_HOOK:start");
+  }));
+
+test("削除するブランチのcommitが入れ替わった時は再確認する", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    const { add, git } = await repository(dataRoot);
+    const worktree = add("changed-commit");
+    await commit(git, worktree, "first");
+    const preview = await client.request("worktrees.preview", {
+      path: worktree,
+    });
+    git(worktree, "reset", "--hard", "HEAD^");
+    await commit(git, worktree, "second");
+    const result = await client.request("worktrees.remove", {
+      previewId: preview.id,
+      paths: [worktree],
+      branches: ["changed-commit"],
+      recheck: true,
+    });
+    assert.equal(result.preview.items[0].commits, 1);
+    assert.equal(await exists(worktree), true);
+  }));
+
 test("選択した未取り込みブランチをworktreeと一緒に削除する", (t) =>
   runHostTest(t, async ({ client, dataRoot }) => {
     const { path, git, add } = await repository(dataRoot);
@@ -456,9 +601,42 @@ test("mergeコミットだけの新しい内容は未取り込みとして知ら
     assert.equal(preview.items[0].deleteBranch, false);
   }));
 
-async function teamParent(client, root, cwd, launch = {}) {
+async function teamParent(client, root, cwd, launch = {}, observePids = false) {
   const parentCli = await registerScriptedCli(client, root, { noReady: true });
   const childCli = await registerResponseCli(client, root);
+  if (observePids) {
+    for (const [id, script, args] of [
+      [parentCli, "scripted-cli.mjs", " --no-ready"],
+      [childCli, "response-cli.mjs", ""],
+    ]) {
+      const scriptPath = fileURLToPath(
+        new URL(`../../verification/host/${script}`, import.meta.url),
+      );
+      const command = `printf '%s %s\\n' "$PWD" "$$" >> '${join(root, "cli-pids")}'; exec '${process.execPath}' '${scriptPath}'${args}`;
+      await client.request("cli.definition.save", {
+        definition: JSON.stringify({
+          schema: 1,
+          id,
+          name: id,
+          command: { shell: command },
+          ...(id === childCli
+            ? {
+                hooks: {
+                  format: "claude-settings",
+                  file: join(root, "response-settings.json"),
+                  sessionId: "session_id",
+                  rules: [
+                    { event: "SessionStart", state: "idle" },
+                    { event: "UserPromptSubmit", state: "active" },
+                    { event: "Stop", state: "done" },
+                  ],
+                },
+              }
+            : {}),
+        }),
+      });
+    }
+  }
   const candidate = {
     id: "candidate",
     cli: childCli,
@@ -573,6 +751,44 @@ test("親の削除では専用の子worktreeを削除し、既存のworktreeは�
       git(path, "rev-parse", "--verify", "refs/heads/existing"),
       git(existing, "rev-parse", "HEAD"),
     );
+  }));
+
+test("worktreeの削除で対象のチームファイルだけを削除する", (t) =>
+  runHostTest(t, async ({ client, dataRoot, stage }) => {
+    const { add } = await repository(dataRoot);
+    const parentPath = add("parent");
+    const keptPath = add("kept");
+    const team = await teamParent(client, dataRoot, parentPath);
+    const child = await team.delegate("removed-child");
+    const borrowed = await team.delegate("borrowed-child", "kept");
+    const keptTeam = await teamParent(client, dataRoot, keptPath);
+    const keptChild = await keptTeam.delegate("kept-child", "parent");
+    const directory = (id) => join(dataRoot, "iori-host", "team-files", id);
+    const removedIds = [child.conversation, child.id, borrowed.id];
+    const keptIds = [keptChild.conversation, keptChild.id];
+    const keptFiles = new Map();
+    for (const id of [...removedIds, ...keptIds]) {
+      const files = await readdir(directory(id));
+      assert.ok(files.length > 0);
+      if (keptIds.includes(id))
+        for (const file of files) {
+          const path = join(directory(id), file);
+          keptFiles.set(path, await readFile(path, "utf8"));
+        }
+    }
+    stage("worktreeとその会話のチームファイルを削除する");
+    const preview = await client.request("worktrees.preview", {
+      path: parentPath,
+    });
+    assert.equal(
+      (await remove(client, preview, [parentPath])).outcomes[0].removed,
+      true,
+    );
+    for (const id of removedIds)
+      assert.equal(await exists(directory(id)), false);
+    assert.equal(await exists(keptPath), true);
+    for (const [path, body] of keptFiles)
+      assert.equal(await readFile(path, "utf8"), body);
   }));
 
 test("受け入れただけで未取り込みの子のブランチは削除せずに残す", (t) =>
@@ -853,6 +1069,59 @@ test("受け入れた子とmainが似た別の変更をしても取り込み済�
     );
   }));
 
+test("同じ作者が同じ秒に同じファイルを変えた別のcommitを取り込みと誤らない", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    const { path, git, add } = await repository(dataRoot);
+    const lines = Array.from(
+      { length: 40 },
+      (_, index) => `line ${index + 1}\n`,
+    ).join("");
+    await writeFile(join(path, "lines.txt"), lines);
+    git(path, "add", ".");
+    git(path, "commit", "-m", "lines");
+    const parentPath = add("parent");
+    const team = await teamParent(client, dataRoot, parentPath);
+    const child = await team.delegate("child");
+    const branch = git(child.cwd, "branch", "--show-current");
+    for (const [cwd, line, message] of [
+      [child.cwd, 20, "child change"],
+      [path, 35, "main change"],
+    ]) {
+      await writeFile(
+        join(cwd, "lines.txt"),
+        lines.replace(`line ${line}\n`, `${message}\n`),
+      );
+      git(cwd, "add", ".");
+      execFileSync("git", ["-C", cwd, "commit", "-m", message], {
+        stdio: "pipe",
+        env: { ...process.env, GIT_AUTHOR_DATE: "2020-01-01T00:00:00Z" },
+      });
+    }
+    await actorCommand(team.parent, "finish", [
+      "finish",
+      child.id,
+      "--decision",
+      "accept",
+      "--reason",
+      "accepted",
+      "--worktree",
+      "keep",
+    ]);
+    const preview = await client.request("worktrees.preview", {
+      path: parentPath,
+    });
+    const item = preview.items[0].worktrees.find(
+      (entry) => entry.path === child.cwd,
+    );
+    assert.equal(item.merged, false);
+    assert.equal(item.deleteBranch, false);
+    assert.equal(
+      (await remove(client, preview, [parentPath])).outcomes[0].removed,
+      true,
+    );
+    assert.equal(git(path, "branch", "--list", branch), branch);
+  }));
+
 test("受け入れた子をcherry-pickすると取り込み済みになる", (t) =>
   runHostTest(t, async ({ client, dataRoot }) => {
     const { path, git, add } = await repository(dataRoot);
@@ -881,72 +1150,70 @@ test("受け入れた子をcherry-pickすると取り込み済みになる", (t)
     assert.equal(item.deleteBranch, true);
   }));
 
-// 揺れ（#330、期限 2026-12-10）: merged の判定が1回ずつ落ちる。直して戻すか消す。
-test(
-  "親が競合を解決して取り込み受け入れた子も片付ける",
-  { skip: "揺れ #330（期限 2026-12-10）" },
-  (t) =>
-    runHostTest(t, async ({ client, dataRoot }) => {
-      const { path, git, add } = await repository(dataRoot);
-      const lines = Array.from(
-        { length: 10 },
-        (_, index) => `line ${index + 1}\n`,
-      ).join("");
-      await writeFile(join(path, "lines.txt"), lines);
-      git(path, "add", ".");
-      git(path, "commit", "-m", "lines");
-      const parentPath = add("parent");
-      const team = await teamParent(client, dataRoot, parentPath);
-      const child = await team.delegate("child");
-      const branch = git(child.cwd, "branch", "--show-current");
-      await writeFile(
-        join(child.cwd, "lines.txt"),
-        lines.replace("line 5\n", "child five\n"),
-      );
-      git(child.cwd, "add", ".");
-      git(child.cwd, "commit", "-m", "child five");
-      await writeFile(
-        join(parentPath, "lines.txt"),
-        lines.replace("line 5\n", "parent five\n"),
-      );
-      git(parentPath, "add", ".");
-      git(parentPath, "commit", "-m", "parent five");
-      assert.throws(() =>
-        git(parentPath, "cherry-pick", git(child.cwd, "rev-parse", "HEAD")),
-      );
-      await writeFile(
-        join(parentPath, "lines.txt"),
-        lines.replace("line 5\n", "parent resolved five\n"),
-      );
-      git(parentPath, "add", ".");
-      git(parentPath, "commit", "-m", "take in child");
-      git(path, "merge", "--no-ff", "parent", "-m", "merge parent");
-      await actorCommand(team.parent, "finish", [
-        "finish",
-        child.id,
-        "--decision",
-        "accept",
-        "--reason",
-        "accepted",
-        "--worktree",
-        "keep",
-      ]);
-      const preview = await client.request("worktrees.preview", {
-        path: parentPath,
-      });
-      const item = preview.items[0].worktrees.find(
-        (entry) => entry.path === child.cwd,
-      );
-      assert.equal(item.merged, true);
-      assert.equal(item.deleteBranch, true);
-      assert.equal(
-        (await remove(client, preview, [parentPath])).outcomes[0].removed,
-        true,
-      );
-      assert.equal(await exists(child.cwd), false);
-      assert.equal(git(path, "branch", "--list", branch), "");
-    }),
-);
+test("親が競合を解決して取り込み受け入れた子も片付ける", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    const { path, git, add } = await repository(dataRoot);
+    const lines = Array.from(
+      { length: 10 },
+      (_, index) => `line ${index + 1}\n`,
+    ).join("");
+    await writeFile(join(path, "lines.txt"), lines);
+    git(path, "add", ".");
+    git(path, "commit", "-m", "lines");
+    const parentPath = add("parent");
+    const team = await teamParent(client, dataRoot, parentPath);
+    const child = await team.delegate("child");
+    const branch = git(child.cwd, "branch", "--show-current");
+    await writeFile(
+      join(child.cwd, "lines.txt"),
+      lines.replace("line 5\n", "child five\n"),
+    );
+    git(child.cwd, "add", ".");
+    git(child.cwd, "commit", "-m", "child five");
+    await writeFile(
+      join(parentPath, "lines.txt"),
+      lines.replace("line 5\n", "parent five\n"),
+    );
+    git(parentPath, "add", ".");
+    execFileSync("git", ["-C", parentPath, "commit", "-m", "parent five"], {
+      stdio: "pipe",
+      env: { ...process.env, GIT_AUTHOR_DATE: "2020-01-01T00:00:00Z" },
+    });
+    assert.throws(() =>
+      git(parentPath, "cherry-pick", git(child.cwd, "rev-parse", "HEAD")),
+    );
+    await writeFile(
+      join(parentPath, "lines.txt"),
+      lines.replace("line 5\n", "parent resolved five\n"),
+    );
+    git(parentPath, "add", ".");
+    git(parentPath, "commit", "--no-edit");
+    git(path, "merge", "--no-ff", "parent", "-m", "merge parent");
+    await actorCommand(team.parent, "finish", [
+      "finish",
+      child.id,
+      "--decision",
+      "accept",
+      "--reason",
+      "accepted",
+      "--worktree",
+      "keep",
+    ]);
+    const preview = await client.request("worktrees.preview", {
+      path: parentPath,
+    });
+    const item = preview.items[0].worktrees.find(
+      (entry) => entry.path === child.cwd,
+    );
+    assert.equal(item.merged, true);
+    assert.equal(item.deleteBranch, true);
+    assert.equal(
+      (await remove(client, preview, [parentPath])).outcomes[0].removed,
+      true,
+    );
+    assert.equal(await exists(child.cwd), false);
+    assert.equal(git(path, "branch", "--list", branch), "");
+  }));
 
 test("背景削除中の親子を通知と履歴に示し、完了後に消す", (t) =>
   runHostTest(t, async ({ client, dataRoot, stage }) => {
@@ -958,14 +1225,15 @@ test("背景削除中の親子を通知と履歴に示し、完了後に消す",
     const preview = await client.request("worktrees.preview", {
       path: parentPath,
     });
-    const fifo = join(dataRoot, "removal-gate");
-    execFileSync("mkfifo", [fifo]);
+    // Both Git removals wait until the gate file exists. A FIFO read by two
+    // processes can close between the two writes and fail with EPIPE.
+    const gate = join(dataRoot, "removal-gate");
     const gitPath = join(dataRoot, "bin", "git");
     const realGit = execFileSync("which", ["git"], { encoding: "utf8" }).trim();
     await rm(gitPath);
     await writeFile(
       gitPath,
-      `#!/bin/sh\ncase "$*" in *"worktree remove"*) read -r gate < '${fifo}';; esac\nexec '${realGit}' "$@"\n`,
+      `#!/bin/sh\ncase "$*" in *"worktree remove"*) while [ ! -e '${gate}' ]; do sleep 0.05; done;; esac\nexec '${realGit}' "$@"\n`,
     );
     await chmod(gitPath, 0o755);
     stage("親子の削除中を通知と履歴から読む");
@@ -987,8 +1255,7 @@ test("背景削除中の親子を通知と履歴に示し、完了後に消す",
       ),
     );
     // Each worktree invokes Git separately; release both removals.
-    await writeFile(fifo, "continue\n");
-    await writeFile(fifo, "continue\n");
+    await writeFile(gate, "");
     assert.ok((await removal).outcomes.every((item) => item.removed));
     await team.events.waitFor(
       (event) =>
@@ -1113,4 +1380,293 @@ test("finish --worktree removeでGitの直後に残ったフォルダーも消�
     ]);
     assert.equal(await exists(child.cwd), false);
     assert.equal(await exists(path), true);
+  }));
+
+test("残ったフォルダーの削除失敗後も同じfinishでやり直せる", (t) =>
+  runHostTest(t, async ({ client, dataRoot, stage }) => {
+    const { path, add } = await repository(dataRoot);
+    const team = await teamParent(client, dataRoot, add("parent"));
+    const child = await team.delegate("retry residual child");
+    await injectDeepWorktree(dataRoot, "after");
+    const command = [
+      "finish",
+      child.id,
+      "--decision",
+      "accept",
+      "--reason",
+      "accepted",
+      "--worktree",
+      "remove",
+    ];
+    stage("残存フォルダーを削除できずfinishが失敗する");
+    await assert.rejects(actorCommand(team.parent, "finish-failed", command));
+    assert.equal(await exists(child.cwd), true);
+    execFileSync("rm", ["-rf", join(child.cwd, "deep")]);
+    stage("原因を取り除き同じfinishを再試行する");
+    await actorCommand(team.parent, "finish-retry", command);
+    assert.equal(await exists(child.cwd), false);
+    await team.events.waitFor(
+      (event) =>
+        event.type === "teams.child.updated" &&
+        event.child.id === child.id &&
+        event.child.state === "finished",
+    );
+    assert.equal(await exists(path), true);
+  }));
+
+test("Gitの削除が失敗しても管理情報が無ければフォルダーを残さない", (t) =>
+  runHostTest(t, async ({ client, dataRoot, stage }) => {
+    const { path, add } = await repository(dataRoot);
+    const sidebar = add("git-fails");
+    const team = await teamParent(client, dataRoot, add("parent"));
+    const child = await team.delegate("git fails child");
+    await injectDeepWorktree(dataRoot, "before");
+    stage("Gitが削除中に失敗するサイドバーのworktreeを消す");
+    const preview = await client.request("worktrees.preview", {
+      path: sidebar,
+    });
+    assert.equal(
+      (await remove(client, preview, [sidebar])).outcomes[0].removed,
+      true,
+    );
+    assert.notEqual(
+      await readFile(join(dataRoot, "git-removal-code"), "utf8"),
+      "0",
+    );
+    assert.equal(await exists(sidebar), false);
+    await rm(join(dataRoot, "git-removal-code"));
+    stage("Gitが削除中に失敗する子のworktreeをfinishで消す");
+    await actorCommand(team.parent, "finish-git-fails", [
+      "finish",
+      child.id,
+      "--decision",
+      "accept",
+      "--reason",
+      "accepted",
+      "--worktree",
+      "remove",
+      "--discard",
+    ]);
+    assert.notEqual(
+      await readFile(join(dataRoot, "git-removal-code"), "utf8"),
+      "0",
+    );
+    assert.equal(await exists(child.cwd), false);
+    assert.equal(await exists(path), true);
+  }));
+
+// A deletion request must never turn an ordinary repository folder into a worktree.
+test("未登録のサブフォルダーを削除要求に渡してもファイルを残す", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    const { path, add } = await repository(dataRoot);
+    for (const root of [path, add("registered")]) {
+      const folder = join(root, "ordinary");
+      await mkdir(folder);
+      await writeFile(join(folder, "keep.txt"), "keep\n");
+      const preview = await client
+        .request("worktrees.preview", { path: folder })
+        .catch(() => undefined);
+      if (preview) await remove(client, preview, [folder]);
+      assert.equal(await readFile(join(folder, "keep.txt"), "utf8"), "keep\n");
+      assert.equal(preview, undefined);
+    }
+  }));
+
+test("子のTerminalがコマンド実行中なら残し入力待ちなら親と削除する", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    const { add } = await repository(dataRoot);
+    const parentPath = add("parent");
+    const team = await teamParent(client, dataRoot, parentPath);
+    const child = await team.delegate("owned");
+    const { terminal } = await client.request("terminal.create", {
+      cwd: child.cwd,
+    });
+    const view = await client.terminal(terminal.id);
+    await view.input(
+      "node -e \"console.log('BUSY_' + 'CHILD');setInterval(()=>{},1000)\"\r",
+    );
+    await view.output("BUSY_CHILD");
+    const busy = await client.request("worktrees.preview", {
+      path: parentPath,
+    });
+    assert.equal(
+      busy.items[0].children.find((item) => item.id === child.id).remove,
+      false,
+    );
+    await view.input("\u0003");
+    await view.input("printf '%s%s\\n' 'IDLE_' 'CHILD'\r");
+    await view.output("IDLE_CHILD");
+    const idle = await client.request("worktrees.preview", {
+      path: parentPath,
+    });
+    assert.equal(
+      idle.items[0].children.find((item) => item.id === child.id).remove,
+      true,
+    );
+    assert.equal(
+      (await remove(client, idle, [parentPath])).outcomes[0].removed,
+      true,
+    );
+    assert.equal(await exists(child.cwd), false);
+    assert.equal(
+      (await client.request("terminal.list")).terminals.some(
+        (item) => item.id === terminal.id,
+      ),
+      false,
+    );
+  }));
+
+test("squash済みで変更のないworktreeを片付ける", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    const { path, git, add } = await repository(dataRoot);
+    const worktree = add("squashed");
+    await commit(git, worktree, "squashed");
+    git(path, "merge", "--squash", "squashed");
+    git(path, "commit", "-m", "squash");
+    const preview = await client.request("worktrees.cleanup", { path });
+    assert.deepEqual(
+      preview.items.map((item) => item.path),
+      [worktree],
+    );
+    assert.equal(preview.items[0].merged, true);
+    assert.equal(
+      (await remove(client, preview, [worktree])).outcomes[0].removed,
+      true,
+    );
+    assert.equal(await exists(worktree), false);
+    assert.equal(git(path, "branch", "--list", "squashed"), "");
+  }));
+
+test("rebaseの途中で作ったcommitと元のブランチを知らせる", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    const { path, git, add } = await repository(dataRoot);
+    const worktree = add("rebasing");
+    await commit(git, worktree, "first");
+    await writeFile(join(worktree, "base.txt"), "branch\n");
+    git(worktree, "add", ".");
+    git(worktree, "commit", "-m", "conflict");
+    await writeFile(join(path, "base.txt"), "main\n");
+    git(path, "add", ".");
+    git(path, "commit", "-m", "main conflict");
+    assert.throws(() => git(worktree, "rebase", "main"));
+    const preview = await client.request("worktrees.preview", {
+      path: worktree,
+    });
+    assert.equal(preview.items[0].rebasingBranch, "rebasing");
+    assert.equal(preview.items[0].detachedCommits, 1);
+  }));
+
+test("commitのないブランチをworktreeと一緒に削除する", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    const { path, git, add } = await repository(dataRoot);
+    const worktree = add("empty");
+    const preview = await client.request("worktrees.preview", {
+      path: worktree,
+    });
+    assert.equal(preview.items[0].deleteBranch, true);
+    assert.equal(
+      (await remove(client, preview, [worktree])).outcomes[0].removed,
+      true,
+    );
+    assert.equal(await exists(worktree), false);
+    assert.equal(git(path, "branch", "--list", "empty"), "");
+  }));
+
+test("親子の削除失敗後に子だけを選び、親と他の子を残す", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    const { path, git, add } = await repository(dataRoot);
+    const parentPath = add("retry-parent");
+    const team = await teamParent(client, dataRoot, parentPath);
+    const locked = await team.delegate("locked child");
+    const other = await team.delegate("other child");
+    git(path, "worktree", "lock", "--reason", "retry lock", locked.cwd);
+    const preview = await client.request("worktrees.preview", {
+      path: parentPath,
+    });
+    const failed = await remove(client, preview, [parentPath]);
+    assert.ok(failed.outcomes.some((item) => !item.removed));
+    assert.equal(await exists(parentPath), true);
+    assert.equal(await exists(locked.cwd), true);
+    assert.equal(await exists(other.cwd), true);
+    git(path, "worktree", "unlock", locked.cwd);
+    const retry = await client.request("worktrees.preview", {
+      path: locked.cwd,
+    });
+    assert.equal(
+      (await remove(client, retry, [locked.cwd])).outcomes[0].removed,
+      true,
+    );
+    assert.equal(await exists(locked.cwd), false);
+    assert.equal(await exists(parentPath), true);
+    assert.equal(await exists(other.cwd), true);
+  }));
+
+test("取り込み済みの親子を一つの候補にまとめ、空の子も削除する", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    const { path, git, add } = await repository(dataRoot);
+    const parentPath = add("group-parent");
+    const team = await teamParent(client, dataRoot, parentPath);
+    const child = await team.delegate("merged child");
+    const empty = await team.delegate("empty child");
+    await commit(git, child.cwd, "child");
+    git(
+      parentPath,
+      "merge",
+      "--no-ff",
+      git(child.cwd, "branch", "--show-current"),
+      "-m",
+      "merge child",
+    );
+    git(path, "merge", "--no-ff", "group-parent", "-m", "merge parent");
+    const preview = await client.request("worktrees.cleanup", { path });
+    assert.deepEqual(
+      preview.items.map((item) => item.path),
+      [parentPath],
+    );
+    assert.deepEqual(
+      preview.items[0].worktrees.map((item) => item.path).sort(),
+      [child.cwd, empty.cwd].sort(),
+    );
+    assert.equal(
+      (await remove(client, preview, [parentPath])).outcomes[0].removed,
+      true,
+    );
+    for (const target of [parentPath, child.cwd, empty.cwd])
+      assert.equal(await exists(target), false);
+  }));
+
+test("親のworktree削除で親子のCLIプロセスを停止する", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    const { add } = await repository(dataRoot);
+    const parentPath = add("process-parent");
+    const existing = add("process-existing");
+    const team = await teamParent(client, dataRoot, parentPath, {}, true);
+    const child = await team.delegate("process child");
+    await team.delegate("shared child", basename(child.cwd));
+    await team.delegate("existing child", "process-existing");
+    const entries = (await readFile(join(dataRoot, "cli-pids"), "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => {
+        const separator = line.lastIndexOf(" ");
+        return [line.slice(0, separator), Number(line.slice(separator + 1))];
+      });
+    const pids = entries
+      .filter(([cwd]) => [parentPath, child.cwd, existing].includes(cwd))
+      .map(([, pid]) => pid);
+    assert.equal(pids.length, 4);
+    for (const pid of pids) {
+      assert.ok(pid);
+      process.kill(pid, 0);
+    }
+    const preview = await client.request("worktrees.preview", {
+      path: parentPath,
+    });
+    assert.equal(
+      (await remove(client, preview, [parentPath])).outcomes[0].removed,
+      true,
+    );
+    for (const pid of pids)
+      assert.throws(() => process.kill(pid, 0), { code: "ESRCH" });
+    assert.equal(await exists(existing), true);
   }));

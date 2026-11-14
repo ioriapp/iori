@@ -23,10 +23,8 @@ export type TerminalSnapshot = {
   oscLinks?: TerminalOscLinkRange[];
   rehydrateSequences: string;
   frameRestoreAnsi?: string;
-  cwd: string | null;
   modes: TerminalModes;
   cols: number;
   rows: number;
   scrollbackLines: number;
-  lastTitle?: string;
 };

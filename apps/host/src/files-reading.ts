@@ -1,3 +1,5 @@
+import { isWithin } from "./path-boundary.ts";
+export { isWithin } from "./path-boundary.ts";
 import {
   forgetOutdatedFileSyntax,
   readFileSyntax,
@@ -107,14 +109,6 @@ export const MIME_BY_EXTENSION: Record<string, string> = {
   ".txt": "text/plain",
   ".json": "application/json",
 };
-
-export function isWithin(root: string, target: string): boolean {
-  const rel = relative(root, target);
-  return (
-    rel === "" ||
-    (!isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep}`))
-  );
-}
 
 function assertRelative(path: string): string[] {
   if (
@@ -466,11 +460,13 @@ async function* gitListedFiles(root: Root, signal?: Signal) {
 async function* walkedFiles(root: Root, signal?: Signal) {
   const queue = [""];
   while (queue.length) {
+    throwIfAborted(signal);
     const parent = queue.shift()!;
     let directory;
     try {
       directory = await opendir(parent ? join(root.real, parent) : root.real);
     } catch {
+      throwIfAborted(signal);
       continue;
     }
     try {
@@ -483,6 +479,7 @@ async function* walkedFiles(root: Root, signal?: Signal) {
         else yield path;
       }
     } catch {
+      throwIfAborted(signal);
       // An unreadable folder does not hide the rest of the tree.
     }
   }

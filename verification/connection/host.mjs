@@ -18,6 +18,7 @@ export async function startHost(
     windowsPathEntries = [],
     windowsCliHome,
     windowsClaudeToken,
+    windowsFakeModel,
     linuxCliHome,
     rustLog,
   } = {},
@@ -50,7 +51,7 @@ export async function startHost(
     );
     await writeWindows(
       scriptPath,
-      `$ErrorActionPreference='Stop';${windowsPathEntries.length ? `$env:PATH=${ps(windowsPathEntries.join(";") + ";")}+$env:PATH;` : ""}${windowsCliHome ? `$env:USERPROFILE=${ps(windowsCliHome)};$env:HOME=${ps(windowsCliHome)};$env:CODEX_HOME=${ps(windowsCliHome + "\\.codex")};` : ""}${windowsClaudeToken ? `$pipe=[IO.Pipes.NamedPipeServerStream]::new(${ps(tokenPipe)},[IO.Pipes.PipeDirection]::In);try{$pipe.WaitForConnection();$reader=[IO.StreamReader]::new($pipe);$env:CLAUDE_CODE_OAUTH_TOKEN=$reader.ReadLine()}finally{$pipe.Dispose()};$env:CLAUDE_CONFIG_DIR=${ps(windowsCliHome + "\\.claude")};` : ""}$env:LOCALAPPDATA=${ps(dataHome)};$env:IORI_HOST_PORT='${verificationPort}';$env:IORI_HOST_STOP_REQUEST=${ps(stopRequestPath)};Set-Location ${ps(root)};[IO.File]::WriteAllText(${ps(pidPath)},[string]$PID);& ${ps(windowsNode)} ${ps(launcherPath)} *> ${ps(root + "\\host.log")};exit $LASTEXITCODE;`,
+      `$ErrorActionPreference='Stop';${windowsPathEntries.length ? `$env:PATH=${ps(windowsPathEntries.join(";") + ";")}+$env:PATH;` : ""}${windowsCliHome ? `$env:USERPROFILE=${ps(windowsCliHome)};$env:HOME=${ps(windowsCliHome)};$env:CODEX_HOME=${ps(windowsCliHome + "\\.codex")};` : ""}${windowsFakeModel ? `$env:CLAUDE_CODE_OAUTH_TOKEN=$null;$env:ANTHROPIC_API_KEY=$null;$env:ANTHROPIC_BASE_URL=${ps(windowsFakeModel.baseURL)};$env:ANTHROPIC_AUTH_TOKEN='verification';$env:IORI_FAKE_MODEL_KEY='verification';$env:CLAUDE_CONFIG_DIR=${ps(windowsCliHome + "\\.claude")};` : ""}${windowsClaudeToken ? `$pipe=[IO.Pipes.NamedPipeServerStream]::new(${ps(tokenPipe)},[IO.Pipes.PipeDirection]::In);try{$pipe.WaitForConnection();$reader=[IO.StreamReader]::new($pipe);$env:CLAUDE_CODE_OAUTH_TOKEN=$reader.ReadLine()}finally{$pipe.Dispose()};$env:CLAUDE_CONFIG_DIR=${ps(windowsCliHome + "\\.claude")};` : ""}$env:LOCALAPPDATA=${ps(dataHome)};$env:IORI_HOST_PORT='${verificationPort}';$env:IORI_HOST_STOP_REQUEST=${ps(stopRequestPath)};Set-Location ${ps(root)};[IO.File]::WriteAllText(${ps(pidPath)},[string]$PID);& ${ps(windowsNode)} ${ps(launcherPath)} *> ${ps(root + "\\host.log")};exit $LASTEXITCODE;`,
     );
     const command = `pwsh -NoProfile -ExecutionPolicy Bypass -File "${scriptPath}"`;
     pid = Number(

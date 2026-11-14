@@ -127,7 +127,7 @@ export class AutomationManager {
       webhook: this.#webhook.info(),
       automations: this.store.automations().map((automation) => ({
         ...automation,
-        lastRun: this.store.automationRuns(automation.id)[0],
+        lastRun: this.store.latestAutomationRun(automation.id),
         ...(this.#issueErrors.has(automation.id)
           ? { issueError: this.#issueErrors.get(automation.id) }
           : {}),
@@ -195,7 +195,9 @@ export class AutomationManager {
       const files = await readdir(directory).catch(() => []);
       await Promise.all(
         files
-          .filter((file) => file.endsWith(".received.json"))
+          .filter(
+            (file) => file.endsWith(".received.json") || file.endsWith(".md"),
+          )
           .map((file) => unlink(join(directory, file)).catch(() => {})),
       );
       const result = { id };
@@ -562,18 +564,19 @@ export class AutomationManager {
     return run;
   }
   #busy(automation: Automation): boolean {
-    const previous = this.store
-      .automationRuns(automation.id)
-      .find((r) => r.terminalId);
     const terminals = this.terminals().list();
-    const terminal = terminals.ok
-      ? terminals.result.terminals.find((t) => t.id === previous?.terminalId)
-      : undefined;
     return (
-      !!terminal &&
-      ((!terminal.cliStatus && !!terminal.cli && !terminal.cliResumePending) ||
-        terminal.cliStatus?.state === "active" ||
-        terminal.cliStatus?.state === "waiting")
+      terminals.ok &&
+      terminals.result.terminals.some(
+        (terminal) =>
+          ((!terminal.cliStatus &&
+            !!terminal.cli &&
+            !terminal.cliResumePending) ||
+            terminal.cliStatus?.state === "active" ||
+            terminal.cliStatus?.state === "waiting" ||
+            !!terminal.cliStatus?.backgroundTasks?.length) &&
+          this.store.automationHasTerminalRun(automation.id, terminal.id),
+      )
     );
   }
   async #launch(
@@ -587,6 +590,7 @@ export class AutomationManager {
       this.store.putAutomationRun(run);
       return;
     }
+    let launchRequested = false;
     try {
       const folder = await stat(automation.cwd).catch(() => undefined);
       if (!folder?.isDirectory()) {
@@ -622,6 +626,7 @@ export class AutomationManager {
           ? await worktreeSetup(automation.cwd, this.store)
           : undefined;
         const context = { clientPublicKey: "automation", operationId: run.id };
+        launchRequested = true;
         const result: Response<TerminalCreatedResult> =
           automation.target.kind === "team"
             ? await this.teams().launch(
@@ -658,9 +663,14 @@ export class AutomationManager {
         }
       }
     } catch {
-      // A lost launch response does not prove that the CLI failed to start.
-      // Keep the claimed occurrence and never retry its side effect.
-      console.error("Automation launch response was interrupted");
+      if (!launchRequested)
+        run.launchError = run.issue
+          ? "Could not start the agent for this issue. Remove the label and add it again."
+          : "Could not start the agent. Edit the automation and run again.";
+      else {
+        // A lost launch response does not prove that the CLI failed to start.
+        console.error("Automation launch response was interrupted");
+      }
     }
     this.store.putAutomationRun(run);
   }

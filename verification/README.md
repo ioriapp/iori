@@ -63,9 +63,9 @@ Linuxの検証用debの導入・回収は `verification/native/linux-packages.mj
 - 止めた子への `send` の成功は再開の受付で、PTY の再起動の完了ではない。再開した子の Terminal を開く前に、`send` の前に作った新しいイベントの購読で、その子の `teams.child.updated` が `state: "running"` になるのを待つ（先に開くと止まった Terminal の画面と終了が届き、`Hostの購読が終了しました` で落ちる。負荷のある CI でだけ起きた）。
 - 検証の道具がTerminalのデーモンを止める・上限を付ける時は、そのsystemdのunitのWorkingDirectoryが検証の保存先の中かを確かめてから行う（`verification/terminal/daemon-process.mjs`）。隔離したPATHのHostはデーモンを直接起動するので、デーモンは試験を流したプロセスのcgroupを継ぐ。cgroupのunitの名前だけで止めると、iori のTerminalの中から流した時に日常のTerminalのデーモンを止める（#317）。
 
-## main 後の画面E2E
+## 夜間の全画面E2E
 
-Linux の専用作業場所で、main の新しい commit を30分ごとに確認する。4組まで並行し、結果は `~/.local/share/iori-background-e2e/latest.json`、証拠は同じ場所の `evidence/` に残る。失敗時は Forgejo の Issue #321 に通知する。日常 Host は使わない。
+Linux の専用作業場所で、毎日4時に main の新しい commit を確認して全部のシナリオを実行する。Release を作成する前は `systemctl --user start iori-background-e2e.service` で同じ実行を始める（確認済みの commit なら何もしない）。4組まで並行し、失敗したシナリオは1回だけ再実行して、再実行でも失敗したものだけを失敗にする。結果は `~/.local/share/iori-background-e2e/latest.json`、証拠は同じ場所の `evidence/` に残る。失敗時は Forgejo の Issue #321 に通知する。日常 Host は使わない。
 
 Node 24・pnpm 11・Rust・Chromium・各 CLI と、このページのブラウザーE2Eの準備が必要。導入元のリポジトリで次を実行する。`PATH` は timer からも同じ道具を見つけるため保存する。
 
@@ -87,42 +87,90 @@ Web runnerも `~/.config/iori/verification.json` の `windows.home` を読込時
 
 スマホ操作の共通helper `mobile()` と `phone()` は、Terminalを作る前にタッチ対応を有効にする。画面幅だけを変えてもxtermの指操作は登録されない。`desktop()` はタッチの模擬を解除する。
 
-Webで複数Hostを確認する時は `startWebHost(distribution, { dataRoot, port })` へ検証専用の保存先とportを渡し、返る `close({ stopTerminals: true })` で後始末する。サイドバーの並べ替えは `pnpm e2e:web --only=sidebar-order` で確認する。
+Webで複数Hostを確認する時は `startWebHost(distribution, { dataRoot, port })` へ検証専用の保存先とportを渡し、返る `close({ stopTerminals: true })` で後始末する。サイドバーの並べ替えは `pnpm e2e:web --only=sidebar-host-order` で確認する。
 
 `verification/web/run.mjs --only=<シナリオ>` はシナリオを1つだけ受け取る。指定なしの長い一括実行は使わず、複数のシナリオは1つずつ流す（`--only=a,b` で複数は選べない）。接続中のHostをまとめて更新するダイアログは `client-update` ではなく `client-host-update` が通す。
 
-基本のシナリオは次のまとまりに分ける。どれも通常の招待で登録し、必要なフォルダーやTerminalを共通helperで開く。`web-recovery` は会話の保存からHost再起動・再開・通信断のFiles/Git・同じTerminalへの復帰までを一緒に通す。`web-terminal` はペインを閉じた後のTerminalで切断と再接続を通す。
+要求の失敗や保留は、Node側の `client.faults` で再現する。Clientの内部やページ内の関数は差し替えない。`method` には `terminal.list` など、ClientがHostへ送る要求名を指定する。同じ実行のClientで共有するbridgeが、その後の対象の要求や応答を処理する。
 
-| `--only` の名前      | 内容                                                                                          |
-| -------------------- | --------------------------------------------------------------------------------------------- |
-| `host-update-mark`   | 選択中のHostと一覧の更新のインジケーター、外したHostのインジケーターの消去                    |
-| `web-workspace`      | 登録、Git/非Gitの初期タブ、再読込・worktreeの切り替え、Host設定、登録解除と再登録後のTerminal |
-| `worktree-removal`   | worktreeの削除と取り込み済みの片付け                                                          |
-| `files-transfer`     | Filesのアップロードとダウンロード                                                             |
-| `git-image-diff`     | Gitの画像の変更前後・拡大・前後の切替、スマホの表示と戻る                                     |
-| `reading-text-copy`  | 本文のドラッグ・スクロール後のコピー、Gitの本文、スマホの長押しと行選択                       |
-| `reading-worktrees`  | worktree間のFiles/Git、Markdown・画像の表示                                                   |
-| `web-terminal`       | 日本語、ペイン操作、読み位置と通信復帰、出来事の継続、PC・スマホの寸法                        |
-| `web-cli`            | CLI設定・初回起動、最大化、状態と通知、hooksの失敗と再試行、CLI一覧、長い承認待ち             |
-| `web-recovery`       | Codexの会話の再開、Files/Gitの通信復帰、スマホで同じTerminalへ戻る                            |
-| `automations`        | 自動化の作成・実行と履歴                                                                      |
-| `automation-webhook` | Webhookの受信・履歴・token更新・受信範囲・待受の変更                                          |
-| `automation-issue`   | Issueのラベルによる起動・履歴・PR作成・接続の回復                                             |
-| `teams`              | チーム編集・保存とHost再起動後の保持                                                          |
-| `child-rows`         | 候補なし委譲の通知、PC・Mobileの子の行の配置                                                  |
-| `worktree-create`    | worktreeの作成                                                                                |
-| `forge-status`       | フォルダーの無い時の連携設定、Forgeの状態                                                     |
-| `forge-issues`       | ForgeのIssue一覧と詳細                                                                        |
+`const hold = await client.faults.holdNative("native_terminal_write")` は指定した native 呼び出しを保留し、`await hold.ready` で最初の呼び出しを待つ。
+`await hold.release()` または `await hold.clear()` で解除し、`client.faults.clear()` でも解除される。
 
-`web-cli`・チームのシナリオはClaude CodeとCodexをlocalhostの偽のモデルAPIへ向ける。`claude-status`・`long-approval` も同じClaude Codeの台本を単独で使う。`web-cli` のPiも偽のResponses APIを使う。`--real-models` を付けると、同じシナリオをClaude Codeのhaiku・Codex/Piのgpt-6-lunaの実モデルで通す。`web-recovery`・`automations`・`automation-webhook`・`automation-issue`・`forge-issue-start`・`host-update`・`host-uninstall`・`mobile-batch-input`・`mobile-images` は偽のAPIを使う。`web-terminal` は本物のPiを起動するがモデルへ依頼しない。残りのCLIとfixtureは各シナリオの説明に従う。Releaseの範囲の受け入れも同じ名前を `--scenarios=web-cli,web-recovery` のように指定する。
+```js
+const fault = await client.faults.fail("terminal.list");
+// 画面を操作して失敗の表示を確認する。
+assert.ok(fault.count > 0); // 失敗応答を返した回数
+await fault.clear();
+// 画面の再試行を操作して回復を確認する。
 
-`pnpm e2e:web --only=pane-maximize` は入れ子の分割を含む4ペインでTerminal・Pi・Filesを最大化し、タブを切り替えてからTerminal外へ焦点を移したEscape・復元ボタン・外側のクリック・タブのダブルクリックで戻す。背景が消え、内容が元の位置と大きさへ戻り、非表示タブの描画面もワークスペースからはみ出さないことを確かめる。比較元は選んだタブの内容がペインに収まってから取得する。Terminalに焦点がある時のEscapeは、最大化を保ったまま実PTYへ0x1bが届くことを確かめる。同じシナリオは `web-cli` にも含める。
+const hold = await client.faults.hold("automation.list");
+// 一覧が届く前の画面を操作する。
+await hold.release(); // 保留した要求を本物のHostへ送る。
 
-`pnpm e2e:web --only=web-cli` は本物のPiを「＋」から開いて終了し、同じshellでコマンドを実行する。設定の「AI エージェント」でバージョンを確認してCLIを追加し、検索して開く。shellが終了した後の空のペインからも続ける。PCの一覧・CLIのタブとサイドバー・設定をモックアップv9と同じ1440×1000の構図で明暗のスクリーンショットを撮る。シナリオは [CLIの画面](../e2e/cli-screen/scenario.mjs) に置く。shellの起動と履歴は[Host API の E2E](../e2e/host/cli-shell-startup.test.mjs)で確かめる。CLIのHOMEとPiの会話保存先 `PI_CODING_AGENT_SESSION_DIR` はrun専用に分ける。認証の共有は[本物のCLIで確かめる時](#本物のcliで確かめる時)に従い、偽APIを使うCLIは共有しない。ユーザーの設定はコピーせず、モデルは検証HOMEでCodexの `gpt-6-luna` とPiの `openai/gpt-6-luna` を指定する。[状態と判断待ち](../e2e/cli-screen/status.mjs) は短い応答、承認が要るコマンド、Runningスクリーンショット取得用のコマンドをそれぞれ一つ頼み、状態のインジケーター・完了を表示して待機中になること・PCとMobileの判断待ち・CLI内の回答による解消を通す。検証用のユーザーhookを残し、ioriのhookとその信頼だけが撤去されることも確かめる。Claude Codeは分離した設定で `claude-haiku-4-5` を指定し、偽API（`--real-models` の時だけ試験専用トークン）で起動する。CLIの承認画面が表示されたことを確かめてEscで断り、実物の中断表示とioriの判断待ちの解消を通す。Mobileの最初の画面は400×900で明暗のスクリーンショットを撮る。Piの入力準備は共通の `waitForPiInput` で、そのTerminalの入力画面にある空のコンテキスト表示を待つ。起動案内は小さいペインの保存画面から消えることがあるため、準備の判定に使わない。
+const counter = await client.faults.count("host.update", { hostKey });
+// 対象Hostへの要求を変更せずに送り、回数を確認する。
+assert.equal(counter.count, 1);
+await counter.clear();
+
+const response = await client.faults.holdResponse("team.launch", { hostKey });
+// 画面を操作して要求を送る。
+await response.ready; // 最初の応答が保留された。
+await response.release(); // 本物の応答を返す。
+
+await client.faults.dropResponse("worktrees.create", { hostKey });
+// 次の要求をHostに送り、その応答が届かない場合を再現する。
+
+await client.faults.clear(); // 全て解除し、保留した要求や応答も返す。
+```
+
+Clientの保存の失敗は `const fault = await client.faults.failNative("native_save_view", { scope: "client-update-hosts" })` で再現する。
+`scope` を省略するとそのコマンドの全ての呼び出しが対象になる。現在は `native_save_view` に対応する。
+`fault.count` で失敗させた回数を確認し、`await fault.clear()` または `await client.faults.clear()` で解除する。
+
+`fail` はHostの一般的な失敗と同じ `{ ok: false, error: { code: "internal_error" } }` を返し、解除まで対象の要求を失敗させる。`hold` は解除まで対象の要求を保留し、応答は本物のHostから返す。`count` は要求を通しながら回数を数える。`holdResponse` はHostの応答を受け取った後で保留し、`ready` は最初の応答の保留時に解決する。`dropResponse` は一度だけHostの応答を失わせ、通信エラーを返す。各操作の第2引数に `{ hostKey }` を指定すると対象Hostを限定し、省略すると全Hostを対象にする。同じ要求名とHostの組に新しく設定すると前の設定は解除し、Host指定と全Host指定が重なる場合はHost指定を優先する。シナリオの成功・失敗にかかわらず、runnerの終了処理が全て解除する。シナリオの途中で回復を確認する時は、再試行の操作の前に解除する。接続自体の切断には既存の `withConnectionOffline` を使う。
+
+基本のシナリオは次のまとまりに分ける。どれも通常の招待で登録し、必要なフォルダーやTerminalを共通helperで開く。`web-recovery` は会話の保存からHost再起動・再開・通信断のFiles/Git・同じTerminalへの復帰までを一緒に通す。`terminal-retention` はTerminalの切断と再接続を通す。
+
+| `--only` の名前                                                         | 内容                                                                                          |
+| ----------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `host-update-mark`                                                      | 選択中のHostと一覧の更新のインジケーター、外したHostのインジケーターの消去                    |
+| `web-workspace`                                                         | 登録、Git/非Gitの初期タブ、再読込・worktreeの切り替え、Host設定、登録解除と再登録後のTerminal |
+| `removal-indicators`・`removal-single`・`removal-cleanup`               | worktreeの削除と取り込み済みの片付け                                                          |
+| `removal-parent-child`・`removal-mobile`                                | 親子の削除とスマホの長押し                                                                    |
+| `files-upload`・`files-download`                                        | Filesのアップロードとダウンロード                                                             |
+| `git-image-diff`                                                        | Gitの画像の変更前後・拡大・前後の切替、スマホの表示と戻る                                     |
+| `reading-text-copy`                                                     | 本文のドラッグ・スクロール後のコピー、Gitの本文、スマホの長押しと行選択                       |
+| `reading-worktree-switch`・`reading-surfaces`・`files-reading`          | worktree間のFiles/Git、Markdown・画像の表示                                                   |
+| `terminal-nerd-font`・`terminal-retention`・`event-tolerance`           | Terminalの表示と接続復帰                                                                      |
+| `terminal-size-ownership`・`pane-resize`・`pane-split`                  | 寸法とペインの操作                                                                            |
+| `pane-file-drop`・`pane-exit`                                           | ファイルのドロップとペインの終了                                                              |
+| `terminal-send`・`terminal-fit`・`terminal-font`                        | Terminalの入力・寸法・フォント                                                                |
+| `terminal-right-click`・`mobile-terminal-touch`・`mobile-cli-selection` | Terminalの右クリックとスマホの操作                                                            |
+| `cli-first-open`・`cli-settings`・`cli-resize`・`pane-maximize`         | CLIの初回起動、設定、幅の変更、最大化                                                         |
+| `cli-status`・`claude-status`・`cli-launcher`・`long-approval`          | CLIの状態と通知、hooksの失敗と再試行、CLI一覧、長い承認待ち                                   |
+| `web-recovery`                                                          | Codexの会話の再開、Files/Gitの通信復帰、スマホで同じTerminalへ戻る                            |
+| `automation-draft`                                                      | 自動化の作成と編集                                                                            |
+| `automation-run`                                                        | 自動化の手動実行・有効の切り替え・削除                                                        |
+| `automation-schedule`                                                   | 予定と履歴の表示・チームの実行                                                                |
+| `automation-recovery`                                                   | フォルダーのエラーと再実行                                                                    |
+| `automation-webhook-setup`                                              | Webhookの設定・トークン更新・受信範囲・待受の変更                                             |
+| `automation-webhook-receive`                                            | Webhookの受信・履歴・会話                                                                     |
+| `automation-issue`                                                      | Issueのラベルによる起動・履歴・PR作成・接続の回復                                             |
+| `teams`                                                                 | チーム編集・保存とHost再起動後の保持                                                          |
+| `child-rows`                                                            | 候補なし委譲の通知、PC・Mobileの子の行の配置                                                  |
+| `worktree-create`                                                       | worktreeの作成                                                                                |
+| `forge-status`                                                          | フォルダーの無い時の連携設定、Forgeの状態                                                     |
+| `forge-issues`                                                          | ForgeのIssue一覧と詳細                                                                        |
+
+`cli-status` はCodexを、`claude-status`・`long-approval` はClaude Codeをlocalhostの偽のモデルAPIへ向ける。チームのシナリオも偽のモデルAPIを使う。`--real-models` を付けると、同じシナリオをClaude Codeのhaiku・Codex/Piのgpt-6-lunaの実モデルで通す。`web-recovery`・`automation-run`・`automation-schedule`・`automation-recovery`・`automation-webhook-receive`・`automation-issue`・`forge-issue-start`・`host-update`・`host-uninstall`・`mobile-batch-input`・`mobile-images` は偽のAPIを使う。`mobile-cli-selection` は本物のClaude Codeを起動するがモデルへ依頼しない。残りのCLIとfixtureは各シナリオの説明に従う。Releaseの範囲の受け入れも同じ名前を `--scenarios=cli-status,web-recovery` のように指定する。
+
+`pnpm e2e:web --only=pane-maximize` は入れ子の分割を含む4ペインでTerminal・Pi・Filesを最大化し、タブを切り替えてからTerminal外へ焦点を移したEscape・復元ボタン・外側のクリック・タブのダブルクリックで戻す。背景が消え、内容が元の位置と大きさへ戻り、非表示タブの描画面もワークスペースからはみ出さないことを確かめる。比較元は選んだタブの内容がペインに収まってから取得する。Terminalに焦点がある時のEscapeは、最大化を保ったまま実PTYへ0x1bが届くことを確かめる。
+
+`pnpm e2e:web --only=cli-first-open` は本物のPiを「＋」から開いて終了し、同じshellでコマンドを実行する。shellが終了した後の空のペインからも続ける。`cli-status` はCodexの状態のインジケーター・通知・PCとMobileの判断待ち・CLI内の回答による解消を確かめる。検証用のユーザーhookを残し、ioriのhookとその信頼だけが撤去されることも確かめる。CLIのHOMEとPiの会話保存先はrun専用に分ける。認証の共有は[本物のCLIで確かめる時](#本物のcliで確かめる時)に従う。
 
 CLI一覧を開いても未使用CLIの設定が変わらず、初めて開くCodexも最初の会話から状態のインジケーターが出ることを確かめる。`pnpm e2e:web --only=cli-launcher` はhookの無いHOMEで、初めて開くPiの会話に起動直後から待機中のインジケーターが出ることも確認する。Claude Codeでは専用HOMEのhook用フォルダーに書き込みを妨げるファイルを置き、取り付けに失敗しても起動できること、障害を取り除いた後の起動で再試行し、その会話から待機中・承認待ちを観測できることを通す。このClaude Codeのシナリオだけを流す時は `pnpm e2e:web --only=claude-status` を使う。
 
-`pnpm e2e:web --only=web-recovery` は、偽のAPIにつながるCodexへ記憶を頼み、Host再起動後に最後の画面と再開行を確認してから、同じ会話と記憶を戻す。会話IDを持たないCLIの起動し直しと閉じる操作は[Host API の E2E](../e2e/host/cli-shell-startup.test.mjs)で確かめる。通知はnativeのインターフェースの代わりの記録で、対象を見ていない時の文面と1回の要求、見ている時の抑制を確かめる。OSの通知の代用にはしない。通知の確認は `--only=web-cli` を使う。
+`pnpm e2e:web --only=web-recovery` は、偽のAPIにつながるCodexへ記憶を頼み、Host再起動後に最後の画面と再開行を確認してから、同じ会話と記憶を戻す。会話IDを持たないCLIの起動し直しと閉じる操作は[Host API の E2E](../e2e/host/cli-shell-startup.test.mjs)で確かめる。通知はnativeのインターフェースの代わりの記録で、対象を見ていない時の文面と1回の要求、見ている時の抑制を確かめる。OSの通知の代用にはしない。通知の確認は `--only=cli-status` を使う。
 
 チームの画面のシナリオは `team-command-route`（親Claude Codeから実delegateと報告の通知）、`team-child-tabs`（子Codexの既定sandbox・残量・タブ・Mobileのドロワー）、`team-messages`（質問・回答・報告の実CLIの記録）、`team-board`（Plan・Agents・MobileのBoardsの行き来）、`team-records`（日付・チーム名の絞り込み・候補の点からタスクの経緯と最後の画面）へ分ける。各シナリオは `node scripts/run-bounded-check.mjs node verification/web/run.mjs --only=〈名前〉` で、専用Host・通常の招待・独立したチームから実行する。チーム作成と親の起動は共通の `e2e/web/team-fixture.mjs`、子の準備は `team-worker.mjs` を使う。残量は本物のCodex app-serverから読み、下限の選択は純粋関数の試験で確認する。
 
@@ -150,11 +198,15 @@ CLI一覧を開いても未使用CLIの設定が変わらず、初めて開くCo
 
 - 新しいシナリオを `verification/web/scenarios.mjs` に足したら、全体の受け入れで流すかを決め、流すなら `scripts/release/acceptance.mjs` の `fullScenarioOrder` にも足す（足し忘れると全体の受け入れで一度も流れない）。
 
-- Releaseの作成（`scripts/release/build.mjs`）はAndroid・Linux Client・Windowsの作成と範囲の受け入れを同時に流すので、負荷の下でだけシナリオが落ちることがある（#305、web-cliで画面が空になった）。落ちたら同じ配布物でそのシナリオだけを負荷の無い時に流し直して分類する。
+- Releaseの作成（`scripts/release/build.mjs`）はAndroid・Linux Client・Windowsの作成と範囲の受け入れを同時に流すので、負荷の下でだけシナリオが落ちることがある（#305）。落ちたら同じ配布物でそのシナリオだけを負荷の無い時に流し直して分類する。
+
+`--only=team-save-conflict` は別のClientの保存・削除後に古い編集画面から保存し、キャンセルでの編集保持、上書きと履歴、再読み込み、新しいTeamとしての保存を確認する。
 
 ### 偽のモデルAPI
 
 `verification/web/fake-model-scenarios.mjs` の `clis` で指定したCLIは、試験の中で起動する `verification/fake-model/server.mjs` へ接続する。CLI本体・Host・画面・hooksは本物を使い、合否の判定も実モデルと同じにする。Claude Codeは `ANTHROPIC_BASE_URL` と試験専用の `ANTHROPIC_AUTH_TOKEN`、Codexは分離したHOMEの `config.toml` のproviderで接続先を変える。偽APIを使うCodexには通常本人の `auth.json` へのリンクを作らず、Claude Codeには試験用OAuthトークンを渡さない。残量の確認があるシナリオでは `codexAccount: true` を宣言してCodexのログインを共有し、残量は本物のapp-serverから取得する。モデルの要求は偽のproviderへ向けたままにする。呼び出し側の偽API用の環境変数も引き継がない。
+
+Windows Client × Windows Hostの `verification/cli/run.mjs` も通常は偽のAPIを使う。この機械で起動したAPIへLANで接続し、再開後の要求に以前の依頼が含まれることを記録で確認する。`--real-models` で同じシナリオを実モデルに切り替える。手順は検証設備の運用の文書の「CLIの画面のE2E」にある。
 
 `cli-definition-plugin`（Pi・Claude Code）、`clipboard`（Claude Code・Codex・Pi）、`cli-omp`（omp・Claude Code）、`opencode-delegation`（OpenCode・Claude Code）も通常は偽APIを使う。Piの `models.json`、OpenCodeの `opencode.json`、ompの通常・profile両方の `models.yml` でResponses APIの接続先を変え、Pi・OpenCode・omp本人の認証は共有しない。ompの各会話役割は同じ偽の接続先へ揃える。`opencode-delegation` は既存の残量表示の確認に `codexAccount: true` を宣言し、Codexのモデル要求の接続先も偽へ向ける。
 
@@ -164,17 +216,17 @@ CLI一覧を開いても未使用CLIの設定が変わらず、初めて開くCo
 
 依頼文の `[fake-model:名前]` と、マーカーのあるuser発言または配送ファイルの読み込み結果の後のassistant応答数（連続する文と道具の項目を1応答として数える）から返す文・道具の呼び出しを毎回選び、会話の状態はサーバーに保存しない。マーカーの無い要求には通常 `OK` を返す。例外はioriの配送文で、パスをCLIのReadまたはcatへ渡し、CLI自身にファイルを順に読ませる。配送文には `Read <path> and follow its instructions.` と2ファイルを `Then read` で続ける形も含む。この配送文をioriが変えた時は試験の種類5（実モデル）で確認する。`hold: true` の段は接続が閉じるまで応答中を保ち、`delayMs` は指定した時間の後に次の文や道具を返す。`result.json` の `fakeModelRequests` は時刻・method・path・形式・model・マーカー・台本の番号・`toolsProvided`（道具の一覧が指定されたか）・道具名を記録し、要求本文・システム指示・認証は保存しない。
 
-要求本文の照合の例外として、画像項目の数を `imageCount` に、台本の段で `expectTokens` に明示した目印がsystem・instructions・会話に含まれるかを `tokensPresent` の真偽へ記録する。画像と本文は保存せず、clipboard・mobile-imagesは画像の到達、cli-omp・automationsは指示ファイル、web-recovery・cli-definitionは再開した会話、automation-webhookは本文、mobile-batch-inputは入力、repo-delegationは子が読んだファイルの目印の到達をシナリオで確認する。
+要求本文の照合の例外として、画像項目の数を `imageCount` に、台本の段で `expectTokens` に明示した目印がsystem・instructions・会話に含まれるかを `tokensPresent` の真偽へ記録する。画像と本文は保存せず、clipboard・mobile-imagesは画像の到達、cli-omp・automation-runは指示ファイル、web-recovery・cli-definitionは再開した会話、automation-webhook-receiveは本文、mobile-batch-inputは入力、repo-delegationは子が読んだファイルの目印の到達をシナリオで確認する。
 
-Releaseの受け入れは `verified.json` に記録したすべてのCLIのバージョンと指示ファイルのcommitを現在と比べ、変更に関係するシナリオを偽の後に実モデルでも流す。バージョンを取れないCLIや記録のcommitを比べられない場合も変更扱いで受け入れを続け、変更したCLIのシナリオが範囲外なら判断時と更新案に一覧を出す。成功後、証拠先へ出た更新案を確認して `verification/fake-model/verified.json` に反映しcommitする。各CLIのバージョンはそのCLIを使う全体の受け入れのシナリオ、指示のcommitは全体の受け入れの偽のシナリオをすべて実モデルで通した時だけ更新される。全体の受け入れに含まれない `claude-status`・`long-approval`・`repo-delegation`・`cli-omp` は更新の条件から外し、対象外の一覧はログにも出す。 全体の受け入れにそのCLIのシナリオが無い場合は、そのCLIを使う偽のシナリオをこの受け入れで1本以上実モデルで通した時だけバージョンを更新する。
+Releaseの受け入れは `verified.json` に記録したすべてのCLIのバージョンと指示ファイルのcommitを現在と比べ、変更に関係するシナリオを偽の後に実モデルでも流す。バージョンを取れないCLIや記録のcommitを比べられない場合も変更扱いで受け入れを続け、変更したCLIのシナリオが範囲外なら判断時と更新案に一覧を出す。成功後、証拠先へ出た更新案を確認して `verification/fake-model/verified.json` に反映しcommitする。各CLIのバージョンはそのCLIを使う全体の受け入れのシナリオ、指示のcommitは全体の受け入れの偽のシナリオをすべて実モデルで通した時だけ更新される。全体の受け入れに含まれない `cli-omp` は更新の条件から外し、対象外の一覧はログにも出す。 全体の受け入れにそのCLIのシナリオが無い場合は、そのCLIを使う偽のシナリオをこの受け入れで1本以上実モデルで通した時だけバージョンを更新する。
 
-`node scripts/run-bounded-check.mjs node verification/web/run.mjs --only=web-cli --real-models` で実モデルへ切り替える。依頼文や指示ファイルに台本選択のマーカーは入れず、本人のCLI認証とClaude Codeの試験用トークンを使う。
+`node scripts/run-bounded-check.mjs node verification/web/run.mjs --only=cli-status --real-models` で実モデルへ切り替える。依頼文や指示ファイルに台本選択のマーカーは入れず、本人のCLI認証とClaude Codeの試験用トークンを使う。
 
 PCの画面（`client`）とスマホの画面（`phone()`）は同じブラウザーで動き、Clientの設定（`verification/web/bridge.mjs` の保存先）を共有する。PC側で変えたサイドバーの開閉などの端末ごとの設定はスマホの画面にも引き継がれる（実際の端末どうしは共有しない）。スマホの節は、PC側の操作の結果に頼らず、必要な状態を自分の操作でそろえる。
 
 画面の変更ごとに、リポジトリのrootで `pnpm e2e:web --only=<シナリオ>` を使う。Node.js 24・pnpm 11で依存を準備し、現在のsourceから `node scripts/run-bounded-check.mjs pnpm --filter @iori/host build:native` を一度実行しておく。製品のnative境界を変えていない画面の短い確認用であり、Windows/Android ClientやWindows Hostの実機E2Eを置き換えない。
 
-共通のCSS・部品（サイドバーの行、設定の行、タブ）を変えた時は、変えた画面を撮るシナリオだけでなく、その部品の位置・大きさを確かめるシナリオも流す。部品のclass名（例: `nav-worktree-controls`）を `grep -rln` で `e2e/` から探して選ぶ。サイドバーの行の右の組は `forge-status`・`sidebar-order`・`child-running` が行の枠に収まることを確かめている。
+共通のCSS・部品（サイドバーの行、設定の行、タブ）を変えた時は、変えた画面を撮るシナリオだけでなく、その部品の位置・大きさを確かめるシナリオも流す。部品のclass名（例: `nav-worktree-controls`）を `grep -rln` で `e2e/` から探して選ぶ。サイドバーの行の右の組は `forge-status`・`child-sidebar-navigation` が行の枠に収まることを確かめている。
 
 画面のChromiumは、PCのClientと同じくスクロールバーが幅を取る形で描く（Playwrightの既定の `--hide-scrollbars` を外す）。幅767px以下の画面だけは、AndroidのWebViewと同じく幅を取らない形にする。どちらも `verification/web/run.mjs` の共通の起動と画面の初期化が受け持つので、シナリオごとに書かない。
 
@@ -187,8 +239,6 @@ PC幅とスマホ幅の2ページで同じTerminalを表示し、表示中の選
 `pnpm e2e:web --only=reading-responsiveness` は、生成物を含む大きなフォルダーでFilesの初回・復帰直後とGitの差分表示を通す。画面の操作から本物のHostへ送った読取要求のラウンドトリップを測り、監視開始による停止を検出する。監視の準備中の外部変更も画面へ反映されることを確かめる。計測は検証画面内だけで行い、製品へ記録は残さない。Releaseの受け入れにも含める。
 
 `IORI_AUTOMATION_ISSUE_CAPTURE=1 pnpm e2e:web --only=automation-issue` はIssueの設定・履歴・接続できない理由をPC 1440×1000、WQHD 2560×1440、スマホ 390×844のライト・ダークでスクリーンショットを撮る。
-
-`IORI_AUTOMATION_WEBHOOK_CAPTURE=1 pnpm e2e:web --only=automation-webhook` はWebhookの設定・履歴・ダイアログをPC 1440×1000、WQHD 2560×1440、スマホ 390×844のライト・ダークでスクリーンショットを撮る。
 
 同じシナリオが後で成功すると、前の成功したrunのスクリーンショット（png）は消える（`verification/web/cleanup.mjs` の `pruneScreenshots`）。reviewに渡すスクリーンショットは、撮った後に `.local/evidence/web-shots/<シナリオ>/` へコピーする。
 
@@ -206,7 +256,7 @@ PC幅とスマホ幅の2ページで同じTerminalを表示し、表示中の選
 
 `pnpm e2e:web --only=terminal-retention`（ほかの選択肢は `event-tolerance`、`long-approval`、`cli-resize`）で、読み位置の保持・出来事の受信継続・長い承認待ち・実CLIの境界ドラッグだけを選んで実行できる。境界ドラッグはモデルへ依頼せず、ドラッグ中の端末寸法の保持、終了時の最終寸法一回の通知、直後の入力を確かめる。CLIへ有料の依頼を送った回は、選択実行でも実際のモデルを確認する。
 
-`pnpm e2e:web --only=cli-settings` は、実物のPiの起動・起動直後のCtrl+C・shellへの復帰と、AIエージェントの画面で名前とコマンドから足したCLIの追加（`--help` からのモデルの引数の自動入力）・編集・削除を既存のシナリオで確認する。モデルへ依頼は送らない。
+`pnpm e2e:web --only=cli-settings` は、コマンドを入力し直しても削除したモデルの引数が戻らないこと、CLIの一覧順と検索、編集したコマンドでの起動と削除後の一覧を確認する。モデルへ依頼は送らない。
 
 `pnpm e2e:web --only=cli-definition-plugin` は、実物のPiをユーザーの定義（`plugin-file`の部品、トークン量・利用枠のスクリプト）としてJSONの欄から足し、不足の案内から「ファイルを選ぶ」でスクリプトと部品を選び足せること、確認に部品の置く先とスクリプトのコマンドが出ること、部品が送る共通の形で応答中→完了のインジケーターが出ること、利用枠が出ること、チームの子として委譲した時のトークン量、定義の削除でioriが置いた部品だけが消えて同じ名前のユーザーのファイルが残ることを通す。部品はPiの拡張のフォルダーへ置き、トークン量はPi自身の会話ファイルから読む。モデルはPiの `gpt-6-luna`。
 
@@ -214,45 +264,43 @@ PC幅とスマホ幅の2ページで同じTerminalを表示し、表示中の選
 
 CLIの定義は `cli-definition-editor`（名前・コマンド・JSONと画像の追加、編集、アイコン、隠す操作）、`cli-definition-session`（実物のClaude Codeのhooks・状態のインジケーター・Host再起動後の同じ会話の再開）、`cli-definition-team`（定義のCLIへモデル・指示・フォルダーを渡して子の報告）、`cli-definition-removal`（読めない定義の理由、削除、TOMLのhooks、同梱の定義へ戻す）へ分ける。各シナリオは新しいHostと専用の設定ファイルを使い、後ろのシナリオはHostの公開APIで定義を準備する。Claude Codeのモデル要求は偽のAPIへ向ける。`IORI_CLI_DEFINITION_CAPTURE=1` のスクリーンショットは各シナリオで使える。
 
-shell初期化を変えた時は、`node scripts/run-bounded-check.mjs node verification/terminal/shell-integration.mjs <Debianパッケージの展開先> <証拠の保存先>` で本物のbash・zsh・fishも確認する。`zsh`・`zsh-common`・`fish`・`fish-common`を`apt-get download`でscratchpadへ取得し、`dpkg-deb -x`で同じ展開先へ置く（systemへはインストールしない）。Fishは実行ファイルからの相対配置に`usr/etc/fish`も必要なので、展開先の`usr/etc`を作り、そこで`ln -s ../../etc/fish fish`を実行する。runnerは証拠の保存先に専用HOMEとHost資材を作り、ユーザーファイルの読込順・alias・プロンプト・PATH・履歴・終了時の設定を実PTYで確かめる。Bashの`.bash_logout`の実行有無は結果へ記録するだけにし、Zshは明示したHISTFILEとPrezto型の既定値について通常の`zsh -l`と同じ履歴ファイルを使い、元のZDOTDIR・`.zlogout`へ戻ることを確認する。通常UIのCLI起動・履歴は上記の`cli-settings`、会話の再開は`--only=web-recovery`で別に確かめる。
+shell初期化を変えた時は、`node scripts/run-bounded-check.mjs node verification/terminal/shell-integration.mjs <Debianパッケージの展開先> <証拠の保存先>` で本物のbash・zsh・fishも確認する。`zsh`・`zsh-common`・`fish`・`fish-common`を`apt-get download`でscratchpadへ取得し、`dpkg-deb -x`で同じ展開先へ置く（systemへはインストールしない）。Fishは実行ファイルからの相対配置に`usr/etc/fish`も必要なので、展開先の`usr/etc`を作り、そこで`ln -s ../../etc/fish fish`を実行する。runnerは証拠の保存先に専用HOMEとHost資材を作り、ユーザーファイルの読込順・alias・プロンプト・PATH・履歴・終了時の設定を実PTYで確かめる。Bashの`.bash_logout`の実行有無は結果へ記録するだけにし、Zshは明示したHISTFILEとPrezto型の既定値について通常の`zsh -l`と同じ履歴ファイルを使い、元のZDOTDIR・`.zlogout`へ戻ることを確認する。通常UIのCLI起動は `cli-first-open`、shellの起動と履歴は[Host API の E2E](../e2e/host/cli-shell-startup.test.mjs)、会話の再開は `--only=web-recovery` で別に確かめる。
 
-`pnpm e2e:web --only=cli-launcher` は、開いたCLI一覧へ実HostのCLI一覧を取り直した応答にある残量・バージョンを出来事として再送し、選択項目・検索語・入力位置を保つことと、タブ選択の直後に「＋」を開いてCLIを選べることを確認する。初回の一覧取得後にバージョンが分かった時、値が変わらず更新の出来事が届かない時、残量が無い時も同じ方法で確認する。モデルへ依頼は送らない。`web-cli` でも、Codexの応答・承認とClaude Codeの操作の後に同じ確認を通す。結果JSONの `launcherObservation` は出来事の種類、DOM要素の継続、フォーカス呼出しの場所を記録し、会話本文・認証値は保存しない。
+`pnpm e2e:web --only=cli-launcher` は、開いたCLI一覧へ実HostのCLI一覧を取り直した応答にある残量・バージョンを出来事として再送し、選択項目・検索語・入力位置を保つことと、タブ選択の直後に「＋」を開いてCLIを選べることを確認する。初回の一覧取得後にバージョンが分かった時、値が変わらず更新の出来事が届かない時、残量が無い時も同じ方法で確認する。モデルへ依頼は送らない。結果JSONの `launcherObservation` は出来事の種類、DOM要素の継続、フォーカス呼出しの場所を記録し、会話本文・認証値は保存しない。
 
 画像の貼り付けは `pnpm e2e:web --only=clipboard-image`（Claude Code）、`--only=clipboard-image:codex`、`--only=clipboard-image:pi` で確認する。検証用の安価なモデルに画像の色を尋ね、文字の優先、実際のCLIでの画像の受け取り、Terminalを閉じた時の回収を通す。CLIがパスを添付表示へ変換したり、長いパスを折り返したりするため、画面の観測は添付表示またはファイル名の末尾を読む。`--only=clipboard-transfer` はモデルへ依頼せず、1フレームを超えるPNGをCtrl+Shift+Vと右クリックの貼り付けから送り、Hostでの保存と閉じる操作での回収を確認する。Chromiumはクリップボードへ置く時にPNGを再符号化するため、転送サイズはcanvasの生成物ではなくクリップボード内のPNGとHostのファイルを比較する。WindowsのOSクリップボードの読取は別途実機で確認する。
 
 各Web runは `/var/tmp` の専用run folder内に短い `TMPDIR` を作り、ChromiumとHost・CLIなどの子プロセスへ渡す。runの後始末で一緒に回収する。画面serverの起動前に、同じVite設定を使う別プロセスで依存の準備を済ませて終了する。既存cacheの再利用はViteに任せる。準備はVite 8の内部（`depsOptimizer`）の完了を待つので、Viteを上げる時は、準備がすぐ抜けて本番のViteが依存を作り直していないか（run.logに出る）と、並行の受け入れの最大値を見直す。
 
-PlaywrightとChromiumを用意し、`IORI_PLAYWRIGHT_MODULE` と `IORI_CHROMIUM_PATH` でそれぞれの場所を指定できる。無ければ起動前に止まり、自動installはしない。キーの自動入力は日本語IMEの変換・確定を検証しない。ブラウザーのクリップボード権限は共通runnerのcontext作成時に付与する。Terminalのコピー時に共通の左の余白を外す動作（Ctrl+Shift+C・Ctrl+C・Ctrl+Insert）は `pnpm e2e:web --only=terminal-clipboard` で確かめる。Terminalの文字サイズと右クリックは `pnpm e2e:web --only=terminal-preferences` で、実PTYの列数とコピー・貼り付け・メニュー切替を確かめる。タッチを有効にしたスマホ幅で上下にスワイプし、マウス報告を求める実PTYのプログラムに、慣性分も含む正しい座標のホイール報告だけが届くことも通す。
+PlaywrightとChromiumを用意し、`IORI_PLAYWRIGHT_MODULE` と `IORI_CHROMIUM_PATH` でそれぞれの場所を指定できる。無ければ起動前に止まり、自動installはしない。キーの自動入力は日本語IMEの変換・確定を検証しない。ブラウザーのクリップボード権限は共通runnerのcontext作成時に付与する。Terminalのコピー時に共通の左の余白を外す動作（Ctrl+Shift+C・Ctrl+C・Ctrl+Insert）は `pnpm e2e:web --only=terminal-clipboard` で確かめる。Terminalの文字サイズと右クリックは `pnpm e2e:web --only=terminal-font` と `--only=terminal-right-click` で、実PTYの列数とコピー・貼り付け・メニュー切替を確かめる。タッチを有効にしたスマホ幅で上下にスワイプし、マウス報告を求める実PTYのプログラムに、慣性分も含む正しい座標のホイール報告だけが届くことも通す。
 
-結果JSONの `lastUiOperation` は最後の画面操作であり、失敗した待機の条件ではない。出力待ちの失敗は `error` で識別し、`terminalState` で各Terminalの表示・streamの状態と、そのstreamの保存画面・後続出力の受信を確認する。結果JSONと起動から後始末までの秒数は `.local/evidence/web/run-*/` に残し、画面のスクリーンショットは失敗した回と、同じシナリオ（同じ `--only`、指定なしは全体）ごとの最新の1回を残す。共通helperは別のシナリオのスクリーンショットを削除しない。招待・鍵・本文の通信記録は保存しない。終了時は自分が起動したChromium、bridge、画面server、Hostを閉じ、専用run folderだけを削除する。後始末に失敗した場合は専用folderを残して結果に対象を記録する。次回起動時は `/var/tmp/iori-web-runs/` の古い `run-*` を回収し、別の実行中のrunは残す。手動起動は[開発手順](../DEVELOPMENT.md#ブラウザーで画面を開発する)を参照する。
+結果JSONの `lastUiOperation` は最後の画面操作であり、失敗した待機の条件ではない。出力待ちの失敗は `error` で識別し、`terminalState` で各Terminalの表示・streamの状態と、そのstreamの保存画面・後続出力の受信を確認する。結果JSONと起動から後始末までの秒数は `.local/evidence/web/run-*/` に残し、画面のスクリーンショットは失敗した回と、同じシナリオ（同じ `--only`、指定なしは全体）ごとの最新の1回を残す。共通helperは別のシナリオのスクリーンショットを削除しない。招待・鍵・本文の通信記録は保存しない。終了時は自分が起動したChromium、bridge、画面server、Hostを閉じ、専用run folderだけを削除する。後始末に失敗した場合は専用folderを残して結果に対象を記録する。次回起動時は `/var/tmp/iori-web-runs/` の古い `run-*` を回収し、別の実行中のrunは残す。検証の一時フォルダー（`iori-host-e2e-*`・`iori-startup-send-*`・`iori-background-web-*`・`iori-web-runs-*`）は作った試験のプロセスの記録（`verification-owner.json`。PID・開始時刻・起動のID）を持ち、試験がSIGTERM・SIGINTで止まった時も後始末を実行する。後始末が実行されずに残った時は、`run-bounded-check.mjs` とバックグラウンドの全画面 E2E の起動の時に、記録のプロセスが居ない一時フォルダーに属するunitだけを止めて回収する（`verification/lifecycle.mjs`）。手動起動は[開発手順](../DEVELOPMENT.md#ブラウザーで画面を開発する)を参照する。
 
 チームのE2Eが失敗した時だけ、開いている子のTerminalタブ（親の背後にあるタブも含む）の画面を `failure-child-screens.json` へ残す。共通の失敗処理でHostの最新の保存画面を読み、会話IDの有無・hookの状態・保留入力の件数も記録する。成功時の操作は増やさない。
 
 `pnpm e2e:web --only=forge-token` は、検証の時だけ立てる使い捨てのForgejo（公式のコンテナイメージ `codeberg.org/forgejo/forgejo:16.0.5`、`verification/forge/forgejo-container.mjs`）をサインイン必須で立て、非公開のリポジトリ・PR・失敗したcommit status・読み取りのtokenを作る。設定の「連携」での登録・間違ったtokenの拒否・替える・削除・サイトを追加、サイトで取り消したtoken・権限の足りないtoken・つながらないサイトの行の表示と再試行、非公開のリポジトリのPR・CIのインジケーター、CIのインジケーターから開くCIのタブとIssuesのタブを通す。CI・Issuesのタブでは、tokenが無い・無効・権限が足りない・つながらない・リポジトリが見つからない時の理由と回復の操作（「連携を開く」で連携の行へ移る、つながった後の「再試行」、「ワークスペースの設定を開く」でそのワークスペースのGitの設定へ移る）を確かめる。削除後の読取とForgejo・Giteaでないサイトへのtokenの不送信はHost API の E2Eで確かめる。コンテナは127.0.0.1だけで待ち受け、このrunのlabelとowner PIDを付けて終了時に消す。前のrunの残りは、owner PIDが終わったものだけを消す。Dockerを使い、既存のForgejoと既存のコンテナには触らない。tokenは使い捨てのサイトのもので、記録・証拠へ出さない。`IORI_FORGE_CAPTURE=1` を付けると、連携の画面をPC 1440・WQHD 2560のライト・ダークとスマホ 390（一番下までスクロールした所も）で、CI・Issuesのタブの読めない理由とサイドバーのCIの実行中のインジケーターをPC 1440・WQHD 2560のライト・ダーク（インジケーターはスマホ 390も）で撮る。このシナリオは全体の受け入れの追加画面の組にも入るので、受け入れの機械にもDockerと公式のForgejoのイメージ（無ければ初回にcodeberg.orgから取得する）が要る。
 
-`pnpm e2e:web --only=forge-status` は、公開Forgejoの検証用cloneを開き、ブランチ名・最新pushの実際のチェック・未pushブランチでのインジケーターの不在・表示設定の切替を通す。PC幅とスマホ幅で長い名前の中央省略と末尾・インジケーターの収まりも確認する。CIのインジケーターからCIのタブを開き、実APIと同じ実行・job・ブラウザーで開く先、失敗した実行（run 161）のログが失敗したstepの終わりで開くこと、CIの無いcommit（最初のcommit）と、CIを読めない時（検証用のHostはghにログインしていないので、GitHubのremoteを追うworktreeは読めない）のghにログインしていない理由と「連携を開く」の表示、スマホの一覧と詳細の行き来を確かめる。CIのタブのworktreeの切替の一覧は、PC 1440・スマホ 390のライト・ダークで撮る。古いcommitはcloneの中だけのremote-tracking refで追い、pushしない。cloneのremoteへpushせず、認証値は使わない。このE2Eは実行する機械に `gh` があることを前提とし、検証専用の設定ではログインせず、HostのGitHubの未ログイン表示も確認する。
+`pnpm e2e:web --only=forge-status` は、ローカルの固定したGit履歴と偽のForgeを使い、ブランチ名・CIのインジケーター・未pushブランチでのインジケーターの不在・表示設定の切替を通す。PC幅とスマホ幅で長い名前の中央省略と末尾・インジケーターの収まりも確認する。
 
-このシナリオは特定のForgejoの履歴を前提とする。
+`pnpm e2e:web --only=forge-ci` は、同じ固定資材でCIのインジケーターからタブを開き、実行・job・ブラウザーで開く先、失敗したstepの終わりから長いログを読むこと、スマホの一覧と詳細の行き来を確かめる。
 
-`pnpm e2e:web --only=forge-issues` は、同じ公開Forgejoのcloneでリポジトリの行のIssuesから一覧を開き、続きのページ・ラベルの絞り込み（全てを持つ）・本文と全てのコメント・タブの行き来と再読込での保持・別のworktreeの配置・スマホ幅の一覧と詳細の行き来を通す。実在のIssueは変わるので、文言でなくその時のForgejoのAPIの答え（番号・件数）と照合する。GitHubのcloneは検証専用の設定の `gh` が未ログインなので、読めない時の表示（ghにログインしていない理由と `gh auth login` の案内、「連携を開く」で連携のGitHubの節へ移ること）の確認に使う。`IORI_ISSUES_CAPTURE=1` を付けると、PC 1440・WQHD 2560・スマホ 390のライト・ダークを撮る。`pnpm e2e:web --only=host-uninstall` に `IORI_UNINSTALL_CAPTURE=1` を付けると、撤去の確認と結果をPC 1440・WQHD 2560・スマホ 390、撤去した後のスマホ 390の設定をライト・ダークで撮る。`--only=reading-worktrees` に `IORI_READING_CAPTURE=1` を付けると、列の多い表とコードの長い行を持つMarkdownをPC 1440・WQHD 2560（ふだんの幅と最大化）・スマホ 390で、表とコードを横にスクロールした所をPC 1440の最大化で、開いたファイルを消して読み込み直した時のFilesの読めない表示をPC 1440で、表示領域より大きく拡大した画像をPC 1440・スマホ 390で、短い名前を表示したまま開いたFiles・Gitのworktreeの切替の一覧（長い名前のworktreeを含む）をPC 1440・スマホ 390で、それぞれライト・ダークで撮る。
+`pnpm e2e:web --only=forge-issues` は、同じ固定資材でリポジトリの行のIssuesから一覧を開き、続きのページ・ラベルの絞り込み（全てを持つ）・本文と全てのコメント・タブの行き来と再読込での保持・別のworktreeの配置・スマホ幅の一覧と詳細の行き来を通す。Issueの番号・件数・本文・コメントを固定資材の値と照合する。GitHubのcloneは検証専用の設定の `gh` が未ログインなので、読めない時の表示（ghにログインしていない理由と `gh auth login` の案内、「連携を開く」で連携のGitHubの節へ移ること）の確認に使う。`IORI_ISSUES_CAPTURE=1` を付けると、PC 1440・WQHD 2560・スマホ 390のライト・ダークを撮る。`pnpm e2e:web --only=host-uninstall` に `IORI_UNINSTALL_CAPTURE=1` を付けると、撤去の確認と結果をPC 1440・WQHD 2560・スマホ 390、撤去した後のスマホ 390の設定をライト・ダークで撮る。
 
-`pnpm e2e:web --only=forge-issue-start` は、同じ公開Forgejoのcloneで、Issueの詳細の「このIssueで始める」から名前と最初の指示が入った作成画面を開き、「作る」で始めたClaude Code（haiku）の最初の入力が、指示をコピーした配送用のファイルを読む1行になることを、Claude自身のuser入力の記録とファイルの本文で確かめる。リポジトリの「＋」で入れた複数行の最初の指示を「この場所で」で渡すこと、スマホの幅の全画面の作成画面と、「＋」がIssueの値を持ち越さないことも通す。最初の指示は製品の決まった文なので、文言で照合する。`IORI_START_CAPTURE=1` を付けると、PC 1440・WQHD 2560・スマホ 390のライト・ダークを撮る。
-
-このシナリオは特定のForgejoの履歴を前提とする。
+`pnpm e2e:web --only=forge-issue-start` は、同じ固定資材で、Issueの詳細の「このIssueで始める」から名前と最初の指示が入った作成画面を開き、「作る」で始めたClaude Code（haiku）の最初の入力が、指示をコピーした配送用のファイルを読む1行になることを、Claude自身のuser入力の記録とファイルの本文で確かめる。リポジトリの「＋」で入れた複数行の最初の指示を「この場所で」で渡すこと、スマホの幅の全画面の作成画面と、「＋」がIssueの値を持ち越さないことも通す。最初の指示は製品の決まった文なので、文言で照合する。`IORI_START_CAPTURE=1` を付けると、PC 1440・WQHD 2560・スマホ 390のライト・ダークを撮る。
 
 チーム外のCLIからのForgeの読取と認証の理由は、偽のForgeと実際のPTY・CLIを使うHost API の E2Eで確かめる。
 
-子の行の見た目は `pnpm e2e:web --only=child-rows` でも確かめる。既存の通知用fixtureで候補待ちの委譲を作り、本物のCLIやモデルを呼ばず、PC・Mobile幅の行の開始位置・字下げ・2段の内容の収まりを確認する。全体の受け入れにも含め、実CLIの委譲の受け入れでも同じ寸法確認を残す。 `--only=child-running` は報告・質問後の状態表示に加え、worktreeごとの開閉、畳んだ行のCLI種類・件数と省略、親子の字下げ、MobileのドロワーからFilesへの移動を通す。CLI一覧のfixtureはClientの読込前に登録する。子の表示fixtureは一時的な出来事なので、再読込後はHostの子の行が現れてから同じfixtureを適用する。適用中はイベントと子・Terminalの一覧応答へ同じ状態を差し込み、Hostの再取得で表示が戻らないようにする。開閉の検査はアニメーション後の可視状態を共通helperで待つ。
+子の行の見た目は `pnpm e2e:web --only=child-rows` でも確かめる。既存の通知用fixtureで候補待ちの委譲を作り、本物のCLIやモデルを呼ばず、PC・Mobile幅の行の開始位置・字下げ・2段の内容の収まりを確認する。全体の受け入れにも含め、実CLIの委譲の受け入れでも同じ寸法確認を残す。 `--only=child-board` は報告・質問後の状態表示を、`--only=child-board-mobile` はスマホのBoardsと固定タブを確認する。`--only=child-sidebar-navigation` はworktreeごとの開閉、畳んだ行のCLI種類・件数と省略、親子の字下げ、MobileのドロワーからFilesへの移動を確認する。CLI一覧のfixtureはClientの読込前に登録する。子の表示fixtureは一時的な出来事なので、再読込後はHostの子の行が現れてから同じfixtureを適用する。適用中はイベントと子・Terminalの一覧応答へ同じ状態を差し込み、Hostの再取得で表示が戻らないようにする。開閉の検査はアニメーション後の可視状態を共通helperで待つ。
 
 AIエージェントの折り畳み行を操作する時は、`saveStartupArguments` と同じく行の `data-state` で開閉を確かめる。入力欄が画面外にあることを閉じている条件にせず、共通の入力操作でスクロールしてから編集する。
 
-Boardの実行中の操作は `pnpm e2e:web --only=board-activity` で確認する。子のCodex（gpt-6-luna）に画面からコマンド実行・ファイル編集・報告を依頼し、Boardに出たツール名・対象・Thinking・Reportedを観測する。`IORI_BOARD_ACTIVITY_CLI=claude` を付けると子もClaude Code（haiku）で同じ操作を通す。Claudeの検証用候補は `acceptEdits` を指定し、Boardを表示したままファイル編集を観測する。通知が無い時のRunningとPC・スマホの長い表示の省略は `--only=child-running` で確認する。Claude CodeとCodexのモデル要求は偽のAPIへ向ける。
+Boardの実行中の操作は `pnpm e2e:web --only=board-activity` で確認する。子のCodex（gpt-6-luna）に画面からコマンド実行・ファイル編集・報告を依頼し、Boardに出たツール名・対象・Thinking・Reportedを観測する。`IORI_BOARD_ACTIVITY_CLI=claude` を付けると子もClaude Code（haiku）で同じ操作を通す。Claudeの検証用候補は `acceptEdits` を指定し、Boardを表示したままファイル編集を観測する。通知が無い時のRunningとPC・スマホの長い表示の省略は `--only=child-board` と `--only=child-board-mobile` で確認する。Claude CodeとCodexのモデル要求は偽のAPIへ向ける。
 
 チームの実CLIの操作は `verification/web/team-command.mjs` から実物のioriを呼び、親と同じ環境・作業フォルダー・認証の経路を使う。通知を受ける親は通常の道具なし起動とし、親CLIから委譲するシナリオだけ道具を有効にする。親モデルの返答や判断は合否に使わず、Claude Code・Codex自身の入力の記録とhookで確認する。知らせの回数・未報告の待ち理由・停止後のsend・引き継ぎは `e2e/host/team-messages.test.mjs`、worktreeの準備コマンドと環境は `e2e/host/worktrees.test.mjs` で確認し、画面のシナリオへ重ねない。Codexの既定sandboxと起動引数、代替画面のホイールと文字入力は実物のCLIを使う `team-child-tabs` に残す。
 
 別リポジトリへの委譲は `pnpm e2e:web --only=repo-delegation` で、最初から道具なしで起動した親Claude Codeの経路から実物のioriを直接呼び、子Codex（gpt-6-luna）の編集・報告、Files/Gitの切替、削除まで通す。runnerが作る2つ目のリポジトリも、共通の `prepareCliHome` の `repositories` に渡して検証用CLIの信頼済み設定へ含める。製品が信頼確認へ自動で答える処理は加えない。 Claude CodeとCodexのモデル要求は偽のAPIへ向ける。
 
-worktreeの削除は `pnpm e2e:web --only=worktree-removal` で、merge・squashのインジケーターと取り込み済みの削除の候補、未取り込みブランチの保持、実Terminalの停止、スマホの長押しを確認する。長押しはWeb runnerが公開する共通の `screen.longPress` を使い、右クリックイベントをタッチの代用にしない。Windows Hostのプロセス停止とフォルダー削除は `node scripts/run-bounded-check.mjs node verification/workspace/worktree-removal.mjs` で、専用Hostへ開発Clientから接続して確認する。検証環境の鍵・gate・source転送・起動と回収は共通helperを使う。登録の共通helperは接続を確認した「端末」設定画面で終わるため、フォルダー操作へ進むrunnerは「設定を閉じる」を押す。リポジトリを開いてからサイドバーの対象worktreeを選び、選択先を確認してTerminalを起動する。同じ実行で、別プロセスがファイルを開いているworktreeの削除は理由を示して拒み、ファイルとGitの登録が残ることも確認する。
+worktreeの削除は `removal-indicators`・`removal-single`・`removal-cleanup`・`removal-parent-child`・`removal-mobile` で、確認画面と削除候補の表示、スマホの長押し、削除の結果表示を確認する。削除の対象とGitの状態、CLI・Terminalの停止は `e2e/host/worktrees.test.mjs` で確認する。長押しはWeb runnerが公開する共通の `screen.longPress` を使い、右クリックイベントをタッチの代用にしない。Windows Hostのプロセス停止とフォルダー削除は `node scripts/run-bounded-check.mjs node verification/workspace/worktree-removal.mjs` で、専用Hostへ開発Clientから接続して確認する。検証環境の鍵・gate・source転送・起動と回収は共通helperを使う。登録の共通helperは接続を確認した「端末」設定画面で終わるため、フォルダー操作へ進むrunnerは「設定を閉じる」を押す。リポジトリを開いてからサイドバーの対象worktreeを選び、選択先を確認してTerminalを起動する。同じ実行で、別プロセスがファイルを開いているworktreeの削除は理由を示して拒み、ファイルとGitの登録が残ることも確認する。
 
 `pnpm e2e:web --only=model-failure` は、未ログインのCursor CLIを専用HOMEで使い、AIエージェントの行にCLI自身の認証エラーがシェルの警告や色の制御文字なしで表示されること、「詳細」で全文を開けること、再試行で詳細が閉じることを確認する。Cursor CLIの認証は共有・作成しない。
 

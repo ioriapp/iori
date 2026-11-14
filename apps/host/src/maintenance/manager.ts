@@ -45,6 +45,7 @@ export interface MaintenanceService {
 }
 interface WorkActivity {
   shellActivity(id: string): Promise<{ busy: boolean; command?: string }>;
+  workGeneration(id: string): string | undefined;
   child(
     id: string,
   ): Pick<ChildSummary, "state" | "title" | "createdAt"> | undefined;
@@ -148,7 +149,11 @@ export class MaintenanceManager {
       | { file: string; status: MaintenanceStatus; instanceId: string }
       | undefined;
     if (pending && pending.instanceId !== this.instanceId) {
-      await this.#save(pending.file, { ...pending.status, phase: "succeeded" });
+      const result = (await readFile(pending.file, "utf8")
+        .then(JSON.parse)
+        .catch(() => undefined)) as MaintenanceStatus | undefined;
+      if (result?.phase === "restarting")
+        await this.#save(pending.file, { ...result, phase: "succeeded" });
       await rm(join(this.directory, "restart.json"), { force: true });
     }
     this.#ready.resolve();
@@ -243,6 +248,11 @@ export class MaintenanceManager {
                   id: terminal.id,
                   title: child?.title ?? (terminal.title || terminal.shell),
                   state,
+                  generation: createHash("sha256")
+                    .update(
+                      `${this.instanceId}:${terminal.id}:${this.activity.workGeneration(terminal.id) ?? ""}`,
+                    )
+                    .digest("hex"),
                   ...(activity?.command ? { command: activity.command } : {}),
                   at: child?.createdAt ?? terminal.createdAt,
                 }
@@ -256,10 +266,11 @@ export class MaintenanceManager {
       targets: work
         .filter((item) => item !== undefined)
         .sort((a, b) => workOrder[a.state] - workOrder[b.state] || a.at - b.at)
-        .map(({ id, title, state, command }) => ({
+        .map(({ id, title, state, command, generation }) => ({
           id,
           title,
           state,
+          generation,
           ...(command ? { command } : {}),
         })),
       ...(error ? { error } : {}),
@@ -274,6 +285,8 @@ export class MaintenanceManager {
       version?: string;
       canContinue: boolean;
       targets: string[];
+      hasOpenTerminals?: boolean;
+      generations?: Record<string, string>;
       deleteData?: boolean;
     },
   ): Promise<MaintenanceStatus> {
@@ -298,6 +311,8 @@ export class MaintenanceManager {
       version?: string;
       canContinue: boolean;
       targets: string[];
+      hasOpenTerminals?: boolean;
+      generations?: Record<string, string>;
       deleteData?: boolean;
     },
     file: string,
@@ -334,7 +349,18 @@ export class MaintenanceManager {
     )
       return this.#save(file, { ...base, phase: "succeeded" });
     const confirmed = new Set(input.targets);
-    if (plan.targets.some((target) => !confirmed.has(target.id)))
+    if (
+      (!plan.canContinue &&
+        plan.hasOpenTerminals &&
+        input.hasOpenTerminals !== undefined &&
+        (!input.hasOpenTerminals || input.canContinue)) ||
+      plan.targets.some(
+        (target) =>
+          !confirmed.has(target.id) ||
+          (input.generations !== undefined &&
+            target.generation !== input.generations[target.id]),
+      )
+    )
       return { ...base, phase: "failed", plan };
     this.#active = await this.#save(file, base);
     if (kind === "uninstall") {

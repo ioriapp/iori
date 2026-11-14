@@ -159,7 +159,8 @@ export type Fixture = {
     | "integrations"
     | "terminal-font"
     | "child-states"
-    | "usage";
+    | "usage"
+    | "reading";
   initial: Record<string, Record<string, unknown>>;
   machine?: SshMachine;
   events: SshEvent[];
@@ -185,6 +186,8 @@ export const terminalFontNames = [
 ];
 
 export function fixture(id: string): Fixture {
+  if (id.startsWith("reading-"))
+    return { kind: "reading", initial: {}, events: [], notes: [] };
   if (id.startsWith("usage-")) return usageFixture(id);
   if (id === "child-states")
     return {

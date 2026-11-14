@@ -23,6 +23,19 @@ import type { WorktreeChoice } from "./reading/WorktreePicker.tsx";
 export type WorkspaceViewKind =
   "start" | "file" | "files" | "git" | "terminal" | "board" | "issues" | "ci";
 
+export function initialTabTitle(
+  kind: Exclude<WorkspaceViewKind, "terminal" | "file">,
+): string {
+  return {
+    start: "Start",
+    files: "Files",
+    git: "Git",
+    board: "Board",
+    issues: "Issues",
+    ci: "CI",
+  }[kind];
+}
+
 /**
  * Contract for the Files, Git, and Terminal panel implementations.
  * folderPath is the folder explicitly opened by the user; workspacePath groups

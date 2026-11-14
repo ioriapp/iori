@@ -32,7 +32,7 @@ export async function windowsConsentOperation(
   selector,
   program,
 ) {
-  await client.screen.wait(selector);
+  await client.screen.reveal(selector);
   const pointer = await client.screen.evaluate(
     `(()=>{const e=document.querySelector(${JSON.stringify(selector)});e.scrollIntoView({block:'nearest'});const r=e.getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2};})()`,
   );

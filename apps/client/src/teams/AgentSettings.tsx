@@ -76,10 +76,13 @@ export function AgentSettings({
     },
   );
   useEffect(() => {
+    // Saving may publish optimistic limits and then roll them back. Neither
+    // update is a new baseline for the user's draft until saving settles.
+    if (busy) return;
     if (cliLimits(draft.current) === cliLimits(baseline.current))
       onChange(stored);
     baseline.current = stored;
-  }, [stored]);
+  }, [stored, busy]);
   const save = async () => {
     if (busy) return;
     const submitted = limits;
