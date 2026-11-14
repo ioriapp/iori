@@ -71,7 +71,7 @@ import type {
 import { applyTerminalMetadata } from "./terminal-metadata.ts";
 
 export const TERMINAL_PARSER_SUBSCRIPTIONS: ParserSubscriptions = {
-  osc: [0, 2, 7, 133],
+  osc: [0, 2, 7, 133, 7501],
   csi: [{ prefix: "?", final: "h" }],
 };
 import {
@@ -2115,6 +2115,15 @@ export class TerminalRuntime {
           this.#clearCli(runtime);
           runtime.record.title = shell.label;
         }
+        if (!historical)
+          this.#updateCliState(
+            runtime,
+            runtime.hookObserver?.onOsc?.(
+              event.number,
+              event.data,
+              runtime.cliStatus,
+            ),
+          );
       }
     }
   }

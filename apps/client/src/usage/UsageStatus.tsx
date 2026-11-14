@@ -500,15 +500,11 @@ export function UsageStatus({
       ? `ほかの利用枠 ${count}件`
       : `${count} more usage limits`;
   const content = (cli: Cli) => {
-    const windows =
-      shape === "bar" && cli.windows.length > 8
-        ? [...cli.windows].sort((a, b) => a.remaining - b.remaining).slice(0, 8)
-        : cli.windows;
-    const count = windows.length;
-    const barHeight =
-      count <= 3
-        ? 4
-        : Math.max(count >= 6 ? 1 : 2, Math.floor((16 - (count - 1)) / count));
+    const used = cli.windows
+      .filter((window) => window.remaining < 100)
+      .sort((a, b) => a.remaining - b.remaining)
+      .slice(0, 3);
+    const windows = used.length > 0 ? used : [strictest(cli)];
     return (
       <>
         <CliIcon cli={cli} hostKey={hostKey} size={14} />
@@ -516,8 +512,8 @@ export function UsageStatus({
           className={"usage-mini-graphs " + shape}
           style={
             {
-              "--usage-mini-bar-height": `${barHeight}px`,
-              "--usage-mini-gap": count <= 3 ? "2px" : "1px",
+              "--usage-mini-bar-height": "4px",
+              "--usage-mini-gap": "2px",
             } as CSSProperties
           }
         >

@@ -365,6 +365,9 @@ function CliModelSearch({
         }
       : {}),
   };
+  const selectedLabel = item.cli
+    ? `${cliName(item.cli)} › ${item.model ? modelLabel(item.cli, item.model) : t("Default")}`
+    : t("Not set");
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -376,19 +379,11 @@ function CliModelSearch({
           data-iori-model={item.model}
           role="combobox"
           aria-expanded={open}
-          aria-label={`${t("CLI and model")}: ${item.cli ? `${cliName(item.cli)} › ${modelLabel(item.cli, item.model)}` : t("Not set")}`}
-          title={
-            item.cli
-              ? `${cliName(item.cli)} › ${modelLabel(item.cli, item.model)}`
-              : t("Not set")
-          }
+          aria-label={`${t("CLI and model")}: ${selectedLabel}`}
+          title={selectedLabel}
         >
           {item.cli && <CliIcon name={item.cli} size={14} />}
-          <span>
-            {item.cli
-              ? `${cliName(item.cli)} › ${modelLabel(item.cli, item.model)}`
-              : t("Not set")}
-          </span>
+          <span>{selectedLabel}</span>
           <ChevronsUpDown size={12} />
         </Button>
       </PopoverTrigger>

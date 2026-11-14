@@ -222,8 +222,12 @@ test("Antigravity CLIの子はioriが作ったworktreeの時だけ信頼の指�
       created.args[prompt + 1],
       /^Read .+ and follow its instructions\. Then open the file .+ and follow the delegated request\.$/u,
     );
-    stage("親のフォルダーで動く子は、信頼の指定を受けない");
+    stage("親のフォルダーで動く子も、そのフォルダーだけを信頼する指定を受ける");
     const shared = await launched("parent");
     assert.equal(shared.cwd, repository);
-    assert.equal(shared.args.includes("--settings"), false);
+    const sharedSettings = shared.args.indexOf("--settings");
+    assert.ok(sharedSettings >= 0, JSON.stringify(shared.args));
+    assert.deepEqual(JSON.parse(shared.args[sharedSettings + 1]), {
+      trustedWorkspaces: [shared.cwd],
+    });
   }));

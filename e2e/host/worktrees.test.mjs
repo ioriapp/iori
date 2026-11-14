@@ -1670,3 +1670,115 @@ test("親のworktree削除で親子のCLIプロセスを停止する", (t) =>
       assert.throws(() => process.kill(pid, 0), { code: "ESRCH" });
     assert.equal(await exists(existing), true);
   }));
+
+test("finish --worktree removeは画面の削除と同じ決まりで子のブランチも削除する", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    const { path, git, add } = await repository(dataRoot);
+    const parentPath = add("finish-branch-parent");
+    const team = await teamParent(client, dataRoot, parentPath);
+
+    // 1. 取り込み済みの子を accept + --worktree remove → ブランチが消える
+    const mergedChild = await team.delegate("merged finish child");
+    const mergedBranch = git(mergedChild.cwd, "branch", "--show-current");
+    await commit(git, mergedChild.cwd, "merged-change");
+    git(path, "merge", "--no-ff", mergedBranch, "-m", "merge child");
+    const mergedResult = await actorCommand(team.parent, "finish-merged", [
+      "finish",
+      mergedChild.id,
+      "--decision",
+      "accept",
+      "--reason",
+      "merged",
+      "--worktree",
+      "remove",
+    ]);
+    assert.equal(await exists(mergedChild.cwd), false);
+    assert.equal(git(path, "branch", "--list", mergedBranch), "");
+    assert.match(mergedResult.text, /deleted/i);
+
+    // 2. 作ってからのコミットが無い子を reject + --worktree remove → ブランチが消える
+    const emptyChild = await team.delegate("empty finish child");
+    const emptyBranch = git(emptyChild.cwd, "branch", "--show-current");
+    const emptyResult = await actorCommand(team.parent, "finish-empty", [
+      "finish",
+      emptyChild.id,
+      "--decision",
+      "reject",
+      "--reason",
+      "no changes",
+      "--worktree",
+      "remove",
+    ]);
+    assert.equal(await exists(emptyChild.cwd), false);
+    assert.equal(git(path, "branch", "--list", emptyBranch), "");
+    assert.match(emptyResult.text, /deleted/i);
+
+    // 3a. 取り込まれていないコミットのある子を reject + --worktree remove（--discard 無し）→ ブランチが残る
+    const unmergedChild = await team.delegate("unmerged finish child");
+    const unmergedBranch = git(unmergedChild.cwd, "branch", "--show-current");
+    await commit(git, unmergedChild.cwd, "unmerged-change");
+    const keptResult = await actorCommand(team.parent, "finish-kept", [
+      "finish",
+      unmergedChild.id,
+      "--decision",
+      "reject",
+      "--reason",
+      "not merged",
+      "--worktree",
+      "remove",
+    ]);
+    assert.equal(await exists(unmergedChild.cwd), false);
+    assert.equal(git(path, "branch", "--list", unmergedBranch), unmergedBranch);
+    assert.match(keptResult.text, /kept/i);
+
+    // 3b. 同じ状態で --discard を付けると消える
+    const discardedChild = await team.delegate("discarded finish child");
+    const discardedBranch = git(discardedChild.cwd, "branch", "--show-current");
+    await commit(git, discardedChild.cwd, "discarded-change");
+    const discardedResult = await actorCommand(
+      team.parent,
+      "finish-discarded",
+      [
+        "finish",
+        discardedChild.id,
+        "--decision",
+        "reject",
+        "--reason",
+        "discarded",
+        "--worktree",
+        "remove",
+        "--discard",
+      ],
+    );
+    assert.equal(await exists(discardedChild.cwd), false);
+    assert.equal(git(path, "branch", "--list", discardedBranch), "");
+    assert.match(discardedResult.text, /deleted \(was [0-9a-f]+\)/);
+  }));
+
+test("finish --worktree remove --discard は子が切り替えた先のユーザーのブランチを削除しない", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    const { path, git, add } = await repository(dataRoot);
+    git(path, "switch", "-c", "user-feature");
+    await commit(git, path, "user-work");
+    git(path, "switch", "-");
+    const parentPath = add("finish-switched-parent");
+    const team = await teamParent(client, dataRoot, parentPath);
+
+    const child = await team.delegate("switched branch child");
+    git(child.cwd, "switch", "user-feature");
+
+    const result = await actorCommand(team.parent, "finish-switched", [
+      "finish",
+      child.id,
+      "--decision",
+      "reject",
+      "--reason",
+      "switched branch",
+      "--worktree",
+      "remove",
+      "--discard",
+    ]);
+    assert.equal(await exists(child.cwd), false);
+    assert.equal(git(path, "branch", "--list", "user-feature"), "user-feature");
+    assert.match(result.text, /not the branch iori created/);
+  }));

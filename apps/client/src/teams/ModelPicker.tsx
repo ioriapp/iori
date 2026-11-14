@@ -60,16 +60,16 @@ export function ModelPicker({
         compareModels({ cli, model: a }, { cli, model: b }),
       ),
     ]);
-  const matches = (cli: string, model: string) =>
-    search
+  const matches = (cli: string, model: string) => {
+    const text = model
+      ? `${cliName(cli)} ${model} ${modelLabel(cli, model)}`
+      : [cliName(cli), "Default", "既定"].join(" ");
+    return search
       .trim()
       .toLocaleLowerCase()
       .split(/\s+/)
-      .every((word) =>
-        `${cliName(cli)} ${model} ${modelLabel(cli, model)}`
-          .toLocaleLowerCase()
-          .includes(word),
-      );
+      .every((word) => text.toLocaleLowerCase().includes(word));
+  };
   const isConfigured = (target: Target) =>
     limits !== undefined &&
     Object.hasOwn(limits, limitKey(target.cli, target.kind, target.name));
@@ -116,7 +116,7 @@ export function ModelPicker({
       kind: "model",
       provider: modelProvider(model),
     };
-    const label = modelLabel(cli, model);
+    const label = model ? modelLabel(cli, model) : t("Default");
     return (
       <CommandItem
         key={`${prefix}${token(target)}`}
@@ -238,27 +238,42 @@ export function ModelPicker({
         )}
         {catalogs.map(([cli, values]) => {
           const groups = groupModels(values);
-          if (searching)
-            return Object.entries(groups).map(([provider, list]) => {
-              const found = list.filter((model) => matches(cli, model));
-              if (!found.length) return null;
-              return (
-                <CommandGroup
-                  key={`${cli}/${provider}`}
-                  heading={
-                    provider ? `${cliName(cli)} › ${provider}` : cliName(cli)
-                  }
-                >
-                  {found.map((model) => modelItem(cli, model, "", !!provider))}
+          if (searching) {
+            const defaultMatches = !limits && matches(cli, "");
+            const ungrouped = (groups[""] ?? []).filter((model) =>
+              matches(cli, model),
+            );
+            const rest = Object.entries(groups).filter(
+              ([provider]) => provider,
+            );
+            return [
+              defaultMatches || ungrouped.length ? (
+                <CommandGroup key={`${cli}/`} heading={cliName(cli)}>
+                  {defaultMatches && modelItem(cli, "")}
+                  {ungrouped.map((model) => modelItem(cli, model))}
                 </CommandGroup>
-              );
-            });
+              ) : null,
+              ...rest.map(([provider, list]) => {
+                const found = list.filter((model) => matches(cli, model));
+                if (!found.length) return null;
+                return (
+                  <CommandGroup
+                    key={`${cli}/${provider}`}
+                    heading={`${cliName(cli)} › ${provider}`}
+                  >
+                    {found.map((model) => modelItem(cli, model, "", true))}
+                  </CommandGroup>
+                );
+              }),
+            ];
+          }
           const providers = Object.keys(groups).filter(Boolean);
           const useProviders = limits
             ? providers.length > 0
             : providers.length > 1;
           return (
             <CommandGroup key={cli} heading={cliName(cli)}>
+              {!limits && modelItem(cli, "")}
               {useProviders
                 ? Object.entries(groups).map(([provider, list]) =>
                     provider

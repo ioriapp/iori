@@ -59,6 +59,7 @@ import {
   childWorktree,
   isResidualChildWorktree,
   removeChildWorktree,
+  worktreeBranch,
   worktreeChanges,
 } from "./worktrees.ts";
 import {
@@ -1291,9 +1292,6 @@ export class TeamManager {
     return {
       team: {
         candidate: launchCandidate(candidate),
-        ...(child?.cwd && child.createdWorktree === child.cwd
-          ? { createdWorktree: true }
-          : {}),
         instructionFile: deliveredInstruction,
         teamFilesDirectory: deliveryDirectory,
         commandDirectory,
@@ -1622,6 +1620,7 @@ export class TeamManager {
     if (command.kind === "finish") {
       const task = this.#tasks.get(child.task)!;
       await this.#measureChild(child);
+      let branchNote: string | undefined;
       if (command.worktree === "remove") {
         if (!child.cwd || child.createdWorktree !== child.cwd)
           throw new Error(
@@ -1669,7 +1668,7 @@ export class TeamManager {
           ]);
           if (status.stdout.length && !command.discard)
             throw new Error(
-              "Worktree has uncommitted or untracked changes. Use keep, or explicitly --discard if authorized.",
+              "Worktree has uncommitted or untracked changes. Use keep, or explicitly --discard if authorized (--discard also deletes a branch with unmerged commits).",
             );
         }
         if (command.discard) {
@@ -1716,10 +1715,28 @@ export class TeamManager {
           finishWatches.push(
             await stopWatchingPath(await worktreeDirectory(child.cwd)),
           );
+        if (!residual && command.decision === "accept") {
+          const head = await collectGit(
+            child.cwd,
+            ["rev-parse", "HEAD"],
+            undefined,
+            [0, 1],
+          )
+            .then((result) =>
+              result.code === 0 ? result.stdout.toString("utf8").trim() : "",
+            )
+            .catch(() => "");
+          if (head) await recordWorktreeAccepted(child.cwd, head);
+        }
         try {
           if (residual) await removeRemainingWorktreeFolder(child.cwd);
           else
-            await removeChildWorktree(repository, child.cwd, command.discard);
+            branchNote = await removeChildWorktree(
+              repository,
+              child.cwd,
+              command.discard,
+              child.createdBranch,
+            );
         } catch (error) {
           const remains = await lstat(child.cwd).then(
             () => true,
@@ -1738,7 +1755,8 @@ export class TeamManager {
       if (
         command.decision === "accept" &&
         child.cwd &&
-        child.createdWorktree === child.cwd
+        child.createdWorktree === child.cwd &&
+        !child.worktreeRemoved
       ) {
         const head = await collectGit(
           child.cwd,
@@ -1788,8 +1806,9 @@ export class TeamManager {
         (planTask.state === "pending" || planTask.state === "in_progress")
           ? `\nPlan task ${planTask.number} is still ${planTask.state}. Update it with iori plan update ${planTask.number} --state done when the work is complete.`
           : "";
+      const branchText = branchNote ? ` ${branchNote}` : "";
       return ok(
-        `Child finished: ${command.decision}. ${command.reason}${reminder}`,
+        `Child finished: ${command.decision}. ${command.reason}${branchText}${reminder}`,
       );
     }
     throw new Error("Unsupported command.");
@@ -2032,13 +2051,19 @@ export class TeamManager {
         );
         if (child.worktree === "new" && child.cwd !== conversation.cwd) {
           child.createdWorktree = child.cwd;
+          child.createdBranch = await worktreeBranch(child.cwd).catch(
+            () => undefined,
+          );
           setup = await worktreeSetup(child.cwd, this.store);
-        } else
-          child.createdWorktree = [...this.#children.values()].find(
+        } else {
+          const previousCreated = [...this.#children.values()].find(
             (previous) =>
               previous.task === child.task &&
               previous.createdWorktree === child.cwd,
-          )?.createdWorktree;
+          );
+          child.createdWorktree = previousCreated?.createdWorktree;
+          child.createdBranch = previousCreated?.createdBranch;
+        }
       }
       if (this.#closed || child.state !== "waiting") {
         this.#saveChild(child);

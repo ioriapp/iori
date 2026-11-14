@@ -12,6 +12,7 @@ export const code: CliCode = {
   id: "antigravity",
   // Later team input is pasted once the prompt enables bracketed paste.
   waitForBracketedPaste: true,
+  launchEnvironment: () => ({ AGY_CLI_OSC7501: "on" }),
   modelCatalog: models,
   session: (payload) =>
     typeof payload.conversationId === "string" && payload.conversationId.trim()
@@ -19,15 +20,15 @@ export const code: CliCode = {
       : undefined,
   hooks,
   // Antigravity asks to trust each new folder before it reads input, which
-  // would hold a child in a worktree that iori created for it. The trust is
-  // for this launch only; Antigravity's own settings stay as they are.
+  // would hold a team child in its workspace. The trust is for this launch
+  // only; Antigravity's own settings stay as they are.
   teamArguments: (launch, file) => [
     ...file.model,
     ...file.effort,
     ...file.permission,
     ...file.directories,
     ...file.instructionFile,
-    ...(launch.createdWorktree && launch.cwd
+    ...(launch.cwd
       ? ["--settings", JSON.stringify({ trustedWorkspaces: [launch.cwd] })]
       : []),
     ...file.prompt,

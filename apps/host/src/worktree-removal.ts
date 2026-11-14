@@ -23,7 +23,10 @@ import {
   rebasingBranch,
 } from "./worktree-state.ts";
 import {
+  branchRemovable,
   checkChildWorktreeRemoval,
+  deleteWorktreeBranch,
+  worktreeBranch,
   worktreeChanges,
 } from "./teams/worktrees.ts";
 import {
@@ -576,22 +579,11 @@ export class WorktreeRemover {
             throw new Error(
               "A child worktree could not be removed. Retry after resolving its error.",
             );
-        const state = await worktreeState(item.path, item.branch);
-        const branch = (
-          await collectGit(
-            item.path,
-            ["symbolic-ref", "--quiet", "--short", "HEAD"],
-            undefined,
-            [0, 1],
-          )
-        ).stdout
-          .toString("utf8")
-          .trim();
+        const branch = await worktreeBranch(item.path);
         const deleteBranch =
           !!branch &&
           branch === item.branch &&
-          ((item.deleteBranch &&
-            (state.merged || state.createdCommits === 0)) ||
+          ((item.deleteBranch && (await branchRemovable(item.path, branch))) ||
             branches.includes(branch));
         const { mainPath: ownMain } = await worktreeOptions(item.path);
         if (!repositories.has(ownMain))
@@ -642,16 +634,11 @@ export class WorktreeRemover {
         if (!(await exists(item.path))) {
           if (deleteBranch && item.branch) {
             branchRemains = true;
-            const result = await collectGit(
-              ownMain,
-              ["branch", "-D", "--", item.branch],
-              undefined,
-              [0, 1, 128],
-            );
-            if (result.code !== 0)
+            if (await deleteWorktreeBranch(ownMain, item.branch))
+              branchRemains = false;
+            else
               error =
                 "The worktree was removed, but Git could not delete its branch.";
-            else branchRemains = false;
           }
         }
       } catch (reason) {

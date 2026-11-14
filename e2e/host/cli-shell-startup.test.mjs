@@ -472,3 +472,90 @@ test("dashと同じ実体の既定shellでCLIを開き、終了後に同じshell
     await terminal.input("printf '%s%s\\n' 'DASH_' 'CONTINUES'\r");
     await terminal.output("DASH_CONTINUES");
   }));
+
+test("Antigravityの端末の状態の知らせの承認待ちをAttentionに出し、作業中に戻ると消す", (t) =>
+  runHostTest(
+    t,
+    async ({ client, dataRoot, stage }) => {
+      stage("Antigravityの定義のコマンドを台本CLIに差し替えて起動する");
+      const actor = join(dataRoot, "agy-osc-cli.mjs");
+      const approvalMessage =
+        "Approve Bash: curl -sI https://example.com?token=private-value";
+      await writeFile(
+        actor,
+        [
+          'import { createInterface } from "node:readline";',
+          'console.log("ACTOR_OSC7501:" + (process.env.AGY_CLI_OSC7501 ?? ""));',
+          'console.log("ACTOR_READY");',
+          "const lines = createInterface({ input: process.stdin, terminal: false });",
+          "for await (const raw of lines) {",
+          "  const line = raw.trim();",
+          '  if (line === "block") {',
+          `    const encoded = Buffer.from(${JSON.stringify(approvalMessage)}, "utf8").toString("base64");`,
+          '    process.stdout.write("\\u001b]7501;state=blocked:kind=permission:app=antigravity:msg=" + encoded + "\\u0007");',
+          '    console.log("ACTOR_BLOCKED");',
+          '  } else if (line === "work") {',
+          '    process.stdout.write("\\u001b]7501;state=working:app=antigravity\\u0007");',
+          '    console.log("ACTOR_WORKING");',
+          "  }",
+          "}",
+        ].join("\n") + "\n",
+      );
+      await client.request("cli.definition.save", {
+        definition: JSON.stringify({
+          schema: 1,
+          id: "antigravity",
+          name: "Antigravity CLI",
+          command: { shell: `'${process.execPath}' '${actor}'` },
+        }),
+      });
+      const events = await client.events();
+      await events.waitFor((event) => event.type === "snapshot");
+      const { terminal: created } = await client.request("cli.launch", {
+        cliId: "antigravity",
+        cwd: dataRoot,
+      });
+      const terminal = await client.terminal(created.id);
+      const { output } = await terminal.waitFor(
+        ({ output }) =>
+          output.includes("ACTOR_READY") &&
+          /ACTOR_OSC7501:[^\r\n]+\r?\n/u.test(output),
+      );
+      assert.match(output, /ACTOR_OSC7501:on\r?\n/u);
+      stage(
+        "承認待ちのOSC 7501を書き、Attentionの承認待ちが届くことを確かめる",
+      );
+      await terminal.input("block\r");
+      await terminal.output("ACTOR_BLOCKED");
+      const waiting = await events.waitFor(
+        (event) =>
+          event.type === "terminal.updated" &&
+          event.terminal.id === created.id &&
+          event.terminal.cliStatus?.state === "waiting",
+      );
+      assert.equal(waiting.terminal.cliStatus.attention?.kind, "approval");
+      assert.match(
+        waiting.terminal.cliStatus.attention?.summary ?? "",
+        /Approve Bash: curl/u,
+      );
+      assert.match(
+        waiting.terminal.cliStatus.attention?.summary ?? "",
+        /token=\[redacted\]/u,
+      );
+      assert.doesNotMatch(
+        waiting.terminal.cliStatus.attention?.summary ?? "",
+        /private-value/u,
+      );
+      stage("作業中のOSC 7501を書き、Attentionが消えることを確かめる");
+      await terminal.input("work\r");
+      await terminal.output("ACTOR_WORKING");
+      const active = await events.waitFor(
+        (event) =>
+          event.type === "terminal.updated" &&
+          event.terminal.id === created.id &&
+          event.terminal.cliStatus?.state === "active",
+      );
+      assert.equal(active.terminal.cliStatus.attention, undefined);
+    },
+    { environment: { AGY_CLI_OSC7501: "off" } },
+  ));

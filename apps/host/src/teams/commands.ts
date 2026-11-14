@@ -21,6 +21,7 @@ iori tasks
 iori read CHILD_ID
 iori send CHILD_ID --kind answer|request|revise --body TEXT
 iori finish CHILD_ID --decision accept|reject --reason TEXT --worktree keep|remove [--discard]
+  (--discard also deletes uncommitted changes and a child branch with unmerged commits)
 iori stop CHILD_ID
 iori report --body TEXT
 iori ask --body TEXT

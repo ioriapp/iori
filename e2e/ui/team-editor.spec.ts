@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { createTeam } from "./fixtures/journeys.ts";
 import { test, expect } from "./fixtures/test.ts";
 
@@ -36,5 +37,60 @@ test(
     await expect(dialog).toBeVisible();
     await dialog.getByRole("button", { name: "Reload", exact: true }).click();
     await expect(name).toHaveValue("Other changes");
+  },
+);
+
+test(
+  "モデルの一覧が無い CLI を『既定』で候補に追加して保存する",
+  { tag: "@desktop" },
+  async ({ page, registeredApp: app }) => {
+    const script = fileURLToPath(
+      new URL("../../verification/host/scripted-cli.mjs", import.meta.url),
+    );
+    await app.request("cli.definition.simple", {
+      simple: {
+        name: "no-models-cli",
+        command: `'${process.execPath}' '${script}'`,
+        modelArgument: "",
+        models: [],
+      },
+    });
+    const saved = await createTeam(app, {
+      name: "Default model team",
+      roles: [{ name: "Worker" }],
+      makeDefault: false,
+    });
+    await page.goto(app.url);
+    await page
+      .getByRole("button", { name: "AI Agents/Teams", exact: true })
+      .click();
+    await page.getByRole("button", { name: "Teams", exact: true }).click();
+    await page
+      .getByRole("button", { name: /Default model team Version/ })
+      .click();
+    await page.getByRole("button", { name: "Worker", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Add candidate", exact: true })
+      .click();
+    await page
+      .getByRole("option", { name: "no-models-cli › Default", exact: true })
+      .click();
+    await expect(
+      page.getByRole("combobox", {
+        name: "CLI and model: no-models-cli › Default",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(
+      page.getByRole("button", { name: "Save", exact: true }),
+    ).toBeDisabled();
+    const current = await app.request("teams.read", { teamId: saved.id });
+    expect(
+      current.saved.roles[0].candidates.medium.some(
+        (candidate) =>
+          candidate.cli === "no-models-cli" && candidate.model === "",
+      ),
+    ).toBe(true);
   },
 );

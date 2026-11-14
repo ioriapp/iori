@@ -89,3 +89,50 @@ test(
     await expect(firstScreen).toBeVisible();
   },
 );
+
+test(
+  "使用0%の利用枠をステータスバーのグラフに出さず、ポップオーバーには出す",
+  { tag: "@desktop" },
+  async ({ page, registeredApp: app }) => {
+    await page.goto(app.url);
+    await openFolder(page, app, false);
+    const uploadId = randomUUID();
+    const script = `console.log(JSON.stringify({
+      windows: [
+        { name: "Gemini", remaining: 75, minutes: 300 },
+        { name: "Gemini", remaining: 40, minutes: 10080 },
+        { name: "Claude", remaining: 100, minutes: 300 },
+        { name: "Claude", remaining: 100, minutes: 10080 },
+        { name: "Argon", remaining: 100, minutes: 10080 }
+      ]
+    }));`;
+    await app.request("cli.definition.file.write", {
+      uploadId,
+      first: true,
+      data: Buffer.from(script).toString("base64"),
+    });
+    await app.request("cli.definition.save", {
+      definition: JSON.stringify({
+        schema: 1,
+        id: "usage-filter-test",
+        name: "Usage filter",
+        command: { shell: "node --version" },
+        usage: { script: "usage.mjs" },
+      }),
+      files: [{ name: "usage.mjs", uploadId }],
+    });
+    await page.reload();
+    const usage = page.getByRole("button", { name: /Usage filter usage/ });
+    await expect(usage).toBeVisible();
+    await expect(usage.locator(".usage-mini-graphs > *")).toHaveCount(2);
+    await usage.click();
+    await expect(
+      page.getByRole("heading", { name: "Usage filter", exact: true }),
+    ).toBeVisible();
+    await expect(page.getByText(/Gemini 5h/)).toBeVisible();
+    await expect(page.getByText(/Gemini 7d/)).toBeVisible();
+    await expect(page.getByText(/Claude 5h/)).toBeVisible();
+    await expect(page.getByText(/Claude 7d/)).toBeVisible();
+    await expect(page.getByText(/Argon 7d/)).toBeVisible();
+  },
+);

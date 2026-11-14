@@ -63,8 +63,6 @@ export interface TeamLaunch {
   initial?: string;
   startupArguments?: string;
   startupShell?: import("../terminal/platform.ts").ShellDefinition;
-  /** `cwd` is a worktree that iori created for this child (linked-agents.md). */
-  createdWorktree?: boolean;
   /** The launch resumes a saved conversation, which already read its
    * instructions; only an `initial` given for it is sent. */
   resume?: boolean;

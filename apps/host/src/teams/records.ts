@@ -107,6 +107,7 @@ export interface TeamChild {
   };
   branch?: string;
   createdWorktree?: string;
+  createdBranch?: string;
   worktreeRemoved?: boolean;
   decision?: "accept" | "reject";
   reason?: string;

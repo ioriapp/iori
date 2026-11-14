@@ -1,7 +1,7 @@
 import { parseGitWorktrees } from "../worktree-list.ts";
 import { worktreeTitleSlug } from "@iori/protocol";
 import { worktreeOptions } from "../worktree-creation.ts";
-import { recordWorktreeBase } from "../worktree-state.ts";
+import { recordWorktreeBase, worktreeState } from "../worktree-state.ts";
 import { basename, dirname, join, relative } from "node:path";
 import { realpath, readFile, lstat } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
@@ -141,12 +141,47 @@ export async function checkChildWorktreeRemoval(
   if (primary && (await realpath(primary)) === childPath)
     throw new Error("Cannot remove the main worktree. Use --worktree keep.");
 }
+export async function worktreeBranch(
+  path: string,
+): Promise<string | undefined> {
+  const result = await collectGit(
+    path,
+    ["symbolic-ref", "--quiet", "--short", "HEAD"],
+    undefined,
+    [0, 1],
+  );
+  return result.stdout.toString("utf8").trim() || undefined;
+}
+export async function branchRemovable(
+  path: string,
+  branch: string,
+): Promise<boolean> {
+  const state = await worktreeState(path, branch);
+  return state.merged || state.createdCommits === 0;
+}
+export async function deleteWorktreeBranch(
+  repository: string,
+  branch: string,
+): Promise<boolean> {
+  const result = await collectGit(
+    repository,
+    ["branch", "-D", "--", branch],
+    undefined,
+    [0, 1, 128],
+  );
+  return result.code === 0;
+}
 export async function removeChildWorktree(
   parent: string,
   child: string,
   discard: boolean,
-): Promise<void> {
+  createdBranch?: string,
+): Promise<string | undefined> {
   await checkChildWorktreeRemoval(parent, child);
+  const branch = await worktreeBranch(child);
+  const isCreatedBranch = Boolean(branch && branch === createdBranch);
+  const shouldDeleteBranch =
+    isCreatedBranch && (discard || (await branchRemovable(child, branch!)));
   // Do not retry with force, unlock or prune after Git's refusal.
   try {
     await collectGit(parent, [
@@ -168,6 +203,33 @@ export async function removeChildWorktree(
   // ignored output after removing the worktree. Delete what remains at
   // the verified child path; a failure surfaces as a failed removal.
   await removeRemainingWorktreeFolder(child);
+  if (!branch) return undefined;
+  if (!isCreatedBranch)
+    return `Branch ${branch} was kept because it is not the branch iori created for this child.`;
+  if (!shouldDeleteBranch)
+    return `Branch ${branch} was kept because it has unmerged commits.`;
+  const remaining = parseGitWorktrees(
+    (
+      await collectGit(parent, ["worktree", "list", "--porcelain", "-z"])
+    ).stdout.toString("utf8"),
+  );
+  if (remaining.some((entry) => entry.branch === branch))
+    return `Branch ${branch} was kept because another worktree uses it.`;
+  const sha = (
+    await collectGit(
+      parent,
+      ["rev-parse", "--short", `refs/heads/${branch}`],
+      undefined,
+      [0, 1],
+    )
+  ).stdout
+    .toString("utf8")
+    .trim();
+  if (!(await deleteWorktreeBranch(parent, branch)))
+    return `The worktree was removed, but Git could not delete branch ${branch}.`;
+  return sha
+    ? `Branch ${branch} was deleted (was ${sha}).`
+    : `Branch ${branch} was deleted.`;
 }
 
 // Only the caller's iori-owned child path can use this after Git removed its

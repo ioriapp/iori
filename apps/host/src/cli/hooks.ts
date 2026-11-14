@@ -40,6 +40,11 @@ export function toolFinished(id: unknown): HookState {
 export interface CliObserver {
   // false preserves the observed state when an older hook is replayed.
   onHook: (payload: HookPayload) => Promise<void | false>;
+  onOsc?: (
+    number: number,
+    data: string,
+    previous?: CliStatus,
+  ) => HookState | undefined;
   restore: (
     file: string | undefined,
     status: CliStatus | undefined,
