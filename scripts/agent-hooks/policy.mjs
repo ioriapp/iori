@@ -285,3 +285,28 @@ export function waitsOnCommandLine(line) {
     line,
   );
 }
+
+export function usesAdbDevices(line) {
+  return segments(line).some(({ text }) => {
+    const words =
+      shellCommands(
+        text.replace(
+          /\$(?:[A-Za-z_][A-Za-z0-9_]*|\{[A-Za-z_][A-Za-z0-9_]*\})/gu,
+          "VARIABLE",
+        ),
+      )[0] ?? [];
+    let i = 0;
+    while (/^[A-Za-z_][A-Za-z0-9_]*=/.test(words[i] ?? "")) i++;
+    if (words[i] === "env") {
+      i++;
+      while (/^[A-Za-z_][A-Za-z0-9_]*=/.test(words[i] ?? "")) i++;
+    }
+    if (!/(?:^|\/)adb$/.test(words[i] ?? "")) return false;
+    i++;
+    while (words[i]?.startsWith("-")) {
+      const option = words[i++];
+      if (["-s", "-t", "-H", "-P", "-L"].includes(option)) i++;
+    }
+    return words[i] === "devices";
+  });
+}

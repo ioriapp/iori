@@ -62,6 +62,9 @@ Linuxの検証用debの導入・回収は `verification/native/linux-packages.mj
 - locator は role と名前を先に使い、無い時だけ既にある `data-iori-*` を使う。製品に role・ラベルが足りない時は、試験の側で回避せず製品へ足す。
 - 試験ごとに、新しい本物の Host（一時の保存先・HOME・port）と新しい browser context を使う（`e2e/ui/fixtures/`）。Client は製品の画面を Chromium で開き、Tauri の native の代わりに Node 側の bridge（`verification/web/bridge.mjs`）が本物の Host と通信する。CLI は台本の CLI（`verification/host/scripted-cli.mjs`）だけを使い、本物の他社の CLI・モデルの API・機械の設定は使わない。
 - `app` は未登録の Client、`registeredApp` は本物の経路で登録を済ませた Client。招待から登録する経路そのものを確かめる試験だけが `app` を使う。要求の失敗・保留は bridge の `client.faults` を通す `app.faults` で再現する。
+- fixture が持つ入口: 2つ目の Host（`app.addHost`・`app.registerHost`）、Host の停止・起動・再起動（`app.host.stop`・`start`・`restart`）、接続の切断（`app.setOffline`）、2台目のデバイス（`app.addDevice`）、偽の Forge（`app.host.forge()`）、更新の配信元、ファイルの準備（`app.files`）。ブラウザーの API が OS の境界に当たる所（通知の要求・保存先・クリップボードの画像・指のスワイプと長押し）は `e2e/ui/fixtures/browser.ts` にある。Git のリポジトリは `e2e/ui/support/reading.ts` の `repository()` で作る（本物の git を Host の隔離した PATH へ足す）。
+- CLI・モデルなどの値は、使う人と同じ操作で選んでから進める。仕様が決めていない既定値と、一覧の到着の順序を当てにしない。
+- Release の受け入れは、環境変数 `IORI_UI_HOST_DISTRIBUTION` に展開した配布物を渡し、配布物の Host に対して `register-first-agent` と `terminal-input-resize` を実行する。
 - 幅は project で分ける。試験に `{ tag: "@desktop" }`（1440×900）か `{ tag: "@phone" }`（Pixel 7、タッチあり）を付ける。
 - 失敗は1回だけ再実行する（`CI=true` の時）。再実行で通った試験は flaky として結果に出る。trace は最初の再実行で記録する。結果（JSON・HTML の report・失敗時の画像・trace）は `.local/evidence/ui/<実行>/` に出る。
 - 1本は1つの手順を短く通す。Host が決める振る舞いは Host API の E2E に置き、画面では操作が届いて結果が表示されることだけを確かめる。実装の値（寸法・行の数・内部の ID）を期待に書かない。

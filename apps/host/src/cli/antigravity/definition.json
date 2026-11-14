@@ -9,8 +9,29 @@
     "directories": ["--add-dir", "{directory}"],
     "model": ["--model", "{model}"],
     "effort": ["--effort", "{effort}"],
-    "initialPrompt": { "mode": "paste" },
-    "managedArguments": [{ "names": ["--model"] }, { "names": ["--effort"] }]
+    "permissions": {
+      "accept-edits": ["--mode", "accept-edits"],
+      "auto": ["--mode", "auto"],
+      "plan": ["--mode", "plan"],
+      "dangerously-skip-permissions": ["--dangerously-skip-permissions"]
+    },
+    "initialPrompt": { "mode": "argument", "args": ["-i", "{prompt}"] },
+    "managedArguments": [
+      { "names": ["--model"] },
+      { "names": ["--effort"] },
+      {
+        "names": ["--mode"],
+        "alsoRemove": [
+          { "names": ["--dangerously-skip-permissions"], "arity": "none" }
+        ]
+      },
+      {
+        "names": ["--dangerously-skip-permissions"],
+        "arity": "none",
+        "alsoRemove": [{ "names": ["--mode"] }]
+      },
+      { "names": ["-i", "--prompt-interactive"] }
+    ]
   },
   "resume": { "args": ["--conversation", "{sessionId}"] }
 }

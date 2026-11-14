@@ -1286,12 +1286,14 @@ export class TeamManager {
       instructions,
     );
     const initialInput = await initial?.(deliveryDirectory);
-    const role = caller.child
-      ? this.#children.get(caller.child)?.roleId
-      : undefined;
+    const child = caller.child ? this.#children.get(caller.child) : undefined;
+    const role = child?.roleId;
     return {
       team: {
         candidate: launchCandidate(candidate),
+        ...(child?.cwd && child.createdWorktree === child.cwd
+          ? { createdWorktree: true }
+          : {}),
         instructionFile: deliveredInstruction,
         teamFilesDirectory: deliveryDirectory,
         commandDirectory,

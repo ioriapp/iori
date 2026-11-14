@@ -23,6 +23,26 @@ export class AndroidDeviceUnavailableError extends Error {
   }
 }
 
+export function checkAndroidReleaseDevice(packageName) {
+  try {
+    gate({ devices: ["android"], requireFreePorts: false });
+  } catch (error) {
+    throw new AndroidDeviceUnavailableError(error.message, { cause: error });
+  }
+  if (/isKeyguardShowing=true/u.test(adb(["shell", "dumpsys", "window"])))
+    throw new AndroidDeviceUnavailableError(
+      "検証端末の画面がロックされています",
+    );
+  if (
+    adb(["shell", "pm", "list", "packages", packageName])
+      .split(/\r?\n/u)
+      .includes("package:" + packageName)
+  )
+    throw new Error(
+      `検証端末に ${packageName} が既にあります。この受入が導入したアプリではないため、上書き・削除せず停止します。`,
+    );
+}
+
 // Release WebViews do not expose CDP. Observe the actual foreground screen
 // through Android accessibility, using the same launcher as a user.
 export async function acceptAndroidRelease({
@@ -41,27 +61,7 @@ export async function acceptAndroidRelease({
   };
   let owned = false;
   try {
-    try {
-      gate({ devices: ["android"], requireFreePorts: false });
-    } catch (error) {
-      throw new AndroidDeviceUnavailableError(error.message, {
-        cause: error,
-      });
-    }
-    // A locked screen hides the launcher; the device cannot be used either.
-    if (/isKeyguardShowing=true/u.test(adb(["shell", "dumpsys", "window"])))
-      throw new AndroidDeviceUnavailableError(
-        "検証端末の画面がロックされています",
-      );
-    // Never clear or remove a package that was not installed by this run.
-    if (
-      adb(["shell", "pm", "list", "packages", packageName])
-        .split(/\r?\n/u)
-        .includes("package:" + packageName)
-    )
-      throw new Error(
-        `検証端末に ${packageName} が既にあります。この受入が導入したアプリではないため、上書き・削除せず停止します。`,
-      );
+    checkAndroidReleaseDevice(packageName);
     owned = true;
     {
       const stage = "fresh";

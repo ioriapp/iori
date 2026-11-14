@@ -1,7 +1,7 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { targets, waitsOnCommandLine } from "./policy.mjs";
+import { targets, usesAdbDevices, waitsOnCommandLine } from "./policy.mjs";
 import {
   hasCiEvidence,
   hasPublicationCiEvidence,
@@ -34,6 +34,12 @@ try {
     typeof input.cwd !== "string"
   )
     process.exit(0);
+  if (usesAdbDevices(input.tool_input.command)) {
+    deny(
+      "Android の検証用の機器の状態は `node verification/native/android-status.mjs` で確かめてください（接続を持っていない間、`adb devices` の一覧は空になります）",
+    );
+    process.exit(0);
+  }
   if (waitsOnCommandLine(input.tool_input.command)) {
     deny(
       "pgrep -f / pkill -f を待ちの条件に使っています。シェルのコマンド行の文字列にも一致して待ちが終わりません。起動したプロセスの PID（$!）を wait か kill -0 で待ってください。",

@@ -14,6 +14,7 @@ export async function registerScriptedCli(
     observeEnvironment = false,
     waiting = false,
     capturePrompts = false,
+    promptArgument = false,
   } = {},
 ) {
   const id = requestedId ?? (noReady ? "scripted-no-ready" : "scripted-parent");
@@ -32,9 +33,18 @@ export async function registerScriptedCli(
       id,
       name: id,
       command: { shell: command },
-      ...(resumable
+      // Without an instruction file argument, as Antigravity CLI and
+      // OpenCode V1 take their first instruction.
+      ...(resumable || promptArgument
         ? {
-            launch: { instructionFile: ["--instruction", "{instructionFile}"] },
+            launch: promptArgument
+              ? {
+                  initialPrompt: {
+                    mode: "argument",
+                    args: ["--prompt", "{prompt}"],
+                  },
+                }
+              : { instructionFile: ["--instruction", "{instructionFile}"] },
             resume: { args: ["--resume", "{sessionId}"] },
           }
         : {}),

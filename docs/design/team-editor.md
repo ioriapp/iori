@@ -30,7 +30,7 @@
 
 候補の一覧は列を揃え、見出しを一度だけ置く。1行は、取っ手と順番、「CLI › モデル」の選択、Effort、許可、残量の下限、…メニュー（別の難易度・別の役割へコピー、削除）。ドラッグで優先順を変える。Mobileは2段にする（1段目に取っ手・順番・CLI › モデル・…、2段目にEffort・許可・残量の下限）。
 
-- 許可は、押すとそのCLIの項目をポップオーバーで編集し、ボタンには今の値の要約を出す。項目はCLIが公開する名前のまま（Claude Code は permission mode、Codex は `approval_policy` と `sandbox_mode`、Pi は「確認なしで実行」の一文とツールの選択、OpenCode は「Auto-approve permissions」（オン/指定しない）、他のCLIは「指定なし」だけ）。
+- 許可は、押すとそのCLIの項目をポップオーバーで編集し、ボタンには今の値の要約を出す。項目はCLIが公開する名前のまま（Claude Code は permission mode、Codex は `approval_policy` と `sandbox_mode`、Pi は「確認なしで実行」の一文とツールの選択、OpenCode は「Auto-approve permissions」（オン/指定しない）、ほかの CLI は定義の `launch.permissions` の名前（Antigravity CLI は `accept-edits`・`auto`・`plan`・`dangerously-skip-permissions`）。定義に許可の選択肢が無い CLI は「指定なし」だけ）。
 - 残量の下限（%）は残量を取得できるCLI（[AIエージェント](agents-and-teams.md#aiエージェント)）の候補だけに出す。空の時は「なし」を表示する。他のCLIの欄は空のままにし、親の行には出さない。その候補のモデルに適用される利用枠のどれかが下限を下回る場合に、割り当てを飛ばす。モデルやグループを名指しした枠は、そのモデルの候補にだけ適用される。
 - 行の下に、その候補に適用されるHost全体の上限を小さく表示し、押すとAIエージェントの該当のCLIへ移る。残量が下限を下回っている候補は注意の色で「今は残量が下限を下回るため使われません。」、Hostに無いCLIの候補は行を薄くして「このHostで見つかりません」と表示する。
 

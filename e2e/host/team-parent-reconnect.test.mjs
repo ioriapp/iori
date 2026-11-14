@@ -134,3 +134,61 @@ test("チームの経路が同じなら親の再開で既存シェルの状態�
     const output = await pty.output("ACTOR_RESULT:same-route:");
     assert.ok(output.includes("ACTOR_SHELL_STATE:preserved"));
   }));
+
+test("最初の指示を引数で受けるCLIの親は、再開の時に指示を受け直さない", (t) =>
+  runHostTest(t, async ({ client, dataRoot, stage }) => {
+    stage("最初の指示を引数で受けるCLIでチームの親を始める");
+    const cli = await registerScriptedCli(client, dataRoot, {
+      promptArgument: true,
+    });
+    const team = await client.request("teams.create", {
+      definition: {
+        name: "Prompt argument",
+        description: "",
+        instruction: "",
+        parent: { id: "parent", cli, model: "", tools: [], minimum: "" },
+        roles: [],
+      },
+    });
+    await client.request("teams.settings", {
+      enabled: true,
+      defaultTeam: team.saved.id,
+      limits: {},
+    });
+    const events = await client.events();
+    await events.waitFor((event) => event.type === "snapshot");
+    const { terminal } = await client.request("team.launch", {
+      teamId: team.saved.id,
+      cwd: dataRoot,
+    });
+    let pty = await client.terminal(terminal.id);
+    const startup = await readyStartup(pty);
+    const argument = async (id) => {
+      const prefix = `ACTOR_PROMPT_ARGUMENT:${id}:`;
+      const { output } = await pty.waitFor(({ output }) =>
+        new RegExp(`${prefix}[^\\r\\n]*\\r?\\n`, "u").test(output),
+      );
+      const start = output.indexOf(prefix) + prefix.length;
+      const end = output.indexOf("\n", start);
+      return JSON.parse(output.slice(start, end).trim());
+    };
+    stage("最初の起動は指示のファイルを読む指示を引数で受け取る");
+    assert.match(
+      await argument(startup),
+      /^Read .+ and follow its instructions\.$/u,
+    );
+    await actorCommand(pty, "before-loss", ["tasks"]);
+    stage("検証専用のデーモンを停止してHostの繋ぎ直しを待つ");
+    await stopTerminalDaemon(join(dataRoot, "iori-host"));
+    await events.waitFor(
+      (event) =>
+        event.type === "terminal.updated" &&
+        event.terminal.id === terminal.id &&
+        event.terminal.cliResumePending,
+    );
+    stage("再開した起動は指示を引数で受け取らない");
+    pty = await client.terminal(terminal.id);
+    await client.request("cli.resume", { terminalId: terminal.id });
+    const resumed = await readyStartup(pty, startup);
+    assert.equal(await argument(resumed), null);
+  }));

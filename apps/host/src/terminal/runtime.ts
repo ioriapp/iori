@@ -521,6 +521,7 @@ export class TerminalRuntime {
       shell,
       {
         ...options.team,
+        resume: true,
         initial: teamPrompt
           ? // One line: cmd /c stops reading its command at a line break.
             `Read ${options.team.instructionFile} and follow its instructions. ${options.team.initial}`
@@ -1059,7 +1060,7 @@ export class TerminalRuntime {
           saved.cli.id,
           shell,
           runtime.teamOptions
-            ? { ...runtime.teamOptions.team, initial: undefined }
+            ? { ...runtime.teamOptions.team, initial: undefined, resume: true }
             : undefined,
           {
             cwd: runtime.record.cwd,

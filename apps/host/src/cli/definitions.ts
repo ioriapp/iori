@@ -59,6 +59,11 @@ export interface TeamLaunch {
   initial?: string;
   startupArguments?: string;
   startupShell?: import("../terminal/platform.ts").ShellDefinition;
+  /** `cwd` is a worktree that iori created for this child (linked-agents.md). */
+  createdWorktree?: boolean;
+  /** The launch resumes a saved conversation, which already read its
+   * instructions; only an `initial` given for it is sent. */
+  resume?: boolean;
 }
 export interface CliDefinition extends CliSummary {
   /** Other command names that find this CLI when `command` is not found. */
@@ -149,10 +154,10 @@ export type CliCode = Omit<Partial<CliDefinition>, "teamArguments"> & {
 /** Without an instruction file argument, the first instruction reads it. */
 function firstInstruction(
   { launch: items }: DefinitionFile,
-  { initial, instructionFile }: TeamLaunch,
+  { initial, instructionFile, resume }: TeamLaunch,
   deliversInstructions = false,
 ): string | undefined {
-  if (items.instructionFile || deliversInstructions)
+  if (items.instructionFile || deliversInstructions || resume)
     return initial || undefined;
   if (!instructionFile) return initial || undefined;
   const instruction = `Read ${instructionFile} and follow its instructions.`;

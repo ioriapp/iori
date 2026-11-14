@@ -94,8 +94,9 @@ for (const forceReplacement of [false, true])
           assert.equal(restored.title, "UPGRADE_TITLE");
           assert.equal(restored.cwd, cwd);
           const after = JSON.parse(await readFile(descriptorFile, "utf8"));
+          // The protocol omits restartPending unless it is true.
           assert.equal(
-            restored.restartPending,
+            restored.restartPending === true,
             forceReplacement || before.version !== after.version,
           );
           // Opening restarts the shell and replays the preserved screen as history.

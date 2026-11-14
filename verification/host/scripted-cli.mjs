@@ -39,6 +39,10 @@ if (process.argv.includes("--version") || process.argv.includes("--help")) {
     );
   }
   console.log(`ACTOR_SHELL_STATE:${process.env.IORI_TEST_SHELL_STATE ?? ""}`);
+  const promptIndex = process.argv.indexOf("--prompt");
+  console.log(
+    `ACTOR_PROMPT_ARGUMENT:${startupId}:${JSON.stringify(promptIndex === -1 ? null : process.argv[promptIndex + 1])}`,
+  );
   const instructionIndex = process.argv.indexOf("--instruction");
   if (instructionIndex !== -1)
     console.log(

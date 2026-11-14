@@ -1,11 +1,27 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { targets, waitsOnCommandLine } from "./policy.mjs";
+import { targets, usesAdbDevices, waitsOnCommandLine } from "./policy.mjs";
 import {
   hasCiEvidence,
   hasPublicationCiEvidence,
   isDocsOnly,
 } from "../ci-evidence.mjs";
+
+test("adb devices を拒み、ほかの adb コマンドは通す", () => {
+  for (const line of [
+    "adb devices",
+    "/opt/android/adb -s device devices -l",
+    'adb -s "$serial" devices',
+    "echo ready && adb devices",
+  ])
+    assert.equal(usesAdbDevices(line), true, line);
+  for (const line of [
+    "adb -s device shell getprop",
+    "adb shell echo devices",
+    "echo 'adb devices'",
+  ])
+    assert.equal(usesAdbDevices(line), false, line);
+});
 
 test("連結されたコマンドの push・Release・本文を判定する", () => {
   assert.deepEqual(
