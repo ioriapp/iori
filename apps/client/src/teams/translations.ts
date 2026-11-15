@@ -355,4 +355,14 @@ export const teamJapanese: Record<string, string> = {
   "{field} must start with ~ or be an absolute path":
     "{field}は~で始まるパスか絶対パスにしてください。",
   "definition.json cannot be read": "definition.jsonを読み込めませんでした。",
+  "Allow parent input to children": "親から子への入力を許可",
+  "The parent can send input to a child's Terminal, including answers to approval prompts. When off, the parent can still read the child's screen and stop it.":
+    "親が子のTerminalに入力を送信できます。承認への回答も含みます。オフのときも、親は子の画面の確認と停止ができます。",
+  "Check on working children": "作業中の子を確認",
+  "While a child keeps working, the parent reads its screen at this interval. Each check uses the parent's tokens.":
+    "子の作業が続いている間、選択した間隔で親が子の画面を確認します。確認のたびに親のトークンを使用します。",
+  Off: "オフ",
+  "Every 15 minutes": "15分ごと",
+  "Every 30 minutes": "30分ごと",
+  "Every hour": "1時間ごと",
 };

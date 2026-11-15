@@ -709,13 +709,23 @@ export class HostStore {
     restoredFrom?: number,
     editedFrom?: number,
   ): TeamRecord {
-    const { name, description, parent, instruction, roles } = definition;
+    const {
+      name,
+      description,
+      parent,
+      instruction,
+      roles,
+      parentInput,
+      checkMinutes,
+    } = definition;
     const clean = structuredClone({
       name,
       description,
       parent,
       instruction,
       roles,
+      ...(parentInput ? { parentInput } : {}),
+      ...(checkMinutes ? { checkMinutes } : {}),
     });
     const names = new Map([
       ...cliDefinitions.map((cli) => [cli.id, cli.name] as const),

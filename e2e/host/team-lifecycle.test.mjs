@@ -156,9 +156,13 @@ test("存在しないworktree名での委譲は使えるフォルダー名を示
       (event) =>
         event.type === "teams.child.updated" &&
         event.child.id === result.data.child &&
+        event.child.state !== "waiting" &&
         event.child.state !== "starting" &&
         event.child.state !== "queued",
     );
+    // The failure notice is still being typed into the parent; wait until it
+    // is submitted so the next command does not join the same line.
+    await context.parent.output("wt-alpha");
     const tasksResult = await actorCommand(context.parent, "tasks-failed", [
       "tasks",
     ]);

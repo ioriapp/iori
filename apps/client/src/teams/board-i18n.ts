@@ -13,6 +13,7 @@ const terms = new Set([
   "Agents",
   "Starting",
   "Running",
+  "Not responding",
   "Thinking",
   "Waiting",
   "Reported",

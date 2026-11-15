@@ -162,7 +162,6 @@ export default [
       "e2e/workspace/**/*.mjs",
       "verification/workspace/**/*.mjs",
       "verification/web/**/*.mjs",
-      "verification/window-chrome/**/*.mjs",
       "verification/cli/**/*.mjs",
       "e2e/cli-screen/**/*.mjs",
       "e2e/cli/**/*.mjs",
@@ -339,20 +338,6 @@ export default [
             "MemberExpression[object.type='MemberExpression'][object.object.name='process'][object.property.name='env'][property.name='PI_CODING_AGENT_DIR'], MemberExpression[object.type='MemberExpression'][object.object.name='process'][object.property.name='env'][property.value='PI_CODING_AGENT_DIR']",
           message:
             "Piの検証用保存先はverification/cli/home.mjsのpiAgentDirectoryを使ってください。呼び出し元のPI_CODING_AGENT_DIRは引き継ぎません。",
-        },
-      ],
-    },
-  },
-  {
-    files: ["verification/window-chrome/**/*.mjs"],
-    rules: {
-      "no-restricted-syntax": [
-        "error",
-        {
-          selector:
-            "UnaryExpression[operator='-'][argument.value=3], BinaryExpression[operator='+'][right.value=3]",
-          message:
-            "Windowsの枠の座標はwindowsResizePointを使ってください。装飾なしの窓の上端はクライアント領域の外側ではありません。",
         },
       ],
     },

@@ -1,5 +1,11 @@
 import { hasWindowChrome } from "./native.ts";
-import { CliStateDot, CliElapsed } from "./CliStatus.tsx";
+import {
+  CliStateDot,
+  CliElapsed,
+  isStalledCliStatus,
+  useTick,
+  withStalledDescription,
+} from "./CliStatus.tsx";
 import {
   createContext,
   useCallback,
@@ -289,6 +295,10 @@ function DockTabHeader(panel: IDockviewPanelHeaderProps<{ tabId: string }>) {
   const tab = tabs.find((item) => item.id === panel.params.tabId);
   const header = useRef<HTMLDivElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const now = useTick(
+    isStalledCliStatus(tab?.cliStatus),
+    tab?.cliStatus?.stalledSince,
+  );
   // The selected tab of every group shows its ×, also in a group not in focus.
   // The state is read again after subscribing, so a change Dockview makes while
   // it builds a restored layout is not missed.
@@ -344,6 +354,7 @@ function DockTabHeader(panel: IDockviewPanelHeaderProps<{ tabId: string }>) {
   if (!tab) return null;
   const Icon = viewIcons[tab.kind];
   const title = tabTitle(tab, t);
+  const accessibleTitle = withStalledDescription(title, tab.cliStatus, t, now);
   return (
     <ContextMenu onOpenChange={setMenuOpen}>
       <ContextMenuTrigger asChild>
@@ -384,8 +395,8 @@ function DockTabHeader(panel: IDockviewPanelHeaderProps<{ tabId: string }>) {
               >
                 <button
                   type="button"
-                  title={tab.file?.absolutePath ?? title}
-                  aria-label={title}
+                  title={tab.file?.absolutePath ?? accessibleTitle}
+                  aria-label={accessibleTitle}
                   onClick={() => panel.api.setActive()}
                   onDoubleClick={() =>
                     doubleClickMaximize && maximize(panel.api.group)

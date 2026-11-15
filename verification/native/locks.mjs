@@ -8,7 +8,6 @@ import { fileURLToPath } from "node:url";
 const distributionEntries = new Set([
   "verification/updates/run-linux.mjs",
   "verification/updates/run-android.mjs",
-  "verification/updates/run.mjs",
   "verification/host-setup/run-linux.mjs",
   "verification/host-setup/run-ssh.mjs",
   "verification/host-setup/run.mjs",
@@ -19,6 +18,15 @@ const repo = path.resolve(
   "../..",
 );
 const heldVariable = "IORI_VERIFICATION_HELD_LOCKS";
+
+function readEvidenceBuildState() {
+  const evidence = path.resolve(
+    process.env.IORI_VERIFICATION_EVIDENCE_ROOT ?? ".local/evidence/connection",
+  );
+  return JSON.parse(
+    readFileSync(path.join(evidence, "build-state.json"), "utf8"),
+  );
+}
 
 export function devicePlan(file, args = []) {
   const order = () => [
@@ -66,10 +74,6 @@ export function devicePlan(file, args = []) {
         )
           ? [verificationLocal.linux.host]
           : [verificationLocal.linux.host, verificationLocal.windows.host];
-      break;
-    case "verification/window-chrome/run.mjs":
-      devices = [verificationLocal.linux.host, verificationLocal.windows.host];
-      shared = [verificationLocal.linux.host];
       break;
     case "verification/native/windows-desktop.mjs":
     case "verification/cli/windows-hooks.mjs":
@@ -135,10 +139,6 @@ export function devicePlan(file, args = []) {
       devices = ["android", verificationLocal.linux.host];
       shared = [verificationLocal.linux.host];
       break;
-    case "verification/updates/run.mjs":
-      devices = [verificationLocal.linux.host, verificationLocal.windows.host];
-      shared = [verificationLocal.linux.host];
-      break;
     case "verification/notifications/run.mjs":
       devices =
         filter === "Windows"
@@ -169,20 +169,27 @@ export function devicePlan(file, args = []) {
       devices = order();
       shared = [verificationLocal.linux.host];
       break;
-    case "verification/client/run.mjs":
+    case "verification/client/run.mjs": {
+      let hasUpdates =
+        process.env.IORI_VERIFICATION_CONFIG ===
+          "verification/updates/tauri.conf.json" ||
+        args.some((arg) => arg.includes("update"));
+      if (!hasUpdates) {
+        try {
+          hasUpdates = Boolean(readEvidenceBuildState().updateRoot);
+        } catch {
+          // build-state.json が無ければ通常のClient実行として扱う
+        }
+      }
       devices = [
         ...(filter !== "Windows" ? ["android"] : []),
         ...(filter !== "Android" ? [verificationLocal.windows.host] : []),
+        ...(filter !== "Android" && hasUpdates ? ["distribution"] : []),
       ];
       break;
+    }
     case "verification/connection/cleanup.mjs": {
-      const evidence = path.resolve(
-        process.env.IORI_VERIFICATION_EVIDENCE_ROOT ??
-          ".local/evidence/connection",
-      );
-      const state = JSON.parse(
-        readFileSync(path.join(evidence, "build-state.json"), "utf8"),
-      );
+      const state = readEvidenceBuildState();
       devices = [
         ...(state.androidRoot || state.androidPackage ? ["android"] : []),
         ...(state.linuxRoot ? [verificationLocal.linux.host] : []),

@@ -7,7 +7,7 @@ import {
   inviteFromText,
 } from "../../../packages/protocol/src/index.ts";
 import { clientRelease, hostRelease } from "./releases.mjs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import WebSocket from "ws";
@@ -22,7 +22,7 @@ const t = {
 };
 let clientUpdates;
 
-async function addHost({ updates = false } = {}) {
+async function addHost({ updates = false, environment } = {}) {
   const update = updates
     ? await hostRelease(join(hosts[0].dataRoot, `release-${hosts.length}`))
     : undefined;
@@ -33,9 +33,12 @@ async function addHost({ updates = false } = {}) {
     update
       ? {
           serviceBundle: update.bundle,
-          environment: { NODE_EXTRA_CA_CERTS: update.ca },
+          environment: { ...environment, NODE_EXTRA_CA_CERTS: update.ca },
         }
-      : { distribution: process.env.IORI_UI_HOST_DISTRIBUTION },
+      : {
+          distribution: process.env.IORI_UI_HOST_DISTRIBUTION,
+          ...(environment ? { environment } : {}),
+        },
   );
   const hostMs = performance.now() - started;
   const folder = join(host.dataRoot, "project");
@@ -155,9 +158,40 @@ async function register({
   }
 }
 const methods = {
-  async start({ updates = false, realClient = false } = {}) {
-    const descriptor = await addHost();
-    if (updates) {
+  async start({ updates = false, realClient = false, environment } = {}) {
+    const descriptor = await addHost({ environment });
+    if (updates && realClient) {
+      const updateRoot = process.env.IORI_UI_WINDOWS_UPDATE_ROOT;
+      const version = process.env.IORI_UI_WINDOWS_UPDATE_NEXT;
+      if (!updateRoot || !version) {
+        throw new Error(
+          "実 Client の自己更新には IORI_UI_WINDOWS_UPDATE_ROOT と IORI_UI_WINDOWS_UPDATE_NEXT が必要です",
+        );
+      }
+      const { startDistribution } =
+        await import("../../../verification/updates/distribution.mjs");
+      const keepCredentials = process.env.IORI_UI_KEEP_BUILD === "1";
+      const distribution = await startDistribution(updateRoot, {
+        keepCredentials,
+      });
+      clientUpdates = {
+        version,
+        publish: () => distribution.publish(),
+        close: async () => {
+          try {
+            await distribution.close();
+          } finally {
+            if (!keepCredentials) {
+              await rm(join(updateRoot, "tls"), {
+                recursive: true,
+                force: true,
+              });
+            }
+          }
+        },
+      };
+      cleanups.push(() => clientUpdates.close());
+    } else if (updates) {
       clientUpdates = await clientRelease();
       cleanups.push(() => clientUpdates.close());
     }

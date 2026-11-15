@@ -202,6 +202,9 @@ export interface CliStatus {
     tool?: string;
     summary?: string;
   };
+  /** While active: when the Host saw the CLI stop making progress (no
+   * terminal output for 2 minutes, or a stopped descendant process). */
+  stalledSince?: number;
 }
 
 export function parseCliStatus(value: unknown): CliStatus | undefined {
@@ -282,6 +285,11 @@ export function parseCliStatus(value: unknown): CliStatus | undefined {
       : {}),
     ...(activity ? { activity } : {}),
     ...(attention ? { attention } : {}),
+    ...(state === "active" &&
+    typeof input.stalledSince === "number" &&
+    Number.isFinite(input.stalledSince)
+      ? { stalledSince: input.stalledSince }
+      : {}),
     ...(typeof input.response === "string"
       ? { response: input.response.slice(0, 4096) }
       : {}),

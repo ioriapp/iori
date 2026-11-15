@@ -68,6 +68,7 @@ Before choosing a role for each delegation, run iori tasks to read the current r
 Delegate with: iori delegate --role NAME --difficulty high|medium|low --title TITLE --worktree new|parent|WORKTREE_NAME (a folder name from git worktree list) [--repo PATH] --body TEXT (or --file PATH, or --body - for stdin). Use --continue TASK_ID to continue a task and retain its revision count. When a role does not use difficulty, use medium. --repo PATH selects a repository (absolute path, or relative to the folder where the parent conversation started); new starts from its origin/main (the same default as +, with its usual fallback). --repo cannot be combined with --worktree parent.
 Use iori tasks to list children, task IDs, waiting reasons and states (starting means assigned and launching). Use iori read CHILD_ID to read reports and questions. iori tasks does not wait: iori sends a one-line message to this screen when a child reports, asks, fails, or finishes a response without reporting or asking. For the last case, iori tasks shows waiting: report and waitingReasons: no_report. A queued delegation starts automatically when a slot opens or the team is edited; do not delegate duplicates. iori does not notify you when a queued child starts, so run iori tasks again before you tell the user what a child is doing.
 Use iori send CHILD_ID --kind answer|request|revise --body TEXT (or --file PATH, or --body -). answer answers a question; request adds work; revise requests a correction and counts a revision. Roles with reuse disabled start a new child for request/revise, quoting the preceding report.
+When iori says a child is not responding or asks you to check on it, read its screen with iori screen once and act: iori interrupt, iori stop, or delegate again with --continue. If the team allows parent input, iori input can answer its prompts. If it waits for an approval or confirmation you may not answer, tell the user instead of delegating again. Do not check the same child again until iori tells you.
 Use iori finish CHILD_ID --decision accept|reject --reason TEXT --worktree keep|remove [--discard]. remove deletes only a worktree iori created for this child; uncommitted or untracked changes require --discard, which also deletes a child branch with unmerged commits. Never discard changes without authorization. Use iori stop CHILD_ID to stop a child; send resumes a stopped child.
 CLI permission approvals belong to the user. Do not answer them on the user's behalf.`,
     child: `Follow the project rules and the delegated request. You are a child in an iori team; do not delegate or create grandchildren. Reports are evidence for the parent, not a decision or user authorization.
@@ -201,6 +202,15 @@ export function childRequestText(request: string, reports: string): string {
   ].join("\n\n");
 }
 /** Titles come from command arguments: a notification must remain one line. */
+const oneLine = (value: string) => value.replace(/[\p{Cc}\u2028\u2029]/gu, " ");
+
+export function teamChildLabel(
+  role: string | undefined,
+  title: string,
+): string {
+  return `${role ? `${oneLine(role)} ` : ""}"${oneLine(title)}"`;
+}
+
 export function teamNotice(
   role: string | undefined,
   title: string,
@@ -213,6 +223,44 @@ export function teamNotice(
   /** A CLI error: continuing this task assigns the next candidate. */
   continueTask?: string,
 ): string {
-  const line = (value: string) => value.replace(/[\p{Cc}\u2028\u2029]/gu, " ");
-  return `[iori] ${role ? `${line(role)} ` : ""}"${line(title)}" ${event}${event === "failed" && failure ? `: ${line(failure).replace(/\.+$/u, "")}` : ""}. Run iori tasks and iori read to check.${event === "failed" && continueTask ? ` To continue with the next candidate, delegate again with --continue ${continueTask}. The new child starts without the previous conversation, so write a self-contained request.` : ""}`;
+  return `[iori] ${teamChildLabel(role, title)} ${event}${event === "failed" && failure ? `: ${oneLine(failure).replace(/\.+$/u, "")}` : ""}. Run iori tasks and iori read to check.${event === "failed" && continueTask ? ` To continue with the next candidate, delegate again with --continue ${continueTask}. The new child starts without the previous conversation, so write a self-contained request.` : ""}`;
+}
+
+export type TeamStallReason = "output" | "stopped";
+
+export function teamStallNotice(
+  entries: {
+    role?: string;
+    title: string;
+    childId: string;
+    reason: TeamStallReason;
+  }[],
+): string {
+  const items = entries.map((entry) => {
+    const reasonText =
+      entry.reason === "stopped"
+        ? "a command it started is stopped"
+        : "no output for 2m";
+    return `${teamChildLabel(entry.role, entry.title)} is not responding (${reasonText}). Read its screen with iori screen ${oneLine(entry.childId)}`;
+  });
+  return `[iori] ${items.join("; ")}, act once, and do not check it again.`;
+}
+
+export function teamCheckInNotice(
+  entries: {
+    role?: string;
+    title: string;
+    childId: string;
+    minutes: number;
+  }[],
+): string {
+  const items = entries.map(
+    (entry) =>
+      `${teamChildLabel(entry.role, entry.title)} has been working for ${entry.minutes}m. Read its screen with iori screen ${oneLine(entry.childId)}`,
+  );
+  const ending =
+    entries.length === 1
+      ? "If it repeats itself or works off task, act; otherwise do nothing."
+      : "If one repeats itself or works off task, act; otherwise do nothing.";
+  return `[iori] ${items.join("; ")}. ${ending}`;
 }

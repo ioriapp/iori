@@ -1031,6 +1031,7 @@ const japanese: Record<string, string> = {
   "Could not create a terminal. Check the folder and try again.":
     "Terminalを作成できませんでした。フォルダーを確認して、もう一度お試しください。",
   Running: "実行中",
+  "Not responding": "応答なし",
   "Running {command}": "{command}を実行中",
   Exited: "Exited",
   "Close terminal": "Terminalを閉じる",

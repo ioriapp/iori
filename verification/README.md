@@ -67,8 +67,8 @@ Windows の Host に関わる変更では、Windows 検証機で `node scripts/r
 - fixture が持つ入口: 2つ目の Host（`app.addHost`・`app.registerHost`）、Host の停止・起動・再起動（`app.host.stop`・`start`・`restart`）、接続の切断（`app.setOffline`）、2台目のデバイス（`app.addDevice`）、偽の Forge（`app.host.forge()`）、更新の配信元、ファイルの準備（`app.files`）。ブラウザーの API が OS の境界に当たる所（通知の要求・保存先・クリップボードの画像・指のスワイプと長押し）は `e2e/ui/fixtures/browser.ts` にある。Git のリポジトリは `e2e/ui/support/reading.ts` の `repository()` で作る（本物の git を Host の隔離した PATH へ足す）。
 - CLI・モデルなどの値は、使う人と同じ操作で選んでから進める。仕様が決めていない既定値と、一覧の到着の順序を当てにしない。
 - Release の受け入れは、環境変数 `IORI_UI_HOST_DISTRIBUTION` に展開した配布物を渡し、配布物の Host に対して `register-first-agent` と `terminal-input-resize` を実行する。
-- Windows / Android の本物の Client ビルドに対して `e2e/ui/*.spec.ts` を実行するときは、`node scripts/run-bounded-check.mjs node verification/client/run.mjs [--client Android|Windows]` を使う（`bash scripts/ci.sh` の対象外。Host と台本の CLI は Linux 側で起動する）。実 Client では `app.faults`・`app.addDevice`・`app.setOffline`・`app.updates`・`app.register`・`app.registerHost` は利用できない。
-- 幅は project で分ける。試験に `{ tag: "@desktop" }`（1440×900）か `{ tag: "@phone" }`（Pixel 7、タッチあり）を付ける。Android の実機だけで実行する試験には `@android-only` を併記する。
+- Windows / Android の本物の Client ビルドに対して `e2e/ui/*.spec.ts` を実行するときは、`node scripts/run-bounded-check.mjs node verification/client/run.mjs [--client Android|Windows]` を使う（`bash scripts/ci.sh` の対象外。Host と台本の CLI は Linux 側で起動する）。実 Client では `app.faults`・`app.addDevice`・`app.setOffline`・`app.updates.failDownload`・`app.register`・`app.registerHost` は利用できない。`app.updates.publish` と `app.updates.restart` は Windows の自己更新ビルド（`IORI_UI_WINDOWS_UPDATE_ROOT`）だけで使える。
+- 幅は project で分ける。試験に `{ tag: "@desktop" }`（1440×900）か `{ tag: "@phone" }`（Pixel 7、タッチあり）を付ける。Windows / Android の実機だけで実行する試験には `@windows-only` / `@android-only` を併記する。
 - 失敗は1回だけ再実行する（`CI=true` の時）。再実行で通った試験は flaky として結果に出る。trace は最初の再実行で記録する。結果（JSON・HTML の report・失敗時の画像・trace）は `.local/evidence/ui/<実行>/` に出る。
 - 1本は1つの手順を短く通す。Host が決める振る舞いは Host API の E2E に置き、画面では操作が届いて結果が表示されることだけを確かめる。実装の値（寸法・行の数・内部の ID）を期待に書かない。
 

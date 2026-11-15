@@ -88,6 +88,7 @@ export interface TeamChild {
   resumeFile?: string;
   messageFiles?: string[];
   pendingMessageFiles?: string[];
+  inputs?: { at: number; body: string }[];
   parentNoticePending?: boolean;
   parentCandidateNoticeSent?: boolean;
   // Startup idle is not a response; every delivered request waits for activity.

@@ -201,6 +201,19 @@ async function runTarget(target, options, state, runIdBase) {
       IORI_UI_WINDOWS_ROOT: windowsRoot,
       IORI_UI_WINDOWS_EXECUTABLE: windowsExe,
       ...(state.id ? { IORI_UI_WINDOWS_STATE_ID: state.id } : {}),
+      ...(state.windowsProfile
+        ? { IORI_UI_WINDOWS_PROFILE: state.windowsProfile }
+        : {}),
+      ...(state.updateRoot
+        ? { IORI_UI_WINDOWS_UPDATE_ROOT: state.updateRoot }
+        : {}),
+      ...(state.updateVersions?.current
+        ? { IORI_UI_WINDOWS_UPDATE_CURRENT: state.updateVersions.current }
+        : {}),
+      ...(state.updateVersions?.next
+        ? { IORI_UI_WINDOWS_UPDATE_NEXT: state.updateVersions.next }
+        : {}),
+      ...(options.keepBuild ? { IORI_UI_KEEP_BUILD: "1" } : {}),
     }),
   );
   return {

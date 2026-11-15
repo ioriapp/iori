@@ -12,18 +12,6 @@ const windows = (script) =>
     `try { ${script} } catch { [Console]::Error.WriteLine($_.Exception.Message); exit 1 }`,
   );
 
-// Tao's undecorated shadow keeps the side/bottom frame outside the client,
-// but WM_NCHITTEST handles its top resize strip inside the client (y >= 0).
-export function windowsResizePoint({ width, height }, edge) {
-  return {
-    left: { x: -3, y: height / 2 },
-    right: { x: width + 3, y: height / 2 },
-    bottom: { x: width / 2, y: height + 3 },
-    "top-right": { x: width + 3, y: 1 },
-    top: { x: width / 2, y: 1 },
-  }[edge];
-}
-
 // Resolve the button before consent. The Windows task owns the click, waits for
 // consent to close and records native state before any browser call resumes.
 export async function windowsConsentOperation(

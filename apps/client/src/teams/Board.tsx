@@ -38,6 +38,7 @@ import {
 import { TextShimmer } from "./TextShimmer.tsx";
 import { useBoardActivity } from "./use-board-activity.ts";
 import { childStatus } from "./children.ts";
+import { isStalledCliStatus } from "../CliStatus.tsx";
 import "./board.css";
 export function ChangeAmount({
   changes,
@@ -82,6 +83,8 @@ function agentState(agent: BoardAgent) {
     return agent.cliStatus.attention.kind === "question"
       ? "Question"
       : "Approval";
+  if (agent.state === "waiting") return "Waiting";
+  if (isStalledCliStatus(agent.cliStatus)) return "Not responding";
   if (
     agent.cliStatus?.state === "active" &&
     (agent.state === "reported" || agent.state === "question")
@@ -89,7 +92,7 @@ function agentState(agent: BoardAgent) {
     return "Running";
   if (agent.state === "reported") return "Reported";
   if (agent.state === "question") return "Question";
-  return agent.state === "waiting" ? "Waiting" : "Running";
+  return "Running";
 }
 function waitingDescription(agent: BoardAgent, language: string): string {
   const japanese = language.toLowerCase().startsWith("ja");
@@ -116,21 +119,28 @@ function waitingDescription(agent: BoardAgent, language: string): string {
 function CurrentOperation({
   agent,
   language,
+  now,
   t,
 }: {
   agent: BoardAgent;
   language: string;
+  now: number;
   t: (key: string) => string;
 }) {
+  const state = agentState(agent);
   const activity = useBoardActivity(
-    agentState(agent) === "Running" && agent.cliStatus?.state === "active",
+    state === "Running" && agent.cliStatus?.state === "active",
     agent.cliStatus?.activity,
-    ["Approval", "Question"].includes(agentState(agent)),
+    ["Approval", "Question"].includes(state),
   );
   const label =
     activity?.kind === "tool"
       ? [activity.tool, activity.summary].filter(Boolean).join(" ")
-      : t(activity?.kind === "thinking" ? "Thinking" : agentState(agent));
+      : t(activity?.kind === "thinking" ? "Thinking" : state);
+  const stalledElapsed =
+    state === "Not responding" && isStalledCliStatus(agent.cliStatus)
+      ? elapsedTime(now - agent.cliStatus.stalledSince)
+      : undefined;
   const detail =
     agent.state === "waiting"
       ? agent.waiting === "capacity"
@@ -145,7 +155,9 @@ function CurrentOperation({
             : agent.state === "stopped"
               ? t(childStatus(agent).description ?? "")
               : undefined;
-  const description = detail ? `${label} · ${detail}` : label;
+  const description = [label, stalledElapsed, detail]
+    .filter(Boolean)
+    .join(" · ");
   return (
     <span
       className={`agent-current${agent.state === "failed" ? " agent-failure" : ""}`}
@@ -222,6 +234,7 @@ export function Board({
     };
     const unsubscribe = connection.subscribeHostEvents((eventHost, event) => {
       if (eventHost !== host || event.type !== "terminal.updated") return;
+      setNow(Date.now());
       setData(
         (current) =>
           current && {
@@ -359,13 +372,20 @@ export function Board({
         state={
           ["Running", "Starting"].includes(agentState(agent))
             ? "active"
-            : ["Approval", "Question"].includes(agentState(agent))
+            : ["Approval", "Question", "Not responding"].includes(
+                  agentState(agent),
+                )
               ? "waiting"
               : agent.state === "failed"
                 ? "failed"
                 : agent.state === "finished" || agent.state === "reported"
                   ? "done"
                   : "stopped"
+        }
+        aria-label={
+          agentState(agent) === "Not responding"
+            ? t("Not responding")
+            : undefined
         }
       />
       <Collapsible
@@ -399,7 +419,12 @@ export function Board({
                 .filter(Boolean)
                 .join(" · ")}
             </small>
-            <CurrentOperation agent={agent} language={language} t={t} />
+            <CurrentOperation
+              agent={agent}
+              language={language}
+              now={now}
+              t={t}
+            />
           </button>
           <div className="agent-metrics">
             {agent.changes && (

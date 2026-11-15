@@ -272,44 +272,14 @@ try {
    $result.captured=Capture $r
    if($operation -eq 'toast-click' -or $operation -eq 'history-click'){Click-Element $element}
   }
- } elseif($operation -in @('window-capture','window-state','window-pointer','window-restore','window-key')) {
+ } elseif($operation -eq 'window-capture') {
   $process=@(Owned-WindowProcess)
   if($process.Count -ne 1){throw 'Expected the owned verification Client'}
   $handle=Owned-Window $process[0].ProcessId
   if($handle -eq [IntPtr]::Zero){throw 'The owned verification window was not found'}
   $result.found=$true;$result.handle=[long]$handle
-  if($operation -eq 'window-restore' -or ($operation -eq 'window-capture' -and [IoriOsInput]::IsIconic($handle))){$null=[IoriOsInput]::ShowWindow($handle,9)}
-  if($operation -in @('window-restore','window-capture')){$null=[IoriOsInput]::SetForegroundWindow($handle)}
-  if($operation -eq 'window-pointer'){
-   $pointer=$pointerJson | ConvertFrom-Json
-   $origin=[IoriOsInput+Point]::new();$null=[IoriOsInput]::ClientToScreen($handle,[ref]$origin)
-   $scale=[IoriOsInput]::GetDpiForWindow($handle)/96
-   $null=[IoriOsInput]::SetForegroundWindow($handle)
-   $null=[IoriOsInput]::SetCursorPos([int]($origin.X+$pointer.x*$scale),[int]($origin.Y+$pointer.y*$scale))
-   if($pointer.action -eq 'click' -or $pointer.action -eq 'double'){
-    $count=if($pointer.action -eq 'double'){2}else{1}
-    for($i=0;$i -lt $count;$i++){
-     [IoriOsInput]::mouse_event(2,0,0,0,[UIntPtr]::Zero)
-     [IoriOsInput]::mouse_event(4,0,0,0,[UIntPtr]::Zero)
-    }
-   } elseif($pointer.action -eq 'drag'){
-    $steps=if($pointer.steps){[int]$pointer.steps}else{20}
-    [IoriOsInput]::mouse_event(2,0,0,0,[UIntPtr]::Zero)
-    for($i=1;$i -le $steps;$i++){
-     $null=[IoriOsInput]::SetCursorPos([int]($origin.X+($pointer.x+($pointer.toX-$pointer.x)*$i/$steps)*$scale),[int]($origin.Y+($pointer.y+($pointer.toY-$pointer.y)*$i/$steps)*$scale))
-     [Threading.Thread]::Sleep(10)
-    }
-    [IoriOsInput]::mouse_event(4,0,0,0,[UIntPtr]::Zero)
-   }
-  }
-  if($operation -eq 'window-key'){
-   $null=[IoriOsInput]::SetForegroundWindow($handle)
-   if([IoriOsInput]::GetForegroundWindow() -ne $handle){throw 'The owned verification window is not foreground'}
-   $keys=@(($pointerJson | ConvertFrom-Json).keys)
-   foreach($key in $keys){[IoriOsInput]::keybd_event([byte]$key,0,0,[UIntPtr]::Zero)}
-   [array]::Reverse($keys)
-   foreach($key in $keys){[IoriOsInput]::keybd_event([byte]$key,0,2,[UIntPtr]::Zero)}
-  }
+  if([IoriOsInput]::IsIconic($handle)){$null=[IoriOsInput]::ShowWindow($handle,9)}
+  $null=[IoriOsInput]::SetForegroundWindow($handle)
   $element=[System.Windows.Automation.AutomationElement]::FromHandle($handle)
   $r=$element.Current.BoundingRectangle
   # A minimized window has an empty rectangle (Infinity), which JSON cannot hold.
@@ -320,7 +290,7 @@ try {
   $result.minimized=[IoriOsInput]::IsIconic($handle)
   $result.visible=[IoriOsInput]::IsWindowVisible($handle)
   $result.foreground=([IoriOsInput]::GetForegroundWindow() -eq $handle)
-  if($operation -eq 'window-capture'){$result.captured=Capture $r}
+  $result.captured=Capture $r
  } elseif($operation -eq 'window-minimize') {
   $process=@(Get-CimInstance Win32_Process | Where-Object {$_.ExecutablePath -eq $clientPath})
   if($process.Count -eq 1){

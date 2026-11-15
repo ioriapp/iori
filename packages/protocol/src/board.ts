@@ -145,7 +145,7 @@ export type RecordsData = {
 };
 export type TaskHistoryEvent = {
   at: number;
-  kind: "Delegated" | "Revise" | "Handoff" | "Accepted" | "Rejected";
+  kind: "Delegated" | "Revise" | "Handoff" | "Accepted" | "Rejected" | "Input";
   child: string;
   role?: string;
   candidate?: RecordedCandidate;

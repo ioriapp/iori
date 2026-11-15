@@ -3,6 +3,7 @@ import { parseTerminalSnapshot } from "@iori/protocol";
 import type {
   Event,
   Response,
+  TeamStallReason,
   TerminalListResult,
   TerminalSummary,
 } from "@iori/protocol";
@@ -27,7 +28,7 @@ import {
   type CommandCaller,
   type CommandResult,
 } from "../teams/local-command.ts";
-import type { TeamCommand } from "../teams/commands.ts";
+import type { TeamCommand, TeamInputKey } from "../teams/commands.ts";
 import type { ForgeCommand } from "../forge-commands.ts";
 
 /** Reads the Forge for an `iori` command of the CLI whose worktree is `path`. */
@@ -59,6 +60,10 @@ export class TerminalManager {
   onSetupFailed?: (id: string, exitCode: number) => void | Promise<void>;
   onCliState?: (id: string, state: HookState) => void | Promise<void>;
   onCliInput?: (id: string) => void;
+  onCliStalled?: (
+    stalled: { id: string; since: number; reason: TeamStallReason }[],
+  ) => void | Promise<void>;
+  onCliStallCleared?: (id: string) => void;
   onCliProcessesChanged?: () => void;
   onUsageChanged?: () => void;
   onTeamCommand?: (
@@ -192,6 +197,8 @@ export class TerminalManager {
     };
     this.#runtime.onSetupFailed = (id, code) => this.onSetupFailed?.(id, code);
     this.#runtime.onCliInput = (id) => this.onCliInput?.(id);
+    this.#runtime.onCliStalled = (stalled) => this.onCliStalled?.(stalled);
+    this.#runtime.onCliStallCleared = (id) => this.onCliStallCleared?.(id);
     this.#runtime.onCliProcessesChanged = () => this.onCliProcessesChanged?.();
     this.#runtime.onDelivered = (id) => {
       this.#deliveries.get(id)?.();
@@ -268,6 +275,18 @@ export class TerminalManager {
   }
   summary(id: string): TerminalSummary | undefined {
     return this.#runtime.summary(id);
+  }
+  visibleScreenLines(id: string): Promise<string[] | undefined> {
+    return this.#call("visibleScreenLines", id);
+  }
+  sendCliInput(
+    id: string,
+    input:
+      | { text: string; enter?: boolean }
+      | { key: TeamInputKey }
+      | { sequence: string },
+  ): Promise<boolean> {
+    return this.#call("sendCliInput", id, input);
   }
   canResumeWithInput(id: string) {
     return this.#runtime.canResumeWithInput(id);

@@ -2,6 +2,9 @@ import { terminalSubmitPaste } from "./terminal-submit.ts";
 import { commitAtomicFile } from "../fs/atomic-write.ts";
 import { copyDeliveryFile } from "../fs/delivery-file.ts";
 import { filterKittyKeyReleases } from "./kitty-key-release.ts";
+import { stoppedDescendantPidsByRoot } from "./stopped-descendants.ts";
+import { visibleScreenLinesFromSnapshot } from "./visible-screen.ts";
+import type { TeamInputKey } from "../teams/commands.ts";
 import { constants } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { realpath, stat, mkdir, open, rm } from "node:fs/promises";
@@ -21,6 +24,7 @@ import {
   type CliSummary,
   type CliStatus,
   type Response,
+  type TeamStallReason,
   type TerminalImageExtension,
   type TerminalClientMessage,
   type TerminalClosedResult,
@@ -128,6 +132,43 @@ const SUBMIT_QUIET_MS = 100;
 const SUBMIT_NO_OUTPUT_MS = 300;
 // Working Claude pauses <=442ms (p90 114ms); cap continuous redraw at 500ms.
 const SUBMIT_MAX_WAIT_MS = 500;
+const DEFAULT_STALL_MS = 120_000;
+const DEFAULT_STALL_POLL_MS = 5_000;
+
+function stallTiming(): { stallMs: number; pollMs: number } {
+  const raw = process.env.IORI_TEST_STALL_MS;
+  const parsed = raw ? Number(raw) : NaN;
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return { stallMs: DEFAULT_STALL_MS, pollMs: DEFAULT_STALL_POLL_MS };
+  }
+  return {
+    stallMs: parsed,
+    pollMs: Math.max(
+      20,
+      Math.min(DEFAULT_STALL_POLL_MS, Math.floor(parsed / 4)),
+    ),
+  };
+}
+
+function terminalInputKeySequence(
+  key: TeamInputKey,
+  applicationCursor: boolean,
+): string {
+  switch (key) {
+    case "enter":
+      return "\r";
+    case "escape":
+      return "\u001b";
+    case "up":
+      return applicationCursor ? "\u001bOA" : "\u001b[A";
+    case "down":
+      return applicationCursor ? "\u001bOB" : "\u001b[B";
+    case "tab":
+      return "\t";
+    case "ctrl-c":
+      return "\u0003";
+  }
+}
 // The PTY is paced by what the Host has not yet handed to the connections:
 // stop reading while every attached view is above the high mark, continue as
 // soon as any one is below the low mark (the marks VS Code's terminal flow
@@ -201,6 +242,10 @@ interface RuntimeTerminal {
   cliStatus?: CliStatus;
   cliWorkGeneration?: string;
   toolActivity?: ToolActivity;
+  lastOutputAt?: number;
+  stallResetAt?: number;
+  stallGeneration: number;
+  stoppedDescendantSince?: Map<number, number>;
   waitPresentation?: {
     timer: NodeJS.Timeout;
     previous?: CliStatus;
@@ -371,11 +416,87 @@ export class TerminalRuntime {
     exitCode: number,
   ) => void | Promise<void>;
   onCliInput?: (terminalId: string) => void;
+  onCliStalled?: (
+    stalled: { id: string; since: number; reason: TeamStallReason }[],
+  ) => void | Promise<void>;
+  onCliStallCleared?: (terminalId: string) => void;
   onCliProcessesChanged?: () => void;
+  #stallTimer?: NodeJS.Timeout;
+  #stallChecking?: Promise<void>;
 
   isCliRunning(id: string): boolean {
     const runtime = this.#runtimes.get(id);
     return Boolean(runtime?.pty && runtime.cli && !runtime.stopped);
+  }
+
+  async visibleScreenLines(id: string): Promise<string[] | undefined> {
+    const runtime = this.#runtimes.get(id);
+    let snapshot: WireSnapshot | undefined;
+    if (runtime?.pty && !runtime.stopped && !this.#stopping) {
+      try {
+        snapshot = await this.#remote.snapshot(id, 0);
+      } catch {
+        snapshot = undefined;
+      }
+    }
+    snapshot ??= this.#store.terminal(id)?.snapshot ?? undefined;
+    if (!snapshot) return undefined;
+    return visibleScreenLinesFromSnapshot(snapshot);
+  }
+
+  async sendCliInput(
+    id: string,
+    input:
+      | { text: string; enter?: boolean }
+      | { key: TeamInputKey }
+      | { sequence: string },
+  ): Promise<boolean> {
+    const runtime = this.#runtimes.get(id);
+    if (
+      !runtime?.pty ||
+      !runtime.cli ||
+      runtime.stopped ||
+      this.#stopping ||
+      runtime.ptyExited
+    )
+      return false;
+    if ("text" in input && input.enter) {
+      return this.#submit(
+        runtime,
+        input.text,
+        () => this.#noteCliInput(runtime),
+        undefined,
+        { holdOnWait: false, rawSingleLine: true },
+      );
+    }
+    return this.#runSerial(runtime, async () => {
+      if (
+        runtime.stopped ||
+        this.#stopping ||
+        runtime.ptyExited ||
+        !runtime.pty ||
+        !runtime.cli
+      )
+        return false;
+      const data =
+        "sequence" in input
+          ? input.sequence
+          : "key" in input
+            ? terminalInputKeySequence(
+                input.key,
+                runtime.modes.applicationCursor,
+              )
+            : /[\r\n]/u.test(input.text)
+              ? terminalSubmitPaste(input.text, runtime.modes.bracketedPaste)
+              : input.text;
+      await this.#remote.channel.call("write", runtime.record.id, data);
+      this.#noteCliInput(runtime);
+      this.#updateCliState(
+        runtime,
+        runtime.hooks?.onInput?.(data, runtime.cliStatus),
+      );
+      return true;
+    });
   }
 
   runningClis(): import("../teams/assignment.ts").RunningCli[] {
@@ -456,6 +577,8 @@ export class TerminalRuntime {
       runtime.cli = undefined;
       this.#clearWaitingPresentation(runtime);
       runtime.cliStatus = undefined;
+      this.#resetStallTracking(runtime);
+      runtime.lastOutputAt = undefined;
       runtime.pendingLines = [];
       runtime.initialInput = undefined;
       runtime.initialArgumentDelivered = undefined;
@@ -703,6 +826,11 @@ export class TerminalRuntime {
           ?.waitForInputCursor ||
           runtime.showCursor);
       runtime.cliStatus = state?.status;
+      if (
+        runtime.cliStatus?.state === "active" &&
+        runtime.cliStatus.stalledSince === undefined
+      )
+        runtime.stallResetAt = Date.now();
       if (runtime.cliStatus?.state === "waiting")
         this.#deferWaitingPresentation(runtime);
       runtime.pendingCliCommand = state?.pendingCommand;
@@ -745,6 +873,7 @@ export class TerminalRuntime {
       }
       this.#store.putTerminal(record);
     }
+    this.#scheduleStallCheck();
   }
 
   flushPending() {
@@ -1374,6 +1503,7 @@ export class TerminalRuntime {
 
   disconnected() {
     this.#stopping = true;
+    this.#clearStallTimer();
     for (const runtime of this.#runtimes.values()) {
       runtime.hookObserver?.dispose();
       this.#clearWaitingPresentation(runtime);
@@ -1388,6 +1518,8 @@ export class TerminalRuntime {
   }
   async close(): Promise<void> {
     this.#stopping = true;
+    this.#clearStallTimer();
+    await this.#stallChecking;
     for (const runtime of this.#runtimes.values()) {
       runtime.hookObserver?.dispose();
       this.#clearWaitingPresentation(runtime);
@@ -1417,12 +1549,15 @@ export class TerminalRuntime {
     runtime.toolActivity = undefined;
     this.#clearWaitingPresentation(runtime);
     runtime.cliStatus = undefined;
+    this.#resetStallTracking(runtime);
+    runtime.lastOutputAt = undefined;
     runtime.submissionStateChanged?.();
     runtime.pendingLines = [];
     runtime.initialInput = undefined;
     runtime.cliReady = false;
     runtime.cli = undefined;
     runtime.observedModel = undefined;
+    this.onCliStallCleared?.(runtime.record.id);
     if (!this.#stopping && !runtime.teamOptions)
       this.#store.setTerminalCli(runtime.record.id);
     if (
@@ -1490,6 +1625,7 @@ export class TerminalRuntime {
           record.snapshot?.oscLinks,
         )
         .then((state) => this.#applyDaemonState(runtime, state)),
+      stallGeneration: 0,
       persistDirty: false,
       stopped: false,
       backpressured: false,
@@ -1590,8 +1726,142 @@ export class TerminalRuntime {
       });
   }
 
+  #resetStallTracking(runtime: RuntimeTerminal, now = Date.now()): void {
+    runtime.stallResetAt = now;
+    runtime.stallGeneration += 1;
+    runtime.stoppedDescendantSince?.clear();
+  }
+
+  #noteCliInput(runtime: RuntimeTerminal): void {
+    this.#resetStallTracking(runtime);
+    if (runtime.cliStatus?.stalledSince === undefined) return;
+    const { stalledSince: _stalledSince, ...rest } = runtime.cliStatus;
+    runtime.cliStatus = rest;
+    runtime.notifications = runtime.notifications
+      .then(() => this.onCliStallCleared?.(runtime.record.id))
+      .catch(() => this.#reportRuntimeError(runtime));
+    this.#saveCli(runtime);
+    this.#publish({
+      type: "terminal.updated",
+      terminal: this.#summary(runtime.record),
+    });
+    this.#scheduleStallCheck();
+  }
+
+  #clearStallTimer(): void {
+    if (this.#stallTimer) {
+      clearTimeout(this.#stallTimer);
+      this.#stallTimer = undefined;
+    }
+  }
+
+  #scheduleStallCheck(): void {
+    if (this.#stopping || this.#stallTimer || this.#stallChecking) return;
+    const hasActiveUnstalled = [...this.#runtimes.values()].some(
+      (runtime) =>
+        !runtime.stopped &&
+        !runtime.ptyExited &&
+        !runtime.setup &&
+        runtime.pty &&
+        runtime.cli &&
+        runtime.cliStatus?.state === "active" &&
+        runtime.cliStatus.stalledSince === undefined,
+    );
+    if (!hasActiveUnstalled) return;
+    const { pollMs } = stallTiming();
+    this.#stallTimer = setTimeout(() => {
+      this.#stallTimer = undefined;
+      if (this.#stopping) return;
+      const running = this.#runStallCheck().finally(() => {
+        if (this.#stallChecking === running) this.#stallChecking = undefined;
+        this.#scheduleStallCheck();
+      });
+      this.#stallChecking = running;
+    }, pollMs);
+    this.#stallTimer.unref();
+  }
+
+  async #runStallCheck(): Promise<void> {
+    if (this.#stopping) return;
+    const candidates = [...this.#runtimes.values()]
+      .filter(
+        (runtime) =>
+          !runtime.stopped &&
+          !runtime.ptyExited &&
+          !runtime.setup &&
+          runtime.pty &&
+          runtime.cli &&
+          runtime.cliStatus?.state === "active" &&
+          runtime.cliStatus.stalledSince === undefined,
+      )
+      .map((runtime) => ({
+        runtime,
+        pid: runtime.pty!.pid,
+        generation: runtime.stallGeneration,
+      }));
+    if (candidates.length === 0) return;
+    const { stallMs } = stallTiming();
+    const stoppedByRoot = await stoppedDescendantPidsByRoot(
+      candidates.map((c) => c.pid),
+    );
+    if (this.#stopping) return;
+    const now = Date.now();
+    const newlyStalled: {
+      id: string;
+      since: number;
+      reason: TeamStallReason;
+    }[] = [];
+    for (const { runtime, pid, generation } of candidates) {
+      if (
+        runtime.stopped ||
+        runtime.ptyExited ||
+        runtime.setup ||
+        runtime.pty?.pid !== pid ||
+        !runtime.cli ||
+        runtime.cliStatus?.state !== "active" ||
+        runtime.cliStatus.stalledSince !== undefined ||
+        runtime.stallGeneration !== generation
+      )
+        continue;
+      const currentStopped = stoppedByRoot.get(pid);
+      const previousStopped =
+        runtime.stoppedDescendantSince ?? new Map<number, number>();
+      const nextStopped = new Map<number, number>();
+      let stoppedStall = false;
+      if (currentStopped) {
+        for (const childPid of currentStopped) {
+          const firstSeen = previousStopped.get(childPid) ?? now;
+          nextStopped.set(childPid, firstSeen);
+          if (now - firstSeen >= stallMs) stoppedStall = true;
+        }
+      }
+      runtime.stoppedDescendantSince = nextStopped;
+      const outputBaseline = Math.max(
+        runtime.lastOutputAt ?? 0,
+        runtime.stallResetAt ?? 0,
+        runtime.cliStatus.since,
+      );
+      const outputStall = now - outputBaseline >= stallMs;
+      if (!stoppedStall && !outputStall) continue;
+      const reason: TeamStallReason = stoppedStall ? "stopped" : "output";
+      runtime.cliStatus = { ...runtime.cliStatus, stalledSince: now };
+      this.#saveCli(runtime);
+      this.#publish({
+        type: "terminal.updated",
+        terminal: this.#summary(runtime.record),
+      });
+      newlyStalled.push({ id: runtime.record.id, since: now, reason });
+    }
+    if (newlyStalled.length > 0) {
+      Promise.resolve(this.onCliStalled?.(newlyStalled)).catch(() => {
+        console.error("iori-host cli-stall-callback-failed");
+      });
+    }
+  }
+
   #updateCliState(runtime: RuntimeTerminal, next: HookState | undefined): void {
     if (!next || !runtime.cli || runtime.stopped || this.#stopping) return;
+    this.#resetStallTracking(runtime);
     next = (runtime.toolActivity ??= new ToolActivity()).update(next);
     if (next.response)
       next = { ...next, response: notificationText(next.response) };
@@ -1606,10 +1876,12 @@ export class TerminalRuntime {
       runtime.cliStatus?.response === next.response &&
       JSON.stringify(runtime.cliStatus?.backgroundTasks) ===
         JSON.stringify(next.backgroundTasks);
+    const hadStall = runtime.cliStatus?.stalledSince !== undefined;
     if (
       activityOnly &&
       JSON.stringify(runtime.cliStatus?.activity) ===
-        JSON.stringify(next.activity)
+        JSON.stringify(next.activity) &&
+      !hadStall
     )
       return;
     const previous = runtime.cliStatus;
@@ -1647,6 +1919,11 @@ export class TerminalRuntime {
       this.#deferWaitingPresentation(runtime, previous);
     if (!activityOnly && !runtime.waitPresentation && !resumedUnseen)
       this.#notifyCliState(runtime, next);
+    if (hadStall) {
+      runtime.notifications = runtime.notifications
+        .then(() => this.onCliStallCleared?.(runtime.record.id))
+        .catch(() => this.#reportRuntimeError(runtime));
+    }
     runtime.submissionStateChanged?.();
     this.#saveCli(runtime);
     this.#sendPendingLines(runtime);
@@ -1654,6 +1931,7 @@ export class TerminalRuntime {
       type: "terminal.updated",
       terminal: this.#summary(runtime.record),
     });
+    if (runtime.cliStatus.state === "active") this.#scheduleStallCheck();
   }
 
   #submit(
@@ -1661,7 +1939,9 @@ export class TerminalRuntime {
     text: string,
     beforeWrite?: () => void,
     onAccepted?: () => void,
+    options?: { holdOnWait?: boolean; rawSingleLine?: boolean },
   ): Promise<boolean> {
+    const holdOnWait = options?.holdOnWait !== false;
     const child = runtime.pty;
     const submission = (runtime.submission ?? Promise.resolve())
       .catch(() => {})
@@ -1707,11 +1987,16 @@ export class TerminalRuntime {
             writtenWhileWaiting = runtime.cliStatus?.state === "waiting";
             writtenCli = runtime.cli;
             deadline = setTimeout(settle, SUBMIT_MAX_WAIT_MS);
+            const payload =
+              options?.rawSingleLine && !/[\r\n]/u.test(text)
+                ? text
+                : terminalSubmitPaste(text, runtime.modes.bracketedPaste);
             await this.#remote.channel.call(
               "write",
               runtime.record.id,
-              terminalSubmitPaste(text, runtime.modes.bracketedPaste),
+              payload,
             );
+            this.#noteCliInput(runtime);
             onAccepted?.();
             if (!timer) timer = setTimeout(settle, SUBMIT_NO_OUTPUT_MS);
           });
@@ -1734,6 +2019,7 @@ export class TerminalRuntime {
               )
                 return false;
               if (
+                holdOnWait &&
                 !writtenWhileWaiting &&
                 runtime.cliStatus?.state === "waiting"
               ) {
@@ -1744,6 +2030,7 @@ export class TerminalRuntime {
                 return undefined;
               }
               await this.#remote.channel.call("write", runtime.record.id, "\r");
+              this.#noteCliInput(runtime);
               this.#updateCliState(
                 runtime,
                 runtime.hooks?.onInput?.("\r", runtime.cliStatus),
@@ -2141,6 +2428,7 @@ export class TerminalRuntime {
       const { data } = batch;
       clearInitialInputTimer();
       if (runtime.stopped || this.#stopping) return;
+      if (data.length > 0) runtime.lastOutputAt = Date.now();
       // Bound pending parser work at the PTY's read boundary, without delaying other terminals.
       child.pause();
       return this.#runSerial(runtime, async () => {
@@ -2647,6 +2935,7 @@ export class TerminalRuntime {
         }
         if (message.kind === "terminal.submit") {
           runtime.userInputSinceActivity = true;
+          this.#noteCliInput(runtime);
           this.onCliInput?.(runtime.record.id);
           let accepted = false;
           void this.#submit(runtime, message.data, undefined, () => {
@@ -2685,6 +2974,7 @@ export class TerminalRuntime {
         }
         if (message.origin !== "scroll") {
           runtime.userInputSinceActivity = true;
+          this.#noteCliInput(runtime);
           this.onCliInput?.(runtime.record.id);
         }
         runtime.pty?.write(data);

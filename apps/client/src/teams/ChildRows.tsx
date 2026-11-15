@@ -27,6 +27,8 @@ import { StatusDot } from "../components/StatusDot.tsx";
 import { CliIcon } from "../CliIcon.tsx";
 import { MiddleEllipsis } from "../MiddleEllipsis.tsx";
 import { childRank, childStatus } from "./children.ts";
+import { isStalledCliStatus, useTick } from "../CliStatus.tsx";
+import { elapsedTime } from "./board-i18n.ts";
 import "./children.css";
 export type ChildRowProps = {
   hostKey: string;
@@ -82,6 +84,9 @@ export function ChildRows(props: ChildRowProps) {
     branches,
   } = props;
   const [expanded, setExpanded] = useState(false);
+  const now = useTick(
+    children.some((child) => isStalledCliStatus(child.cliStatus)),
+  );
   const ended: ChildSummary[] = [];
   const live: ChildSummary[] = [];
   for (const child of children)
@@ -89,6 +94,10 @@ export function ChildRows(props: ChildRowProps) {
   const row = (child: ChildSummary) => {
     const removing = props.isRemoving?.(child.cwd ?? child.parentCwd);
     const status = childStatus(child);
+    const elapsed =
+      status.stalledSince !== undefined
+        ? elapsedTime(now - status.stalledSince)
+        : undefined;
     const reason =
       child.state === "failed"
         ? child.failure
@@ -112,6 +121,7 @@ export function ChildRows(props: ChildRowProps) {
               child.cli?.name,
               child.model,
               status.label,
+              elapsed,
               status.description && t(status.description),
               reason,
             ]
@@ -149,6 +159,7 @@ export function ChildRows(props: ChildRowProps) {
                 )}
                 <span className="nav-child-state">
                   {status.label}
+                  {elapsed ? ` · ${elapsed}` : ""}
                   {status.description && ` · ${t(status.description)}`}
                   {reason ? ` · ${reason}` : ""}
                 </span>

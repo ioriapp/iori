@@ -25,6 +25,10 @@ export function teamChanges(
     changed("Execution settings", "Parent");
   if (before.instruction !== after.instruction)
     changed("Instructions", "Parent");
+  if (!!before.parentInput !== !!after.parentInput)
+    changed("Allow parent input to children", "Parent");
+  if (before.checkMinutes !== after.checkMinutes)
+    changed("Check on working children", "Parent");
   for (const current of after.roles) {
     const previous = before.roles.find((role) => role.id === current.id);
     if (!previous) {

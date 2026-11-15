@@ -24,10 +24,22 @@ iori send CHILD_ID --kind answer|request|revise --body TEXT
 iori finish CHILD_ID --decision accept|reject --reason TEXT --worktree keep|remove [--discard]
   (--discard also deletes uncommitted changes and a child branch with unmerged commits)
 iori stop CHILD_ID
+iori screen CHILD_ID
+iori interrupt CHILD_ID
+iori input CHILD_ID (--text TEXT [--enter] | --key KEY)
 iori report --body TEXT
 iori ask --body TEXT
 ${forgeCommandUsage}
 For body: --file PATH (inside the working directory) or --body - (stdin). ${commandFooter}`;
+export const teamInputKeys = [
+  "enter",
+  "escape",
+  "up",
+  "down",
+  "tab",
+  "ctrl-c",
+] as const;
+export type TeamInputKey = (typeof teamInputKeys)[number];
 export type TeamCommand =
   | {
       kind: "delegate";
@@ -67,7 +79,14 @@ export type TeamCommand =
     }
   | { kind: "plan"; action: "cancel"; number: number; reason: string }
   | { kind: "tasks" }
-  | { kind: "read" | "stop"; child: string }
+  | { kind: "read" | "stop" | "screen" | "interrupt"; child: string }
+  | {
+      kind: "input";
+      child: string;
+      text?: string;
+      enter?: boolean;
+      key?: TeamInputKey;
+    }
   | {
       kind: "send";
       child: string;
@@ -107,12 +126,15 @@ const fields: Record<string, string[]> = {
   tasks: [],
   read: [],
   stop: [],
+  screen: [],
+  interrupt: [],
+  input: ["text", "enter", "key"],
   send: ["kind", "body"],
   finish: ["decision", "reason", "worktree", "discard"],
   report: ["body"],
   ask: ["body"],
 };
-const booleanFields = new Set(["discard", "request", "first"]);
+const booleanFields = new Set(["discard", "request", "first", "enter"]);
 /** Whether `iori NAME` is a team command, which only a team conversation can use. */
 export function isTeamCommand(name: unknown): boolean {
   return typeof name === "string" && Object.hasOwn(fields, name);
@@ -260,7 +282,15 @@ export function parseCommand(argv: unknown): TeamCommand {
         throw new Error(commandHelp);
     }
   }
-  const needsChild = ["read", "stop", "send", "finish"].includes(kind);
+  const needsChild = [
+    "read",
+    "stop",
+    "screen",
+    "interrupt",
+    "send",
+    "finish",
+    "input",
+  ].includes(kind);
   if (positionals.length !== (needsChild ? 1 : 0))
     throw new Error(
       needsChild ? "Specify one child ID." : "Unexpected positional arguments.",
@@ -282,7 +312,33 @@ export function parseCommand(argv: unknown): TeamCommand {
       return { kind };
     case "read":
     case "stop":
+    case "screen":
+    case "interrupt":
       return { kind, child: positionals[0]! };
+    case "input": {
+      const hasText = values.text !== undefined;
+      const hasKey = values.key !== undefined;
+      const enter = values.enter === true;
+      if (hasText === hasKey)
+        throw new Error("Specify one of --text or --key.");
+      if (hasKey) {
+        if (enter) throw new Error("--enter cannot be combined with --key.");
+        return {
+          kind,
+          child: positionals[0]!,
+          key: oneOf("key", teamInputKeys),
+        };
+      }
+      const value = values.text;
+      if (typeof value !== "string" || value.length === 0)
+        throw new Error("Required: --text.");
+      return {
+        kind,
+        child: positionals[0]!,
+        text: value,
+        enter,
+      };
+    }
     case "send":
       return {
         kind,

@@ -30,6 +30,7 @@ export default defineConfig<TestOptions>({
     {
       name: "desktop",
       grep: /@desktop/,
+      grepInvert: /@windows-only/,
       use: { viewport: { width: 1440, height: 900 } },
     },
     {

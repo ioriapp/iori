@@ -94,3 +94,67 @@ test(
     ).toBe(true);
   },
 );
+
+test(
+  "親の見守り設定を編集して保存し再表示で保たれる",
+  { tag: "@desktop" },
+  async ({ page, registeredApp: app }) => {
+    const saved = await createTeam(app, {
+      name: "Watch settings team",
+      roles: [],
+      makeDefault: false,
+    });
+    const openParentSettings = async () => {
+      await page
+        .getByRole("button", { name: "AI Agents/Teams", exact: true })
+        .click();
+      await page.getByRole("button", { name: "Teams", exact: true }).click();
+      await page
+        .getByRole("button", { name: /Watch settings team Version/ })
+        .click();
+      await page.getByRole("button", { name: "Parent", exact: true }).click();
+    };
+    await app.open(page);
+    await openParentSettings();
+
+    const parentInput = page.getByRole("switch", {
+      name: "Allow parent input to children",
+      exact: true,
+    });
+    const checkInterval = page.getByRole("combobox", {
+      name: "Check on working children",
+      exact: true,
+    });
+    const save = page.getByRole("button", { name: "Save", exact: true });
+
+    await expect(parentInput).not.toBeChecked();
+    await expect(checkInterval).toHaveText("Off");
+
+    await parentInput.click();
+    await checkInterval.click();
+    await page
+      .getByRole("option", { name: "Every 15 minutes", exact: true })
+      .click();
+    await save.click();
+    await expect(save).toBeDisabled();
+
+    const afterEnable = await app.request("teams.read", { teamId: saved.id });
+    expect(afterEnable.saved.parentInput).toBe(true);
+    expect(afterEnable.saved.checkMinutes).toBe(15);
+
+    await page.reload();
+    await openParentSettings();
+    await expect(parentInput).toBeChecked();
+    await expect(checkInterval).toHaveText("Every 15 minutes");
+
+    await parentInput.click();
+    await checkInterval.click();
+    await page.getByRole("option", { name: "Off", exact: true }).click();
+    await save.click();
+    await expect(save).toBeDisabled();
+
+    const afterDisable = await app.request("teams.read", { teamId: saved.id });
+    expect("parentInput" in afterDisable.saved).toBe(false);
+    expect("checkMinutes" in afterDisable.saved).toBe(false);
+  },
+);

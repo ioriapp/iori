@@ -6,6 +6,7 @@ import {
   type TerminalListResult,
 } from "@iori/protocol";
 import { connection } from "../connection.ts";
+import { isStalledCliStatus } from "../CliStatus.tsx";
 
 // The visible list merges the snapshot with events that arrived while it was
 // loading. Keep their identities separately for the initial notification seed.
@@ -158,6 +159,7 @@ export function childStatus(
 ): {
   label: string;
   description?: string;
+  stalledSince?: number;
   state: "active" | "waiting" | "stopped" | "done" | "failed";
 } {
   if (child.state === "finished")
@@ -199,21 +201,38 @@ export function childStatus(
     };
   if (child.state === "reported" && work !== "running")
     return { state: "done", label: "Reported" };
-  if (work === "running")
+  if (work === "running") {
+    const description =
+      child.state === "reported" || child.state === "question"
+        ? child.state === "reported"
+          ? "Reported"
+          : "Question"
+        : undefined;
+    if (isStalledCliStatus(child.cliStatus)) {
+      return {
+        state: "waiting",
+        label: "Not responding",
+        stalledSince: child.cliStatus.stalledSince,
+        description,
+      };
+    }
     return {
       state: "active",
       label: "Running",
-      description:
-        child.state === "reported" || child.state === "question"
-          ? child.state === "reported"
-            ? "Reported"
-            : "Question"
-          : undefined,
+      description,
     };
+  }
   return { state: "active", label: "Running" };
 }
 export function childCliStatus(child: ChildSummary): CliStatus {
   const status = childStatus(child);
+  if (status.stalledSince !== undefined) {
+    return {
+      state: "active",
+      since: child.startedAt ?? 0,
+      stalledSince: status.stalledSince,
+    };
+  }
   return {
     state: status.state === "failed" ? "done" : status.state,
     since: child.startedAt ?? 0,

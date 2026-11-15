@@ -51,6 +51,7 @@ export function MobileHome({
 }) {
   const stateOrder = [
     "Running",
+    "Not responding",
     "Approval",
     "Question",
     "Waiting",

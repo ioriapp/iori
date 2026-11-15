@@ -50,6 +50,9 @@
 | Overwrite（保存の競合）                              | 上書き                                               | —                                                        | VS Code の保存の競合（Overwrite → 上書き）                                                   |
 | 文字の位置（Line・Column）                           | 行 {n}、列 {n}                                       | {n}行目・{n}文字目                                       | VS Code（`Ln {0}, Col {1}` → 行 {0}、列 {1}）                                                |
 | モデルを指定せずに CLI 自身のモデルで使う（Default） | 既定                                                 | デフォルト・標準                                         | VS Code（`Default`→既定、`Use the vendor's default model`→ベンダーの既定のモデルを使用する） |
+| 作業中の Agent が進まない状態（Not responding）      | 応答なし                                             | 止まっている・進んでいない                               | Apple（`Not Responding`→応答なし）                                                           |
+| 一定の間隔で繰り返す（Every 15 minutes）             | 15分ごと・1時間ごと                                  | 15分おき・毎時                                           | macOS（`Every 15 minutes`→15分ごと、`Every hour`→1時間ごと）                                 |
+| 入力を送る（Send input）                             | 入力を送信                                           | 入力を送る・打ち込む                                     | VS Code（`Send input to a shell session`→入力をシェル セッションに送信する）                 |
 
 ## 表記
 

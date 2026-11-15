@@ -14,12 +14,14 @@ import type {
 import {
   prepareRealClientPage,
   startRealClient,
+  waitForClientReady,
 } from "../../../verification/client/session.mjs";
 
 export type ClientPlatform = "web" | "windows" | "android";
 export type TestOptions = {
   clientUpdates: boolean;
   clientPlatform: ClientPlatform;
+  hostEnvironment: Record<string, string> | undefined;
 };
 
 type Started = {
@@ -80,13 +82,18 @@ export type App = Started & {
   }): Promise<{ app: App; page: Page; context: BrowserContext }>;
   setOffline(value: boolean): Promise<void>;
   files(files: Record<string, string>): Promise<void>;
-  updates: { publish(): Promise<void>; failDownload(): Promise<void> };
+  updates: {
+    publish(): Promise<void>;
+    failDownload(): Promise<void>;
+    restart(page: Page, trigger: () => Promise<void>): Promise<Page>;
+  };
 };
 type Fixtures = {
   app: App;
   registeredApp: App;
   clientUpdates: boolean;
   clientPlatform: ClientPlatform;
+  hostEnvironment: Record<string, string> | undefined;
 };
 
 const queuedUiRegistration = new WeakSet<App>();
@@ -119,14 +126,17 @@ async function registerRealClientThroughUi(
 export const test = base.extend<Fixtures>({
   clientUpdates: [false, { option: true }],
   clientPlatform: ["web", { option: true }],
+  hostEnvironment: [undefined, { option: true }],
   page: [
-    async ({ page, clientPlatform }, use, info) => {
+    async ({ page, clientPlatform, clientUpdates }, use, info) => {
       if (clientPlatform === "web") {
         await use(page);
         return;
       }
       const launchStarted = performance.now();
-      const client = await startRealClient(clientPlatform);
+      const client = await startRealClient(clientPlatform, {
+        updates: clientUpdates,
+      });
       realClients.set(client.page, client);
       info.annotations.push({
         type: "clientLaunchMs",
@@ -157,7 +167,11 @@ export const test = base.extend<Fixtures>({
     },
     { scope: "test", timeout: 90_000 },
   ],
-  app: async ({ browser, clientUpdates, clientPlatform }, use, info) => {
+  app: async (
+    { browser, clientUpdates, clientPlatform, hostEnvironment },
+    use,
+    info,
+  ) => {
     const child = fork(new URL("./runtime.mjs", import.meta.url), [], {
       execArgv: [],
       stdio: ["ignore", "inherit", "inherit", "ipc"],
@@ -395,12 +409,33 @@ export const test = base.extend<Fixtures>({
         files: (files) => call("files", { files }),
         updates: realClient
           ? {
-              publish: unsupported("app.updates.publish"),
+              publish:
+                clientPlatform === "windows"
+                  ? () => call("updates", { action: "publish" })
+                  : unsupported("app.updates.publish"),
               failDownload: unsupported("app.updates.failDownload"),
+              restart:
+                clientPlatform === "windows"
+                  ? async (targetPage, trigger) => {
+                      const client = realClients.get(targetPage);
+                      if (!client?.restartAfterUpdate) {
+                        throw new Error(
+                          "app.updates.restart requires clientUpdates on Windows client",
+                        );
+                      }
+                      realClients.delete(targetPage);
+                      const restartedPage =
+                        await client.restartAfterUpdate(trigger);
+                      realClients.set(restartedPage, client);
+                      await waitForClientReady(restartedPage);
+                      return restartedPage;
+                    }
+                  : unsupported("app.updates.restart"),
             }
           : {
               publish: () => call("updates", { action: "publish" }),
               failDownload: () => call("updates", { action: "failDownload" }),
+              restart: unsupported("app.updates.restart"),
             },
       };
       return instance;
@@ -411,6 +446,7 @@ export const test = base.extend<Fixtures>({
       const app = await call<Started>("start", {
         updates: clientUpdates,
         realClient,
+        environment: hostEnvironment,
       });
       info.annotations.push(
         { type: "hostMs", description: String(app.hostMs) },

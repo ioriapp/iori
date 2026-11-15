@@ -113,6 +113,10 @@ export type TeamDefinition = {
   parent: Candidate;
   instruction: string;
   roles: Role[];
+  /** The parent may send input to its children's terminals (default off). */
+  parentInput?: boolean;
+  /** Minutes between check-ins on working children; absent means off. */
+  checkMinutes?: 15 | 30 | 60;
 };
 export type Team = TeamDefinition & {
   id: string;
@@ -336,6 +340,10 @@ export function parseTeamDefinition(value: unknown): TeamDefinition {
     parent: parseTeamCandidate(v.parent, true),
     instruction: text(v.instruction),
     roles,
+    ...(v.parentInput === true ? { parentInput: true } : {}),
+    ...(v.checkMinutes === 15 || v.checkMinutes === 30 || v.checkMinutes === 60
+      ? { checkMinutes: v.checkMinutes }
+      : {}),
   };
 }
 export function parseTeamSettings(value: unknown): TeamSettings {

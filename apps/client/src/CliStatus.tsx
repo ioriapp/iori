@@ -1,6 +1,42 @@
 import { useEffect, useState } from "react";
 import type { CliStatus } from "@iori/protocol";
 import { StatusDot } from "./components/StatusDot.tsx";
+import { elapsedTime } from "./teams/board-i18n.ts";
+
+export function isStalledCliStatus(
+  status?: CliStatus,
+): status is CliStatus & { state: "active"; stalledSince: number } {
+  return status?.state === "active" && status.stalledSince !== undefined;
+}
+
+export function useTick(active: boolean, key?: unknown) {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    if (!active) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [active, key]);
+  return now;
+}
+
+export function stalledDescription(
+  status: CliStatus | undefined,
+  t: (key: string) => string,
+  now: number,
+) {
+  if (!isStalledCliStatus(status)) return undefined;
+  return `${t("Not responding")} · ${elapsedTime(now - status.stalledSince)}`;
+}
+
+export function withStalledDescription(
+  label: string,
+  status: CliStatus | undefined,
+  t: (key: string) => string,
+  now: number,
+) {
+  const stalled = stalledDescription(status, t, now);
+  return stalled ? `${label} · ${stalled}` : label;
+}
 
 export function CliStateDot({
   status,
@@ -10,48 +46,41 @@ export function CliStateDot({
   t: (key: string) => string;
 }) {
   if (!status) return null;
+  const stalled = isStalledCliStatus(status);
   return (
     <StatusDot
       state={
         status.outcome === "failure"
           ? "failed"
-          : status.state === "idle"
-            ? "stopped"
-            : status.state
+          : stalled
+            ? "waiting"
+            : status.state === "idle"
+              ? "stopped"
+              : status.state
       }
-      animated={status.state === "active"}
+      animated={status.state === "active" && !stalled}
       aria-label={
-        status.state === "idle"
-          ? "Idle"
-          : status.state === "active"
-            ? "Running"
-            : status.state === "waiting"
-              ? t("Attention")
-              : status.state === "done"
-                ? status.outcome === "failure"
-                  ? "Failed"
-                  : "Done"
-                : "Stopped"
+        stalled
+          ? t("Not responding")
+          : status.state === "idle"
+            ? "Idle"
+            : status.state === "active"
+              ? "Running"
+              : status.state === "waiting"
+                ? t("Attention")
+                : status.state === "done"
+                  ? status.outcome === "failure"
+                    ? "Failed"
+                    : "Done"
+                  : "Stopped"
       }
     />
   );
 }
 
 export function CliElapsed({ status }: { status?: CliStatus }) {
-  const [now, setNow] = useState(Date.now);
-  useEffect(() => {
-    if (!status) return;
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, [status?.since]);
+  const now = useTick(Boolean(status), status?.since);
   if (!status) return null;
-  const seconds = Math.max(0, Math.floor((now - status.since) / 1000));
-  const label =
-    seconds < 60
-      ? `${seconds}s`
-      : seconds < 3600
-        ? `${Math.floor(seconds / 60)}m`
-        : `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
   return (
     <time
       className="cli-elapsed"
@@ -59,7 +88,7 @@ export function CliElapsed({ status }: { status?: CliStatus }) {
         document.documentElement.lang,
       )}
     >
-      {label}
+      {elapsedTime(now - status.since)}
     </time>
   );
 }

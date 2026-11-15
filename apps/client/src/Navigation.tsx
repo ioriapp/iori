@@ -75,7 +75,13 @@ import {
   worktreeLabel,
 } from "./workspace-panel.tsx";
 import "./navigation.css";
-import { CliStateDot, CliElapsed } from "./CliStatus.tsx";
+import {
+  CliStateDot,
+  CliElapsed,
+  isStalledCliStatus,
+  useTick,
+  withStalledDescription,
+} from "./CliStatus.tsx";
 import { StatusDot } from "./components/StatusDot.tsx";
 import { CliIcon } from "./CliIcon.tsx";
 
@@ -361,6 +367,15 @@ export function Navigation({
     openMobile,
   } = useSidebar();
   const [cliOrders, setCliOrders] = useState<Record<string, string[]>>({});
+  const now = useTick(
+    folders.some((entry) =>
+      worktreesOf(entry.folder).some((wt) =>
+        sessionsFor(entry.host.publicKey, wt.path).some((terminal) =>
+          isStalledCliStatus(terminal.cliStatus),
+        ),
+      ),
+    ),
+  );
   const connectedKey = JSON.stringify(connectedHosts);
   useEffect(() => {
     let active = true;
@@ -724,7 +739,12 @@ ${item.path}`
                               ? "page"
                               : undefined
                           }
-                          title={terminalTitle(terminal.title)}
+                          title={withStalledDescription(
+                            terminalTitle(terminal.title),
+                            terminal.cliStatus,
+                            t,
+                            now,
+                          )}
                           disabled={removing}
                           draggable={!removing && dragViews}
                           onDragStart={onDragView("terminal", terminal.id, {

@@ -21,12 +21,15 @@ import {
   childRequestText,
   parentTeamText,
   previousWorkerText,
+  teamCheckInNotice,
   teamNotice,
+  teamStallNotice,
   updateTeamCommandLocation,
   type Candidate,
   type ChildSummary,
   type Event,
   type Response,
+  type TeamStallReason,
   type TerminalCreatedResult,
 } from "@iori/protocol";
 import type { HostStore, StoreContext } from "../store.ts";
@@ -74,6 +77,47 @@ const ok = (text: string, data?: unknown): CommandResult => ({
   text,
   ...(data === undefined ? {} : { data }),
 });
+
+// Cursor, Hermes, CodeBuddy, and Qoder use Ctrl+C for turn interruption
+// (e.g. Hermes maps Esc to /rewind); Amp requires double Escape; others use Esc.
+const CTRL_C_INTERRUPT_CLIS = new Set([
+  "cursor",
+  "hermes",
+  "codebuddy",
+  "qoder",
+]);
+const DOUBLE_ESC_INTERRUPT_CLIS = new Set(["amp"]);
+const DEFAULT_CHECK_MINUTE_MS = 60_000;
+const DEFAULT_CHECK_POLL_MS = 5_000;
+
+function checkInTiming(): { minuteMs: number; pollMs: number } {
+  const raw = process.env.IORI_TEST_CHECK_MINUTE_MS;
+  const parsed = raw ? Number(raw) : NaN;
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return {
+      minuteMs: DEFAULT_CHECK_MINUTE_MS,
+      pollMs: DEFAULT_CHECK_POLL_MS,
+    };
+  }
+  return {
+    minuteMs: parsed,
+    pollMs: Math.max(
+      15,
+      Math.min(DEFAULT_CHECK_POLL_MS, Math.floor((parsed * 15) / 4)),
+    ),
+  };
+}
+
+function cliInterruptKey(cliId: string | undefined): {
+  sequence: string;
+  keyName: string;
+} {
+  if (cliId && CTRL_C_INTERRUPT_CLIS.has(cliId))
+    return { sequence: "\u0003", keyName: "ctrl-c" };
+  if (cliId && DOUBLE_ESC_INTERRUPT_CLIS.has(cliId))
+    return { sequence: "\u001b\u001b", keyName: "escape escape" };
+  return { sequence: "\u001b", keyName: "escape" };
+}
 export class TeamManager {
   readonly #conversations = new Map<string, TeamConversation>();
   readonly #children = new Map<string, TeamChild>();
@@ -104,6 +148,9 @@ export class TeamManager {
   readonly #workStarted = new Map<string, number>();
   readonly #cliFailures = new Set<string>();
   readonly #cliStates = new Map<string, CliStatus["state"]>();
+  readonly #notifiedStalls = new Map<string, number>();
+  readonly #checkBaselines = new Map<string, number>();
+  #checkTimer: NodeJS.Timeout | undefined;
   #draining = false;
   #drainRequested = false;
   #closed = false;
@@ -286,10 +333,84 @@ export class TeamManager {
       );
     terminals.onCliInput = (id) => {
       const child = manager.#terminalChildren.get(id);
-      if (child && (!child.userInput || child.parentResponse !== undefined)) {
-        delete child.parentResponse;
-        child.userInput = true;
-        manager.#saveChild(child);
+      if (child) {
+        manager.#notifiedStalls.delete(child.id);
+        if (!child.userInput || child.parentResponse !== undefined) {
+          delete child.parentResponse;
+          child.userInput = true;
+          manager.#saveChild(child);
+        }
+      }
+    };
+    terminals.onCliStallCleared = (id) => {
+      const child = manager.#terminalChildren.get(id);
+      if (!child) return;
+      manager.#notifiedStalls.delete(child.id);
+      // A check-in counts time without a report or a stall notice.
+      if (manager.#checkBaselines.has(child.id))
+        manager.#checkBaselines.set(child.id, Date.now());
+    };
+    terminals.onCliStalled = (stalled) => {
+      const byConversation = new Map<
+        string,
+        {
+          child: TeamChild;
+          since: number;
+          role?: string;
+          title: string;
+          childId: string;
+          reason: TeamStallReason;
+        }[]
+      >();
+      for (const item of stalled) {
+        const child = manager.#terminalChildren.get(item.id);
+        if (!child || ["finished", "stopped"].includes(child.state)) continue;
+        const current = manager.terminals.summary(item.id)?.cliStatus;
+        if (current?.state !== "active" || current.stalledSince !== item.since)
+          continue;
+        if (manager.#notifiedStalls.get(child.id) === item.since) continue;
+        manager.#notifiedStalls.set(child.id, item.since);
+        if (manager.#checkBaselines.has(child.id))
+          manager.#checkBaselines.set(child.id, item.since);
+        let group = byConversation.get(child.conversation);
+        if (!group) {
+          group = [];
+          byConversation.set(child.conversation, group);
+        }
+        group.push({
+          child,
+          since: item.since,
+          role: child.role?.name ?? child.roleName,
+          title: child.title,
+          childId: child.id,
+          reason: item.reason,
+        });
+      }
+      for (const [conversationId, entries] of byConversation) {
+        void manager
+          .#run(async () => {
+            const pending = entries.filter((entry) => {
+              if (manager.#closed) return false;
+              if (["finished", "stopped"].includes(entry.child.state))
+                return false;
+              const current = entry.child.terminalId
+                ? manager.terminals.summary(entry.child.terminalId)?.cliStatus
+                : undefined;
+              return (
+                current?.state === "active" &&
+                current.stalledSince === entry.since
+              );
+            });
+            if (pending.length === 0) return;
+            const parent = manager.#conversation(conversationId).terminalId;
+            if (!manager.terminals.isCliRunning(parent)) return;
+            await manager.terminals
+              .sendLine(parent, teamStallNotice(pending))
+              .catch(() => {});
+          }, `stall-notice:${conversationId}`)
+          .catch(() => {
+            console.error("Team CLI stall notification failed");
+          });
       }
     };
     terminals.onCliProcessesChanged = () => manager.conditionsChanged();
@@ -304,11 +425,29 @@ export class TeamManager {
       const state = terminals.summary(child.terminalId)?.cliStatus;
       if (state?.outcome === "failure")
         await terminals.onCliState(child.terminalId, state);
+      if (
+        !["finished", "stopped", "failed"].includes(child.state) &&
+        terminals.summary(child.terminalId)?.cliStatus?.state === "active"
+      ) {
+        const current = terminals.summary(child.terminalId)!.cliStatus!;
+        manager.#cliStates.set(child.id, "active");
+        manager.#checkBaselines.set(
+          child.id,
+          Math.max(
+            current.since,
+            child.reportedAt ?? 0,
+            child.questionedAt ?? 0,
+          ),
+        );
+      }
     }
+    manager.#scheduleCheckIn();
     await terminals.activateTeamEvents();
     return manager;
   }
   async #applyCliState(child: TeamChild, state: HookState): Promise<void> {
+    if (state.state !== "active" || state.stalledSince === undefined)
+      this.#notifiedStalls.delete(child.id);
     if (
       state.state === "active" &&
       child.state === "failed" &&
@@ -318,6 +457,20 @@ export class TeamManager {
       this.#cliFailures.delete(child.id);
       delete child.failure;
       delete child.cliError;
+    }
+    if (
+      state.state === "active" &&
+      !["finished", "stopped", "failed"].includes(child.state)
+    ) {
+      if (!this.#checkBaselines.has(child.id)) {
+        this.#checkBaselines.set(
+          child.id,
+          Math.max(Date.now(), child.reportedAt ?? 0, child.questionedAt ?? 0),
+        );
+        this.#scheduleCheckIn();
+      }
+    } else {
+      this.#checkBaselines.delete(child.id);
     }
     this.#cliStates.set(child.id, state.state);
     this.#saveChild(child);
@@ -1061,6 +1214,13 @@ export class TeamManager {
               },
             ]
           : []),
+        ...(child.inputs ?? []).map((entry) => ({
+          at: entry.at,
+          kind: "Input" as const,
+          child: child.id,
+          candidate: child.candidate,
+          body: entry.body,
+        })),
       ],
     );
     for (const revision of task.revisions) {
@@ -1192,6 +1352,7 @@ export class TeamManager {
   }
   conditionsChanged(): void {
     if (this.#closed) return;
+    this.#scheduleCheckIn();
     this.#drainRequested = true;
     if (this.#draining) return;
     this.#draining = true;
@@ -1331,9 +1492,127 @@ export class TeamManager {
       ...(role ? { role } : {}),
     };
   }
+  #clearCheckTimer(): void {
+    if (this.#checkTimer) {
+      clearTimeout(this.#checkTimer);
+      this.#checkTimer = undefined;
+    }
+  }
+  #scheduleCheckIn(): void {
+    if (this.#closed || this.#checkTimer) return;
+    let hasEligible = false;
+    for (const childId of [...this.#checkBaselines.keys()]) {
+      const child = this.#children.get(childId);
+      if (!child || ["finished", "stopped", "failed"].includes(child.state)) {
+        this.#checkBaselines.delete(childId);
+        continue;
+      }
+      const conversation = this.#conversations.get(child.conversation);
+      const team = conversation
+        ? this.store.readTeam(conversation.teamId)?.saved
+        : undefined;
+      if (team?.checkMinutes) {
+        hasEligible = true;
+        break;
+      }
+    }
+    if (!hasEligible) return;
+    const { pollMs } = checkInTiming();
+    this.#checkTimer = setTimeout(() => {
+      this.#checkTimer = undefined;
+      if (this.#closed) return;
+      this.#runCheckIns();
+      this.#scheduleCheckIn();
+    }, pollMs);
+    this.#checkTimer.unref();
+  }
+  #runCheckIns(): void {
+    if (this.#closed) return;
+    const { minuteMs } = checkInTiming();
+    const now = Date.now();
+    const byConversation = new Map<
+      string,
+      {
+        child: TeamChild;
+        sentAt: number;
+        role?: string;
+        title: string;
+        childId: string;
+        minutes: number;
+      }[]
+    >();
+    for (const [childId, baseline] of [...this.#checkBaselines.entries()]) {
+      const child = this.#children.get(childId);
+      if (!child || ["finished", "stopped", "failed"].includes(child.state)) {
+        this.#checkBaselines.delete(childId);
+        continue;
+      }
+      const status = child.terminalId
+        ? this.terminals.summary(child.terminalId)?.cliStatus
+        : undefined;
+      if (status?.state !== "active") {
+        this.#checkBaselines.delete(childId);
+        continue;
+      }
+      if (
+        status.stalledSince !== undefined ||
+        this.#notifiedStalls.has(childId)
+      )
+        continue;
+      const conversation = this.#conversations.get(child.conversation);
+      const minutes = conversation
+        ? this.store.readTeam(conversation.teamId)?.saved?.checkMinutes
+        : undefined;
+      if (!minutes) continue;
+      if (now - baseline < minutes * minuteMs) continue;
+      this.#checkBaselines.set(childId, now);
+      let group = byConversation.get(child.conversation);
+      if (!group) {
+        group = [];
+        byConversation.set(child.conversation, group);
+      }
+      group.push({
+        child,
+        sentAt: now,
+        role: child.role?.name ?? child.roleName,
+        title: child.title,
+        childId: child.id,
+        minutes,
+      });
+    }
+    for (const [conversationId, entries] of byConversation) {
+      void this.#run(async () => {
+        const pending = entries.filter((entry) => {
+          if (this.#closed) return false;
+          if (["finished", "stopped", "failed"].includes(entry.child.state))
+            return false;
+          if (this.#checkBaselines.get(entry.child.id) !== entry.sentAt)
+            return false;
+          const status = entry.child.terminalId
+            ? this.terminals.summary(entry.child.terminalId)?.cliStatus
+            : undefined;
+          return (
+            status?.state === "active" &&
+            status.stalledSince === undefined &&
+            !this.#notifiedStalls.has(entry.child.id)
+          );
+        });
+        if (pending.length === 0) return;
+        const parent = this.#conversation(conversationId).terminalId;
+        if (!this.terminals.isCliRunning(parent)) return;
+        await this.terminals
+          .sendLine(parent, teamCheckInNotice(pending))
+          .catch(() => {});
+      }, `check-in:${conversationId}`).catch(() => {
+        console.error("Team CLI check-in notification failed");
+      });
+    }
+  }
   #dispose(key: string): void {
     if (this.#pendingChild?.child.id === key) this.#pendingChild.states.clear();
     this.#cliFailures.delete(key);
+    this.#notifiedStalls.delete(key);
+    this.#checkBaselines.delete(key);
     const child = this.#children.get(key);
     if (child?.terminalId)
       void this.terminals.releaseSessionTokens(child.terminalId);
@@ -1437,8 +1716,13 @@ export class TeamManager {
       files.push(file);
       delete child.parentResponse;
       child.state = command.kind === "report" ? "reported" : "question";
-      if (command.kind === "report") child.reportedAt = Date.now();
-      else child.questionedAt = Date.now();
+      const now = Date.now();
+      if (command.kind === "report") child.reportedAt = now;
+      else child.questionedAt = now;
+      if (this.#checkBaselines.has(child.id)) {
+        this.#checkBaselines.set(child.id, now);
+        this.#scheduleCheckIn();
+      }
       await this.#measureChild(child);
       if (command.kind === "ask") {
         const task = this.#tasks.get(child.task)!;
@@ -1633,6 +1917,14 @@ export class TeamManager {
       const data = { child: child.id, reports, questions, messages };
       return ok(JSON.stringify(data, null, 2), data);
     }
+    if (command.kind === "screen") {
+      if (!child.terminalId)
+        throw new Error("Child terminal has not started yet.");
+      const lines = await this.terminals.visibleScreenLines(child.terminalId);
+      if (lines === undefined)
+        throw new Error("Child screen is not available.");
+      return ok(lines.join("\n"), { child: child.id, lines });
+    }
     if (child.state === "finished")
       throw new Error(
         "Child is finished. Delegate a continuation using its task ID.",
@@ -1641,6 +1933,53 @@ export class TeamManager {
       await this.#stopByParent(child);
       this.conditionsChanged();
       return ok("Child stopped by parent.");
+    }
+    if (command.kind === "interrupt") {
+      if (!child.terminalId || !this.terminals.isCliRunning(child.terminalId)) {
+        throw new Error(
+          child.state === "stopped"
+            ? "Child is stopped. Send a message to resume it."
+            : "Child is not running.",
+        );
+      }
+      const cliId =
+        child.candidate?.cli ??
+        this.terminals.summary(child.terminalId)?.cli?.id;
+      const { sequence, keyName } = cliInterruptKey(cliId);
+      const sent = await this.terminals.sendCliInput(child.terminalId, {
+        sequence,
+      });
+      if (!sent) throw new Error("Child is not running.");
+      (child.inputs ??= []).push({ at: Date.now(), body: keyName });
+      this.#saveChild(child);
+      return ok("Interrupt sent to the child's CLI screen.");
+    }
+    if (command.kind === "input") {
+      const team = this.store.readTeam(conversation.teamId)?.saved;
+      if (team?.parentInput !== true)
+        throw new Error(
+          "Parent input to children is off in this team's settings. Ask the user to answer on the child's screen.",
+        );
+      if (!child.terminalId || !this.terminals.isCliRunning(child.terminalId)) {
+        throw new Error(
+          child.state === "stopped"
+            ? "Child is stopped. Send a message to resume it."
+            : "Child is not running.",
+        );
+      }
+      const sent = await this.terminals.sendCliInput(
+        child.terminalId,
+        command.key !== undefined
+          ? { key: command.key }
+          : { text: command.text!, enter: command.enter },
+      );
+      if (!sent) throw new Error("Child is not running.");
+      (child.inputs ??= []).push({
+        at: Date.now(),
+        body: command.key !== undefined ? command.key : command.text!,
+      });
+      this.#saveChild(child);
+      return ok("Input sent to the child's CLI screen.");
     }
     if (command.kind === "send")
       return this.#send(child, command.type, command.body);
@@ -2558,6 +2897,7 @@ export class TeamManager {
   async close(): Promise<void> {
     await this.terminals.pauseTeamEvents();
     this.#closed = true;
+    this.#clearCheckTimer();
     this.#pendingChild?.states.clear();
     await Promise.all(this.#serials.values());
     await this.#allocation;

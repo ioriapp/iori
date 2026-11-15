@@ -2,15 +2,16 @@ import { expect } from "@playwright/test";
 
 const launchers = {
   android: async () => (await import("./android.mjs")).startAndroidUiClient(),
-  windows: async () => (await import("./windows.mjs")).startWindowsUiClient(),
+  windows: async (options) =>
+    (await import("./windows.mjs")).startWindowsUiClient(options),
 };
 
-export async function startRealClient(platform) {
+export async function startRealClient(platform, options) {
   const launch = launchers[platform];
   if (!launch) {
     throw new Error(`未対応の Client platform です: ${platform}`);
   }
-  const client = await launch();
+  const client = await launch(options);
   try {
     await waitForClientReady(client.page);
     return client;

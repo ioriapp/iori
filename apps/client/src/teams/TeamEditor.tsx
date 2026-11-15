@@ -2079,6 +2079,64 @@ export function TeamEditor({
                     </DndContext>
                   </div>
                 </SettingsSection>
+                <SettingsSection>
+                  <SettingsRow
+                    label="Allow parent input to children"
+                    hint="The parent can send input to a child's Terminal, including answers to approval prompts. When off, the parent can still read the child's screen and stop it."
+                  >
+                    <Switch
+                      checked={team.parentInput === true}
+                      aria-label={t("Allow parent input to children")}
+                      onCheckedChange={(checked) =>
+                        editTeam((value) => {
+                          const next = { ...value };
+                          if (checked) next.parentInput = true;
+                          else delete next.parentInput;
+                          return next;
+                        })
+                      }
+                    />
+                  </SettingsRow>
+                  <SettingsRow
+                    label="Check on working children"
+                    hint="While a child keeps working, the parent reads its screen at this interval. Each check uses the parent's tokens."
+                  >
+                    <Select
+                      value={
+                        team.checkMinutes !== undefined
+                          ? String(team.checkMinutes)
+                          : "off"
+                      }
+                      onValueChange={(raw) =>
+                        editTeam((value) => {
+                          const next = { ...value };
+                          if (raw === "15" || raw === "30" || raw === "60") {
+                            next.checkMinutes = Number(raw) as 15 | 30 | 60;
+                          } else {
+                            delete next.checkMinutes;
+                          }
+                          return next;
+                        })
+                      }
+                    >
+                      <SelectTrigger
+                        aria-label={t("Check on working children")}
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent position="popper">
+                        <SelectItem value="off">{t("Off")}</SelectItem>
+                        <SelectItem value="15">
+                          {t("Every 15 minutes")}
+                        </SelectItem>
+                        <SelectItem value="30">
+                          {t("Every 30 minutes")}
+                        </SelectItem>
+                        <SelectItem value="60">{t("Every hour")}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </SettingsRow>
+                </SettingsSection>
                 <SettingsSection title={t("Parent instructions")}>
                   <Field
                     hideLabel
