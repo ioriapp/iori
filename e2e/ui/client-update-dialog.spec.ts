@@ -6,7 +6,7 @@ test(
   "Client更新の確認と進行と失敗を表示し設定を保持する",
   { tag: "@desktop" },
   async ({ page, registeredApp: app }) => {
-    await page.goto(app.url);
+    await app.open(page);
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     await page.locator('[data-iori-action="settings-general"]').click();
     const updates = page.locator('[data-iori-view="client-update"]');

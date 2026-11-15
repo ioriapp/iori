@@ -43,12 +43,30 @@ const sourceRoot = sourceRootArg
   ? path.resolve(sourceRootArg)
   : fileURLToPath(new URL("../../", import.meta.url));
 const runningClis = process.argv.includes("--running-clis");
+const buildDir = process.argv
+  .find((arg) => arg.startsWith("--build-dir="))
+  ?.slice("--build-dir=".length);
+const cleanupBuildDir = process.argv
+  .find((arg) => arg.startsWith("--cleanup-build-dir="))
+  ?.slice("--cleanup-build-dir=".length);
 if (runningClis && !previousZip)
   throw new Error("--running-clis requires both release ZIPs");
 if (Boolean(previousZip) !== Boolean(targetZip))
   throw new Error("--previous-zip and --target-zip must be supplied together");
+if (buildDir && (!previousZip || !targetZip))
+  throw new Error("--build-dir requires --previous-zip and --target-zip");
 await lockEntry(import.meta.url);
-gate({ devices: [verificationLocal.windows.host] });
+gate({
+  devices: [verificationLocal.windows.host],
+  requireFreePorts: !cleanupBuildDir,
+});
+if (cleanupBuildDir) {
+  stopOwnedWindowsProcesses(cleanupBuildDir);
+  windows(
+    `if(Test-Path -LiteralPath ${ps(cleanupBuildDir)}){cmd.exe /c ${ps('rd /s /q "\\\\?\\' + cleanupBuildDir + '"')};if(Test-Path -LiteralPath ${ps(cleanupBuildDir)}){throw 'Windows verification folder remains'}}`,
+  );
+  process.exit(0);
+}
 const evidence = path.resolve(
   process.env.IORI_VERIFICATION_EVIDENCE_ROOT ?? ".local/evidence/host-update",
   `windows-${Date.now()}`,
@@ -56,7 +74,9 @@ const evidence = path.resolve(
 await mkdir(evidence, { recursive: true });
 await mkdir(".local", { recursive: true });
 const temporary = await mkdtemp(path.resolve(".local/host-update-transfer-"));
-const root = `${verificationLocal.windows.home}\\iori-development\\host-update-${Date.now()}-${process.pid}`;
+const root =
+  buildDir ??
+  `${verificationLocal.windows.home}\\iori-development\\host-update-${Date.now()}-${process.pid}`;
 const task = previousZip
   ? {
       task: `iori-host-update-${Date.now()}-${process.pid}`,
@@ -68,13 +88,29 @@ const task = previousZip
   : undefined;
 let firewall, result;
 try {
-  const archive = path.join(temporary, "source.tar");
-  await createSourceArchive(sourceRoot, archive);
   await prepareTls(temporary, "Android");
-  windows(
-    `[IO.Directory]::CreateDirectory(${ps(root)}) | Out-Null;[IO.Directory]::CreateDirectory(${ps(root + "\\host-updates\\tls")}) | Out-Null`,
-  );
-  await writeWindows(root + "\\source.tar", await readFile(archive));
+  if (buildDir) {
+    windows(`
+$base = ${ps(root)}
+if (-not (Test-Path -LiteralPath $base -PathType Container)) { throw "Windows build folder not found: $base" }
+foreach ($dir in @('host-updates', 'data')) {
+  $target = Join-Path $base $dir
+  if (Test-Path -LiteralPath $target) { cmd.exe /c ('rd /s /q "\\\\?\\' + $target + '"') }
+}
+foreach ($file in @('host-stdout.log', 'host-stderr.log', 'host-update-progress.json', 'host-update-result.json', 'previous.zip', 'target.zip', 'run.ps1', 'scenario.log', 'pulse.mjs', 'pulse.json')) {
+  $target = Join-Path $base $file
+  if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Force }
+}
+[IO.Directory]::CreateDirectory(${ps(root + "\\host-updates\\tls")}) | Out-Null
+`);
+  } else {
+    const archive = path.join(temporary, "source.tar");
+    await createSourceArchive(sourceRoot, archive);
+    windows(
+      `[IO.Directory]::CreateDirectory(${ps(root)}) | Out-Null;[IO.Directory]::CreateDirectory(${ps(root + "\\host-updates\\tls")}) | Out-Null`,
+    );
+    await writeWindows(root + "\\source.tar", await readFile(archive));
+  }
   for (const name of ["ca.pem", "key.pem", "cert.pem"])
     await writeWindows(
       root + "\\host-updates\\tls\\" + name,
@@ -106,30 +142,32 @@ try {
     await writeWindows(root + "\\previous.zip", await readFile(previousZip));
     await writeWindows(root + "\\target.zip", await readFile(targetZip));
   }
-  const buildScript = root + "\\build.ps1";
-  const buildLog = root + "\\build.log";
-  await writeWindows(
-    buildScript,
-    `${windowsEnvironment}tar -mxf ${ps(root + "\\source.tar")} -C ${ps(root)};if($LASTEXITCODE -ne 0){throw 'extract failed'};Set-Location ${ps(root)};${windowsSourceMtimes}$env:CARGO_TARGET_DIR=${ps(windowsCache + "\\cargo-target")};$env:CARGO_BUILD_JOBS='2';pnpm install --frozen-lockfile --store-dir ${ps(windowsCache + "\\pnpm-store")};if($LASTEXITCODE -ne 0){throw 'install failed'};node verification/native/node-pty.mjs;if($LASTEXITCODE -ne 0){throw 'node-pty build failed'};${previousZip ? `Add-Type -AssemblyName System.IO.Compression.FileSystem;[IO.Compression.ZipFile]::ExtractToDirectory(${ps(root + "\\previous.zip")}, ${ps(root + "\\native-input")});Copy-Item ${ps(root + "\\native-input\\node_modules\\@iori\\host-iroh-native\\iori_iroh_host_native.node")} ${ps(root + "\\apps\\host\\native\\iori_iroh_host_native.node")}` : "pnpm --filter @iori/host build:native;if($LASTEXITCODE -ne 0){throw 'native build failed'}"}`,
-  );
-  const buildCommand = `$ErrorActionPreference='Stop';$PSNativeCommandUseErrorActionPreference=$false;$ProgressPreference='SilentlyContinue';& pwsh -NoProfile -ExecutionPolicy Bypass -File ${ps(buildScript)} *> ${ps(buildLog)};exit $LASTEXITCODE`;
-  try {
-    await command("ssh", [
-      "-o",
-      "BatchMode=yes",
-      verificationLocal.windows.host,
-      "pwsh",
-      "-NoProfile",
-      "-EncodedCommand",
-      Buffer.from(buildCommand, "utf16le").toString("base64"),
-    ]);
-  } finally {
-    await writeFile(
-      path.join(evidence, "build.log"),
-      windows(
-        `if(Test-Path -LiteralPath ${ps(buildLog)}){Get-Content -LiteralPath ${ps(buildLog)} -Raw}`,
-      ),
+  if (!buildDir) {
+    const buildScript = root + "\\build.ps1";
+    const buildLog = root + "\\build.log";
+    await writeWindows(
+      buildScript,
+      `${windowsEnvironment}tar -mxf ${ps(root + "\\source.tar")} -C ${ps(root)};if($LASTEXITCODE -ne 0){throw 'extract failed'};Set-Location ${ps(root)};${windowsSourceMtimes}$env:CARGO_TARGET_DIR=${ps(windowsCache + "\\cargo-target")};$env:CARGO_BUILD_JOBS='2';pnpm install --frozen-lockfile --store-dir ${ps(windowsCache + "\\pnpm-store")};if($LASTEXITCODE -ne 0){throw 'install failed'};node verification/native/node-pty.mjs;if($LASTEXITCODE -ne 0){throw 'node-pty build failed'};${previousZip ? `Add-Type -AssemblyName System.IO.Compression.FileSystem;[IO.Compression.ZipFile]::ExtractToDirectory(${ps(root + "\\previous.zip")}, ${ps(root + "\\native-input")});Copy-Item ${ps(root + "\\native-input\\node_modules\\@iori\\host-iroh-native\\iori_iroh_host_native.node")} ${ps(root + "\\apps\\host\\native\\iori_iroh_host_native.node")}` : "pnpm --filter @iori/host build:native;if($LASTEXITCODE -ne 0){throw 'native build failed'}"}`,
     );
+    const buildCommand = `$ErrorActionPreference='Stop';$PSNativeCommandUseErrorActionPreference=$false;$ProgressPreference='SilentlyContinue';& pwsh -NoProfile -ExecutionPolicy Bypass -File ${ps(buildScript)} *> ${ps(buildLog)};exit $LASTEXITCODE`;
+    try {
+      await command("ssh", [
+        "-o",
+        "BatchMode=yes",
+        verificationLocal.windows.host,
+        "pwsh",
+        "-NoProfile",
+        "-EncodedCommand",
+        Buffer.from(buildCommand, "utf16le").toString("base64"),
+      ]);
+    } finally {
+      await writeFile(
+        path.join(evidence, "build.log"),
+        windows(
+          `if(Test-Path -LiteralPath ${ps(buildLog)}){Get-Content -LiteralPath ${ps(buildLog)} -Raw}`,
+        ),
+      );
+    }
   }
   firewall = allowWindowsVerificationProgram(
     root + "\\host-updates\\bundle\\runtime\\node.exe",
@@ -228,9 +266,10 @@ try {
       );
       console.log(JSON.stringify({ evidence, ...result }));
     }
-    windows(
-      `if(Test-Path -LiteralPath ${ps(root)}){cmd.exe /c ${ps('rd /s /q "\\\\?\\' + root + '"')};if(Test-Path -LiteralPath ${ps(root)}){throw 'Windows verification folder remains'}}`,
-    );
+    if (!buildDir)
+      windows(
+        `if(Test-Path -LiteralPath ${ps(root)}){cmd.exe /c ${ps('rd /s /q "\\\\?\\' + root + '"')};if(Test-Path -LiteralPath ${ps(root)}){throw 'Windows verification folder remains'}}`,
+      );
     await rm(temporary, { recursive: true, force: true });
   }
 }

@@ -25,6 +25,7 @@ import type { TerminalViewAttributes } from "../shared/terminal-view-attributes.
 interface Session {
   id: string;
   child?: pty.IPty;
+  conptyDll?: boolean;
   emulator: HeadlessEmulator;
   serial: Promise<void>;
   exit?: { exitCode: number; signal?: number };
@@ -134,7 +135,7 @@ export async function runTerminalDaemon(root: string, endpoint: string) {
   }
   async function stop(s: Session) {
     const child = s.child;
-    if (!s.stopping && child && !s.exit) {
+    if (!s.stopping && child && (!s.exit || s.conptyDll)) {
       const stopping = Promise.resolve()
         .then(async () => {
           s.paused = false;
@@ -142,6 +143,7 @@ export async function runTerminalDaemon(root: string, endpoint: string) {
           wake();
           child.resume();
           if (!s.exit) killPty(child);
+          else if (s.conptyDll) child.kill();
           await s.exited;
         })
         .catch((error: unknown) => {
@@ -355,6 +357,11 @@ export async function runTerminalDaemon(root: string, endpoint: string) {
           );
           let exited!: () => void;
           session.child = child;
+          session.conptyDll =
+            process.platform === "win32" &&
+            Boolean(
+              (request.options as { useConptyDll?: boolean }).useConptyDll,
+            );
           session.exit = undefined;
           session.stopping = undefined;
           session.exited = new Promise((resolve) => {

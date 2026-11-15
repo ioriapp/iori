@@ -1,9 +1,12 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   lstat,
   mkdir,
   rm,
   readdir,
+  readFile,
+  readlink,
   utimes,
   mkdtemp,
   copyFile,
@@ -12,7 +15,7 @@ import path from "node:path";
 import os from "node:os";
 import { file as verificationConfig } from "./local.mjs";
 
-export async function createSourceArchive(repo, archive) {
+export async function listSourceFiles(repo) {
   const listed = execFileSync(
     "git",
     ["ls-files", "--cached", "--others", "--exclude-standard", "-z"],
@@ -27,11 +30,51 @@ export async function createSourceArchive(repo, archive) {
       if (error.code !== "ENOENT") throw error;
     }
   }
-  execFileSync("tar", ["--no-recursion", "--null", "-cf", archive, "-T", "-"], {
-    cwd: repo,
-    input: Buffer.from(present.join("\0") + "\0"),
-    timeout: 120_000,
-  });
+  return present;
+}
+
+async function hashEntry(fullPath) {
+  const stat = await lstat(fullPath);
+  const hash = createHash("sha256");
+  if (stat.isSymbolicLink()) {
+    hash.update("symlink:");
+    hash.update(await readlink(fullPath));
+  } else {
+    hash.update("file:");
+    hash.update(await readFile(fullPath));
+  }
+  return hash.digest("hex");
+}
+
+export async function hashSourceFiles(repo, files = undefined) {
+  const list = files ?? (await listSourceFiles(repo));
+  const hashes = {};
+  for (const file of list) {
+    hashes[file] = await hashEntry(path.join(repo, file));
+  }
+  hashes[".local/verification.json"] = await hashEntry(verificationConfig);
+  return hashes;
+}
+
+export async function createSourceArchive(repo, archive, files = undefined) {
+  const requested = files ?? (await listSourceFiles(repo));
+  const includeConfig =
+    files === undefined || requested.includes(".local/verification.json");
+  const repoFiles = requested.filter(
+    (file) => file !== ".local/verification.json",
+  );
+  if (repoFiles.length > 0) {
+    execFileSync(
+      "tar",
+      ["--no-recursion", "--null", "-cf", archive, "-T", "-"],
+      {
+        cwd: repo,
+        input: Buffer.from(repoFiles.join("\0") + "\0"),
+        timeout: 120_000,
+      },
+    );
+  }
+  if (!includeConfig) return;
   const staging = await mkdtemp(
     path.join(os.tmpdir(), "iori-verification-config-"),
   );
@@ -42,7 +85,7 @@ export async function createSourceArchive(repo, archive) {
       path.join(staging, ".local/verification.json"),
     );
     execFileSync("tar", [
-      "-rf",
+      repoFiles.length > 0 ? "-rf" : "-cf",
       archive,
       "-C",
       staging,

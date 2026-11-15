@@ -24,7 +24,7 @@ test(
       }),
     });
     expect(saved).toHaveProperty("cliId", other);
-    await page.goto(app.url);
+    await app.open(page);
     await openFolder(page, app);
     await page
       .getByRole("button", { name: "AI Agents/Teams", exact: true })
@@ -82,7 +82,7 @@ test(
   "定義したCLIを一覧から開く",
   { tag: "@desktop" },
   async ({ page, registeredApp: app }) => {
-    await page.goto(app.url);
+    await app.open(page);
     await openFolder(page, app);
     await page.getByRole("button", { name: "New tab", exact: true }).click();
     await page
@@ -102,7 +102,7 @@ test(
   "定義のJSONの末尾のカンマで行と列を示し確認へ進まない",
   { tag: "@desktop" },
   async ({ page, registeredApp: app }) => {
-    await page.goto(app.url);
+    await app.open(page);
     await page
       .getByRole("button", { name: "AI Agents/Teams", exact: true })
       .click();

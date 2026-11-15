@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { chmod, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { writeFakeCli } from "../../verification/host/environment.mjs";
 import { runHostTest } from "../../verification/host/process.mjs";
 import {
   actorCommand,
@@ -189,12 +189,11 @@ test("HostとTerminalデーモンの再起動で未起動の委譲は再起動�
 test("OpenCode 2の候補のEffortを子の起動設定へ渡す", (t) =>
   runHostTest(t, async ({ client, dataRoot, stage }) => {
     stage("台本のOpenCode 2と候補を用意する");
-    const executable = join(dataRoot, "bin", "opencode");
-    await writeFile(
-      executable,
-      '#!/usr/bin/env node\nif (process.argv.includes("--version")) console.log("opencode v2.2.6"); else { console.log("OPENCODE_CONFIG:" + process.env.OPENCODE_CONFIG_CONTENT); process.stdin.resume(); }\n',
+    await writeFakeCli(
+      join(dataRoot, "bin"),
+      "opencode",
+      'if (process.argv.includes("--version")) console.log("opencode v2.2.6"); else { console.log("OPENCODE_CONFIG:" + process.env.OPENCODE_CONFIG_CONTENT); process.stdin.resume(); }\n',
     );
-    await chmod(executable, 0o755);
     const context = await setup(client, dataRoot);
     const active = structuredClone(context.definition);
     active.roles[0].candidates.medium = [

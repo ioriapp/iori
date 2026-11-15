@@ -60,7 +60,7 @@ function journey(mobile: boolean) {
     const git = await app.host.forge();
     const second = await app.addHost();
     await app.registerHost(second);
-    await page.goto(app.url);
+    await app.open(page);
     await openPath(page, app.folder, app.hostKey, mobile);
     await openPath(page, git.repository, app.hostKey, mobile);
     await sidebar(page, mobile);

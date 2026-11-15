@@ -11,7 +11,7 @@ test(
   "切断から戻ったTerminalを別のデバイスで続ける",
   { tag: "@desktop" },
   async ({ page, registeredApp: app }) => {
-    await page.goto(app.url);
+    await app.open(page);
     await openPath(page, app.folder, app.hostKey);
     await launch(page, "Bash");
     const id = await terminalId(visibleTerminal(page));
@@ -32,7 +32,7 @@ test(
     await app.terminalText(id, `RESTORED:${pid}`);
     const device = await app.addDevice();
     await device.page.setViewportSize({ width: 1100, height: 700 });
-    await device.page.goto(device.app.url);
+    await device.app.open(device.page);
     await openPath(device.page, app.folder, app.hostKey);
     await device.page.locator(`[data-iori-terminal-row="${id}"]`).click();
     await sendLine(visibleTerminal(device.page), "printf 'SECOND:%s\\n' $$");

@@ -1,8 +1,8 @@
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { stripVTControlCharacters } from "node:util";
+import { quoteShellWord } from "./environment.mjs";
 
-const quote = (word) => `'${word.replaceAll("'", "'\\''")}'`;
 export async function registerAutomationCli(client, dataRoot) {
   const { cliId } = await client.request("cli.definition.save", {
     definition: JSON.stringify({
@@ -14,7 +14,7 @@ export async function registerAutomationCli(client, dataRoot) {
           process.execPath,
           fileURLToPath(new URL("./automation-cli.mjs", import.meta.url)),
         ]
-          .map(quote)
+          .map(quoteShellWord)
           .join(" "),
       },
       launch: {

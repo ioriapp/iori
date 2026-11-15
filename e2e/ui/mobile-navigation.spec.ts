@@ -12,7 +12,7 @@ test(
   { tag: "@phone" },
   async ({ page, registeredApp: app }) => {
     await createTeam(app, { name: "Mobile team", roles: [] });
-    await page.goto(app.url);
+    await app.open(page);
     await openFolder(page, app, true);
     await page.getByRole("button", { name: "New tab", exact: true }).tap();
     await page

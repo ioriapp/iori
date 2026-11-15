@@ -49,7 +49,7 @@ test(
       name: "Approval team",
       roles: [{ name: "Worker", candidate: { cli: childCli } }],
     });
-    await page.goto(app.url);
+    await app.open(page);
     await openFolder(page, app);
     await page.getByRole("button", { name: "New tab", exact: true }).click();
     await page
@@ -131,7 +131,7 @@ test(
         },
       }),
     });
-    await page.goto(app.url);
+    await app.open(page);
     await openPath(page, host.folder, host.hostKey);
     await page.getByRole("button", { name: "New tab", exact: true }).click();
     await page

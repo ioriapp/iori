@@ -6,7 +6,7 @@ test(
   { tag: "@desktop" },
   async ({ page, registeredApp: app }) => {
     const forge = await app.host.forge();
-    await page.goto(app.url);
+    await app.open(page);
     await openPath(page, forge.repository, app.hostKey);
     await expect(
       page.getByRole("button", { name: "CI failed", exact: true }),

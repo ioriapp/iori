@@ -5,7 +5,7 @@ test(
   "招待したデバイスの追加を確認し登録を解除する",
   { tag: "@desktop" },
   async ({ page, registeredApp: app }) => {
-    await page.goto(app.url);
+    await app.open(page);
     await hostSettings(page, app.hostKey, "open-devices");
     await page
       .getByRole("button", { name: "Invite a new device", exact: true })
@@ -14,7 +14,7 @@ test(
       .getByRole("textbox", { name: "Invitation", exact: true })
       .inputValue();
     const device = await app.addDevice({ register: false });
-    await device.page.goto(device.app.url);
+    await device.app.open(device.page);
     await device.page
       .getByRole("textbox", { name: "Invitation", exact: true })
       .fill(invitation);

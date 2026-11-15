@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { createServer, connect } from "node:net";
 import { readFile, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -6,7 +7,10 @@ import { join } from "node:path";
 export async function daemonProxy(dataRoot, { version } = {}) {
   const file = join(dataRoot, "iori-host/terminal-daemon/connection.json");
   const descriptor = JSON.parse(await readFile(file, "utf8"));
-  const endpoint = join(dataRoot, "daemon-proxy.sock");
+  const endpoint =
+    process.platform === "win32"
+      ? `\\\\.\\pipe\\iori-daemon-proxy-${randomUUID()}`
+      : join(dataRoot, "daemon-proxy.sock");
   const sockets = new Set();
   const requests = new Map();
   const events = [];
@@ -132,7 +136,7 @@ export async function daemonProxy(dataRoot, { version } = {}) {
       );
       if (current?.endpoint === endpoint)
         await writeFile(file, JSON.stringify(descriptor), { mode: 0o600 });
-      await rm(endpoint, { force: true });
+      if (process.platform !== "win32") await rm(endpoint, { force: true });
     },
   };
 }

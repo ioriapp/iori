@@ -1,6 +1,9 @@
 import { fork } from "node:child_process";
 
 export default async function setup() {
+  if (process.env.IORI_UI_SKIP_WEB_SERVER === "1") {
+    return async () => {};
+  }
   const child = fork(new URL("./web.mjs", import.meta.url), [], {
     execArgv: [],
     stdio: ["ignore", "inherit", "inherit", "ipc"],

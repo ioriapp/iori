@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { chmod, mkdir, symlink, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
+import { linkGit, writeFakeCli } from "../../verification/host/environment.mjs";
 import { runHostTest } from "../../verification/host/process.mjs";
 import {
   actorCommand,
@@ -111,16 +112,12 @@ test("hookもpasteの印もない子のPTYに最初の依頼が一度だけ届�
 test("Antigravity CLIの子はioriが作ったworktreeの時だけ信頼の指定を受け、最初の依頼を引数で受け取る", (t) =>
   runHostTest(t, async ({ client, dataRoot, stage }) => {
     stage("引数を記録するAntigravity CLIとGitのリポジトリを用意する");
-    await symlink(
-      execFileSync("which", ["git"], { encoding: "utf8" }).trim(),
-      join(dataRoot, "bin", "git"),
+    await linkGit(join(dataRoot, "bin"));
+    await writeFakeCli(
+      join(dataRoot, "bin"),
+      "agy",
+      'if (process.argv.includes("--version")) console.log("1.5.9"); else { console.log("AGY_ARGS:" + JSON.stringify(process.argv.slice(2))); process.stdin.resume(); }\n',
     );
-    const executable = join(dataRoot, "bin", "agy");
-    await writeFile(
-      executable,
-      '#!/usr/bin/env node\nif (process.argv.includes("--version")) console.log("1.5.9"); else { console.log("AGY_ARGS:" + JSON.stringify(process.argv.slice(2))); process.stdin.resume(); }\n',
-    );
-    await chmod(executable, 0o755);
     const repository = join(dataRoot, "repository");
     await mkdir(repository);
     const git = (...args) =>

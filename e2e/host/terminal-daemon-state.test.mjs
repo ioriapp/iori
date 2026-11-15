@@ -2,16 +2,46 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { watch } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { daemonProxy } from "../../verification/host/daemon-proxy.mjs";
 const run = promisify(execFile);
 import { pathToFileURL } from "node:url";
+import { quoteShellWord } from "../../verification/host/environment.mjs";
 import { runHostTest } from "../../verification/host/process.mjs";
 
-const quote = (word) => `'${word.replaceAll("'", "'\\''")}'`;
+async function daemonThreadCount(pid) {
+  if (process.platform === "linux") {
+    const status = await readFile(`/proc/${pid}/status`, "utf8");
+    const match = status.match(/^Threads:\s*(\d+)/mu);
+    assert.ok(match, "expected Threads line in /proc/<pid>/status");
+    return Number(match[1]);
+  }
+  if (process.platform === "win32") {
+    const { stdout } = await run(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        "(Get-Process -Id ([int]$env:IORI_DAEMON_PID)).Threads.Count",
+      ],
+      {
+        windowsHide: true,
+        env: { ...process.env, IORI_DAEMON_PID: String(pid) },
+      },
+    );
+    const count = Number(stdout.trim());
+    assert.ok(
+      Number.isInteger(count) && count > 0,
+      `unexpected thread count: ${stdout}`,
+    );
+    return count;
+  }
+  throw new Error(`Unsupported platform: ${process.platform}`);
+}
 
 test("4096文字を超え分割されたOSC 7でも作業ディレクトリを更新する", (t) =>
   runHostTest(t, async ({ client, dataRoot, stage }) => {
@@ -19,17 +49,20 @@ test("4096文字を超え分割されたOSC 7でも作業ディレクトリを�
     await events.waitFor((event) => event.type === "snapshot");
     const { terminal: created } = await client.request("terminal.create", {
       cwd: dataRoot,
-      shell: "bash",
+      ...(process.platform === "win32" ? {} : { shell: "bash" }),
     });
     const terminal = await client.terminal(created.id);
-    const cwd = dataRoot + "/" + "日本語/".repeat(180);
+    const cwd =
+      process.platform === "win32"
+        ? join(dataRoot, ...Array(180).fill("日本語"))
+        : dataRoot + "/" + "日本語/".repeat(180);
     const uri = pathToFileURL(cwd).href;
     assert.ok(uri.length > 4096);
     const script = `process.stdin.setRawMode(true); process.stdout.write(${JSON.stringify("\x1b]7;" + uri.slice(0, 5000))}); process.stdin.on('data', () => process.stdout.write(${JSON.stringify(uri.slice(5000) + "\x07")}));`;
     stage("未完了のOSC 7の前半がHostへ届く");
     const executable = join(dataRoot, "long-osc.mjs");
     await writeFile(executable, script);
-    await terminal.input(`node ${quote(executable)}\r`);
+    await terminal.input(`node ${quoteShellWord(executable)}\r`);
     await terminal.waitFor(({ output }) =>
       output.includes("\x1b]7;" + uri.slice(0, 200)),
     );
@@ -39,7 +72,9 @@ test("4096文字を超え分割されたOSC 7でも作業ディレクトリを�
       (event) =>
         event.type === "terminal.updated" &&
         event.terminal.id === created.id &&
-        event.terminal.cwd === cwd,
+        (process.platform === "win32"
+          ? resolve(event.terminal.cwd)
+          : event.terminal.cwd) === cwd,
     );
     assert.equal(updated.terminal.cwdFromShell, true);
   }));
@@ -73,7 +108,7 @@ async function launchActor(client, dataRoot) {
       if(file==='fire-mode') process.stdout.write('\\x1b[?2004h\\x1b[?25h\\x1b[=2;1uOFFLINE_MODES\\n');
       if(file==='reset-mode') process.stdout.write('\\x1b[?2004l\\x1b[=0;1uRESET_MODES\\n');
       if(file==='fire-done') void hook('Stop',{session_id:'daemon-actor'});
-      if(file==='fire-command') execFile(join(env.IORI_COMMAND_BIN,'iori'), ['help'], (error) => console.log('COMMAND_EXIT:'+(error?.code??0)));
+      if(file==='fire-command') execFile(join(env.IORI_COMMAND_BIN, ${JSON.stringify(process.platform === "win32" ? "iori.exe" : "iori")}), ['help'], (error) => console.log('COMMAND_EXIT:'+(error?.code??0)));
     });
     process.stdout.write('\\x1b[?2004l\\x1b[=0;1uDAEMON_ACTOR_READY\\n');
   `,
@@ -83,7 +118,7 @@ async function launchActor(client, dataRoot) {
       schema: 1,
       id: "daemon-actor",
       name: "Daemon actor",
-      command: { shell: `node ${quote(actor)}` },
+      command: { shell: `node ${quoteShellWord(actor)}` },
       hooks: {
         format: "claude-settings",
         file: join(dataRoot, "actor-settings.json"),
@@ -129,9 +164,16 @@ for (const kind of ["hook", "exit"]) {
       const event = await proxy.event(kind);
       // A later command crosses the same socket after the event. Its reply
       // establishes that the Host dispatched the event without timing guesses.
-      await run(join(actor.route.IORI_COMMAND_BIN, "iori"), ["help"], {
-        env: { ...process.env, ...actor.route },
-      }).catch(() => {});
+      await run(
+        join(
+          actor.route.IORI_COMMAND_BIN,
+          process.platform === "win32" ? "iori.exe" : "iori",
+        ),
+        ["help"],
+        {
+          env: { ...process.env, ...actor.route },
+        },
+      ).catch(() => {});
       if (event.acknowledged()) {
         proxy.release();
         await opening;
@@ -165,7 +207,11 @@ for (const kind of ["hook", "exit"]) {
       } else {
         const terminal = await client.terminal(actor.id);
         await terminal.waitFor(
-          ({ frame }) => frame.kind === "terminal.exit" && frame.code === 137,
+          ({ frame }) =>
+            frame.kind === "terminal.exit" &&
+            (process.platform === "win32"
+              ? frame.code !== 0
+              : frame.code === 137),
         );
       }
     }));
@@ -238,13 +284,13 @@ test("Device Attributesの問い合わせへの応答がPTYへ1回だけ届く",
   runHostTest(t, async ({ client, dataRoot, stage }) => {
     const { terminal: created } = await client.request("terminal.create", {
       cwd: dataRoot,
-      shell: "bash",
+      ...(process.platform === "win32" ? {} : { shell: "bash" }),
     });
     const terminal = await client.terminal(created.id);
     // After DA1, DSR is an ordered delimiter on the same parser/reply stream.
     const script = `process.stdin.setRawMode(true); let received=''; process.stdin.on('data',bytes=>{received+=bytes.toString();if(received.endsWith('R')){console.log('QUERY_'+'REPLIES:'+JSON.stringify(received));process.stdin.setRawMode(false);process.exit(0);}}); process.stdout.write('\\x1b[c\\x1b[6n');`;
     stage("実際のPTYから問い合わせを送り応答の列を読む");
-    await terminal.input(`node -e ${quote(script)}\r`);
+    await terminal.input(`node -e ${quoteShellWord(script)}\r`);
     const output = await terminal.output(/QUERY_REPLIES:([^\r\n]+)\r?\n/u);
     const replies = JSON.parse(output.match(/QUERY_REPLIES:([^\r\n]+)/u)[1]);
     assert.equal([...replies.matchAll(/\x1b\[\?[0-9;]*c/gu)].length, 1);
@@ -346,4 +392,54 @@ test("別のTerminalの終了処理中もhookを配送する", (t) =>
       proxy.release();
       await opening;
     }
+  }));
+
+test("終了したTerminalを閉じてもデーモンのスレッドが増え続けない", (t) =>
+  runHostTest(t, async ({ client, dataRoot, stage }) => {
+    const events = await client.events();
+    await events.waitFor((event) => event.type === "snapshot");
+    const { pid } = JSON.parse(
+      await readFile(
+        join(dataRoot, "iori-host/terminal-daemon/connection.json"),
+        "utf8",
+      ),
+    );
+    const shell = process.platform === "win32" ? {} : { shell: "bash" };
+    // Measured on Windows (6 iterations): unpatched daemon leaks +1 worker
+    // thread per closed PTY after the first-PTY pool init (13 -> 16..21, +8);
+    // patched daemon reclaims each worker after ~1000ms drain (13 -> 15, +0/PTY).
+    // Linux stays flat (11 -> 11, +0).
+    const iterations = 6;
+    const before = await daemonThreadCount(pid);
+    stage("終了したTerminalを閉じる操作を繰り返す");
+    for (let index = 0; index < iterations; index++) {
+      const { terminal: created } = await client.request("terminal.create", {
+        cwd: dataRoot,
+        ...shell,
+      });
+      const terminal = await client.terminal(created.id);
+      await terminal.input("exit 7\r");
+      await events.waitFor(
+        (event) =>
+          event.type === "terminal.updated" &&
+          event.terminal.id === created.id &&
+          event.terminal.state === "error",
+      );
+      await client.request("terminal.close", { terminalId: created.id });
+      await events.waitFor(
+        (event) =>
+          event.type === "terminal.closed" && event.terminalId === created.id,
+      );
+    }
+    stage("終了処理後のデーモンのスレッド数が増えていないことを確認する");
+    let after = await daemonThreadCount(pid);
+    const deadline = Date.now() + 4000;
+    while (after - before >= iterations && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      after = await daemonThreadCount(pid);
+    }
+    assert.ok(
+      after - before < iterations,
+      `expected daemon threads not to grow with closed PTYs (before=${before}, after=${after}, iterations=${iterations})`,
+    );
   }));

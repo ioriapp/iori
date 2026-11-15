@@ -12,7 +12,7 @@ test(
     ).join("\n");
     await writeFile(join(app.folder, "copy.txt"), content + "\n");
     await context.grantPermissions(["clipboard-read", "clipboard-write"]);
-    await page.goto(app.url);
+    await app.open(page);
     await openFolder(page, app);
     await page.getByRole("tab", { name: "Files", exact: true }).first().click();
     await page.locator('[data-iori-file="copy.txt"]').click();

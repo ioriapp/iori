@@ -5,7 +5,7 @@ import type { Page } from "@playwright/test";
 import { test, expect, openFolder, type App } from "./fixtures/test.ts";
 
 async function journey(page: Page, app: App, mobile: boolean) {
-  await page.goto(app.url);
+  await app.open(page);
   await openFolder(page, app, mobile);
   await expect(
     page.getByRole("button", { name: app.cliId, exact: true }),

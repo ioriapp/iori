@@ -42,7 +42,7 @@ test(
         },
       }),
     });
-    await page.goto(app.url);
+    await app.open(page);
     await openFolder(page, app);
     await launch(page, cli);
     const terminal = visibleTerminal(page);
@@ -118,7 +118,7 @@ test(
       }),
     });
     expect(saved).toHaveProperty("cliId", cli);
-    await page.goto(app.url);
+    await app.open(page);
     await openFolder(page, app);
     await page.getByRole("button", { name: "New tab", exact: true }).click();
     await page

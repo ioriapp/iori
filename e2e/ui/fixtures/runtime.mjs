@@ -155,7 +155,7 @@ async function register({
   }
 }
 const methods = {
-  async start({ updates = false } = {}) {
+  async start({ updates = false, realClient = false } = {}) {
     const descriptor = await addHost();
     if (updates) {
       clientUpdates = await clientRelease();
@@ -163,7 +163,7 @@ const methods = {
     }
     return {
       ...descriptor,
-      ...(await addDevice()),
+      ...(realClient ? { deviceId: 0, url: "" } : await addDevice()),
       clientReleaseVersion: clientUpdates?.version,
     };
   },
@@ -183,8 +183,20 @@ const methods = {
       );
     await terminals.get(key).input(data);
   },
-  terminalText({ deviceId = 0, terminalId }) {
-    return devices[deviceId].displayed.get(terminalId) ?? "";
+  async terminalText({ hostId = 0, deviceId = 0, terminalId }) {
+    if (devices[deviceId]) {
+      return devices[deviceId].displayed.get(terminalId) ?? "";
+    }
+    const key = `${hostId}:${terminalId}`;
+    if (!terminals.has(key)) {
+      terminals.set(
+        key,
+        await hosts[hostId].source.client.terminal(terminalId, {
+          claimSize: false,
+        }),
+      );
+    }
+    return terminals.get(key).values.at(-1)?.output ?? "";
   },
   async fault({ deviceId = 0, action, args }) {
     await devices[deviceId].web.faults[action](...args);

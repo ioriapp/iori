@@ -23,7 +23,7 @@ function readingJourney(restart: boolean) {
         (_, n) => `Reading line ${n + 1}`,
       ).join("\n"),
     });
-    await page.goto(app.url);
+    await app.open(page);
     await openPath(page, app.folder, app.hostKey);
     await launch(page, "Bash");
     const id = await terminalId(visibleTerminal(page));
@@ -77,7 +77,7 @@ function draftJourney(restart: boolean) {
     page: Page;
     registeredApp: App;
   }) => {
-    await page.goto(app.url);
+    await app.open(page);
     await openFolder(page, app, true);
     await page.getByRole("button", { name: "New tab", exact: true }).tap();
     await page

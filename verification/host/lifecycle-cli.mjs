@@ -2,9 +2,9 @@ import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { watch } from "node:fs";
-import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { promisify } from "node:util";
+import { ioriCommand } from "./environment.mjs";
 import { hook } from "./send-hook.mjs";
 
 const run = promisify(execFile);
@@ -14,6 +14,11 @@ if (process.argv.includes("--version") || process.argv.includes("--help")) {
 } else {
   process.stdin.setRawMode(true);
   const action = process.argv[process.argv.indexOf("--action") + 1];
+  const releaseIndex = process.argv.indexOf("--release-dir");
+  const releaseDir =
+    releaseIndex === -1
+      ? process.env.IORI_TEST_RELEASE_DIR
+      : process.argv[releaseIndex + 1];
   const resume = process.argv.indexOf("--resume");
   const payload = {
     session_id: resume < 0 ? randomUUID() : process.argv[resume + 1],
@@ -29,7 +34,7 @@ if (process.argv.includes("--version") || process.argv.includes("--help")) {
   })) {
     if (line.startsWith("{")) {
       const step = JSON.parse(line);
-      const result = await run(join(process.env.IORI_COMMAND_BIN, "iori"), [
+      const result = await run(ioriCommand(process.env.IORI_COMMAND_BIN), [
         ...step.command,
         "--json",
       ]).catch((error) => ({
@@ -66,21 +71,18 @@ if (process.argv.includes("--version") || process.argv.includes("--help")) {
     } else {
       if (action === "report-later") {
         await new Promise((resolve, reject) => {
-          const watcher = watch(
-            process.env.IORI_TEST_RELEASE_DIR,
-            (_event, name) => {
-              if (name === "release") {
-                watcher.close();
-                resolve();
-              }
-            },
-          );
+          const watcher = watch(releaseDir, (_event, name) => {
+            if (name === "release") {
+              watcher.close();
+              resolve();
+            }
+          });
           watcher.once("error", reject);
           console.log("LIFECYCLE_WORKING");
         });
       }
       if (body.includes("AUTO_REPORT_COMPLETED"))
-        await run(join(process.env.IORI_COMMAND_BIN, "iori"), [
+        await run(ioriCommand(process.env.IORI_COMMAND_BIN), [
           "report",
           "--body",
           "Completed the work.",

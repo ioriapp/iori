@@ -46,6 +46,10 @@ test("shell一覧と既定のshellを返し、そのshellのPTYで命令を実�
     stage("TerminalのPTYで入力した命令の出力が届く");
     const terminal = await client.terminal(created.id);
     // The complete marker only exists in command output, never the input echo.
-    await terminal.input("printf '%s%s\\n' 'HOST_SHELL_' 'EXECUTED'\r");
+    await terminal.input(
+      process.platform === "win32"
+        ? "[Console]::WriteLine('HOST_SHELL_' + 'EXECUTED')\r"
+        : "printf '%s%s\\n' 'HOST_SHELL_' 'EXECUTED'\r",
+    );
     await terminal.output("HOST_SHELL_EXECUTED");
   }));

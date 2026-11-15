@@ -13,7 +13,7 @@ test(
   "スマホで画像を選びTerminalの入力にパスを入れる",
   { tag: "@phone" },
   async ({ page, registeredApp: app }) => {
-    await page.goto(app.url);
+    await app.open(page);
     await openFolder(page, app, true);
     await page.getByRole("button", { name: "New tab", exact: true }).tap();
     await page
@@ -55,7 +55,7 @@ test(
   "PCで画像を貼り付けTerminalの入力にHostのパスを入れる",
   { tag: "@desktop" },
   async ({ page, registeredApp: app }) => {
-    await page.goto(app.url);
+    await app.open(page);
     await openFolder(page, app);
     await page.getByRole("button", { name: "New tab", exact: true }).click();
     await page

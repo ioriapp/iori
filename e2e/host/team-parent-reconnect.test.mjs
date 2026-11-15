@@ -89,7 +89,11 @@ test("繋ぎ直し後のシェルが残っていてもHost再起動後に親を�
     );
     stage("親の画面を開いて再開前のシェルを起動する");
     const shell = await client.terminal(parent.id);
-    await shell.input("printf '%s%s\\n' 'SURVIVING_' 'SHELL'\r");
+    await shell.input(
+      process.platform === "win32"
+        ? "[Console]::WriteLine('SURVIVING_' + 'SHELL')\r"
+        : "printf '%s%s\\n' 'SURVIVING_' 'SHELL'\r",
+    );
     await shell.output("SURVIVING_SHELL");
     stage("シェルを残してHostを再起動する");
     const restarted = await restart();
@@ -124,7 +128,9 @@ test("チームの経路が同じなら親の再開で既存シェルの状態�
     stage("親の再開前のシェルに利用者の状態を設定する");
     const pty = await client.terminal(parent.id);
     await pty.input(
-      "export IORI_TEST_SHELL_STATE=preserved; printf '%s%s\\n' 'SHELL_' 'PREPARED'\r",
+      process.platform === "win32"
+        ? "$env:IORI_TEST_SHELL_STATE='preserved'; [Console]::WriteLine('SHELL_' + 'PREPARED')\r"
+        : "export IORI_TEST_SHELL_STATE=preserved; printf '%s%s\\n' 'SHELL_' 'PREPARED'\r",
     );
     await pty.output("SHELL_PREPARED");
     stage("同じ経路で親を再開する");

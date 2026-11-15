@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile, rm } from "node:fs/promises";
+import { readFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
@@ -70,7 +70,27 @@ test("親の指示ファイルがなくても元のチーム版から復元し�
     await rm(parent.instructions);
     const reconnected = await restart();
     stage("復元された指示で親を再開する");
-    assert.equal(await readFile(parent.instructions, "utf8"), original);
+    const restored = await readFile(parent.instructions, "utf8");
+    if (process.platform === "win32") {
+      const commandPath = (text) => {
+        const match = text.match(/Windows cmd: "([^"\r\n]+\\iori\.exe)"/u);
+        assert.ok(match, "指示に Windows の実行ファイルがある");
+        return match[1];
+      };
+      const before = commandPath(original);
+      const after = commandPath(restored);
+      assert.ok((await stat(after)).isFile());
+      assert.equal(
+        restored,
+        original
+          .replaceAll(before.replaceAll("'", "''"), after.replaceAll("'", "''"))
+          .replaceAll(before, after)
+          .replaceAll(
+            before.replaceAll("\\", "/"),
+            after.replaceAll("\\", "/"),
+          ),
+      );
+    } else assert.equal(restored, original);
     const pty = await reconnected.terminal(parent.terminalId);
     await reconnected.request("cli.resume", { terminalId: parent.terminalId });
     const output = await pty.output("ACTOR_INSTRUCTIONS:");

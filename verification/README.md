@@ -48,6 +48,8 @@ Linuxの検証用debの導入・回収は `verification/native/linux-packages.mj
 
 `e2e/host/*.test.mjs` に1本1振る舞いで置き、`node scripts/test.mjs` で流れる。1本だけ流す時は `node scripts/run-bounded-check.mjs node --test --test-timeout=60000 e2e/host/<名前>.test.mjs`。
 
+Windows の Host に関わる変更では、Windows 検証機で `node scripts/run-bounded-check.mjs node verification/host/windows-run.mjs` を実行する。一部を実行する時は `--only=terminal-size,terminal-submit` のように試験ファイル名を指定する。
+
 - `verification/host/process.mjs` の `runHostTest(t, body)`（中で `startHostTest(t)`）が、試験ごとの一時の保存先・HOME・PATH（nodeとshellだけ）・Hostの鍵・port・Clientの鍵で本物のHostを別のプロセスで起動し、`t.after` で接続・Host・Terminalのデーモン・一時のフォルダーを片付ける。返る `client` はClientと同じirohのインターフェースで `request`・`events`・`terminal` を送る。Hostの中の関数は差し替えない。
 - CLIは `verification/host/scripted-cli.mjs` の台本のCLIを `scripted-definition.mjs` の `registerScriptedCli` で公開の `cli.definition.save` から登録して使う。台本のCLIはHostが作った本物のPTYで動き、hookは製品の送り口、チームの操作はHostが渡した `iori` で送る。PTYへJSONの行を入れて `actorCommand` で結果を待つ。
 - 待つのはイベントとPTYの出力の到着だけにし、固定の待ち時間で成否を決めない。上限は `--test-timeout` に任せる。`body` に渡る `stage(名前)` で段の名前を付けると、失敗・打ち切りの時にその名前が出る。
@@ -65,6 +67,7 @@ Linuxの検証用debの導入・回収は `verification/native/linux-packages.mj
 - fixture が持つ入口: 2つ目の Host（`app.addHost`・`app.registerHost`）、Host の停止・起動・再起動（`app.host.stop`・`start`・`restart`）、接続の切断（`app.setOffline`）、2台目のデバイス（`app.addDevice`）、偽の Forge（`app.host.forge()`）、更新の配信元、ファイルの準備（`app.files`）。ブラウザーの API が OS の境界に当たる所（通知の要求・保存先・クリップボードの画像・指のスワイプと長押し）は `e2e/ui/fixtures/browser.ts` にある。Git のリポジトリは `e2e/ui/support/reading.ts` の `repository()` で作る（本物の git を Host の隔離した PATH へ足す）。
 - CLI・モデルなどの値は、使う人と同じ操作で選んでから進める。仕様が決めていない既定値と、一覧の到着の順序を当てにしない。
 - Release の受け入れは、環境変数 `IORI_UI_HOST_DISTRIBUTION` に展開した配布物を渡し、配布物の Host に対して `register-first-agent` と `terminal-input-resize` を実行する。
+- Windows / Android の本物の Client ビルドに対して `e2e/ui/*.spec.ts` を実行するときは、`node scripts/run-bounded-check.mjs node verification/client/run.mjs [--client Android|Windows]` を使う（`bash scripts/ci.sh` の対象外。Host と台本の CLI は Linux 側で起動する）。実 Client では `app.faults`・`app.addDevice`・`app.setOffline`・`app.updates`・`app.register`・`app.registerHost` は利用できない。
 - 幅は project で分ける。試験に `{ tag: "@desktop" }`（1440×900）か `{ tag: "@phone" }`（Pixel 7、タッチあり）を付ける。
 - 失敗は1回だけ再実行する（`CI=true` の時）。再実行で通った試験は flaky として結果に出る。trace は最初の再実行で記録する。結果（JSON・HTML の report・失敗時の画像・trace）は `.local/evidence/ui/<実行>/` に出る。
 - 1本は1つの手順を短く通す。Host が決める振る舞いは Host API の E2E に置き、画面では操作が届いて結果が表示されることだけを確かめる。実装の値（寸法・行の数・内部の ID）を期待に書かない。

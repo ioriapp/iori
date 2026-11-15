@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import { linkGit } from "../../verification/host/environment.mjs";
 import { runHostTest } from "../../verification/host/process.mjs";
 import { actorCommand } from "../../verification/host/scripted-definition.mjs";
 import { registerLifecycleCli } from "../../verification/host/lifecycle-definition.mjs";
@@ -66,10 +67,7 @@ async function setup(client, dataRoot, actions, limit = "", cwd = dataRoot) {
 
 test("別のリポジトリへの委譲は指定先にworktreeを作る", (t) =>
   runHostTest(t, async ({ client, dataRoot }) => {
-    await symlink(
-      execFileSync("which", ["git"], { encoding: "utf8" }).trim(),
-      join(dataRoot, "bin", "git"),
-    );
+    await linkGit(join(dataRoot, "bin"));
     const repositories = [join(dataRoot, "first"), join(dataRoot, "second")];
     for (const [index, root] of repositories.entries()) {
       await mkdir(root);
@@ -123,7 +121,48 @@ test("別のリポジトリへの委譲は指定先にworktreeを作る", (t) =>
       ["-C", cwd, "rev-parse", "--git-common-dir"],
       { encoding: "utf8" },
     ).trim();
-    assert.equal(main, join(repositories[1], ".git"));
+    assert.equal(resolve(main), join(repositories[1], ".git"));
+  }));
+
+test("存在しないworktree名での委譲は使えるフォルダー名を示す", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    await linkGit(join(dataRoot, "bin"));
+    const root = join(dataRoot, "repo");
+    await mkdir(root);
+    const git = (...args) =>
+      execFileSync("git", ["-C", root, ...args], { stdio: "pipe" });
+    git("init", "-b", "main");
+    git("config", "user.name", "Worktree E2E");
+    git("config", "user.email", "worktree@localhost");
+    await writeFile(join(root, "source.txt"), "hello");
+    git("add", ".");
+    git("commit", "-m", "initial");
+    git("worktree", "add", "-b", "alpha", join(dataRoot, "wt-alpha"));
+    const context = await setup(client, dataRoot, ["report-later"], "", root);
+    const result = await actorCommand(context.parent, "missing-worktree", [
+      "delegate",
+      "--role",
+      "Worker",
+      "--difficulty",
+      "low",
+      "--title",
+      "Missing worktree",
+      "--worktree",
+      "no-such-wt",
+      "--body",
+      "Do the work.",
+    ]);
+    const failed = await context.events.waitFor(
+      (event) =>
+        event.type === "teams.child.updated" &&
+        event.child.id === result.data.child &&
+        event.child.state !== "starting" &&
+        event.child.state !== "queued",
+    );
+    const tasksResult = await actorCommand(context.parent, "tasks-failed", [
+      "tasks",
+    ]);
+    assert.match(JSON.stringify({ failed, tasksResult }), /wt-alpha/);
   }));
 async function delegate(context, id, body = "Do the work.") {
   const result = await actorCommand(context.parent, id, [

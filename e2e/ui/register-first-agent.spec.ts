@@ -12,7 +12,7 @@ test(
   { tag: "@desktop" },
   async ({ page, app }, info) => {
     const started = performance.now();
-    await page.goto(app.url);
+    await app.open(page);
     await page
       .getByRole("textbox", { name: "Invitation", exact: true })
       .fill(app.inviteText);

@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
+import { createSocket } from "node:dgram";
 import { createConnection } from "node:net";
 import { networkInterfaces } from "node:os";
 import { join } from "node:path";
@@ -15,6 +16,35 @@ import {
 } from "../../packages/protocol/src/index.ts";
 import { loadNativeAddon } from "../../apps/host/src/native.ts";
 import { runHostTest } from "../../verification/host/process.mjs";
+
+function assertUdpPortUnreachable(address, port) {
+  return new Promise((resolve, reject) => {
+    const socket = createSocket("udp4");
+    const timer = setTimeout(() => {
+      socket.close();
+      reject(
+        new Error(
+          `Expected ECONNREFUSED from ${address}:${port}, but timed out`,
+        ),
+      );
+    }, 2000);
+    const finish = (error) => {
+      clearTimeout(timer);
+      socket.close();
+      if (error?.code === "ECONNREFUSED") {
+        resolve();
+      } else {
+        reject(error);
+      }
+    };
+    socket.once("error", finish);
+    socket.connect(port, address, () => {
+      socket.send(Buffer.alloc(1), (error) => {
+        if (error) finish(error);
+      });
+    });
+  });
+}
 
 async function localRequest(dataRoot, method) {
   const control = JSON.parse(
@@ -116,12 +146,8 @@ test("このPCだけのHostは外からの接続と招待を拒み、許可後�
           "This PC can connect. To connect from other devices, select “Allow connections from other devices” in Connection settings.",
     );
     stage("LANアドレスでは接続を受けない");
-    const localPort = local.addresses[0].split(":").at(-1);
-    await assert.rejects(
-      endpoint.connect(Buffer.from(local.publicKey, "hex"), [
-        `${address}:${localPort}`,
-      ]),
-    );
+    const localPort = Number(local.addresses[0].split(":").at(-1));
+    await assertUdpPortUnreachable(address, localPort);
     stage("このPCの制御から接続を許可する");
     await localRequest(dataRoot, "host.connections.allow");
     const { invite } = await localRequest(dataRoot, "invite.create");
@@ -156,17 +182,9 @@ test("壊れたnetwork.jsonでもHostが起動しLANからの接続を拒む", (
       .flat()
       .find((entry) => entry.family === "IPv4" && !entry.internal)?.address;
     assert.ok(address);
-    const addon = loadNativeAddon();
-    const identity = addon.generateIdentity();
-    const endpoint = await addon.Endpoint.bind(identity.secretKey, [
-      `${address}:0`,
-    ]);
-    identity.secretKey.fill(0);
-    t.after(() => endpoint.close());
     stage("LANからの接続を拒む");
-    await assert.rejects(
-      endpoint.connect(Buffer.from(info.publicKey, "hex"), [
-        `${address}:${info.addresses[0].split(":").at(-1)}`,
-      ]),
+    await assertUdpPortUnreachable(
+      address,
+      Number(info.addresses[0].split(":").at(-1)),
     );
   }));

@@ -35,6 +35,22 @@ export function buildBoundedArgv(
   ];
 }
 
+// A `node --test` run without its own limit would wait for a stuck test until
+// the whole 15-minute bound ends. Give each test the usual 60 seconds.
+export function withDefaultTestTimeout(commandArgs) {
+  if (
+    commandArgs[1] !== "--test" ||
+    commandArgs.some((arg) => arg.startsWith("--test-timeout"))
+  )
+    return commandArgs;
+  return [
+    commandArgs[0],
+    "--test",
+    "--test-timeout=60000",
+    ...commandArgs.slice(2),
+  ];
+}
+
 export function classifyResult(result) {
   if (result.error)
     return {
@@ -229,6 +245,11 @@ if (
     : "4G";
   // Run a `node` command with this checked Node, not whichever node PATH finds.
   if (commandArgs[0] === "node") commandArgs[0] = process.execPath;
+  commandArgs.splice(
+    0,
+    commandArgs.length,
+    ...withDefaultTestTimeout(commandArgs),
+  );
   const plan =
     commandArgs[1] && devicePlan(commandArgs[1], commandArgs.slice(2));
   // Wait outside the existing observation limit: a busy device is not a failure.

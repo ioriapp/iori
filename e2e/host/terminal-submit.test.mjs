@@ -9,7 +9,9 @@ test("Terminal のまとめて入力の送信結果を返す", (t) =>
     });
     const terminal = await client.terminal(created.id);
     await terminal.input(
-      "stty -echo; printf '%s%s\\n' 'SUBMISSION_' 'READY'; IFS= read -r line; printf 'RECEIVED:%s\\n' \"$line\"; stty echo\r",
+      process.platform === "win32"
+        ? `node -e "process.stdin.setRawMode(true); console.log('SUBMISSION_' + 'READY'); let b=''; process.stdin.on('data', c => { b += c.toString(); if (b.includes('\\r') || b.includes('\\n')) { console.log('RECEIVED:' + b.trim()); process.exit(0); } })"\r`
+        : "stty -echo; printf '%s%s\\n' 'SUBMISSION_' 'READY'; IFS= read -r line; printf 'RECEIVED:%s\\n' \"$line\"; stty echo\r",
     );
     await terminal.output("SUBMISSION_READY");
     stage("入力を PTY に送った後に成功を返す");

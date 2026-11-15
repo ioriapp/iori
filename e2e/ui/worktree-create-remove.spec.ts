@@ -19,7 +19,7 @@ function worktreeJourney(mobile: boolean) {
   return async ({ page, registeredApp: app }: Args) => {
     await repository(app.folder);
     await createTeam(app, { name: "Removal team" });
-    await page.goto(app.url);
+    await app.open(page);
     await openFolder(page, app, mobile);
     if (mobile)
       await page.getByRole("button", { name: "Open sidebar" }).click();
@@ -113,7 +113,7 @@ function cleanup(mobile: boolean) {
     git(path, "add", "merged.txt");
     git(path, "commit", "-m", "Merged change");
     git(app.folder, "merge", "--no-ff", "merged", "-m", "Merge worktree");
-    await page.goto(app.url);
+    await app.open(page);
     await openFolder(page, app, mobile);
     if (mobile)
       await page.getByRole("button", { name: "Open sidebar" }).click();

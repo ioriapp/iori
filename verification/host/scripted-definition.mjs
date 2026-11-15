@@ -1,7 +1,6 @@
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-
-const quote = (word) => `'${word.replaceAll("'", "'\\''")}'`;
+import { quoteShellWord } from "./environment.mjs";
 
 /** Register via the public definition API, never by replacing Host adapters. */
 export async function registerScriptedCli(
@@ -25,7 +24,7 @@ export async function registerScriptedCli(
     ...(capturePrompts ? ["--capture-prompts"] : []),
     ...(observeEnvironment ? ["--observe-environment"] : []),
   ]
-    .map(quote)
+    .map(quoteShellWord)
     .join(" ");
   const result = await client.request("cli.definition.save", {
     definition: JSON.stringify({

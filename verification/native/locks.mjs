@@ -83,6 +83,7 @@ export function devicePlan(file, args = []) {
     case "verification/updates/host-windows.mjs":
     case "verification/forge/token-store-windows.mjs":
     case "verification/cli/run.mjs":
+    case "verification/host/windows-run.mjs":
     case "scripts/release/windows.mjs":
     case "verification/connection/run-build.mjs":
     case "verification/connection/webview-control.mjs":
@@ -167,6 +168,12 @@ export function devicePlan(file, args = []) {
     case "verification/connection/run.mjs":
       devices = order();
       shared = [verificationLocal.linux.host];
+      break;
+    case "verification/client/run.mjs":
+      devices = [
+        ...(filter !== "Windows" ? ["android"] : []),
+        ...(filter !== "Android" ? [verificationLocal.windows.host] : []),
+      ];
       break;
     case "verification/connection/cleanup.mjs": {
       const evidence = path.resolve(

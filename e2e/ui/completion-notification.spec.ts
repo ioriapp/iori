@@ -13,7 +13,7 @@ test(
   { tag: "@desktop" },
   async ({ page, registeredApp: app }) => {
     const notifications = await notificationRequests(page);
-    await page.goto(app.url);
+    await app.open(page);
     await openFolder(page, app);
     await launch(page, app.cliId);
     const id = await terminalId(visibleTerminal(page));

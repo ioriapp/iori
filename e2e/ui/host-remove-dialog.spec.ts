@@ -4,7 +4,7 @@ test(
   "Hostを一覧から削除する確認に削除される情報と残る情報を表示する",
   { tag: "@desktop" },
   async ({ page, registeredApp: app }) => {
-    await page.goto(app.url);
+    await app.open(page);
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     await page.locator('[data-iori-action="open-connection"]').click();
     await page

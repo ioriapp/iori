@@ -6,12 +6,20 @@ import { connectClient } from "../../verification/host/client.mjs";
 import { stopTerminalDaemon } from "../../verification/terminal/daemon-process.mjs";
 
 async function create(client, cwd) {
-  return (await client.request("terminal.create", { cwd, shell: "bash" }))
-    .terminal;
+  return (
+    await client.request("terminal.create", {
+      cwd,
+      ...(process.platform === "win32" ? {} : { shell: "bash" }),
+    })
+  ).terminal;
 }
 
 async function readSize(terminal, marker, rows, cols) {
-  await terminal.input(`printf '${marker} '; /bin/stty size\r`);
+  await terminal.input(
+    process.platform === "win32"
+      ? `[Console]::WriteLine('${marker} ' + $Host.UI.RawUI.WindowSize.Height + ' ' + $Host.UI.RawUI.WindowSize.Width)\r`
+      : `printf '${marker} '; /bin/stty size\r`,
+  );
   await terminal.output(`${marker} ${rows} ${cols}`);
 }
 
@@ -141,12 +149,18 @@ test("日本語の入出力を保持し、別の接続から同じシェルを�
     const first = await client.terminal(created.id);
     stage("日本語を入力し実行結果を受け取る");
     await first.input(
-      "export IORI_SESSION='同じ'シェル; printf '%s%s\\n' '日本語の' '実行結果'\r",
+      process.platform === "win32"
+        ? "$env:IORI_SESSION='同じ'+'シェル'; [Console]::WriteLine('日本語の'+'実行結果')\r"
+        : "export IORI_SESSION='同じ'シェル; printf '%s%s\\n' '日本語の' '実行結果'\r",
     );
     await first.output("日本語の実行結果");
     stage("開き直した画面に出力が残り、同じシェルへ入力できる");
     const reopened = await client.terminal(created.id);
     await reopened.output("日本語の実行結果");
-    await reopened.input("printf '%s\\n' \"$IORI_SESSION\"\r");
+    await reopened.input(
+      process.platform === "win32"
+        ? "[Console]::WriteLine($env:IORI_SESSION)\r"
+        : "printf '%s\\n' \"$IORI_SESSION\"\r",
+    );
     await reopened.output("同じシェル");
   }));

@@ -11,7 +11,7 @@ test(
   "Hostの切断とCLIの終了を区別し入力を二重に送らない",
   { tag: "@desktop" },
   async ({ page, registeredApp: app }) => {
-    await page.goto(app.url);
+    await app.open(page);
     await openPath(page, app.folder, app.hostKey);
     await launch(page, app.cliId);
     const id = await terminalId(visibleTerminal(page));

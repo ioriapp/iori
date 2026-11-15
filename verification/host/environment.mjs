@@ -1,6 +1,44 @@
+import { execFileSync } from "node:child_process";
 import { constants } from "node:fs";
-import { access, mkdir, symlink, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, symlink, writeFile } from "node:fs/promises";
 import { delimiter, dirname, join } from "node:path";
+
+export const quoteShellWord = (word) =>
+  process.platform === "win32"
+    ? `"${word}"`
+    : `'${word.replaceAll("'", "'\\''")}'`;
+
+export const ioriCommand = (binDir) =>
+  join(binDir, process.platform === "win32" ? "iori.exe" : "iori");
+
+export async function writeFakeCli(binDir, name, scriptBody) {
+  if (process.platform === "win32") {
+    const script = join(binDir, `${name}.mjs`);
+    await writeFile(script, scriptBody);
+    await writeFile(
+      join(binDir, `${name}.cmd`),
+      `@echo off\r\n"${process.execPath}" "${script}" %*\r\n`,
+    );
+    return;
+  }
+  const executablePath = join(binDir, name);
+  await writeFile(executablePath, `#!/usr/bin/env node\n${scriptBody}`);
+  await chmod(executablePath, 0o755);
+}
+
+export async function linkGit(binDir) {
+  if (process.platform === "win32") {
+    const found = execFileSync("where.exe", ["git"], { encoding: "utf8" })
+      .split(/\r?\n/u)
+      .map((line) => line.trim())
+      .find(Boolean);
+    if (!found) throw new Error("git.exe が見つかりません");
+    await symlink(found, join(binDir, "git.exe"));
+    return;
+  }
+  const found = execFileSync("which", ["git"], { encoding: "utf8" }).trim();
+  await symlink(found, join(binDir, "git"));
+}
 
 async function executable(name) {
   for (const directory of (process.env.PATH ?? "").split(delimiter)) {

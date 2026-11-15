@@ -12,7 +12,7 @@ test(
   "タブを分割して最大化し再読込後も配置を保つ",
   { tag: "@desktop" },
   async ({ page, registeredApp: app }) => {
-    await page.goto(app.url);
+    await app.open(page);
     await openFolder(page, app);
     await page.getByRole("button", { name: "New tab", exact: true }).click();
     await page
@@ -48,7 +48,7 @@ test(
   async ({ page, registeredApp: app }) => {
     await repository(app.folder);
     await createTeam(app, { name: "Tab team", roles: [] });
-    await page.goto(app.url);
+    await app.open(page);
     await openFolder(page, app);
     await page.getByRole("button", { name: "New tab", exact: true }).click();
     await page

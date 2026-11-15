@@ -12,7 +12,7 @@ test(
   "スマホのまとめて入力とキーの帯からCLIへ送る",
   { tag: "@phone" },
   async ({ page, registeredApp: app }) => {
-    await page.goto(app.url);
+    await app.open(page);
     await openFolder(page, app, true);
     await page.getByRole("button", { name: "New tab", exact: true }).tap();
     await page
@@ -51,7 +51,7 @@ test(
   "スマホでTerminalの過去の出力をスワイプし最新へ戻る",
   { tag: "@phone" },
   async ({ page, registeredApp: app }) => {
-    await page.goto(app.url);
+    await app.open(page);
     await openFolder(page, app, true);
     await page.getByRole("button", { name: "New tab", exact: true }).tap();
     await page

@@ -11,7 +11,7 @@ Working directory: the new worktree. Environment variable IORI_ROOT_PATH: the ma
 Exit code 0 starts the CLI in the same tab; otherwise the CLI does not start and the output stays in the tab.`;
 /** The commands of a CLI outside a team: only those that read the Forge. */
 export const forgeCommandHelp = `${forgeCommandUsage}\n${commandFooter}`;
-export const commandHelp = `iori delegate --role NAME --difficulty high|medium|low --title TITLE --worktree new|parent|NAME [--repo PATH] --body TEXT [--continue TASK_ID] [--plan N]
+export const commandHelp = `iori delegate --role NAME --difficulty high|medium|low --title TITLE --worktree new|parent|WORKTREE_NAME (a folder name from git worktree list) [--repo PATH] --body TEXT [--continue TASK_ID] [--plan N]
 iori plan show
 iori plan goal --body TEXT [--request]
 iori plan add --title TITLE [--after N] [--request]

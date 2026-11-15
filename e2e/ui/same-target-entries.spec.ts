@@ -10,7 +10,7 @@ test(
   "サイドバーとタブから同じCLIへ戻り入力を続ける",
   { tag: "@desktop" },
   async ({ page, registeredApp: app }) => {
-    await page.goto(app.url);
+    await app.open(page);
     await openFolder(page, app);
     await page.getByRole("button", { name: "New tab", exact: true }).click();
     await page
@@ -50,7 +50,7 @@ test(
   "サイドバーとタブから同じTerminalへ戻る",
   { tag: "@desktop" },
   async ({ page, registeredApp: app }) => {
-    await page.goto(app.url);
+    await app.open(page);
     await openFolder(page, app);
     await page.getByRole("button", { name: "New tab", exact: true }).click();
     await page

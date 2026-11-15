@@ -13,7 +13,7 @@ function journey(mobile: boolean) {
   }) => {
     const second = await app.addHost();
     await app.registerHost(second);
-    await page.goto(app.url);
+    await app.open(page);
     await sidebar(page, mobile);
     for (const hostKey of [app.hostKey, second.hostKey]) {
       const host = page

@@ -155,7 +155,12 @@ export async function startHostTest(
       }
       if (process.platform === "linux")
         await stopCliProcesses(join(dataRoot, "cli-home"));
-      await rm(dataRoot, { recursive: true, force: true });
+      await rm(dataRoot, {
+        recursive: true,
+        force: true,
+        maxRetries: process.platform === "win32" ? 20 : 0,
+        retryDelay: 150,
+      });
     } catch (error) {
       t.diagnostic("失敗時の段: 専用の接続・Host・Terminal・保存先を片付ける");
       throw error;

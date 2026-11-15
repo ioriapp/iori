@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
-import { chmod, mkdir, readdir, writeFile } from "node:fs/promises";
+import { mkdir, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
+import { writeFakeCli } from "../../verification/host/environment.mjs";
 import { runHostTest } from "../../verification/host/process.mjs";
 
 test("Hostの停止で残った起動指示のコピーは再起動時に片付く", (t) =>
@@ -27,12 +28,11 @@ test("Hostの停止で残った起動指示のコピーは再起動時に片付�
 test("最初の指示と一緒にClaude Codeへ保存した追加フォルダーを渡す", (t) =>
   runHostTest(t, async ({ client, dataRoot, stage }) => {
     stage("引数を記録するClaude Codeを用意する");
-    const executable = join(dataRoot, "bin", "claude");
-    await writeFile(
-      executable,
-      '#!/usr/bin/env node\nif (process.argv.includes("--version")) console.log("2.1.0"); else { console.log("CLAUDE_ARGS:" + JSON.stringify(process.argv.slice(2))); process.stdin.resume(); }\n',
+    await writeFakeCli(
+      join(dataRoot, "bin"),
+      "claude",
+      'if (process.argv.includes("--version")) console.log("2.1.0"); else { console.log("CLAUDE_ARGS:" + JSON.stringify(process.argv.slice(2))); process.stdin.resume(); }\n',
     );
-    await chmod(executable, 0o755);
     await client.request("cli.arguments.set", {
       cliId: "claude",
       arguments: '--add-dir "my extra folder"',

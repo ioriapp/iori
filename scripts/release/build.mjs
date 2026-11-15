@@ -157,7 +157,15 @@ try {
                       "android-static",
                     ),
                   }
-                : env,
+                : platform === "windows"
+                  ? {
+                      ...env,
+                      IORI_WINDOWS_BUILD_STATE: path.join(
+                        cwd,
+                        ".local/windows-build.json",
+                      ),
+                    }
+                  : env,
           },
         );
         for (const name of names)
@@ -198,7 +206,18 @@ try {
         );
       if (platform === "windows")
         await timed("acceptance/windows", () =>
-          windowsAcceptance(cwd, output, env, firstFailures),
+          windowsAcceptance(
+            cwd,
+            output,
+            {
+              ...env,
+              IORI_WINDOWS_BUILD_STATE: path.join(
+                cwd,
+                ".local/windows-build.json",
+              ),
+            },
+            firstFailures,
+          ),
         );
     }),
   );

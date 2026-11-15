@@ -1,9 +1,9 @@
 import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
-import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { promisify } from "node:util";
+import { ioriCommand } from "./environment.mjs";
 import { hook } from "./send-hook.mjs";
 
 const run = promisify(execFile);
@@ -77,7 +77,7 @@ if (process.argv.includes("--version") || process.argv.includes("--help")) {
       } else if (step.command) {
         // Host-provided PATH/bin and authenticated route, just as real agents use.
         const { stdout } = await run(
-          join(process.env.IORI_COMMAND_BIN, "iori"),
+          ioriCommand(process.env.IORI_COMMAND_BIN),
           [...step.command, "--json"],
         ).catch(() => ({ stdout: JSON.stringify({ ok: false }) }));
         console.log(

@@ -21,7 +21,7 @@ test("Terminalの画像はHost再起動後も残り、閉じると回収され�
   runHostTest(t, async ({ client, dataRoot, restart }) => {
     const { terminal } = await client.request("terminal.create", {
       cwd: dataRoot,
-      shell: "bash",
+      ...(process.platform === "win32" ? {} : { shell: "bash" }),
     });
     const before = await image(client, terminal.id, "first image");
     assert.equal(await readFile(before.path, "utf8"), "first image");
@@ -39,7 +39,7 @@ test("デーモンも停止した後に起動すると失われたTerminalの画
   runHostTest(t, async ({ client, dataRoot, restart }) => {
     const { terminal } = await client.request("terminal.create", {
       cwd: dataRoot,
-      shell: "bash",
+      ...(process.platform === "win32" ? {} : { shell: "bash" }),
     });
     const saved = await image(client, terminal.id, "image");
     assert.equal(await readFile(saved.path, "utf8"), "image");
@@ -48,7 +48,11 @@ test("デーモンも停止した後に起動すると失われたTerminalの画
     });
     await assert.rejects(readFile(saved.path), { code: "ENOENT" });
     const reopened = await restarted.terminal(terminal.id);
-    await reopened.input("printf 'IMAGE_REOPENED\\n'\r");
+    await reopened.input(
+      process.platform === "win32"
+        ? "[Console]::WriteLine('IMAGE_' + 'REOPENED')\r"
+        : "printf 'IMAGE_REOPENED\\n'\r",
+    );
     await reopened.output("IMAGE_REOPENED");
     const next = await image(restarted, terminal.id, "new image");
     assert.notEqual(next.path, saved.path);

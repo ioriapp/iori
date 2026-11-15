@@ -1,18 +1,18 @@
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { quoteShellWord } from "./environment.mjs";
 
-const quote = (word) => `'${word.replaceAll("'", "'\\''")}'`;
 export async function registerLifecycleCli(client, dataRoot, action) {
-  const command =
-    `IORI_TEST_RELEASE_DIR=${quote(dataRoot)} ` +
-    [
-      process.execPath,
-      fileURLToPath(new URL("./lifecycle-cli.mjs", import.meta.url)),
-      "--action",
-      action,
-    ]
-      .map(quote)
-      .join(" ");
+  const command = [
+    process.execPath,
+    fileURLToPath(new URL("./lifecycle-cli.mjs", import.meta.url)),
+    "--action",
+    action,
+    "--release-dir",
+    dataRoot,
+  ]
+    .map(quoteShellWord)
+    .join(" ");
   const result = await client.request("cli.definition.save", {
     definition: JSON.stringify({
       schema: 1,

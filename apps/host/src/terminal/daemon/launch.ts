@@ -25,6 +25,159 @@ import type { PtyScreen } from "./protocol.ts";
 import terminalNative from "@iori/terminal-native";
 
 const run = promisify(execFile);
+// Healthy Windows daemons wait ~1s in node-pty ConoutConnection.dispose()
+// (FLUSH_DATA_INTERVAL = 1000ms) after shutdown RPC returns (~953ms measured;
+// ~5-9ms on Linux). Wait 3s before verified termination of a leaked daemon.
+const DAEMON_SHUTDOWN_WAIT_MS = 3000;
+const DAEMON_EXIT_POLL_MS = 25;
+
+export interface DaemonProcessIdentity {
+  start: string;
+  commandLine: string;
+}
+
+async function isDaemonProcessAlive(pid: number): Promise<boolean> {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+  if (process.platform === "linux") {
+    try {
+      const stat = await readFile(`/proc/${pid}/stat`, "utf8");
+      const closeParen = stat.lastIndexOf(")");
+      if (closeParen < 0) return true;
+      const state = stat.slice(closeParen + 2).split(" ")[0];
+      return state !== "Z" && state !== "X";
+    } catch (error) {
+      return (error as NodeJS.ErrnoException).code !== "ENOENT";
+    }
+  }
+  return true;
+}
+
+export async function captureDaemonProcessIdentity(
+  pid: number,
+): Promise<DaemonProcessIdentity | undefined> {
+  if (!Number.isInteger(pid) || pid <= 0) return undefined;
+  if (process.platform === "linux") {
+    try {
+      const stat = await readFile(`/proc/${pid}/stat`, "utf8");
+      const closeParen = stat.lastIndexOf(")");
+      if (closeParen < 0) return undefined;
+      const fields = stat.slice(closeParen + 2).split(" ");
+      if (fields[0] === "Z" || fields[0] === "X") return undefined;
+      const start = fields[19];
+      if (!start) return undefined;
+      const commandLine = await readFile(`/proc/${pid}/cmdline`, "utf8");
+      if (!commandLine) return undefined;
+      return { start, commandLine };
+    } catch {
+      return undefined;
+    }
+  }
+  if (process.platform === "win32") {
+    try {
+      const script =
+        "[Console]::OutputEncoding=[Text.Encoding]::UTF8;" +
+        "$p=Get-CimInstance Win32_Process -Filter ('ProcessId='+[int]$env:IORI_DAEMON_PID);" +
+        "if($p -and $null -ne $p.CreationDate -and $p.CommandLine){[Console]::Out.Write((@($p.CreationDate.ToFileTimeUtc().ToString(),$p.CommandLine)|ConvertTo-Json -Compress))}";
+      const { stdout } = await run(
+        "powershell.exe",
+        ["-NoProfile", "-NonInteractive", "-Command", script],
+        {
+          windowsHide: true,
+          env: { ...process.env, IORI_DAEMON_PID: String(pid) },
+        },
+      );
+      if (!stdout.trim()) return undefined;
+      const parsed = JSON.parse(stdout) as unknown;
+      if (
+        !Array.isArray(parsed) ||
+        typeof parsed[0] !== "string" ||
+        typeof parsed[1] !== "string" ||
+        !parsed[0] ||
+        !parsed[1]
+      )
+        return undefined;
+      return { start: parsed[0], commandLine: parsed[1] };
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
+export async function terminateVerifiedDaemonProcess(
+  pid: number,
+  identity: DaemonProcessIdentity | undefined,
+): Promise<boolean> {
+  if (!identity || !Number.isInteger(pid) || pid <= 0) return false;
+  if (process.platform === "linux") {
+    const current = await captureDaemonProcessIdentity(pid);
+    if (
+      !current ||
+      current.start !== identity.start ||
+      current.commandLine !== identity.commandLine
+    )
+      return false;
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ESRCH") return false;
+      throw error;
+    }
+    return true;
+  }
+  if (process.platform === "win32") {
+    const script =
+      "$p=Get-CimInstance Win32_Process -Filter ('ProcessId='+[int]$env:IORI_DAEMON_PID);" +
+      "if($p -and $null -ne $p.CreationDate -and $p.CreationDate.ToFileTimeUtc().ToString() -eq $env:IORI_DAEMON_START -and $p.CommandLine -eq $env:IORI_DAEMON_CMD){" +
+      "try{Stop-Process -Id $p.ProcessId -Force -ErrorAction Stop;[Console]::Out.Write('1')}catch{}" +
+      "}";
+    const { stdout } = await run(
+      "powershell.exe",
+      ["-NoProfile", "-NonInteractive", "-Command", script],
+      {
+        windowsHide: true,
+        env: {
+          ...process.env,
+          IORI_DAEMON_PID: String(pid),
+          IORI_DAEMON_START: identity.start,
+          IORI_DAEMON_CMD: identity.commandLine,
+        },
+      },
+    );
+    return stdout.trim() === "1";
+  }
+  return false;
+}
+
+async function waitForDaemonExit(
+  pid: number,
+  identity: DaemonProcessIdentity | undefined,
+  waitMs = DAEMON_SHUTDOWN_WAIT_MS,
+): Promise<void> {
+  if (!Number.isInteger(pid) || pid <= 0) return;
+  const deadline = Date.now() + waitMs;
+  while (await isDaemonProcessAlive(pid)) {
+    if (Date.now() >= deadline) {
+      const terminated = await terminateVerifiedDaemonProcess(
+        pid,
+        identity,
+      ).catch(() => false);
+      if (!terminated) return;
+      const killDeadline = Date.now() + 1000;
+      while ((await isDaemonProcessAlive(pid)) && Date.now() < killDeadline)
+        await new Promise((resolve) =>
+          setTimeout(resolve, DAEMON_EXIT_POLL_MS),
+        );
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, DAEMON_EXIT_POLL_MS));
+  }
+}
 const entry = fileURLToPath(
   new URL(
     `./entry${import.meta.filename.endsWith(".ts") ? ".ts" : ".js"}`,
@@ -73,6 +226,9 @@ export async function terminalDaemonCanContinue(
 async function shutdownTerminalDaemon(
   live: Awaited<ReturnType<typeof connectDaemon>>,
 ): Promise<PtyScreen[] | undefined> {
+  const pid = live.hello.pid;
+  const identity = await captureDaemonProcessIdentity(pid);
+  let result: PtyScreen[] | undefined;
   try {
     // Protocols 4–13 share this PTY transport. Earlier daemons expose a
     // different attach result; later ones already resume output when stopping.
@@ -89,12 +245,15 @@ async function shutdownTerminalDaemon(
         sessions.map((session) => live.channel.call("kill", session.id)),
       );
       await live.channel.call("shutdown");
-      return sessions;
+      result = sessions;
+    } else {
+      result = await live.channel.call<PtyScreen[] | undefined>("shutdown");
     }
-    return await live.channel.call<PtyScreen[] | undefined>("shutdown");
   } finally {
     live.channel.close();
   }
+  await waitForDaemonExit(pid, identity);
+  return result;
 }
 
 /** Explicit stop for incompatible runtimes, uninstall and owned verification cleanup. */

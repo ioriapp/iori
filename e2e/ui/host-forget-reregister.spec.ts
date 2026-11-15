@@ -13,7 +13,7 @@ test(
   { tag: "@desktop" },
   async ({ page, registeredApp: app }) => {
     const { invite } = await app.request("invite.create", {});
-    await page.goto(app.url);
+    await app.open(page);
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     await page.locator('[data-iori-action="open-connection"]').click();
     await page

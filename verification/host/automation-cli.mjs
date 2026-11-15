@@ -1,9 +1,9 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { promisify } from "node:util";
+import { ioriCommand } from "./environment.mjs";
 import { hook } from "./send-hook.mjs";
 
 const run = promisify(execFile);
@@ -53,7 +53,7 @@ if (process.argv.includes("--version")) {
       console.log(`ACTOR_HOOK:${step.id}`);
     } else if (step.command) {
       const result = await run(
-        join(process.env.IORI_COMMAND_BIN, "iori"),
+        ioriCommand(process.env.IORI_COMMAND_BIN),
         step.command,
       )
         .then(({ stdout }) => ({ code: 0, stdout }))

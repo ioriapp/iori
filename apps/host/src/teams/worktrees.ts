@@ -12,6 +12,12 @@ import {
   worktreeRegistered,
 } from "../worktree-residual.ts";
 
+function formatWorktreeNames(names: string[]): string {
+  const limit = 20;
+  if (names.length <= limit) return names.join(", ");
+  return `${names.slice(0, limit).join(", ")}, and ${names.length - limit} more`;
+}
+
 export function childWorktreeSlug(title: string): string {
   return worktreeTitleSlug(title) || "worker";
 }
@@ -49,10 +55,22 @@ export async function childWorktree(
     const matches = entries.filter(
       (e) => basename(e.path) === requested || e.branch === requested,
     );
-    if (matches.length !== 1)
+    if (matches.length === 0) {
+      const available = entries.slice(1).map((e) => basename(e.path));
+      if (available.length === 0)
+        throw new Error(
+          `Worktree "${requested}" was not found in this repository. No existing worktrees are available; use new or parent.`,
+        );
       throw new Error(
-        "Worktree name is absent or ambiguous. Use a name from this repository.",
+        `Worktree "${requested}" was not found in this repository. Use one of these worktree folder names: ${formatWorktreeNames(available)} (or new / parent).`,
       );
+    }
+    if (matches.length > 1) {
+      const matched = matches.map((e) => basename(e.path));
+      throw new Error(
+        `Worktree "${requested}" is ambiguous in this repository. Matching worktree folder names: ${formatWorktreeNames(matched)}.`,
+      );
+    }
     const path = await realpath(matches[0]!.path);
     if ((await discoverRepository(path)).commonDir !== repository.commonDir)
       throw new Error("Worktree is outside this repository.");

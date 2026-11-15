@@ -1,15 +1,15 @@
 import assert from "node:assert/strict";
 import { watch } from "node:fs";
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
+import { quoteShellWord } from "../../verification/host/environment.mjs";
 import { runHostTest } from "../../verification/host/process.mjs";
 import { daemonProxy } from "../../verification/host/daemon-proxy.mjs";
 
 const distribution = process.env.IORI_PREVIOUS_HOST_BUNDLE;
 const targetDistribution = process.env.IORI_TARGET_HOST_BUNDLE;
-const quote = (word) => `'${word.replaceAll("'", "'\\''")}'`;
 
 for (const forceReplacement of [false, true])
   test(
@@ -45,11 +45,11 @@ for (const forceReplacement of [false, true])
             "terminal.create",
             {
               cwd: dataRoot,
-              shell: "bash",
+              ...(process.platform === "win32" ? {} : { shell: "bash" }),
             },
           );
           const terminal = await client.terminal(created.id);
-          await terminal.input(`node ${quote(actor)}\r`);
+          await terminal.input(`node ${quoteShellWord(actor)}\r`);
           await terminal.output("UPGRADE_ACTOR_READY");
           const descriptorFile = join(
             dataRoot,
@@ -92,7 +92,7 @@ for (const forceReplacement of [false, true])
             await client.request("terminal.list")
           ).terminals.find(({ id }) => id === created.id);
           assert.equal(restored.title, "UPGRADE_TITLE");
-          assert.equal(restored.cwd, cwd);
+          assert.equal(resolve(restored.cwd), cwd);
           const after = JSON.parse(await readFile(descriptorFile, "utf8"));
           // The protocol omits restartPending unless it is true.
           assert.equal(

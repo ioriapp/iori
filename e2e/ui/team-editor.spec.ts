@@ -11,7 +11,7 @@ test(
       roles: [],
       makeDefault: false,
     });
-    await page.goto(app.url);
+    await app.open(page);
     await page
       .getByRole("button", { name: "AI Agents/Teams", exact: true })
       .click();
@@ -60,7 +60,7 @@ test(
       roles: [{ name: "Worker" }],
       makeDefault: false,
     });
-    await page.goto(app.url);
+    await app.open(page);
     await page
       .getByRole("button", { name: "AI Agents/Teams", exact: true })
       .click();

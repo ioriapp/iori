@@ -1,14 +1,13 @@
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-
-const quote = (word) => `'${word.replaceAll("'", "'\\''")}'`;
+import { quoteShellWord } from "./environment.mjs";
 
 export async function registerResponseCli(client, dataRoot) {
   const command = [
     process.execPath,
     fileURLToPath(new URL("./response-cli.mjs", import.meta.url)),
   ]
-    .map(quote)
+    .map(quoteShellWord)
     .join(" ");
   const result = await client.request("cli.definition.save", {
     definition: JSON.stringify({

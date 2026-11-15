@@ -23,7 +23,7 @@ test(
   async ({ page, registeredApp: app }) => {
     await addModel(app);
     await app.faults.hold("cli.list");
-    await page.goto(app.url);
+    await app.open(page);
     await page
       .getByRole("button", { name: "AI Agents/Teams", exact: true })
       .click();
@@ -87,7 +87,7 @@ test(
   { tag: "@desktop" },
   async ({ page, registeredApp: app }) => {
     await addModel(app);
-    await page.goto(app.url);
+    await app.open(page);
     await page
       .getByRole("button", { name: "AI Agents/Teams", exact: true })
       .click();
@@ -134,7 +134,7 @@ test(
   async ({ page, registeredApp: app }) => {
     await addModel(app);
     await app.faults.hold("cli.list");
-    await page.goto(app.url);
+    await app.open(page);
     await page
       .getByRole("button", { name: "AI Agents/Teams", exact: true })
       .click();

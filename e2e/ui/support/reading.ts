@@ -31,7 +31,7 @@ export async function openReading(
   mobile: boolean,
   kind: "files" | "git",
 ) {
-  await page.goto(app.url);
+  await app.open(page);
   await openFolder(page, app, mobile);
   if (mobile) await page.getByRole("button", { name: "Open sidebar" }).click();
   if (kind === "git")

@@ -13,7 +13,7 @@ test(
   async ({ page, registeredApp: app }) => {
     const host = await app.addHost({ updates: true });
     await app.registerHost(host);
-    await page.goto(app.url);
+    await app.open(page);
     await openPath(page, host.folder, host.hostKey);
     await launch(page, host.cliId);
     const id = await terminalId(visibleTerminal(page));

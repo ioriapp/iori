@@ -339,6 +339,16 @@ export async function windowsAcceptance(
     path.join(temporaryRoot, "acceptance-windows-"),
   );
   const evidenceRoot = resolveEvidenceRoot(env);
+  const buildStateFile =
+    env.IORI_WINDOWS_BUILD_STATE ??
+    path.join(resolvedArtifacts, "windows-build.json");
+  let buildDir;
+  try {
+    buildDir = JSON.parse(await readFile(buildStateFile, "utf8")).remote;
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+  const childEnv = cleanChildEnv(env);
   try {
     await mkdir(evidenceRoot, { recursive: true });
     const executionEvidence = await mkdtemp(
@@ -377,7 +387,6 @@ export async function windowsAcceptance(
         );
       })(),
     ]);
-    const childEnv = cleanChildEnv(env);
     // Both Windows checks serialize on the exclusive Windows verification lock;
     // run sequentially so neither spends its bounded-check budget queued on flock.
     const checks = [
@@ -389,7 +398,7 @@ export async function windowsAcceptance(
           "verification/updates/host-windows.mjs",
           `--previous-zip=${previousZip}`,
           `--target-zip=${path.join(resolvedArtifacts, "iori-host-windows-x64.zip")}`,
-          `--source=${cwd}`,
+          ...(buildDir ? [`--build-dir=${buildDir}`] : [`--source=${cwd}`]),
         ],
       },
       {
@@ -414,6 +423,25 @@ export async function windowsAcceptance(
       );
   } finally {
     await rm(temporary, { recursive: true, force: true });
+    if (buildDir) {
+      try {
+        await command(
+          process.execPath,
+          [
+            "scripts/run-bounded-check.mjs",
+            process.execPath,
+            "verification/updates/host-windows.mjs",
+            `--cleanup-build-dir=${buildDir}`,
+          ],
+          { cwd: root, env: childEnv },
+        );
+        await rm(buildStateFile, { force: true });
+      } catch (error) {
+        console.error(
+          `Windows buildフォルダーの片付けに失敗しました: ${error.message}`,
+        );
+      }
+    }
     console.log(
       `[release] acceptance/windows seconds=${((performance.now() - started) / 1000).toFixed(3)}`,
     );

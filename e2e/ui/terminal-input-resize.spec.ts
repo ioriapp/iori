@@ -64,7 +64,7 @@ function journey(mode: (typeof modes)[number]) {
     page: Page;
     registeredApp: App;
   }) => {
-    await page.goto(app.url);
+    await app.open(page);
     await openFolder(page, app, mode.mobile);
     await newTab(page, mode.mobile);
     await page

@@ -18,60 +18,111 @@ gate({ devices: [verificationLocal.windows.host], requireFreePorts: false });
 await mkdir(output, { recursive: true });
 const remote = `${verificationLocal.windows.home}\\iori-development\\release-${Date.now()}`;
 const archive = path.join(output, "windows-source.tar");
+const buildStateFile =
+  process.argv
+    .find((arg) => arg.startsWith("--build-state="))
+    ?.slice("--build-state=".length) ||
+  process.env.IORI_WINDOWS_BUILD_STATE ||
+  (process.argv.includes("--keep-build")
+    ? path.join(output, "windows-build.json")
+    : undefined);
+async function timed(name, action) {
+  const start = performance.now();
+  console.log(`[windows-build] ${name} start ${new Date().toISOString()}`);
+  try {
+    return await action();
+  } finally {
+    console.log(
+      `[windows-build] ${name} end ${new Date().toISOString()} seconds=${((performance.now() - start) / 1000).toFixed(3)}`,
+    );
+  }
+}
 windows(`[IO.Directory]::CreateDirectory(${ps(remote)}) | Out-Null`);
 let failure;
 try {
-  await createSourceArchive(root, archive);
-  await command("scp", [
-    archive,
-    `${verificationLocal.windows.host}:${remote.replaceAll("\\", "/")}/source.tar`,
-  ]);
-  windows(
-    `tar -mxf ${ps(remote + "\\source.tar")} -C ${ps(remote)};if($LASTEXITCODE -ne 0){throw 'tar failed'}`,
-  );
+  await timed("transfer", async () => {
+    await createSourceArchive(root, archive);
+    await command("scp", [
+      archive,
+      `${verificationLocal.windows.host}:${remote.replaceAll("\\", "/")}/source.tar`,
+    ]);
+  });
+  await timed("extract", () => {
+    windows(
+      `tar -mxf ${ps(remote + "\\source.tar")} -C ${ps(remote)};if($LASTEXITCODE -ne 0){throw 'tar failed'}`,
+    );
+  });
   await writeWindows(
     remote + "\\build.ps1",
     windowsEnvironment +
       `
 $PSNativeCommandUseErrorActionPreference=$false
+function Invoke-TimedStep {
+  param([string]$Name, [scriptblock]$Action)
+  $started = Get-Date
+  Write-Host ("[windows-build] {0} start {1}" -f $Name, $started.ToString("o"))
+  $sw = [System.Diagnostics.Stopwatch]::StartNew()
+  try {
+    $global:LASTEXITCODE = 0
+    & $Action
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+  } finally {
+    $sw.Stop()
+    $ended = Get-Date
+    Write-Host ("[windows-build] {0} end {1} seconds={2:F3}" -f $Name, $ended.ToString("o"), $sw.Elapsed.TotalSeconds)
+  }
+}
 Set-Location ${ps(remote)}
+Invoke-TimedStep "mtimes" {
 ${windowsSourceMtimes}
+}
 $env:CARGO_TARGET_DIR=${ps(windowsCache + "\\cargo-target")}
-pnpm install --frozen-lockfile --store-dir ${ps(windowsCache + "\\pnpm-store")}
-if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
-node verification/native/node-pty.mjs
-if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
-pnpm --filter @iori/host build:native
-if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
-node scripts/release/host.mjs host
-if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
-& "$env:WINDIR\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe" /nologo /target:winexe /out:host\\iori-host-background.exe scripts\\release\\launcher.cs
-if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
-Compress-Archive -Path host\\* -DestinationPath iori-host-windows-x64.zip
-$env:IORI_RELEASE_BUILD="1"
-pnpm --filter @iori/client tauri build --bundles nsis
-if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
-Copy-Item -LiteralPath ${ps(windowsCache + "\\cargo-target\\release\\bundle\\nsis\\iori_" + version + "_x64-setup.exe")} -Destination iori-setup-windows-x64.exe
+Invoke-TimedStep "pnpm-install" {
+  pnpm install --frozen-lockfile --store-dir ${ps(windowsCache + "\\pnpm-store")}
+}
+Invoke-TimedStep "node-pty" {
+  node verification/native/node-pty.mjs
+}
+Invoke-TimedStep "host-native" {
+  pnpm --filter @iori/host build:native
+}
+Invoke-TimedStep "host-bundle" {
+  node scripts/release/host.mjs host
+  if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+  & "$env:WINDIR\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe" /nologo /target:winexe /out:host\\iori-host-background.exe scripts\\release\\launcher.cs
+  if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+  Compress-Archive -Path host\\* -DestinationPath iori-host-windows-x64.zip
+}
+Invoke-TimedStep "client-tauri-nsis" {
+  $env:IORI_RELEASE_BUILD="1"
+  pnpm --filter @iori/client tauri build --bundles nsis
+  if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+  Copy-Item -LiteralPath ${ps(windowsCache + "\\cargo-target\\release\\bundle\\nsis\\iori_" + version + "_x64-setup.exe")} -Destination iori-setup-windows-x64.exe
+}
 `,
   );
-  await command("ssh", [
-    verificationLocal.windows.host,
-    "pwsh",
-    "-NoProfile",
-    "-EncodedCommand",
-    Buffer.from(
-      `& pwsh -NoProfile -ExecutionPolicy Bypass -File ${ps(remote + "\\build.ps1")};exit $LASTEXITCODE`,
-      "utf16le",
-    ).toString("base64"),
-  ]);
-  for (const asset of [
-    "iori-host-windows-x64.zip",
-    "iori-setup-windows-x64.exe",
-  ])
-    await command("scp", [
-      `${verificationLocal.windows.host}:${remote.replaceAll("\\", "/")}/${asset}`,
-      path.join(output, asset),
-    ]);
+  await timed("build.ps1", () =>
+    command("ssh", [
+      verificationLocal.windows.host,
+      "pwsh",
+      "-NoProfile",
+      "-EncodedCommand",
+      Buffer.from(
+        `& pwsh -NoProfile -ExecutionPolicy Bypass -File ${ps(remote + "\\build.ps1")};exit $LASTEXITCODE`,
+        "utf16le",
+      ).toString("base64"),
+    ]),
+  );
+  await timed("collect", async () => {
+    for (const asset of [
+      "iori-host-windows-x64.zip",
+      "iori-setup-windows-x64.exe",
+    ])
+      await command("scp", [
+        `${verificationLocal.windows.host}:${remote.replaceAll("\\", "/")}/${asset}`,
+        path.join(output, asset),
+      ]);
+  });
   const installer = await readFile(
     path.join(root, "scripts/release/install.ps1"),
     "utf8",
@@ -86,13 +137,18 @@ Copy-Item -LiteralPath ${ps(windowsCache + "\\cargo-target\\release\\bundle\\nsi
       .replace("__IORI_RELEASE_SOURCE__", () => releaseSource)
       .replace("# IORI_INSTALL_BUNDLE", () => bundleInstaller),
   );
+  if (buildStateFile) {
+    await mkdir(path.dirname(buildStateFile), { recursive: true });
+    await writeFile(buildStateFile, JSON.stringify({ remote }, null, 2) + "\n");
+  }
 } catch (error) {
   failure = error;
   throw error;
 } finally {
   try {
     await rm(archive, { force: true });
-    windows(`cmd.exe /c ${ps('rd /s /q "\\\\?\\' + remote + '"')}`);
+    if (failure || !buildStateFile)
+      windows(`cmd.exe /c ${ps('rd /s /q "\\\\?\\' + remote + '"')}`);
   } catch (error) {
     if (!failure) throw error;
     process.stderr.write(
