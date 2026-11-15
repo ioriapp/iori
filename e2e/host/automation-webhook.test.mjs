@@ -469,3 +469,40 @@ test("Webhookの受信元をこのマシンだけに替えるとLAN側からは�
     );
     assert.equal((await post(url, automation.webhookToken)).status, 202);
   }));
+
+test("Webhookで受けた秘密を含むヘッダーは値だけを[redacted]にして渡す", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    const { automation, url } = await setup(client, dataRoot);
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${automation.webhookToken}`,
+        "X-Gitlab-Token": "gitlab-secret-value",
+        "X-Hub-Signature-256": "sha256=hub-signature-value",
+        "X-GitHub-Event": "push",
+        "Content-Type": "application/json",
+      },
+      body: '{"event":"push"}',
+    });
+    assert.equal(response.status, 202);
+    const result = await response.json();
+    assert.equal(result.status, "started");
+    const run = await launchedRun(
+      client,
+      automation.id,
+      (item) => item.id === result.run,
+    );
+    assert.ok(run?.terminalId, run?.launchError);
+    const instruction = await delivered(await client.terminal(run.terminalId));
+    assert.ok(!instruction.includes("gitlab-secret-value"));
+    assert.ok(!instruction.includes("hub-signature-value"));
+    assert.ok(instruction.includes('"x-gitlab-token":"[redacted]"'));
+    assert.ok(instruction.includes('"x-hub-signature-256":"[redacted]"'));
+    assert.ok(instruction.includes('"x-github-event":"push"'));
+    const { received } = await client.request("automation.received", {
+      id: result.run,
+    });
+    assert.equal(received.headers["x-gitlab-token"], "[redacted]");
+    assert.equal(received.headers["x-hub-signature-256"], "[redacted]");
+    assert.equal(received.headers["x-github-event"], "push");
+  }));

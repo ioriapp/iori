@@ -59,7 +59,26 @@ install_iori_host() {
   mv "$work/host" "$destination"
   rm -rf "$work/previous"
   ln -sf "$destination/iori-host" "$HOME/.local/bin/iori-host"
-  cat > "$HOME/.config/systemd/user/iori-host.service" <<UNIT
+  unit_file="$HOME/.config/systemd/user/iori-host.service"
+  xdg_env_line=''
+  wrote_xdg_env=false
+  if [ "$first" = false ]; then
+    if [ -f "$unit_file" ]; then
+      xdg_env_line=$(sed -n '/^Environment="XDG_DATA_HOME=/{p;q;}' "$unit_file")
+    fi
+  else
+    case "${XDG_DATA_HOME:-}" in
+      /*)
+        if [ "$(printf '%s' "$XDG_DATA_HOME" | wc -c)" -eq "$(printf '%s' "$XDG_DATA_HOME" | LC_ALL=C tr -d '[:cntrl:]' | wc -c)" ]; then
+          escaped_xdg=$(printf '%s\n' "$XDG_DATA_HOME" | sed 's/\\/\\\\/g; s/"/\\"/g; s/%/%%/g')
+          xdg_env_line="Environment=\"XDG_DATA_HOME=$escaped_xdg\""
+          wrote_xdg_env=true
+        fi
+        ;;
+    esac
+  fi
+  {
+    cat <<UNIT
 [Unit]
 Description=iori Host
 [Service]
@@ -68,9 +87,15 @@ NotifyAccess=all
 Restart=on-failure
 TimeoutStartSec=infinity
 ExecStart="$destination/iori-host"
+UNIT
+    if [ -n "$xdg_env_line" ]; then
+      printf '%s\n' "$xdg_env_line"
+    fi
+    cat <<'UNIT'
 [Install]
 WantedBy=default.target
 UNIT
+  } > "$unit_file"
   setup_stage service
   if [ "${IORI_SETUP_CLIENT:-}" = 1 ]; then
     if ! loginctl --no-ask-password enable-linger "$(id -un)"; then
@@ -94,6 +119,12 @@ UNIT
     systemctl --user restart iori-host.service
   fi
   printf '%s\n' 'iori Hostを起動しました。'
-  if [ "$first" = true ] && [ "${IORI_SETUP_CLIENT:-}" != 1 ]; then "$destination/iori-host" invite; fi
+  if [ "$first" = true ] && [ "${IORI_SETUP_CLIENT:-}" != 1 ]; then
+    if [ "$wrote_xdg_env" = true ]; then
+      "$destination/iori-host" invite
+    else
+      env -u XDG_DATA_HOME "$destination/iori-host" invite
+    fi
+  fi
 }
 install_iori_host

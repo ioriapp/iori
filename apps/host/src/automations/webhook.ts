@@ -17,6 +17,14 @@ import {
   webhookAddressPriority,
 } from "./webhook-address.ts";
 
+const OMITTED_WEBHOOK_HEADERS = new Set([
+  "authorization",
+  "cookie",
+  "proxy-authorization",
+]);
+const REDACTED_WEBHOOK_HEADER_PATTERN =
+  /token|secret|signature|key|password|auth|cookie|session/iu;
+
 function reject(response: ServerResponse, status: number): void {
   response.writeHead(status, { Connection: "close" });
   response.end();
@@ -205,12 +213,13 @@ export class AutomationWebhookServer {
       (query[name] ??= []).push(value);
     const headers: Record<string, string> = Object.create(null);
     for (const [name, value] of Object.entries(request.headers)) {
-      if (
-        ["authorization", "cookie", "proxy-authorization"].includes(name) ||
-        value === undefined
-      )
-        continue;
-      headers[name] = Array.isArray(value) ? value.join(", ") : value;
+      const lower = name.toLowerCase();
+      if (OMITTED_WEBHOOK_HEADERS.has(lower) || value === undefined) continue;
+      headers[name] = REDACTED_WEBHOOK_HEADER_PATTERN.test(lower)
+        ? "[redacted]"
+        : Array.isArray(value)
+          ? value.join(", ")
+          : value;
     }
     const accepted = await this.receive(
       automation.id,

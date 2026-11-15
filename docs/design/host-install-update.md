@@ -13,7 +13,7 @@ Hostのマシンへ別途ログインしてコマンドを打たずに、普段�
 Clientからの導入より先に、Hostのマシンでコマンドを1行実行して導入・更新できる。配布物は[Releaseと公開](release.md#配布物)に従う。
 
 - Linuxは `curl -fsSL https://github.com/ioriapp/iori/releases/latest/download/install.sh | sh`、WindowsはPowerShellで `irm https://github.com/ioriapp/iori/releases/latest/download/install.ps1 | iex` を実行する。管理者権限とパスワードを求めない。
-- 本人のユーザーで常駐させる。Linuxはsystemdのuser serviceにし、lingerが無効なら本人の権限で有効にしてその旨を表示する。有効にできない時は管理者が実行するコマンドを表示し、導入は続ける。Windowsはログオン時に本人のユーザーで起動し、画面にwindowを出さない。コマンドでの導入はWindowsファイアウォールの許可を加えない。他のデバイスから接続するための許可は、Clientから加える（[ほかのデバイスからの接続を許可する](#ほかのデバイスからの接続を許可するwindows)）。
+- 本人のユーザーで常駐させる。Linuxはsystemdのuser serviceにし、lingerが無効なら本人の権限で有効にしてその旨を表示する。有効にできない時は管理者が実行するコマンドを表示し、導入は続ける。Linuxの保存先は、初回導入時に環境変数 `XDG_DATA_HOME` が絶対パスの時だけuser serviceへ記録し、更新時は既存serviceの設定を引き継ぎ、導入直後の招待も同じ保存先を参照する。Windowsはログオン時に本人のユーザーで起動し、画面にwindowを出さない。コマンドでの導入はWindowsファイアウォールの許可を加えない。他のデバイスから接続するための許可は、Clientから加える（[ほかのデバイスからの接続を許可する](#ほかのデバイスからの接続を許可するwindows)）。
 - バージョンを指定しない導入スクリプトは、GitHubの最新の安定バージョンを取得する。`IORI_VERSION` を指定した時は、そのバージョンの `/download/v〈版〉/〈名前〉` から取得する。
 - 同じコマンドで更新する。Hostを新しいプログラムへ入れ替えて起動し直す。LinuxではioriのTerminalから実行しても、そのTerminalが閉じた後にHostは新しいバージョンで戻る。実行中のTerminalとCLIの画面のプロセスが止まり、LinuxでioriのTerminalから実行した場合はそのTerminalも閉じること、会話はCLIの保存に残り再開できることを、止める前に表示する。確認は求めない。
 - WindowsのioriのTerminalからの更新は、ClientからHostを更新する機能で扱う。

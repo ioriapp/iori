@@ -17,16 +17,23 @@ const { output, version, git, command, releaseSource } =
   await import("./common.mjs");
 const { writeUpdater } = await import("./updater.mjs");
 const { writeManifest } = await import("./manifest.mjs");
+const { parsePreviousArgs } = await import("./previous-release.mjs");
 const {
   acceptance,
   reportFirstFailures,
   acceptanceScenarios,
   androidAcceptance,
-  previousAndroidRelease,
+  previousRelease,
   windowsAcceptance,
   linuxClientAcceptance,
   checkUpdaterStatic,
 } = await import("./acceptance.mjs");
+const { previous: previousOption, args: extraArgs } = parsePreviousArgs(
+  process.argv.slice(2),
+);
+if (extraArgs.length) throw new Error(`未知の引数: ${extraArgs.join(" ")}`);
+const previousSpec =
+  previousOption ?? process.env.IORI_RELEASE_PREVIOUS ?? null;
 await command(process.execPath, [
   "scripts/publish/check-forbidden.mjs",
   "--head",
@@ -39,7 +46,7 @@ await command(process.execPath, [
   "--dry-run",
 ]);
 const commit = git("rev-parse", "HEAD");
-const previous = await previousAndroidRelease();
+const previous = await previousRelease(fetch, version, previousSpec);
 if (previous) {
   const response = await fetch(
     `${releaseSource}/download/${encodeURIComponent(previous.tag_name)}/release.json`,
@@ -100,6 +107,7 @@ try {
     npm_config_store_dir: store,
     pnpm_config_store_dir: store,
     IORI_APPIMAGE_PREVIOUS_RELEASES: path.join(root, ".local/release"),
+    ...(previousSpec ? { IORI_RELEASE_PREVIOUS: previousSpec } : {}),
   };
   const platformAssets = {
     linux: ["iori-host-linux-x64.tar.gz", "install.sh"],
@@ -191,6 +199,7 @@ try {
           path.join(output, "iori-host-linux-x64.tar.gz"),
           env,
           firstFailures,
+          { previous: previousSpec },
         );
       if (platform === "android")
         await timed("acceptance/android", async () => {
@@ -217,6 +226,7 @@ try {
               ),
             },
             firstFailures,
+            { previous: previousSpec },
           ),
         );
     }),
@@ -225,7 +235,9 @@ try {
   const failure = results.find((result) => result.status === "rejected");
   if (failure) throw failure.reason;
   await timed("updater", () => writeUpdater());
-  await timed("updater-static", () => checkUpdaterStatic(root, output, env));
+  await timed("updater-static", () =>
+    checkUpdaterStatic(root, output, env, { previous: previousSpec }),
+  );
   const acceptanceResult = {
     type: "scoped",
     scenarios: acceptanceScenarios,

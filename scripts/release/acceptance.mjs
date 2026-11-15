@@ -8,6 +8,11 @@ import {
   AndroidDeviceUnavailableError,
 } from "../../verification/native/android-release.mjs";
 import semver from "semver";
+import {
+  normalizePreviousSpec,
+  parsePreviousArgs,
+  selectPreviousRelease,
+} from "./previous-release.mjs";
 
 export const acceptanceScenarios = [
   "terminal-daemon-upgrade",
@@ -157,10 +162,12 @@ export async function androidAcceptance(cwd, apk, env = process.env) {
   );
 }
 
-export async function previousAndroidRelease(
+export async function previousRelease(
   fetcher = fetch,
   currentVersion = version,
+  previous = process.env.IORI_RELEASE_PREVIOUS,
 ) {
+  const spec = normalizePreviousSpec(previous);
   const source = new URL(releaseSource);
   const [owner, repo] = source.pathname.split("/").filter(Boolean);
   const releases = [];
@@ -171,22 +178,13 @@ export async function previousAndroidRelease(
     if (!response.ok)
       throw new Error(`前の Release 一覧の取得に失敗: HTTP ${response.status}`);
     const batch = await response.json();
-    releases.push(
-      ...batch.filter(
-        (item) =>
-          !item.draft &&
-          item.tag_name.startsWith("v") &&
-          semver.valid(item.tag_name.slice(1)) !== null &&
-          item.tag_name !== `v${currentVersion}`,
-      ),
-    );
+    releases.push(...batch);
     if (batch.length < 100) break;
   }
-  releases.sort(
-    (a, b) => Date.parse(b.published_at) - Date.parse(a.published_at),
-  );
-  return releases[0];
+  return selectPreviousRelease(releases, { currentVersion, previous: spec });
 }
+
+export const previousAndroidRelease = previousRelease;
 
 async function androidAcceptanceEntry(args) {
   await lockEntry(import.meta.url);
@@ -239,6 +237,7 @@ export async function acceptance(
   archive,
   env = process.env,
   firstFailures = [],
+  options = {},
 ) {
   const started = performance.now();
   const temporaryRoot = path.join(cwd, ".local");
@@ -256,9 +255,14 @@ export async function acceptance(
     const targetVersion = JSON.parse(
       await readFile(path.join(host, "release-version.json"), "utf8"),
     ).version;
-    const previous = await previousAndroidRelease(fetch, targetVersion);
+    const previous = await previousRelease(
+      fetch,
+      targetVersion,
+      options.previous ?? env.IORI_RELEASE_PREVIOUS ?? null,
+    );
     if (!previous)
       throw new Error("更新互換の確認に必要な前のReleaseがありません");
+    console.log(`[release] acceptance previous=${previous.tag_name}`);
     const download = await fetch(
       `${releaseSource}/download/${encodeURIComponent(previous.tag_name)}/iori-host-linux-x64.tar.gz`,
     );
@@ -330,6 +334,7 @@ export async function windowsAcceptance(
   artifactsDir,
   env = process.env,
   firstFailures = [],
+  options = {},
 ) {
   const started = performance.now();
   const resolvedArtifacts = path.resolve(artifactsDir);
@@ -357,9 +362,14 @@ export async function windowsAcceptance(
     const targetVersion = JSON.parse(
       await readFile(path.join(cwd, "release-version.json"), "utf8"),
     ).version;
-    const previous = await previousAndroidRelease(fetch, targetVersion);
+    const previous = await previousRelease(
+      fetch,
+      targetVersion,
+      options.previous ?? env.IORI_RELEASE_PREVIOUS ?? null,
+    );
     if (!previous)
       throw new Error("更新互換の確認に必要な前のReleaseがありません");
+    console.log(`[release] acceptance/windows previous=${previous.tag_name}`);
     const baseUrl = `${releaseSource}/download/${encodeURIComponent(previous.tag_name)}`;
     const previousZip = path.join(temporary, "previous-host-windows-x64.zip");
     const previousInstaller = path.join(
@@ -611,9 +621,10 @@ export async function checkUpdaterStatic(
 
     let previousTag = options.previousTag;
     if (!previousTag) {
-      const previous = await previousAndroidRelease(
+      const previous = await previousRelease(
         fetch,
         targetUpdater.version,
+        options.previous ?? env.IORI_RELEASE_PREVIOUS ?? null,
       );
       previousTag = previous?.tag_name;
     } else if (!previousTag.startsWith("v")) previousTag = `v${previousTag}`;
@@ -722,36 +733,43 @@ export async function checkUpdaterStatic(
 if (process.argv[1] === import.meta.filename) {
   const firstFailures = [];
   try {
-    const mode = process.argv[2];
-    const rest = process.argv.slice(3);
+    const { previous, args } = parsePreviousArgs(process.argv.slice(2));
+    const [mode, ...rest] = args;
     if (mode === "--android") await androidAcceptanceEntry(rest);
-    else if (mode === "--windows")
+    else if (mode === "--windows") {
+      if (!rest[0]) throw new Error("配布物フォルダーを指定してください");
       await windowsAcceptance(
         root,
         path.resolve(rest[0]),
         process.env,
         firstFailures,
+        { previous },
       );
-    else if (mode === "--linux-client")
+    } else if (mode === "--linux-client") {
+      if (!rest[0]) throw new Error("配布物フォルダーを指定してください");
       await linuxClientAcceptance(
         root,
         path.resolve(rest[0]),
         process.env,
         firstFailures,
       );
-    else if (mode === "--updater-static") {
+    } else if (mode === "--updater-static") {
       const previousArg = rest.find((arg) => arg.startsWith("--previous-tag="));
       const dirArg = rest.find((arg) => !arg.startsWith("-"));
+      if (!dirArg) throw new Error("配布物フォルダーを指定してください");
       await checkUpdaterStatic(root, path.resolve(dirArg), process.env, {
         previousTag: previousArg?.slice("--previous-tag=".length),
+        previous,
       });
-    } else
-      await acceptance(
-        root,
-        path.resolve(process.argv[2]),
-        process.env,
-        firstFailures,
-      );
+    } else {
+      if (!mode || mode.startsWith("-"))
+        throw new Error(
+          "使い方: node scripts/release/acceptance.mjs [--previous=stable|<tag>] <archive>",
+        );
+      await acceptance(root, path.resolve(mode), process.env, firstFailures, {
+        previous,
+      });
+    }
   } catch (error) {
     console.error(error);
     process.exitCode = 1;
