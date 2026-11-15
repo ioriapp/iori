@@ -30,8 +30,8 @@
   padding: 0 6px;
 }
 .ci-head .reading-worktree {
-  flex: none;
-  max-width: 40%;
+  flex: 0 1 auto;
+  max-width: 38%;
   min-width: 0;
   font-size: 0.93rem;
   font-weight: 400;
@@ -51,18 +51,22 @@
   font-family: var(--font-mono);
   font-size: 0.86rem;
 }
-/* A narrow top keeps the short hash; the subject is in its tooltip. */
-@container (max-width: 520px) {
-  .ci-commit .reading-truncate {
-    display: none;
-  }
-}
 .ci-head-actions {
   display: flex;
   flex: none;
   align-items: center;
   gap: 2px;
   margin-left: auto;
+}
+/* Narrow heads drop the "Open in browser" text so the hash and subject fit. */
+@container (max-width: 520px) {
+  .ci-browser {
+    width: 24px;
+    padding: 0;
+  }
+  .ci-browser-label {
+    display: none;
+  }
 }
 .ci-browser {
   color: var(--muted-foreground);
@@ -143,7 +147,6 @@
 .ci-note {
   flex: 0 1000 auto;
   min-width: 0;
-  padding-left: 8px;
   overflow: hidden;
   color: var(--muted-foreground);
   font-size: 0.86rem;
@@ -177,9 +180,27 @@
     height: 44px;
     min-height: 44px;
   }
+  .ci-head .reading-worktree {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .ci-head-actions [data-size="icon-sm"],
+  .ci-detail-head [data-size="icon-sm"] {
+    width: 44px;
+    height: 44px;
+  }
+  .ci-head-actions .ci-browser {
+    min-width: 44px;
+    min-height: 44px;
+  }
   .ci-row,
   .ci-run-head {
     min-height: 44px;
+  }
+  @container (max-width: 520px) {
+    .ci-browser {
+      width: 44px;
+    }
   }
 }
 

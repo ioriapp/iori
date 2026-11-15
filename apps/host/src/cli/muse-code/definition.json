@@ -12,7 +12,8 @@
       "on-request": ["--approval-mode", "on-request"],
       "untrusted": ["--approval-mode", "untrusted"],
       "never": ["--approval-mode", "never"],
-      "yolo": ["--yolo"]
+      "yolo": ["--yolo"],
+      "disable-approval": ["--disable-approval"]
     },
     "initialPrompt": { "mode": "argument", "args": ["{prompt}"] },
     "managedArguments": [
@@ -20,12 +21,25 @@
       { "names": ["--reasoning-effort", "--effort"] },
       {
         "names": ["--approval-mode"],
-        "alsoRemove": [{ "names": ["--yolo"], "arity": "none" }]
+        "alsoRemove": [
+          { "names": ["--yolo", "--disable-approval"], "arity": "none" }
+        ]
       },
       {
         "names": ["--yolo"],
         "arity": "none",
-        "alsoRemove": [{ "names": ["--approval-mode"] }]
+        "alsoRemove": [
+          { "names": ["--approval-mode"] },
+          { "names": ["--disable-approval"], "arity": "none" }
+        ]
+      },
+      {
+        "names": ["--disable-approval"],
+        "arity": "none",
+        "alsoRemove": [
+          { "names": ["--approval-mode"] },
+          { "names": ["--yolo"], "arity": "none" }
+        ]
       }
     ]
   },

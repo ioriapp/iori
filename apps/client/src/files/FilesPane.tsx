@@ -29,6 +29,7 @@ import {
   type WorktreeChoice,
 } from "../reading/WorktreePicker.tsx";
 import { PathMenu, type MenuAction } from "../reading/PathMenu.tsx";
+import { BreadcrumbPath } from "../reading/PathEllipsis.tsx";
 import {
   emptyPosition,
   nativeReadingPositions,
@@ -521,14 +522,7 @@ function FilesWorkspace({
               className="reading-file-path reading-muted"
             />
           ) : (
-            active.split("/").map((part, index, parts) => (
-              <span
-                key={index}
-                data-last={index === parts.length - 1 || undefined}
-              >
-                {part}
-              </span>
-            ))
+            <BreadcrumbPath path={active} />
           )}
         </nav>
       </PathMenu>

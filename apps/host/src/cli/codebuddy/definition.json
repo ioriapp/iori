@@ -7,22 +7,31 @@
   "version": { "args": ["--version"] },
   "launch": {
     "model": ["--model", "{model}"],
+    "effort": ["--effort", "{effort}"],
     "permissions": {
       "default": ["--permission-mode", "default"],
       "acceptEdits": ["--permission-mode", "acceptEdits"],
       "auto": ["--permission-mode", "auto"],
       "dontAsk": ["--permission-mode", "dontAsk"],
       "plan": ["--permission-mode", "plan"],
-      "bypassPermissions": ["--permission-mode", "bypassPermissions"]
+      "bypassPermissions": ["--permission-mode", "bypassPermissions"],
+      "dangerously-skip-permissions": ["--dangerously-skip-permissions"]
     },
+    "directories": ["--add-dir", "{directory}"],
     "initialPrompt": { "mode": "argument", "args": ["{prompt}"] },
     "managedArguments": [
       { "names": ["--model"] },
+      { "names": ["--effort"] },
       {
         "names": ["--permission-mode"],
         "alsoRemove": [
           { "names": ["-y", "--dangerously-skip-permissions"], "arity": "none" }
         ]
+      },
+      {
+        "names": ["-y", "--dangerously-skip-permissions"],
+        "arity": "none",
+        "alsoRemove": [{ "names": ["--permission-mode"] }]
       }
     ]
   },

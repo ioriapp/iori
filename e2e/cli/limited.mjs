@@ -3,10 +3,19 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 import { capabilities } from "./capabilities.mjs";
-import { withCli } from "./fixture.mjs";
+import { assertTeamPermissionArguments, withCli } from "./fixture.mjs";
+
+function matchesScreen(screen, output) {
+  return screen.test(
+    output
+      .split(/\r?\n/u)
+      .filter((line) => !line.includes("iori-test#"))
+      .join("\n"),
+  );
+}
 
 // No model input or login operation is sent to a CLI without a fake API route.
-export function limitedContracts(cli, screen) {
+export function limitedContracts(cli, screen, permissionCheck) {
   test("起動して最初の画面を受信する", (t) =>
     withCli(t, cli, {}, async (context) => {
       const { terminal: created } = await context.client.request("cli.launch", {
@@ -14,15 +23,19 @@ export function limitedContracts(cli, screen) {
         cwd: join(context.dataRoot, "repository"),
       });
       const pty = await context.terminal(context.client, created.id);
-      await pty.waitFor(({ output }) =>
-        screen.test(
-          output
-            .split(/\r?\n/u)
-            .filter((line) => !line.includes("iori-test#"))
-            .join("\n"),
-        ),
-      );
+      await pty.waitFor(({ output }) => matchesScreen(screen, output));
     }));
+  if (permissionCheck)
+    test("候補の許可を選ぶと起動の引数に付く", (t) =>
+      withCli(t, cli, {}, (context) =>
+        assertTeamPermissionArguments(
+          context,
+          cli,
+          permissionCheck.permission,
+          permissionCheck.expectedArguments,
+          (pty) => pty.waitFor(({ output }) => matchesScreen(screen, output)),
+        ),
+      ));
   test(
     "モデルの一覧を読み込む",
     { skip: capabilities[cli]?.catalog },

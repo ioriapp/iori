@@ -2,7 +2,7 @@ import { capabilities } from "./capabilities.mjs";
 import { randomUUID } from "node:crypto";
 import assert from "node:assert/strict";
 import { appendFileSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { prepareCliHome } from "../../verification/cli/home.mjs";
@@ -242,4 +242,95 @@ export async function status(events, id, state) {
     event.terminal.cliStatus.failure,
   );
   return event.terminal.cliStatus;
+}
+
+/** Return command-line argument arrays for processes running with the isolated CLI HOME. */
+async function cliProcessArguments(home) {
+  const entries = [];
+  for (const entry of await readdir("/proc")) {
+    if (!/^\d+$/u.test(entry) || Number(entry) === process.pid) continue;
+    try {
+      const env = (await readFile(`/proc/${entry}/environ`, "utf8")).split(
+        "\0",
+      );
+      if (!env.includes(`HOME=${home}`)) continue;
+      entries.push(
+        (await readFile(`/proc/${entry}/cmdline`, "utf8")).split("\0"),
+      );
+    } catch (error) {
+      if (!["ENOENT", "ESRCH", "EACCES"].includes(error.code)) throw error;
+    }
+  }
+  return entries;
+}
+
+/** Check whether any running CLI process includes the expected contiguous arguments. */
+export function hasArgumentSequence(commands, expected) {
+  return commands.some((args) =>
+    args.some(
+      (_, index) =>
+        index + expected.length <= args.length &&
+        expected.every((value, offset) => args[index + offset] === value),
+    ),
+  );
+}
+
+/** Launch a team with the selected permission and assert that the spawned CLI receives its flags. */
+export async function assertTeamPermissionArguments(
+  context,
+  cli,
+  permission,
+  expectedArguments,
+  waitForReady,
+) {
+  const { client, dataRoot } = context;
+  const candidate = {
+    id: "worker-candidate",
+    cli,
+    model: capabilities[cli]?.fakeModel ? model(cli) : "",
+    permission,
+    tools: [],
+    minimum: "",
+  };
+  const team = await client.request("teams.create", {
+    definition: {
+      name: "Permission Compatibility",
+      description: "",
+      instruction: "",
+      parent: { ...candidate, id: "parent" },
+      roles: [
+        {
+          id: "worker",
+          name: "Worker",
+          when: "",
+          limit: "",
+          reuse: true,
+          split: false,
+          instruction: "",
+          request: "",
+          report: "",
+          candidates: { high: [], medium: [candidate], low: [] },
+        },
+      ],
+    },
+  });
+  await client.request("teams.settings", {
+    enabled: true,
+    defaultTeam: team.saved.id,
+    limits: {},
+  });
+  const events = await client.events();
+  await events.waitFor((event) => event.type === "snapshot");
+  const { terminal: created } = await client.request("team.launch", {
+    teamId: team.saved.id,
+    cwd: join(dataRoot, "repository"),
+    ...(capabilities[cli]?.fakeModel ? { instruction: marker("ready") } : {}),
+  });
+  const pty = await context.terminal(client, created.id);
+  await waitForReady(pty, created.id, events);
+  const commands = await cliProcessArguments(join(dataRoot, "cli-home"));
+  assert.ok(
+    hasArgumentSequence(commands, expectedArguments),
+    `Expected ${expectedArguments.join(" ")} in ${JSON.stringify(commands)}`,
+  );
 }

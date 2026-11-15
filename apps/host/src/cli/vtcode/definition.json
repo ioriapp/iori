@@ -8,14 +8,60 @@
   "launch": {
     "model": ["--model", "{model}"],
     "permissions": {
-      "dangerously-skip-permissions": ["--dangerously-skip-permissions"]
+      "strict": ["--security-level", "strict"],
+      "moderate": ["--security-level", "moderate"],
+      "permissive": ["--security-level", "permissive"],
+      "skip-confirmations": ["--skip-confirmations"],
+      "dangerously-skip-permissions": ["--dangerously-skip-permissions"],
+      "full-access": ["--full-access"]
     },
     "managedArguments": [
       { "names": ["--model"] },
       {
+        "names": ["--security-level"],
+        "alsoRemove": [
+          {
+            "names": [
+              "--skip-confirmations",
+              "--dangerously-skip-permissions",
+              "--full-access"
+            ],
+            "arity": "none"
+          }
+        ]
+      },
+      {
+        "names": ["--skip-confirmations"],
+        "arity": "none",
+        "alsoRemove": [
+          { "names": ["--security-level"] },
+          {
+            "names": ["--dangerously-skip-permissions", "--full-access"],
+            "arity": "none"
+          }
+        ]
+      },
+      {
         "names": ["--dangerously-skip-permissions"],
         "arity": "none",
-        "alsoRemove": [{ "names": ["--skip-confirmations"], "arity": "none" }]
+        "alsoRemove": [
+          { "names": ["--security-level"] },
+          {
+            "names": ["--skip-confirmations", "--full-access"],
+            "arity": "none"
+          }
+        ]
+      },
+      {
+        "names": ["--full-access"],
+        "arity": "none",
+        "alsoRemove": [
+          { "names": ["--security-level"] },
+          {
+            "names": ["--skip-confirmations", "--dangerously-skip-permissions"],
+            "arity": "none"
+          }
+        ]
       }
     ]
   },

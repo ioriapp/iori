@@ -11,9 +11,11 @@
       "args": ["chat", "-q", "{prompt}"]
     },
     "model": ["-m", "{model}"],
+    "effort": ["--reasoning", "{effort}"],
     "permissions": { "yolo": ["--yolo"] },
     "managedArguments": [
       { "names": ["-m", "--model"] },
+      { "names": ["--reasoning"] },
       { "names": ["--yolo"], "arity": "none" }
     ]
   },

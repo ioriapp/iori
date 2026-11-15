@@ -27,6 +27,7 @@ import {
 } from "../reading/WorktreePicker.tsx";
 import { VirtualRows } from "../reading/VirtualRows.tsx";
 import { PathMenu } from "../reading/PathMenu.tsx";
+import { PathEllipsis } from "../reading/PathEllipsis.tsx";
 import { writePathDrag } from "../path-drag.ts";
 import { usePagedList } from "../reading/paged.ts";
 import { readErrorCopy, type ReadingTransport } from "../reading/transport.ts";
@@ -605,11 +606,13 @@ function GitWorkspace({
                 title={change.path}
               >
                 <ChangeIcon kind={change.kind} ja={ja} />
-                <span className="reading-truncate">
-                  {change.oldPath
-                    ? `${change.oldPath} → ${change.path}`
-                    : change.path}
-                </span>
+                <PathEllipsis
+                  path={
+                    change.oldPath
+                      ? `${change.oldPath} → ${change.path}`
+                      : change.path
+                  }
+                />
                 <span
                   className="git-detail-kind"
                   data-iori-part="git-detail-area"
@@ -713,11 +716,13 @@ function GitWorkspace({
             title={view.commitFile.path}
           >
             <ChangeIcon kind={view.commitFile.kind} ja={ja} />
-            <span className="reading-truncate">
-              {view.commitFile.oldPath
-                ? `${view.commitFile.oldPath} → ${view.commitFile.path}`
-                : view.commitFile.path}
-            </span>
+            <PathEllipsis
+              path={
+                view.commitFile.oldPath
+                  ? `${view.commitFile.oldPath} → ${view.commitFile.path}`
+                  : view.commitFile.path
+              }
+            />
             <code className="git-hash">{view.commit.slice(0, 7)}</code>
           </span>
         }

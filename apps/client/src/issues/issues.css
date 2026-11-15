@@ -70,6 +70,12 @@
   gap: 2px;
   margin-left: auto;
 }
+@media (pointer: coarse) {
+  .issues-head-actions [data-size="icon-sm"] {
+    width: 44px;
+    height: 44px;
+  }
+}
 .issues-tools {
   display: flex;
   flex-wrap: wrap;

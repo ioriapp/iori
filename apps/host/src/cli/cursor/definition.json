@@ -7,8 +7,53 @@
   "version": { "args": ["--version"] },
   "launch": {
     "model": ["--model", "{model}"],
+    "permissions": {
+      "plan": ["--mode", "plan"],
+      "ask": ["--mode", "ask"],
+      "auto-review": ["--auto-review"],
+      "force": ["--force"]
+    },
+    "directories": ["--add-dir", "{directory}"],
     "initialPrompt": { "mode": "argument", "args": ["{prompt}"] },
-    "managedArguments": [{ "names": ["--model"] }]
+    "managedArguments": [
+      { "names": ["--model"] },
+      {
+        "names": ["--mode"],
+        "alsoRemove": [
+          {
+            "names": ["--plan", "-f", "--force", "--yolo", "--auto-review"],
+            "arity": "none"
+          }
+        ]
+      },
+      {
+        "names": ["--plan"],
+        "arity": "none",
+        "alsoRemove": [
+          { "names": ["--mode"] },
+          {
+            "names": ["-f", "--force", "--yolo", "--auto-review"],
+            "arity": "none"
+          }
+        ]
+      },
+      {
+        "names": ["-f", "--force", "--yolo"],
+        "arity": "none",
+        "alsoRemove": [
+          { "names": ["--mode"] },
+          { "names": ["--plan", "--auto-review"], "arity": "none" }
+        ]
+      },
+      {
+        "names": ["--auto-review"],
+        "arity": "none",
+        "alsoRemove": [
+          { "names": ["--mode"] },
+          { "names": ["--plan", "-f", "--force", "--yolo"], "arity": "none" }
+        ]
+      }
+    ]
   },
   "resume": { "args": ["--resume", "{sessionId}"] }
 }

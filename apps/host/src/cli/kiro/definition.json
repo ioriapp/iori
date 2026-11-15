@@ -9,7 +9,16 @@
     "model": ["--model", "{model}"],
     "effort": ["--effort", "{effort}"],
     "permissions": { "trust-all-tools": ["--trust-all-tools"] },
-    "initialPrompt": { "mode": "argument", "args": ["{prompt}"] }
+    "initialPrompt": { "mode": "argument", "args": ["{prompt}"] },
+    "managedArguments": [
+      { "names": ["--model"] },
+      { "names": ["--effort"] },
+      {
+        "names": ["-a", "--trust-all-tools"],
+        "arity": "none",
+        "alsoRemove": [{ "names": ["--trust-tools"] }]
+      }
+    ]
   },
   "resume": { "args": ["--resume-id", "{sessionId}"] },
   "hooks": {

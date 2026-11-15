@@ -18,16 +18,41 @@
   "launch": {
     "model": ["--model", "{model}"],
     "effort": ["--thinking", "{effort}"],
-    "permissions": { "yolo": ["--yolo"] },
+    "permissions": {
+      "always-ask": ["--approval-mode", "always-ask"],
+      "always-ask-cached": ["--approval-mode", "always-ask-cached"],
+      "write": ["--approval-mode", "write"],
+      "auto-approve": ["--auto-approve"],
+      "yolo": ["--yolo"]
+    },
     "instructionFile": ["--append-system-prompt", "{instructionFile}"],
     "directories": ["--add-dir", "{directory}"],
     "initialPrompt": { "mode": "argument", "args": ["{prompt}"] },
     "managedArguments": [
       { "names": ["--model"] },
       { "names": ["--thinking"] },
-      { "names": ["--yolo"], "arity": "none" },
-      { "names": ["--auto-approve"], "arity": "none" },
-      { "names": ["--approval-mode"] },
+      {
+        "names": ["--yolo"],
+        "arity": "none",
+        "alsoRemove": [
+          { "names": ["--auto-approve"], "arity": "none" },
+          { "names": ["--approval-mode"] }
+        ]
+      },
+      {
+        "names": ["--auto-approve"],
+        "arity": "none",
+        "alsoRemove": [
+          { "names": ["--yolo"], "arity": "none" },
+          { "names": ["--approval-mode"] }
+        ]
+      },
+      {
+        "names": ["--approval-mode"],
+        "alsoRemove": [
+          { "names": ["--yolo", "--auto-approve"], "arity": "none" }
+        ]
+      },
       { "names": ["--append-system-prompt"] },
       { "names": ["--add-dir"] }
     ]

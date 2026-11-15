@@ -5,6 +5,18 @@
   "command": "amp",
   "icon": { "light": "amp.svg" },
   "version": { "args": ["version"] },
+  "launch": {
+    "model": ["--model", "{model}"],
+    "effort": ["--effort", "{effort}"],
+    "permissions": {
+      "dangerously-allow-all": ["--dangerously-allow-all"]
+    },
+    "managedArguments": [
+      { "names": ["--model"] },
+      { "names": ["--effort"] },
+      { "names": ["--dangerously-allow-all"], "arity": "none" }
+    ]
+  },
   "resume": { "args": ["threads", "continue", "{sessionId}"] },
   "hooks": {
     "format": "plugin-file",

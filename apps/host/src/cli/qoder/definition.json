@@ -14,7 +14,8 @@
       "auto": ["--permission-mode", "auto"],
       "accept_edits": ["--permission-mode", "accept_edits"],
       "dont_ask": ["--permission-mode", "dont_ask"],
-      "bypass_permissions": ["--permission-mode", "bypass_permissions"]
+      "bypass_permissions": ["--permission-mode", "bypass_permissions"],
+      "dangerously-skip-permissions": ["--dangerously-skip-permissions"]
     },
     "directories": ["--add-dir", "{directory}"],
     "initialPrompt": { "mode": "argument", "args": ["-i", "{prompt}"] },
@@ -29,6 +30,11 @@
             "arity": "none"
           }
         ]
+      },
+      {
+        "names": ["--dangerously-skip-permissions", "--yolo"],
+        "arity": "none",
+        "alsoRemove": [{ "names": ["--permission-mode"] }]
       },
       { "names": ["-i", "--prompt-interactive"] }
     ]

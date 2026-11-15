@@ -14,8 +14,9 @@
     var(--status-failed) 15%,
     var(--background)
   );
-  --list-active: var(--accent);
-  --list-active-foreground: var(--accent-foreground);
+  --list-active: color-mix(in oklch, var(--primary) 16%, transparent);
+  --list-active-foreground: var(--foreground);
+  --list-active-bar: inset 2px 0 0 var(--primary);
   --list-hover: var(--muted);
   --status-green: var(--status-running);
   --status-red: var(--status-failed);
@@ -122,11 +123,20 @@
   padding-top: 8px;
 }
 @media (pointer: coarse) {
+  .reading-header:not(.ci-detail-head),
   .reading-list-header,
   .files-pane .reading-tabs,
   .files-pane .reading-tab {
     height: 44px;
     min-height: 44px;
+  }
+  .reading-header .reading-worktree {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .reading-header [data-size="icon-sm"] {
+    width: 44px;
+    height: 44px;
   }
   .reading-back {
     width: 44px;
@@ -165,9 +175,10 @@
   white-space: nowrap;
 }
 .reading-breadcrumb {
-  display: flex;
+  display: grid;
+  flex: 0 1 auto;
   min-width: 0;
-  overflow: hidden;
+  grid-template-columns: minmax(0, 1fr);
   padding: 0 4px;
   color: var(--muted-foreground);
   white-space: nowrap;
@@ -176,24 +187,58 @@
   flex: 1;
 }
 .reading-breadcrumb > .reading-file-path {
-  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
 }
-.reading-breadcrumb span {
+.reading-breadcrumb-row {
+  display: flex;
+  grid-area: 1 / 1;
+  min-width: 0;
+  overflow: hidden;
+}
+.reading-breadcrumb-probe {
+  position: relative;
+  visibility: hidden;
+  pointer-events: none;
+}
+.reading-breadcrumb-ellipsis-probe {
+  position: absolute;
+  left: 0;
+  top: 0;
+}
+.reading-breadcrumb-row span {
   flex: none;
 }
-.reading-breadcrumb span:not(:last-child)::after {
+.reading-breadcrumb-row span:not(:last-child)::after {
   content: "›";
   padding: 0 4px;
   opacity: 0.7;
 }
-.reading-breadcrumb span[data-last] {
+.reading-breadcrumb-row span[data-last] {
   flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   color: var(--foreground);
+}
+.reading-path-ellipsis {
+  display: grid;
+  flex: 0 1 auto;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr);
+}
+.reading-path-ellipsis > span {
+  grid-area: 1 / 1;
+  white-space: nowrap;
+}
+.reading-path-probe {
+  visibility: hidden;
+  overflow: hidden;
+  pointer-events: none;
+}
+.reading-path-shown {
+  min-width: 0;
+  overflow: hidden;
 }
 
 /* File tabs (35px, sidebar background, active tab marked at the bottom) */
@@ -280,6 +325,20 @@
 .reading-tab-close svg {
   width: 12px;
   height: 12px;
+}
+@media (pointer: coarse) {
+  .reading-tab {
+    gap: 2px;
+    padding: 0 0 0 8px;
+  }
+  .reading-tab-close {
+    flex: none;
+    width: 44px;
+    height: 44px;
+  }
+  .reading-tab:not([aria-selected="true"]) .reading-tab-close {
+    pointer-events: none;
+  }
 }
 
 /* Body and states */
@@ -650,6 +709,7 @@
 .reading-split:not([data-narrow="true"]) .files-tree-row[data-active] {
   background: var(--list-active);
   color: var(--list-active-foreground);
+  box-shadow: var(--list-active-bar);
 }
 .reading-virtual:focus .files-tree-row[data-focused] {
   outline: 1px solid var(--ring);

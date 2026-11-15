@@ -1,2 +1,5 @@
 import { limitedContracts } from "./limited.mjs";
-limitedContracts("cursor", /Cursor|Log in|Sign in|Login|Authenticate/u);
+limitedContracts("cursor", /Cursor|Log in|Sign in|Login|Authenticate/u, {
+  permission: "force",
+  expectedArguments: ["--force"],
+});

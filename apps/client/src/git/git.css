@@ -87,6 +87,7 @@
 .reading-split:not([data-narrow="true"]) .git-commit-row[aria-current="true"] {
   background: var(--list-active);
   color: var(--list-active-foreground);
+  box-shadow: var(--list-active-bar);
 }
 /* The counts always show; the folder gives way first, then the name. */
 .git-row-name {

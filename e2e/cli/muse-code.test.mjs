@@ -1,2 +1,5 @@
 import { limitedContracts } from "./limited.mjs";
-limitedContracts("muse-code", /Muse|Log in|Sign in|Login|Authenticate/u);
+limitedContracts("muse-code", /Muse|Log in|Sign in|Login|Authenticate/u, {
+  permission: "disable-approval",
+  expectedArguments: ["--disable-approval"],
+});

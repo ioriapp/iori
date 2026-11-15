@@ -15,6 +15,7 @@ import {
   type ForgeCiJob,
   type ForgeCiResult,
   type ForgeCiRun,
+  type ForgeCiStatusOf,
   type ForgeReadFailure,
 } from "@iori/protocol";
 import { Button } from "../components/ui/button";
@@ -300,11 +301,13 @@ function CiWorkspace({
             variant="ghost"
             size="sm"
             className="ci-browser"
+            aria-label={t("Open in browser")}
+            title={t("Open in browser")}
             data-iori-action="ci-open-browser"
             onClick={() => openUrl(ci.url)}
           >
             <ExternalLink />
-            {t("Open in browser")}
+            <span className="ci-browser-label">{t("Open in browser")}</span>
           </Button>
         )}
       </span>
@@ -326,9 +329,16 @@ function CiWorkspace({
 
   // A row's name keeps its width the longest: its note (an event, a
   // description) shrinks first and goes, then the name; the time stays.
+  const ciMeta = (
+    item: ForgeCiStatusOf,
+    duration?: string,
+  ): string | undefined => {
+    const parts = [ciStatusLabel(item), duration].filter(Boolean);
+    return parts.length > 0 ? parts.join(" · ") : undefined;
+  };
   const row = (
     selection: Selection,
-    status: ForgeCiJob["status"],
+    item: ForgeCiStatusOf,
     name: string,
     note: string | undefined,
     meta: string | undefined,
@@ -341,11 +351,11 @@ function CiWorkspace({
       aria-current={isSelected(selection) || undefined}
       data-iori-action={`ci-select-${selection.kind}`}
       data-iori-ci-id={selection.id}
-      data-iori-ci-status={status}
+      data-iori-ci-status={item.status}
       title={name}
       onClick={() => choose(selection)}
     >
-      <CiStateIcon state={forgeCiState(status)} />
+      <CiStateIcon state={forgeCiState(item.status)} />
       <span className="ci-name">{name}</span>
       {note && <span className="ci-note">{note}</span>}
       {meta && <span className="ci-meta">{meta}</span>}
@@ -354,28 +364,29 @@ function CiWorkspace({
   );
   const list = ci && (
     <div className="ci-list" data-iori-part="ci-list">
-      {ci.runs.map((run) => (
-        <div className="ci-run" key={run.id} data-iori-ci-run={run.id}>
-          <div className="ci-run-head" title={run.name}>
-            <CiStateIcon state={forgeCiState(run.status)} />
-            <span className="ci-name">{run.name}</span>
-            {run.event && <span className="ci-note">{run.event}</span>}
-            {ciDuration(run, now) && (
-              <span className="ci-meta">{ciDuration(run, now)}</span>
+      {ci.runs.map((run) => {
+        const runMeta = ciMeta(run, ciDuration(run, now));
+        return (
+          <div className="ci-run" key={run.id} data-iori-ci-run={run.id}>
+            <div className="ci-run-head" title={run.name}>
+              <CiStateIcon state={forgeCiState(run.status)} />
+              <span className="ci-name">{run.name}</span>
+              {run.event && <span className="ci-note">{run.event}</span>}
+              {runMeta && <span className="ci-meta">{runMeta}</span>}
+            </div>
+            {run.jobs.map((job) =>
+              row(
+                { kind: "job", id: job.id },
+                job,
+                job.name,
+                undefined,
+                ciMeta(job, ciDuration(job, now)),
+                true,
+              ),
             )}
           </div>
-          {run.jobs.map((job) =>
-            row(
-              { kind: "job", id: job.id },
-              job.status,
-              job.name,
-              undefined,
-              ciDuration(job, now),
-              true,
-            ),
-          )}
-        </div>
-      ))}
+        );
+      })}
       {ci.results.length > 0 && (
         <div className="ci-run">
           {ci.runs.length > 0 && (
@@ -384,10 +395,10 @@ function CiWorkspace({
           {ci.results.map((result) =>
             row(
               { kind: "result", id: result.id },
-              result.status,
+              result,
               result.name,
               result.description,
-              undefined,
+              ciMeta(result),
               ci.runs.length > 0,
             ),
           )}
