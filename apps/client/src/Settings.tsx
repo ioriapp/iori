@@ -1335,7 +1335,7 @@ export function SettingsDialog({
     "display",
     "keyboard",
   ].includes(current)
-    ? `${t("This PC")} › ${title}`
+    ? `${t("This device")} › ${title}`
     : title;
   const selectRow = (
     label: string,
@@ -1430,8 +1430,8 @@ export function SettingsDialog({
             className="settings-nav v9-settings-nav"
             aria-label={t("Settings")}
           >
-            <div className="v9-settings-section-title" title={t("This PC")}>
-              {t("This PC")}
+            <div className="v9-settings-section-title" title={t("This device")}>
+              {t("This device")}
             </div>
             <SidebarMenu>
               {[

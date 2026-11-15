@@ -222,7 +222,7 @@ export function UpdateSettings({
       {update.phase === "permission" && (
         <p className="settings-note">
           {t(
-            "Allow apps from this source in Android settings, then return to continue.",
+            "Allow apps from this source in Android settings, then return to continue. If a list of apps appears, select iori.",
           )}
         </p>
       )}

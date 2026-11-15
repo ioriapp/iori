@@ -8,8 +8,18 @@ import { join } from "node:path";
 import { object, type HookInstallContext } from "../hooks.ts";
 import { writeText } from "../hook-config.ts";
 import { shellDialect } from "../shell-command.ts";
+import { withCodexAppServerLock } from "./app-server-lock.ts";
 
 export async function trustHooks(
+  ctx: HookInstallContext,
+  directory: string,
+): Promise<void> {
+  return withCodexAppServerLock(directory, ctx.signal, () =>
+    runTrustHooks(ctx, directory),
+  );
+}
+
+async function runTrustHooks(
   ctx: HookInstallContext,
   directory: string,
 ): Promise<void> {
@@ -26,8 +36,13 @@ export async function trustHooks(
     env: { ...process.env, CODEX_HOME: directory },
     windowsHide: true,
     signal: ctx.signal,
-    stdio: ["pipe", "pipe", "ignore"],
+    stdio: ["pipe", "pipe", "pipe"],
     ...(dialect === "cmd" ? { windowsVerbatimArguments: true } : {}),
+  });
+  let stderr = "";
+  child.stderr.setEncoding("utf8");
+  child.stderr.on("data", (chunk: string) => {
+    stderr = (stderr + chunk).slice(-1024);
   });
   const pending = new Map<
     number,
@@ -42,8 +57,21 @@ export async function trustHooks(
   };
   child.on("error", fail);
   const closed = new Promise<void>((resolve) =>
-    child.once("close", () => {
-      fail(new Error("Codex hook trust process exited"));
+    child.once("close", (code, signal) => {
+      const detail = [
+        code === null ? undefined : `code ${code}`,
+        signal ? `signal ${signal}` : undefined,
+        stderr.replace(/\s+/gu, " ").trim() || undefined,
+      ]
+        .filter(Boolean)
+        .join(", ");
+      fail(
+        new Error(
+          detail
+            ? `Codex hook trust process exited (${detail})`
+            : "Codex hook trust process exited",
+        ),
+      );
       resolve();
     }),
   );

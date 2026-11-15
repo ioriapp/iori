@@ -33,7 +33,7 @@
 
 ## 設定
 
-「この PC」の「表示」（デバイスごとに保存）に次の2行を、テーマ・文字サイズの後、Terminalの文字サイズの前に置く。
+「このデバイス」の「表示」（デバイスごとに保存）に次の2行を、テーマ・文字サイズの後、Terminalの文字サイズの前に置く。
 
 - 利用枠の表示: 残量／使用量（既定）。説明「利用枠の割合を、残量と使用量のどちらで表示するかを選びます。」（英語 Usage display: Remaining / Used, “Choose whether usage limits show the percentage remaining or used.”）
 - 利用枠のグラフ: 棒グラフ（既定）／円グラフ。説明「ステータスバーとポップオーバーの利用枠のグラフの形を選びます。」（英語 Usage graph: Bar / Circle, “Choose the shape of usage graphs in the status bar and popovers.”）

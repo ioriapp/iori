@@ -943,7 +943,13 @@ export class CliRegistry {
         : [];
     const installation = this.#prepareHooks(id, shell, resolved, true);
     const probe = await this.#probeVersion(id, shell, resolved);
-    if (execution || options?.waitForVersion || launchEnvironment)
+    if (
+      execution ||
+      options?.waitForVersion ||
+      launchEnvironment ||
+      launchArguments ||
+      supportsHooks
+    )
       await probe.pending;
     await installation?.pending;
     const version = probe.version;
@@ -1136,8 +1142,12 @@ export class CliRegistry {
       .then(() => {
         installation.ready = !this.#controller.signal.aborted;
       })
-      .catch(() => {
+      .catch((error) => {
         installation.failed = true;
+        const reason = error instanceof Error ? error.message : String(error);
+        console.error(
+          `iori-host cli-hooks-install-failed: ${id}: ${reason.replace(/\s+/gu, " ").trim()}`,
+        );
         /* A failed or pending installation leaves this CLI unobserved. */
       });
     return installation;

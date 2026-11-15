@@ -816,8 +816,8 @@ const japanese: Record<string, string> = {
     "インストールをキャンセルしました。もう一度お試しください。",
   "Continue installation": "インストールを続ける",
   "You are up to date": "最新のバージョンです",
-  "Allow apps from this source in Android settings, then return to continue.":
-    "Androidの設定で「この提供元のアプリを許可」をオンにして、ioriへ戻ってください。",
+  "Allow apps from this source in Android settings, then return to continue. If a list of apps appears, select iori.":
+    "Androidの設定で「この提供元のアプリを許可」をオンにして、ioriへ戻ってください。アプリの一覧が表示されたときは、ioriを選んでください。",
   "Could not reach the update source. Check your connection and try again.":
     "配布元に接続できませんでした。接続を確認して、もう一度お試しください。",
   "Could not download the update. Try again.":

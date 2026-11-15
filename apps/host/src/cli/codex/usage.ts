@@ -2,6 +2,10 @@ import type { CliUsage } from "@iori/protocol";
 import type { UsageMonitor } from "../usage.ts";
 import { modelDialogue } from "../models.ts";
 import { object } from "../hooks.ts";
+import {
+  acquireCodexAppServerLock,
+  codexHomeDirectory,
+} from "./app-server-lock.ts";
 
 // https://learn.chatgpt.com/docs/app-server#6-rate-limits-chatgpt
 function readUsage(value: unknown): CliUsage | undefined {
@@ -68,6 +72,10 @@ export const monitorUsage: UsageMonitor = async (
         Math.min(2 ** 31 - 1, Math.max(1, nextReset - Date.now())),
       );
   };
+  const releaseLock = await acquireCodexAppServerLock(
+    codexHomeDirectory(),
+    signal,
+  );
   try {
     await modelDialogue(
       shell,
@@ -81,6 +89,7 @@ export const monitorUsage: UsageMonitor = async (
       (value, send, end) => {
         if (value.id === 1) {
           if (value.error) {
+            releaseLock();
             end();
             return;
           }
@@ -99,6 +108,7 @@ export const monitorUsage: UsageMonitor = async (
           };
           registerRefresh(refresh);
           refresh();
+          releaseLock();
         } else if (typeof value.id === "number") {
           update(value.error ? undefined : value.result);
           resolvePending?.();
@@ -110,6 +120,7 @@ export const monitorUsage: UsageMonitor = async (
       },
     );
   } finally {
+    releaseLock();
     closed = true;
     resolvePending?.();
     if (resetTimer) clearTimeout(resetTimer);
