@@ -38,9 +38,9 @@ test(
       );
     await page.getByRole("button", { name: "Send", exact: true }).tap();
     await app.terminalText(id, "ACTOR_HOOK:mobile-navigation");
-    await page.keyboard.press("Alt+ArrowLeft");
+    await app.back(page);
     await expect(page.locator('[data-iori-view="board"]')).toBeVisible();
-    await page.keyboard.press("Alt+ArrowLeft");
+    await app.back(page);
     await expect(page.locator('[data-iori-view="mobile-home"]')).toBeVisible();
     await page.locator("[data-iori-board-worktree]").tap();
     await page.getByRole("button", { name: "Open sidebar", exact: true }).tap();

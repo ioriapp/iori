@@ -10,6 +10,46 @@ export type CliUsage = {
     modelPatterns?: string[];
   }[];
 };
+/**
+ * Orders usage windows: unnamed windows first, then named groups in first-seen
+ * order, and shortest duration first within each group (stable on ties).
+ */
+export function orderUsageWindows<T extends CliUsage["windows"][number]>(
+  windows: readonly T[],
+): T[] {
+  const groupOrder = new Map<string, number>();
+  for (const window of windows) {
+    if (window.name && !groupOrder.has(window.name))
+      groupOrder.set(window.name, groupOrder.size + 1);
+  }
+  const groupOf = (window: T) =>
+    window.name ? groupOrder.get(window.name)! : 0;
+  return [...windows].sort(
+    (a, b) => groupOf(a) - groupOf(b) || a.minutes - b.minutes,
+  );
+}
+/**
+ * Picks up to 3 used windows (remaining < 100) with lowest remaining, or the
+ * single strictest window when all are unused, preserving the received order.
+ */
+export function statusBarUsageWindows<T extends CliUsage["windows"][number]>(
+  windows: readonly T[],
+): T[] {
+  const used = windows.filter((window) => window.remaining < 100);
+  if (used.length === 0) {
+    return windows.length === 0
+      ? []
+      : [
+          windows.reduce((worst, window) =>
+            window.remaining < worst.remaining ? window : worst,
+          ),
+        ];
+  }
+  const selected = new Set(
+    [...used].sort((a, b) => a.remaining - b.remaining).slice(0, 3),
+  );
+  return windows.filter((window) => selected.has(window));
+}
 /** A Host/CLI may send a malformed window; keep only complete usable windows. */
 export function parseCliUsage(value: unknown): CliUsage | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value))

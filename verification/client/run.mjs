@@ -13,7 +13,12 @@ import { lockEntry } from "../native/locks.mjs";
 import { adb, gate } from "../native/remote.mjs";
 
 const defaultSpecs = {
-  android: ["terminal-input-resize.spec.ts", "mobile-terminal-input.spec.ts"],
+  android: [
+    "terminal-input-resize.spec.ts",
+    "mobile-terminal-input.spec.ts",
+    "usage-status.spec.ts",
+    "mobile-background-resume.spec.ts",
+  ],
   windows: ["register-first-agent.spec.ts", "terminal-input-resize.spec.ts"],
 };
 

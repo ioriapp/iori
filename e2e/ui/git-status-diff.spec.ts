@@ -25,7 +25,7 @@ function gitJourney(mobile: boolean) {
     await expect(page.locator('[data-iori-scroll="git-diff"]')).toContainText(
       "Changed notes",
     );
-    if (mobile) await page.locator("body").press("Alt+ArrowLeft");
+    if (mobile) await app.back(page);
     await page.getByRole("button", { name: /image\.png/ }).click();
     await expect(
       page.getByRole("img", { name: "Before image.png" }),
@@ -33,7 +33,7 @@ function gitJourney(mobile: boolean) {
     await expect(
       page.getByRole("img", { name: "After image.png" }),
     ).toBeVisible();
-    if (mobile) await page.locator("body").press("Alt+ArrowLeft");
+    if (mobile) await app.back(page);
     await page.getByRole("tab", { name: "History" }).click();
     await page.getByRole("button", { name: /Initial notes/ }).click();
     await expect(

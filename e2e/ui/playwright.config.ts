@@ -32,7 +32,12 @@ export default defineConfig<TestOptions>({
       grep: /@desktop/,
       use: { viewport: { width: 1440, height: 900 } },
     },
-    { name: "phone", grep: /@phone/, use: { ...devices["Pixel 7"] } },
+    {
+      name: "phone",
+      grep: /@phone/,
+      grepInvert: /@android-only/,
+      use: { ...devices["Pixel 7"] },
+    },
     ...(requestedRealClient
       ? [
           {

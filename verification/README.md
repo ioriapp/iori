@@ -68,7 +68,7 @@ Windows の Host に関わる変更では、Windows 検証機で `node scripts/r
 - CLI・モデルなどの値は、使う人と同じ操作で選んでから進める。仕様が決めていない既定値と、一覧の到着の順序を当てにしない。
 - Release の受け入れは、環境変数 `IORI_UI_HOST_DISTRIBUTION` に展開した配布物を渡し、配布物の Host に対して `register-first-agent` と `terminal-input-resize` を実行する。
 - Windows / Android の本物の Client ビルドに対して `e2e/ui/*.spec.ts` を実行するときは、`node scripts/run-bounded-check.mjs node verification/client/run.mjs [--client Android|Windows]` を使う（`bash scripts/ci.sh` の対象外。Host と台本の CLI は Linux 側で起動する）。実 Client では `app.faults`・`app.addDevice`・`app.setOffline`・`app.updates`・`app.register`・`app.registerHost` は利用できない。
-- 幅は project で分ける。試験に `{ tag: "@desktop" }`（1440×900）か `{ tag: "@phone" }`（Pixel 7、タッチあり）を付ける。
+- 幅は project で分ける。試験に `{ tag: "@desktop" }`（1440×900）か `{ tag: "@phone" }`（Pixel 7、タッチあり）を付ける。Android の実機だけで実行する試験には `@android-only` を併記する。
 - 失敗は1回だけ再実行する（`CI=true` の時）。再実行で通った試験は flaky として結果に出る。trace は最初の再実行で記録する。結果（JSON・HTML の report・失敗時の画像・trace）は `.local/evidence/ui/<実行>/` に出る。
 - 1本は1つの手順を短く通す。Host が決める振る舞いは Host API の E2E に置き、画面では操作が届いて結果が表示されることだけを確かめる。実装の値（寸法・行の数・内部の ID）を期待に書かない。
 

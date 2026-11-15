@@ -7,6 +7,8 @@ import {
   verificationIdentifier,
 } from "../config.mjs";
 import { adb, adbPath, androidDevice } from "../native/remote.mjs";
+import { androidActivityResumed } from "../native/android-system-ui.mjs";
+import { waitFor } from "../ui.mjs";
 
 let tapPatched = false;
 const touchFallbackPages = new WeakSet();
@@ -108,6 +110,19 @@ export async function startAndroidUiClient({
     installAndroidTapFallback(page);
     return {
       page,
+      async back() {
+        adb(["shell", "input", "keyevent", "KEYCODE_BACK"]);
+      },
+      async background() {
+        if (androidActivityResumed([pkg])) {
+          adb(["shell", "input", "keyevent", "KEYCODE_HOME"]);
+          await waitFor(() => !androidActivityResumed([pkg]));
+        }
+      },
+      async resume() {
+        adb(["shell", "am", "start", "-n", mainActivity]);
+        await waitFor(() => androidActivityResumed([pkg]));
+      },
       async close() {
         touchFallbackPages.delete(page);
         await device.close().catch((error) => {

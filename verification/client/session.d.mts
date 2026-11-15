@@ -4,6 +4,9 @@ export type RealClientPlatform = "windows" | "android";
 
 export function startRealClient(platform: RealClientPlatform): Promise<{
   page: Page;
+  back?: () => Promise<void>;
+  background?: () => Promise<void>;
+  resume?: () => Promise<void>;
   close(): Promise<void>;
 }>;
 

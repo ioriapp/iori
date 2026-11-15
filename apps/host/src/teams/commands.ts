@@ -14,7 +14,8 @@ export const forgeCommandHelp = `${forgeCommandUsage}\n${commandFooter}`;
 export const commandHelp = `iori delegate --role NAME --difficulty high|medium|low --title TITLE --worktree new|parent|WORKTREE_NAME (a folder name from git worktree list) [--repo PATH] --body TEXT [--continue TASK_ID] [--plan N]
 iori plan show
 iori plan goal --body TEXT [--request]
-iori plan add --title TITLE [--after N] [--request]
+iori plan add --title TITLE [--first | --after N] [--request]
+iori plan move N (--first | --after M)
 iori plan update N [--state pending|in_progress|done] [--checkpoint TEXT] [--title TITLE]
 iori plan cancel N --reason TEXT
 iori tasks
@@ -45,8 +46,16 @@ export type TeamCommand =
       kind: "plan";
       action: "add";
       title: string;
+      first: boolean;
       after?: number;
       request: boolean;
+    }
+  | {
+      kind: "plan";
+      action: "move";
+      number: number;
+      first: boolean;
+      after?: number;
     }
   | {
       kind: "plan";
@@ -85,7 +94,16 @@ const fields: Record<string, string[]> = {
     "continue",
     "plan",
   ],
-  plan: ["body", "request", "title", "after", "state", "checkpoint", "reason"],
+  plan: [
+    "body",
+    "request",
+    "title",
+    "first",
+    "after",
+    "state",
+    "checkpoint",
+    "reason",
+  ],
   tasks: [],
   read: [],
   stop: [],
@@ -94,7 +112,7 @@ const fields: Record<string, string[]> = {
   report: ["body"],
   ask: ["body"],
 };
-const booleanFields = new Set(["discard", "request"]);
+const booleanFields = new Set(["discard", "request", "first"]);
 /** Whether `iori NAME` is a team command, which only a team conversation can use. */
 export function isTeamCommand(name: unknown): boolean {
   return typeof name === "string" && Object.hasOwn(fields, name);
@@ -163,7 +181,7 @@ export function parseCommand(argv: unknown): TeamCommand {
     const [action, task] = positionals;
     if (
       positionals.length !==
-      (["update", "cancel"].includes(action ?? "") ? 2 : 1)
+      (["move", "update", "cancel"].includes(action ?? "") ? 2 : 1)
     )
       throw new Error(commandHelp);
     switch (action) {
@@ -176,14 +194,42 @@ export function parseCommand(argv: unknown): TeamCommand {
           body: text("body"),
           request: values.request === true,
         };
-      case "add":
+      case "add": {
+        const first = values.first === true;
+        if (first && values.after !== undefined)
+          throw new Error("Specify either --first or --after, not both.");
         return {
           kind,
           action,
           title: text("title"),
-          ...(values.after ? { after: number(text("after"), "after") } : {}),
+          first,
+          ...(values.after !== undefined
+            ? { after: number(text("after"), "after") }
+            : {}),
           request: values.request === true,
         };
+      }
+      case "move": {
+        const target = number(task!, "task");
+        const first = values.first === true;
+        if (first && values.after !== undefined)
+          throw new Error("Specify either --first or --after, not both.");
+        if (!first && values.after === undefined)
+          throw new Error("Required: --first or --after.");
+        const after =
+          values.after !== undefined
+            ? number(text("after"), "after")
+            : undefined;
+        if (after === target)
+          throw new Error("Cannot move a plan task after itself.");
+        return {
+          kind,
+          action,
+          number: target,
+          first,
+          ...(after !== undefined ? { after } : {}),
+        };
+      }
       case "update":
         return {
           kind,

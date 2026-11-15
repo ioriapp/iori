@@ -17,15 +17,16 @@ import {
 } from "./definition-images.ts";
 import { homedir } from "node:os";
 import { isDeepStrictEqual } from "node:util";
-import type {
-  CliDefinitionResults,
-  CliDefinitionAttachment,
-  CliDefinitionReason,
-  CliListResult,
-  CliSimpleDefinition,
-  CliSummary,
-  Response,
-  Event,
+import {
+  orderUsageWindows,
+  type CliDefinitionResults,
+  type CliDefinitionAttachment,
+  type CliDefinitionReason,
+  type CliListResult,
+  type CliSimpleDefinition,
+  type CliSummary,
+  type Response,
+  type Event,
 } from "@iori/protocol";
 import type { HostStore, StoreContext } from "../store.ts";
 import type { ShellDefinition } from "../terminal/platform.ts";
@@ -253,6 +254,7 @@ export class CliRegistry {
                 if (usage)
                   usage = {
                     ...usage,
+                    windows: orderUsageWindows(usage.windows),
                     observedAt: usage.observedAt ?? Date.now(),
                   };
                 if (usage) this.usage.set(definition.id, usage);

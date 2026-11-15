@@ -39,7 +39,7 @@ Boardは、チームを付けた会話の状況を1つのタブで一目で知�
 - 行: 状態のインジケーター、役割と難易度（Planと同じ条件・書式）、題名、CLIとモデル・Task番号、今の状態（Starting・Running・Waiting・Approval・Reported・Question・Failed・Stopped・Finished と、待機の理由など補足の文）、変更（`+184 −32 · 4 files`）、トークン量（`412k tokens`）、親の判定（`Parent: Pending`・Accepted・Rejected と Revisions）、経過時間。差分の数字からその子のworktreeのGitへ、行からその子のタブへ移る。同じworktreeで動く子は同じ変更を表示し、トークン量は各子の値を使う。
 - 状態: 報告済み・質問中でもCLIが作業中の間はRunning（実行中）のインジケーターと文字を表示し、親の判定待ち・回答待ちは補足の文に残す。CLIの作業が止まったらReported・Questionへ戻す。承認待ちの扱いは変えない。
 - 今の操作: Runningの文字は、CLIの通知が取れる時だけ、ツールの実行中にはCLI自身のツール名と対象の要約（`Bash pnpm test`・`Edit src/x.ts`・`exec_command pnpm test`など）、それ以外の作業中には `Thinking` に替える。コマンドは1行目、ファイルは子のworktreeからの相対パス（外なら絶対パス）、検索は検索語を表示し、その他はツール名だけにする。開始から500ms以上続くツールだけを表示し、一度表示したツールは最短200ms保ってから最新の状態へ移る。短いツールや、切替先のツールが開始から500ms経っていない間は、それまでの表示を保つ。Boardを開いた時に既に実行中のツールと、承認・質問の後に続く同じツールは待たずに表示する。承認・質問などツール以外の状態（Thinkingへの復帰を除く）は遅らせず表示する。並列に動く時は最後に開始した実行中のツールを表示し、終了しても他が残っていればその中の最新を表示する。すべて終了したらThinkingに戻す。CLIから操作のIDが取れない時は、終了の通知でThinkingに戻す。1行で折り返さず、長い時は末尾を省略し、ツールチップで全文を読める。状態のインジケーターと補足の文は保ち、Approval・Question・Reported・Failed・Stopped・Finished・Starting・Waitingは上書きしない。通知が取れない時・まだ届いていない時は元の状態を表示する。秘密の伏せ方は承認待ちの要約と同じとし、ツールの入力全文やファイル本文は出さない。
-- 並び: Reportedで親が未判定・Questionで親の回答待ち・Failed、StartingとRunning、Waiting（理由付き）、Finished・Stopped の順。同じまとまりの中は委譲した順。Finished・Stoppedは `14 Finished` のように件数で畳み、件数にはStoppedの子も含む。Failedは畳まず、理由は長い語も面の内側で折り返して全文を表示する。
+- 並び: 委譲した順で、状態で並べ替えない。Finished・Stoppedは `14 Finished` のように件数で畳み、件数にはStoppedの子も含む。Failedは畳まず、理由は長い語も面の内側で折り返して全文を表示する。
 - 経緯: Finishedの行を押すと、その場でタスクの経緯を時系列で開く（Delegated・Revise・Handoff・Accepted・Rejected と時刻、担当、理由の本文）。経緯の下に「最後の画面を開く」を置く。経緯の形は[Records](records.md#経緯)と同じ部品を使う。
 
 値の無い項目（取れないトークン量、計測できない変更など）は項目ごと出さず、0で代用しない。
@@ -51,12 +51,14 @@ Hostはチームの会話の親に `iori plan` を用意し、チームの回し
 ```sh
 iori plan show
 iori plan goal --body TEXT [--request]
-iori plan add --title TITLE [--after N] [--request]
+iori plan add --title TITLE [--first | --after N] [--request]
+iori plan move N (--first | --after M)
 iori plan update N [--state pending|in_progress|done] [--checkpoint TEXT] [--title TITLE]
 iori plan cancel N --reason TEXT
 iori delegate ... [--plan N]
 ```
 
 - `--request` はユーザーの追加の依頼による組み直しを表示し、Activityで親の判断による更新と区別する。
+- タスクの番号は変えない識別であり、`iori plan add --first`・`--after N` と `iori plan move N` で変わるのは表示の順だけである。`add` と `move` は変更後の順を返し、`move` はActivityに出さない。
 - `delegate --plan N` は委譲を計画のタスクNへ結び、Boardではそのタスクの担当として子を表示する。1つのタスクに複数の子を結べる。
 - 本文の渡し方と返答の書式は[Linked Agent](linked-agents.md#親と子のコマンド)の他のコマンドと同じにする。

@@ -518,6 +518,8 @@ export class TeamManager {
       activity: [],
     });
     const at = Date.now();
+    const order = () => plan.tasks.map((task) => task.number).join(", ");
+    let responseText: string;
     if (command.action === "goal") {
       plan.activity.push({
         at,
@@ -527,6 +529,7 @@ export class TeamManager {
         ...(plan.goal === undefined ? {} : { previousGoal: plan.goal }),
       });
       plan.goal = command.body;
+      responseText = "Goal updated.";
     } else if (command.action === "add") {
       const number = Math.max(0, ...plan.tasks.map((task) => task.number)) + 1;
       const task = {
@@ -538,12 +541,19 @@ export class TeamManager {
           plan.tasks.some((task) => task.state !== "pending"),
         updatedAt: at,
       };
-      const index =
-        command.after === undefined
-          ? plan.tasks.length
-          : plan.tasks.findIndex((task) => task.number === command.after) + 1;
-      if (command.after !== undefined && index === 0)
-        throw new Error("Plan task does not exist. Read iori plan show.");
+      let index: number;
+      if (command.first) {
+        index = 0;
+      } else if (command.after !== undefined) {
+        const afterIndex = plan.tasks.findIndex(
+          (entry) => entry.number === command.after,
+        );
+        if (afterIndex === -1)
+          throw new Error("Plan task does not exist. Read iori plan show.");
+        index = afterIndex + 1;
+      } else {
+        index = plan.tasks.length;
+      }
       plan.tasks.splice(index, 0, task);
       plan.activity.push({
         at,
@@ -552,6 +562,28 @@ export class TeamManager {
         task: number,
         text: command.title,
       });
+      responseText = `Plan task ${number}: added. Order: ${order()}.`;
+    } else if (command.action === "move") {
+      const fromIndex = plan.tasks.findIndex(
+        (entry) => entry.number === command.number,
+      );
+      if (fromIndex === -1)
+        throw new Error("Plan task does not exist. Read iori plan show.");
+      if (command.after !== undefined) {
+        if (command.after === command.number)
+          throw new Error("Cannot move a plan task after itself.");
+        if (!plan.tasks.some((entry) => entry.number === command.after))
+          throw new Error("Plan task does not exist. Read iori plan show.");
+      }
+      const [moved] = plan.tasks.splice(fromIndex, 1);
+      if (command.first) {
+        plan.tasks.unshift(moved!);
+      } else {
+        const insertAt =
+          plan.tasks.findIndex((entry) => entry.number === command.after) + 1;
+        plan.tasks.splice(insertAt, 0, moved!);
+      }
+      responseText = `Plan task ${command.number}: moved. Order: ${order()}.`;
     } else {
       const task = plan.tasks.find((task) => task.number === command.number);
       if (!task)
@@ -595,16 +627,11 @@ export class TeamManager {
                 .filter((value) => value !== undefined)
                 .join(" · "),
       });
+      responseText = `Plan task ${task.number}: ${command.action === "cancel" ? "cancelled" : "updated"}.`;
     }
     plan.updatedAt = at;
     this.store.putTeamConversation(conversation);
-    const changedTask = plan.activity.at(-1)?.task;
-    return ok(
-      command.action === "goal"
-        ? "Goal updated."
-        : `Plan task ${changedTask}: ${command.action === "add" ? "added" : command.action === "cancel" ? "cancelled" : "updated"}.`,
-      plan,
-    );
+    return ok(responseText, plan);
   }
   async #measureChild(child: TeamChild): Promise<void> {
     await this.#measureChildren([child], false, true);

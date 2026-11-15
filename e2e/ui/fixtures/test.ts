@@ -54,6 +54,9 @@ export type HostFixture = Omit<Started, "deviceId" | "url"> & {
 };
 export type App = Started & {
   open(page: Page): Promise<void>;
+  back(page: Page): Promise<void>;
+  background(page: Page): Promise<void>;
+  resume(page: Page): Promise<void>;
   request: RequestHost;
   input(terminalId: string, data: string): Promise<void>;
   register(): Promise<void>;
@@ -87,6 +90,10 @@ type Fixtures = {
 };
 
 const queuedUiRegistration = new WeakSet<App>();
+const realClients = new WeakMap<
+  Page,
+  Awaited<ReturnType<typeof startRealClient>>
+>();
 
 async function registerRealClientThroughUi(
   page: Page,
@@ -120,6 +127,7 @@ export const test = base.extend<Fixtures>({
       }
       const launchStarted = performance.now();
       const client = await startRealClient(clientPlatform);
+      realClients.set(client.page, client);
       info.annotations.push({
         type: "clientLaunchMs",
         description: String(performance.now() - launchStarted),
@@ -127,6 +135,7 @@ export const test = base.extend<Fixtures>({
       try {
         await use(client.page);
       } finally {
+        realClients.delete(client.page);
         if (info.status !== info.expectedStatus) {
           const screenshot = await client.page
             .screenshot()
@@ -247,6 +256,34 @@ export const test = base.extend<Fixtures>({
               description: String(performance.now() - registrationStarted),
             });
           }
+        },
+        back: async (targetPage) => {
+          const client = realClients.get(targetPage);
+          if (client?.back) {
+            await client.back();
+            return;
+          }
+          await targetPage.keyboard.press("Alt+ArrowLeft");
+        },
+        background: async (targetPage) => {
+          const client = realClients.get(targetPage);
+          if (client?.background) {
+            await client.background();
+            return;
+          }
+          throw new Error(
+            `app.background is not supported on ${clientPlatform} client`,
+          );
+        },
+        resume: async (targetPage) => {
+          const client = realClients.get(targetPage);
+          if (client?.resume) {
+            await client.resume();
+            return;
+          }
+          throw new Error(
+            `app.resume is not supported on ${clientPlatform} client`,
+          );
         },
         host: makeHost(descriptor),
         request: (method, params) => call("request", { method, params }),

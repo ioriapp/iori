@@ -37,7 +37,7 @@ import {
 } from "./board-i18n.ts";
 import { TextShimmer } from "./TextShimmer.tsx";
 import { useBoardActivity } from "./use-board-activity.ts";
-import { childRank, childStatus } from "./children.ts";
+import { childStatus } from "./children.ts";
 import "./board.css";
 export function ChangeAmount({
   changes,
@@ -318,7 +318,7 @@ export function Board({
     .sort(creationOrder);
   const current = agents
     .filter((agent) => !ended.includes(agent))
-    .sort((a, b) => childRank(a) - childRank(b) || creationOrder(a, b));
+    .sort(creationOrder);
   const measured = agents.filter((agent) => agent.tokens !== undefined);
   const changes = [
     ...new Map(

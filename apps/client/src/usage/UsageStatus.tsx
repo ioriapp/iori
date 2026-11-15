@@ -1,7 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { RefreshCw } from "lucide-react";
-import type { CliSummary, CliUsage } from "@iori/protocol";
+import {
+  statusBarUsageWindows,
+  type CliSummary,
+  type CliUsage,
+} from "@iori/protocol";
 import { CliIcon } from "../CliIcon.tsx";
 import { Button } from "../components/ui/button.tsx";
 import { Progress } from "../components/ui/progress.tsx";
@@ -500,11 +504,7 @@ export function UsageStatus({
       ? `ほかの利用枠 ${count}件`
       : `${count} more usage limits`;
   const content = (cli: Cli) => {
-    const used = cli.windows
-      .filter((window) => window.remaining < 100)
-      .sort((a, b) => a.remaining - b.remaining)
-      .slice(0, 3);
-    const windows = used.length > 0 ? used : [strictest(cli)];
+    const windows = statusBarUsageWindows(cli.windows);
     return (
       <>
         <CliIcon cli={cli} hostKey={hostKey} size={14} />

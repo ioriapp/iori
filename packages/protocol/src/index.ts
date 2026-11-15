@@ -66,6 +66,8 @@ export * from "./board.ts";
 export {
   usageAppliesToModel,
   belowUsageMinimum,
+  orderUsageWindows,
+  statusBarUsageWindows,
   parseCliUsage,
   type CliUsage,
 } from "./cli.ts";

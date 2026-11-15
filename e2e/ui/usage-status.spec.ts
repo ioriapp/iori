@@ -83,7 +83,7 @@ test(
     const firstScreen = page.getByRole("region", { name: /^Boards/ });
     await expect(heading).toBeVisible();
     await expect(firstScreen).toBeVisible();
-    await page.keyboard.press("Alt+ArrowLeft");
+    await app.back(page);
     await expect(heading).toBeHidden();
     await expect(usage).toBeVisible();
     await expect(firstScreen).toBeVisible();

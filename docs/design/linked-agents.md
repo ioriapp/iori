@@ -36,7 +36,7 @@ Hostは、チームの会話の親と子のシェルに `iori` コマンドを�
 
 ```sh
 iori delegate --role NAME --difficulty high|medium|low --title TITLE --worktree new|parent|NAME [--repo PATH] --body TEXT [--continue TASK_ID] [--plan N]
-iori plan show|goal|add|update|cancel
+iori plan show|goal|add|move|update|cancel
 iori tasks
 iori read CHILD_ID
 iori send CHILD_ID --kind answer|request|revise --body TEXT

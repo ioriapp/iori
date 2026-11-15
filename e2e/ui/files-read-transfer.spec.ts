@@ -30,7 +30,7 @@ function switchWorktree(mobile: boolean) {
     await expect(
       page.getByRole("heading", { name: "Feature notes" }),
     ).toBeVisible();
-    if (mobile) await page.locator("body").press("Alt+ArrowLeft");
+    if (mobile) await app.back(page);
     await page.locator('[data-iori-field="files-worktree"]').click();
     await page
       .locator(`[data-iori-worktree-choice=${JSON.stringify(app.folder)}]`)
@@ -50,7 +50,7 @@ function readFiles(mobile: boolean) {
     await expect(
       page.getByRole("heading", { name: "Initial notes" }),
     ).toBeVisible();
-    if (mobile) await page.locator("body").press("Alt+ArrowLeft");
+    if (mobile) await app.back(page);
     await page.getByRole("treeitem", { name: "image.png" }).click();
     await expect(page.locator('[data-iori-part="file-image"]')).toBeVisible();
   };
