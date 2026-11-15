@@ -136,6 +136,7 @@ await save(name+'-ready.json',true);
           conversation: "bootstrap",
           env: { IORI_DELIVERY_ACTOR: "bootstrap" },
           team: {
+            trustWorkspace: false,
             candidate: {
               id: "bootstrap",
               cli: definition.id,
@@ -169,6 +170,7 @@ await save(name+'-ready.json',true);
           ...(name === "child" ? { role: "worker" } : {}),
           env: { IORI_DELIVERY_ACTOR: name },
           team: {
+            trustWorkspace: false,
             candidate: {
               id: name,
               cli: definition.id,

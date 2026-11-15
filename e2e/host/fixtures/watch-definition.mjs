@@ -2,10 +2,16 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { quoteShellWord } from "../../../verification/host/environment.mjs";
 
-export async function registerWatchCli(client, dataRoot, id = "watch-cli") {
+export async function registerWatchCli(
+  client,
+  dataRoot,
+  id = "watch-cli",
+  args = [],
+) {
   const command = [
     process.execPath,
     fileURLToPath(new URL("./watch-cli.mjs", import.meta.url)),
+    ...args,
   ]
     .map(quoteShellWord)
     .join(" ");

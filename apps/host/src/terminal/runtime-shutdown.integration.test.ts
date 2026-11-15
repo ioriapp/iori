@@ -251,6 +251,7 @@ test("failed team CLI restoration never leaves an unhandled screen rejection", a
     conversation: "restoration",
     env: {},
     team: {
+      trustWorkspace: false,
       candidate: {
         id: "parent",
         cli: "pi",

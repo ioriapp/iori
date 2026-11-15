@@ -288,7 +288,7 @@ export class WorktreeRemover {
           const exists = child.cwd
             ? await realpath(child.cwd).catch(() => undefined)
             : undefined;
-          const remove =
+          const candidate =
             !!exists &&
             !!child.cwd &&
             !same(child.cwd, path) &&
@@ -309,6 +309,17 @@ export class WorktreeRemover {
             !this.store
               .teamConversations()
               .some((c) => !conversations.has(c.id) && c.cwd === child.cwd);
+          const childItem =
+            candidate && child.cwd
+              ? await (async () => {
+                  await checkChildWorktreeRemoval(
+                    child.repository?.mainPath ?? mainPath,
+                    child.cwd!,
+                  );
+                  return targets.get(child.cwd!) ?? inspect(child.cwd!, false);
+                })().catch(() => undefined)
+              : undefined;
+          const remove = !!childItem;
           item.children.push({
             id: child.id,
             title: child.title,
@@ -326,13 +337,10 @@ export class WorktreeRemover {
               );
           }
           if (
-            remove &&
-            child.cwd &&
+            childItem &&
             !item.worktrees.some((worktree) => worktree.path === child.cwd)
           )
-            item.worktrees.push(
-              targets.get(child.cwd) ?? (await inspect(child.cwd, false)),
-            );
+            item.worktrees.push(childItem);
         }
       }
       return item;

@@ -16,7 +16,8 @@ export const code: CliCode = {
   sessionTokens,
   observedModel: (payload) =>
     typeof payload.model === "string" ? payload.model : undefined,
-  teamArguments: ({ candidate: c }, file) => [
+  teamArguments: ({ candidate: c, trustWorkspace }, file) => [
+    ...(trustWorkspace ? ["--approve"] : []),
     ...file.model,
     ...file.effort,
     ...(c.tools.length ? ["--tools", c.tools.join(",")] : []),

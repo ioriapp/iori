@@ -77,12 +77,13 @@ function startupConfig(source: string, shell: ShellDefinition) {
 interface PermissionContext {
   platform: NodeJS.Platform;
   sandbox?: string;
+  teamTrusted?: boolean;
   /** Canonical spelling first, then the original spelling, as in Codex. */
   cwd: readonly string[];
   repository: readonly string[];
 }
 
-function pathSpellings(path: string): string[] {
+export function pathSpellings(path: string): string[] {
   try {
     const canonical = realpathSync.native(path);
     return [
@@ -98,7 +99,7 @@ function pathSpellings(path: string): string[] {
 
 /** Codex trusts the main checkout for linked worktrees, without running git.
  * Unreadable or unsupported metadata leaves the repository trust unknown. */
-function repositoryRoot(cwd: string): string | undefined {
+export function repositoryRoot(cwd: string): string | undefined {
   const metadataText = (file: string) => {
     if (!lstatSync(file).isFile()) return undefined;
     return readFileSync(file, "utf8").trim() || undefined;
@@ -243,7 +244,9 @@ export function allowsAdditionalDirectories(
   if (mode === "danger-full-access") return true;
   if (mode === "workspace-write") return workspaceWritable;
   return (
-    mode === undefined && workspaceWritable && hasTrustDecision(config, context)
+    mode === undefined &&
+    workspaceWritable &&
+    (context.teamTrusted || hasTrustDecision(config, context))
   );
 }
 

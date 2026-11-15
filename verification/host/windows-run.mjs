@@ -38,11 +38,13 @@ export const WINDOWS_HOST_E2E_TESTS = [
   "e2e/host/terminal-daemon-upgrade.test.mjs",
   "e2e/host/launch-instructions.test.mjs",
   "e2e/host/child-initial-input.test.mjs",
+  "e2e/host/cli-stall.test.mjs",
   "e2e/host/team-lifecycle.test.mjs",
   "e2e/host/team-messages.test.mjs",
   "e2e/host/team-parent-reconnect.test.mjs",
   "e2e/host/team-instruction-recovery.test.mjs",
   "e2e/host/team-candidates.test.mjs",
+  "e2e/host/team-watch.test.mjs",
 ];
 
 function selectedTests() {

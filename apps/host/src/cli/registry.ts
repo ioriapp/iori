@@ -893,6 +893,7 @@ export class CliRegistry {
         ? {
             ...options.execution,
             instructionFile: "",
+            trustWorkspace: false,
             commandDirectory: "",
             commandMailboxDirectory: options.commandDirectory,
             teamFilesDirectory: options.execution.teamFilesDirectory ?? "",

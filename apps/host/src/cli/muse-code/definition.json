@@ -40,7 +40,8 @@
           { "names": ["--approval-mode"] },
           { "names": ["--yolo"], "arity": "none" }
         ]
-      }
+      },
+      { "names": ["--trust-workspace"], "arity": "none" }
     ]
   },
   "resume": { "args": ["resume", "{sessionId}"] },

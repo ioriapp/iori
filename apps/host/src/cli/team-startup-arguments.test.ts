@@ -90,6 +90,7 @@ const launch: TeamLaunch = {
     minimum: "",
   },
   instructionFile: "/team/instructions.md",
+  trustWorkspace: true,
   commandDirectory: "/team/bin",
   teamFilesDirectory: "/team/files",
   instructions: "Team instructions",

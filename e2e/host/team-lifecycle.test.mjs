@@ -15,9 +15,11 @@ async function setup(client, dataRoot, actions, limit = "", cwd = dataRoot) {
   const candidates = [];
   for (const action of actions) {
     const cli =
-      action === "response"
-        ? await registerResponseCli(client, dataRoot)
-        : await registerLifecycleCli(client, dataRoot, action);
+      action === "trust"
+        ? "muse-code"
+        : action === "response"
+          ? await registerResponseCli(client, dataRoot)
+          : await registerLifecycleCli(client, dataRoot, action);
     candidates.push({ id: action, cli, model: "", tools: [], minimum: "" });
   }
   const team = await client.request("teams.create", {
@@ -64,6 +66,80 @@ async function setup(client, dataRoot, actions, limit = "", cwd = dataRoot) {
   await parent.output("LIFECYCLE_PARENT_INPUT:");
   return { parent, parentId: terminal.id, events };
 }
+
+test("追加したリポジトリのworktreeだけチーム起動時に信頼を渡す", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    await linkGit(join(dataRoot, "bin"));
+    const repositories = [join(dataRoot, "trusted"), join(dataRoot, "other")];
+    for (const root of repositories) {
+      await mkdir(root);
+      const git = (...args) => execFileSync("git", ["-C", root, ...args]);
+      git("init", "-b", "main");
+      git("config", "user.name", "Worktree E2E");
+      git("config", "user.email", "worktree@localhost");
+      await writeFile(join(root, "source.txt"), "initial");
+      git("add", ".");
+      git("commit", "-m", "initial");
+    }
+    const script = join(dataRoot, "trust-cli.mjs");
+    await writeFile(
+      script,
+      'console.log("TRUST_ARGS:" + JSON.stringify(process.argv.slice(2))); process.stdin.resume();',
+    );
+    await client.request("cli.definition.save", {
+      definition: JSON.stringify({
+        schema: 1,
+        id: "muse-code",
+        name: "Muse Code",
+        command: { shell: `'${process.execPath}' '${script}'` },
+      }),
+    });
+    await client.request("folders.open", { path: repositories[0] });
+    const context = await setup(
+      client,
+      dataRoot,
+      ["trust"],
+      "",
+      repositories[0],
+    );
+    for (const [id, repo, trusted] of [
+      ["added", repositories[0], true],
+      ["other", repositories[1], false],
+    ]) {
+      const result = await actorCommand(context.parent, id, [
+        "delegate",
+        "--role",
+        "Worker",
+        "--difficulty",
+        "low",
+        "--title",
+        id,
+        "--worktree",
+        "new",
+        "--repo",
+        repo,
+        "--body",
+        "Do the work.",
+      ]);
+      const child = await childTerminal(client, context, result.data.child);
+      const output = await child.output(/TRUST_ARGS:.+\r?\n/u);
+      const args = JSON.parse(output.match(/TRUST_ARGS:(.+)\r?\n/u)[1]);
+      assert.equal(args.includes("--trust-workspace"), trusted);
+    }
+    const { terminal } = await client.request("cli.launch", {
+      cliId: "muse-code",
+      cwd: repositories[0],
+    });
+    const output = await (
+      await client.terminal(terminal.id)
+    ).output(/TRUST_ARGS:.+\r?\n/u);
+    assert.equal(
+      JSON.parse(output.match(/TRUST_ARGS:(.+)\r?\n/u)[1]).includes(
+        "--trust-workspace",
+      ),
+      false,
+    );
+  }));
 
 test("別のリポジトリへの委譲は指定先にworktreeを作る", (t) =>
   runHostTest(t, async ({ client, dataRoot }) => {

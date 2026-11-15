@@ -53,6 +53,8 @@ Windows の Host に関わる変更では、Windows 検証機で `node scripts/r
 - `verification/host/process.mjs` の `runHostTest(t, body)`（中で `startHostTest(t)`）が、試験ごとの一時の保存先・HOME・PATH（nodeとshellだけ）・Hostの鍵・port・Clientの鍵で本物のHostを別のプロセスで起動し、`t.after` で接続・Host・Terminalのデーモン・一時のフォルダーを片付ける。返る `client` はClientと同じirohのインターフェースで `request`・`events`・`terminal` を送る。Hostの中の関数は差し替えない。
 - CLIは `verification/host/scripted-cli.mjs` の台本のCLIを `scripted-definition.mjs` の `registerScriptedCli` で公開の `cli.definition.save` から登録して使う。台本のCLIはHostが作った本物のPTYで動き、hookは製品の送り口、チームの操作はHostが渡した `iori` で送る。PTYへJSONの行を入れて `actorCommand` で結果を待つ。
 - 待つのはイベントとPTYの出力の到着だけにし、固定の待ち時間で成否を決めない。上限は `--test-timeout` に任せる。`body` に渡る `stage(名前)` で段の名前を付けると、失敗・打ち切りの時にその名前が出る。
+- `client.events.waitFor(述語)` は、購読を始めてからの出来事を毎回先頭から読み直す。子は作られた直後に `waiting` の出来事を出すので、「`starting` 以外」のような述語は最初の `waiting` で成り立つ。待ちたい状態（`failed` など）を述語に書く。
+- Host が親へ送る知らせ（報告・失敗・止まり）は、本文を書いた後、改行の確定まで最大0.5秒待つ。知らせの出来事を受けた直後に親の PTY へ `actorCommand` を送ると、知らせと同じ1行につながり、台本の CLI が読まない。次のコマンドの前に、知らせの文が親の出力に出るのを待つ（`await context.parent.output("…")`）。
 - 止めた子への `send` の成功は再開の受付で、PTY の再起動の完了ではない。再開した子の Terminal を開く前に、`send` の前に作った新しいイベントの購読で、その子の `teams.child.updated` が `state: "running"` になるのを待つ（先に開くと止まった Terminal の画面と終了が届き、`Hostの購読が終了しました` で落ちる。負荷のある CI でだけ起きた）。
 - 検証の道具がTerminalのデーモンを止める・上限を付ける時は、そのsystemdのunitのWorkingDirectoryが検証の保存先の中かを確かめてから行う（`verification/terminal/daemon-process.mjs`）。隔離したPATHのHostはデーモンを直接起動するので、デーモンは試験を流したプロセスのcgroupを継ぐ。cgroupのunitの名前だけで止めると、iori のTerminalの中から流した時に日常のTerminalのデーモンを止める（#317）。
 

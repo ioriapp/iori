@@ -284,7 +284,7 @@ export function contracts(cli, { approval = true } = {}) {
           context.stage("子の報告を親のPTYで受信して本文を取得する");
           await reportArrives(context, child);
         },
-        { team: true },
+        { team: true, untrustedChild: cli === "codex" },
       ),
     ),
   );

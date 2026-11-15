@@ -1,5 +1,6 @@
 import { capabilities } from "./capabilities.mjs";
 import { randomUUID } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import assert from "node:assert/strict";
 import { appendFileSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
@@ -60,7 +61,7 @@ export async function withCli(
   cli,
   scripts,
   body,
-  { team = false, realModel = false } = {},
+  { team = false, realModel = false, untrustedChild = false } = {},
 ) {
   const evidence = process.env.IORI_CLI_COMPAT_EVIDENCE;
   assert.ok(evidence, "node scripts/cli-compat.mjs から起動してください");
@@ -101,6 +102,12 @@ export async function withCli(
           cliId: cli,
           arguments: "--trust-workspace",
         });
+      // A user adds the repository to iori before starting a team there; the
+      // team then starts the CLI trusted in it.
+      if (team)
+        await host.client.request("folders.open", {
+          path: join(host.dataRoot, "repository"),
+        });
       const terminal = async (client, id) => {
         const file = join(directory, `pty-${terminals.length}.ansi`);
         const pty = await client.terminal(id, {
@@ -134,6 +141,7 @@ export async function withCli(
       prepareEnvironment: async (dataRoot) => {
         const cwd = join(dataRoot, "repository");
         await mkdir(cwd);
+        if (untrustedChild) execFileSync("git", ["init", "-q", cwd]);
         const prepared = await prepareCliHome(dataRoot, {
           clis: capabilities[cli]?.fakeModel ? [cli] : [],
           fakeModel: fake,
@@ -141,7 +149,7 @@ export async function withCli(
             !realModel && capabilities[cli]?.fakeModel ? [cli] : [],
           isolatedAuth: true,
           claudeVerificationToken: realModel,
-          repositories: [cwd],
+          repositories: untrustedChild ? [] : [cwd],
           trustedFolders: [cwd],
           teamCommands: team,
           codexDefaults: team,

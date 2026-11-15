@@ -28,7 +28,7 @@ export const code: CliCode = {
     ...file.permission,
     ...file.directories,
     ...file.instructionFile,
-    ...(launch.cwd
+    ...(launch.cwd && launch.trustWorkspace
       ? ["--settings", JSON.stringify({ trustedWorkspaces: [launch.cwd] })]
       : []),
     ...file.prompt,

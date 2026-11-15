@@ -5,6 +5,7 @@ import { filterKittyKeyReleases } from "./kitty-key-release.ts";
 import { stoppedDescendantPidsByRoot } from "./stopped-descendants.ts";
 import { visibleScreenLinesFromSnapshot } from "./visible-screen.ts";
 import type { TeamInputKey } from "../teams/commands.ts";
+import { trustTeamWorkspace } from "../teams/workspace-trust.ts";
 import { constants } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { realpath, stat, mkdir, open, rm } from "node:fs/promises";
@@ -245,6 +246,7 @@ interface RuntimeTerminal {
   lastOutputAt?: number;
   stallResetAt?: number;
   stallGeneration: number;
+  initialCliStall?: boolean;
   stoppedDescendantSince?: Map<number, number>;
   waitPresentation?: {
     timer: NodeJS.Timeout;
@@ -631,6 +633,10 @@ export class TerminalRuntime {
         ? definition?.resumeArguments?.(saved.session)
         : undefined);
     if (!saved || !record || !args?.length) return false;
+    options.team.trustWorkspace = await trustTeamWorkspace(
+      record.cwd,
+      this.#store.sidebarOrder(),
+    );
     this.configureTeamTerminal(id, options);
     let runtime = this.#runtimes.get(id);
     if (!runtime) runtime = this.#runtimeForStored(record);
@@ -988,6 +994,11 @@ export class TerminalRuntime {
             initial = `Read ${instruction} and follow its instructions.`;
           }
         }
+        if (teamOptions)
+          teamOptions.team.trustWorkspace = await trustTeamWorkspace(
+            directory,
+            this.#store.sidebarOrder(),
+          );
         const launch = cliId
           ? await this.#clis.launch(cliId, shell, teamOptions?.team, {
               cwd: directory,
@@ -1185,11 +1196,20 @@ export class TerminalRuntime {
           ? definition?.resumeArguments?.(saved.session)
           : undefined;
         // A CLI whose definition is gone resumes with the saved command.
+        if (runtime.teamOptions)
+          runtime.teamOptions.team.trustWorkspace = await trustTeamWorkspace(
+            runtime.record.cwd,
+            this.#store.sidebarOrder(),
+          );
         const launch = await this.#clis.launch(
           saved.cli.id,
           shell,
           runtime.teamOptions
-            ? { ...runtime.teamOptions.team, initial: undefined, resume: true }
+            ? {
+                ...runtime.teamOptions.team,
+                initial: undefined,
+                resume: true,
+              }
             : undefined,
           {
             cwd: runtime.record.cwd,
@@ -1735,8 +1755,13 @@ export class TerminalRuntime {
   #noteCliInput(runtime: RuntimeTerminal): void {
     this.#resetStallTracking(runtime);
     if (runtime.cliStatus?.stalledSince === undefined) return;
-    const { stalledSince: _stalledSince, ...rest } = runtime.cliStatus;
-    runtime.cliStatus = rest;
+    if (runtime.initialCliStall) {
+      runtime.initialCliStall = false;
+      runtime.cliStatus = undefined;
+    } else {
+      const { stalledSince: _stalledSince, ...rest } = runtime.cliStatus;
+      runtime.cliStatus = rest;
+    }
     runtime.notifications = runtime.notifications
       .then(() => this.onCliStallCleared?.(runtime.record.id))
       .catch(() => this.#reportRuntimeError(runtime));
@@ -1764,8 +1789,9 @@ export class TerminalRuntime {
         !runtime.setup &&
         runtime.pty &&
         runtime.cli &&
-        runtime.cliStatus?.state === "active" &&
-        runtime.cliStatus.stalledSince === undefined,
+        (runtime.cliStatus?.state === "active" ||
+          (!runtime.cliStatus && runtime.teamOptions)) &&
+        runtime.cliStatus?.stalledSince === undefined,
     );
     if (!hasActiveUnstalled) return;
     const { pollMs } = stallTiming();
@@ -1791,8 +1817,9 @@ export class TerminalRuntime {
           !runtime.setup &&
           runtime.pty &&
           runtime.cli &&
-          runtime.cliStatus?.state === "active" &&
-          runtime.cliStatus.stalledSince === undefined,
+          (runtime.cliStatus?.state === "active" ||
+            (!runtime.cliStatus && runtime.teamOptions)) &&
+          runtime.cliStatus?.stalledSince === undefined,
       )
       .map((runtime) => ({
         runtime,
@@ -1818,8 +1845,9 @@ export class TerminalRuntime {
         runtime.setup ||
         runtime.pty?.pid !== pid ||
         !runtime.cli ||
-        runtime.cliStatus?.state !== "active" ||
-        runtime.cliStatus.stalledSince !== undefined ||
+        (runtime.cliStatus?.state !== "active" &&
+          (runtime.cliStatus || !runtime.teamOptions)) ||
+        runtime.cliStatus?.stalledSince !== undefined ||
         runtime.stallGeneration !== generation
       )
         continue;
@@ -1839,12 +1867,19 @@ export class TerminalRuntime {
       const outputBaseline = Math.max(
         runtime.lastOutputAt ?? 0,
         runtime.stallResetAt ?? 0,
-        runtime.cliStatus.since,
+        runtime.cliStatus?.since ?? runtime.record.createdAt,
       );
       const outputStall = now - outputBaseline >= stallMs;
       if (!stoppedStall && !outputStall) continue;
       const reason: TeamStallReason = stoppedStall ? "stopped" : "output";
-      runtime.cliStatus = { ...runtime.cliStatus, stalledSince: now };
+      runtime.initialCliStall = !runtime.cliStatus;
+      runtime.cliStatus = {
+        ...(runtime.cliStatus ?? {
+          state: "active",
+          since: runtime.record.createdAt,
+        }),
+        stalledSince: now,
+      };
       this.#saveCli(runtime);
       this.#publish({
         type: "terminal.updated",
@@ -1862,6 +1897,11 @@ export class TerminalRuntime {
   #updateCliState(runtime: RuntimeTerminal, next: HookState | undefined): void {
     if (!next || !runtime.cli || runtime.stopped || this.#stopping) return;
     this.#resetStallTracking(runtime);
+    const initialStall = runtime.initialCliStall;
+    if (initialStall) {
+      runtime.initialCliStall = false;
+      runtime.cliStatus = undefined;
+    }
     next = (runtime.toolActivity ??= new ToolActivity()).update(next);
     if (next.response)
       next = { ...next, response: notificationText(next.response) };
@@ -1876,7 +1916,8 @@ export class TerminalRuntime {
       runtime.cliStatus?.response === next.response &&
       JSON.stringify(runtime.cliStatus?.backgroundTasks) ===
         JSON.stringify(next.backgroundTasks);
-    const hadStall = runtime.cliStatus?.stalledSince !== undefined;
+    const hadStall =
+      initialStall || runtime.cliStatus?.stalledSince !== undefined;
     if (
       activityOnly &&
       JSON.stringify(runtime.cliStatus?.activity) ===
@@ -2125,6 +2166,11 @@ export class TerminalRuntime {
     const saved = this.#store.terminalCli(runtime.record.id);
     const cliId = runtime.cli?.id ?? saved?.cli.id;
     if (!cliId) return undefined;
+    if (runtime.teamOptions)
+      runtime.teamOptions.team.trustWorkspace = await trustTeamWorkspace(
+        runtime.record.cwd,
+        this.#store.sidebarOrder(),
+      );
     const launch = await this.#clis.launch(
       cliId,
       shell,
@@ -2353,6 +2399,9 @@ export class TerminalRuntime {
     runtime.record.exitCode = null;
     runtime.record.restartPending = false;
     this.#observe(runtime, shell, managed);
+    if (runtime.teamOptions && !runtime.cliStatus)
+      this.#resetStallTracking(runtime);
+    this.#scheduleStallCheck();
     this.#saveCli(runtime, managed);
     if (!managed && command && dialect === "posix" && !hasLineEditor)
       child.write(command + "\r");

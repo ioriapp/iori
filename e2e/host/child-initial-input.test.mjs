@@ -109,7 +109,7 @@ test("hookもpasteの印もない子のPTYに最初の依頼が一度だけ届�
     assert.equal(Number(output.match(/INITIAL_INPUT_COUNT=(\d+)\r?\n/u)[1]), 1);
   }));
 
-test("Antigravity CLIの子はioriが作ったworktreeの時だけ信頼の指定を受け、最初の依頼を引数で受け取る", (t) =>
+test("Antigravity CLIの子は追加したリポジトリとそのworktreeで信頼の指定と最初の依頼を受け取る", (t) =>
   runHostTest(t, async ({ client, dataRoot, stage }) => {
     stage("引数を記録するAntigravity CLIとGitのリポジトリを用意する");
     await linkGit(join(dataRoot, "bin"));
@@ -128,6 +128,7 @@ test("Antigravity CLIの子はioriが作ったworktreeの時だけ信頼の指�
     await writeFile(join(repository, "source.txt"), "source");
     git("add", ".");
     git("commit", "-m", "initial");
+    await client.request("folders.open", { path: repository });
     stage("Antigravity CLIを子の候補に持つチームを始める");
     const parentCli = await registerScriptedCli(client, dataRoot);
     const candidate = {

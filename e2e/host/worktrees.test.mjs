@@ -753,6 +753,33 @@ test("親の削除では専用の子worktreeを削除し、既存のworktreeは�
     );
   }));
 
+test("Gitから削除された子のフォルダーが残っていても親のworktreeを削除できる", (t) =>
+  runHostTest(t, async ({ client, dataRoot, stage }) => {
+    const { path, git, add } = await repository(dataRoot);
+    const parentPath = add("parent");
+    const team = await teamParent(client, dataRoot, parentPath);
+    const child = await team.delegate("child");
+    stage("外部Gitで子を削除し、無視されたファイルを残す");
+    await writeFile(join(path, ".git", "info", "exclude"), ".local/\n");
+    git(path, "worktree", "remove", child.cwd);
+    const remaining = join(child.cwd, ".local", "cli-check", "result.txt");
+    await mkdir(join(child.cwd, ".local", "cli-check"), { recursive: true });
+    await writeFile(remaining, "keep");
+    stage("子を削除対象にせず親を削除する");
+    const preview = await client.request("worktrees.preview", {
+      path: parentPath,
+    });
+    assert.equal(
+      preview.items[0].children.find((item) => item.id === child.id).remove,
+      false,
+    );
+    assert.equal(
+      (await remove(client, preview, [parentPath])).outcomes[0].removed,
+      true,
+    );
+    assert.equal(await readFile(remaining, "utf8"), "keep");
+  }));
+
 test("worktreeの削除で対象のチームファイルだけを削除する", (t) =>
   runHostTest(t, async ({ client, dataRoot, stage }) => {
     const { add } = await repository(dataRoot);

@@ -248,6 +248,14 @@ const controlWatcher = watch(controlFile, () => {
 });
 controlWatcher.unref();
 
+if (process.argv.includes("--no-hook")) {
+  console.log("Trust this folder?");
+  if (process.argv.includes("--heartbeat")) {
+    setInterval(() => process.stdout.write("WORKING\n"), 180).unref();
+  }
+  process.stdin.resume();
+  await new Promise(() => {});
+}
 await hook("SessionStart", payload);
 console.log(`WATCH_READY:${payload.source}`);
 console.log(`WATCH_SESSION:${payload.session_id}`);

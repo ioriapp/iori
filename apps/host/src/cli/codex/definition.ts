@@ -9,7 +9,9 @@ import { hooks } from "./hooks.ts";
 import {
   allowsAdditionalDirectories,
   permissionContext,
+  pathSpellings,
   readConfig,
+  repositoryRoot,
   usesUnelevatedSandbox,
 } from "./config.ts";
 function supportsOwnServer(version?: string): boolean {
@@ -38,6 +40,7 @@ export const code: CliCode = {
     {
       candidate: c,
       instructions,
+      trustWorkspace,
       initial,
       commandDirectory,
       commandMailboxDirectory,
@@ -66,9 +69,19 @@ export const code: CliCode = {
         config,
         startupArguments ?? "",
         startupShell,
-        { ...permissionContext(config, cwd), sandbox: c.sandbox },
+        {
+          ...permissionContext(config, cwd),
+          sandbox: c.sandbox,
+          teamTrusted: trustWorkspace,
+        },
       );
     return [
+      ...(cwd && trustWorkspace
+        ? [
+            "-c",
+            `projects={${[...new Set([pathSpellings(cwd)[0], pathSpellings(repositoryRoot(cwd) ?? cwd)[0]])].map((path) => `${JSON.stringify(path)}={trust_level="trusted"}`).join(",")}}`,
+          ]
+        : []),
       // The Host shell already loaded profiles. Keep its team command PATH in
       // tool shells; login profiles can replace it on every command.
       ...(commandDirectory ? ["-c", "allow_login_shell=false"] : []),

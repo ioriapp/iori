@@ -56,6 +56,7 @@ export interface TeamLaunch {
   candidate: import("@iori/protocol").Candidate;
   version?: string;
   instructionFile: string;
+  trustWorkspace: boolean;
   commandDirectory: string;
   commandMailboxDirectory?: string;
   teamFilesDirectory: string;
@@ -454,6 +455,15 @@ const codes: CliCode[] = [
   antigravity,
   {
     id: "muse-code",
+    teamArguments: (launch, file) => [
+      ...(launch.trustWorkspace ? ["--trust-workspace"] : []),
+      ...file.model,
+      ...file.effort,
+      ...file.permission,
+      ...file.directories,
+      ...file.instructionFile,
+      ...file.prompt,
+    ],
     // Keep the adapter available to running sessions across Host updates.
     launchEnvironment: () => ({
       IORI_CLI_HOOK_ADAPTER: `data:text/javascript;base64,${readFileSync(new URL("./muse-code/hook-adapter.mjs", import.meta.url)).toString("base64")}`,
@@ -476,6 +486,23 @@ const codes: CliCode[] = [
         registerRefresh,
         dataRoot,
       ),
+  },
+  {
+    id: "kimi-code",
+    teamEnvironment: (launch): Record<string, string> =>
+      launch.trustWorkspace ? { KIMI_CODE_TRUST_WORKSPACE: "1" } : {},
+  },
+  {
+    id: "vibe",
+    teamArguments: (launch, file) => [
+      ...(launch.trustWorkspace ? ["--trust"] : []),
+      ...file.model,
+      ...file.effort,
+      ...file.permission,
+      ...file.directories,
+      ...file.instructionFile,
+      ...file.prompt,
+    ],
   },
 ];
 // Bundled definitions in the order of the CLI list. Each folder holds its

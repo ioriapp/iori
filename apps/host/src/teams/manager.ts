@@ -427,14 +427,15 @@ export class TeamManager {
         await terminals.onCliState(child.terminalId, state);
       if (
         !["finished", "stopped", "failed"].includes(child.state) &&
-        terminals.summary(child.terminalId)?.cliStatus?.state === "active"
+        (terminals.summary(child.terminalId)?.cliStatus?.state === "active" ||
+          (!state && child.state === "running"))
       ) {
-        const current = terminals.summary(child.terminalId)!.cliStatus!;
-        manager.#cliStates.set(child.id, "active");
+        const current = terminals.summary(child.terminalId)?.cliStatus;
+        if (current) manager.#cliStates.set(child.id, "active");
         manager.#checkBaselines.set(
           child.id,
           Math.max(
-            current.since,
+            current?.since ?? child.startedAt ?? Date.now(),
             child.reportedAt ?? 0,
             child.questionedAt ?? 0,
           ),
@@ -1481,6 +1482,7 @@ export class TeamManager {
       team: {
         candidate: launchCandidate(candidate),
         instructionFile: deliveredInstruction,
+        trustWorkspace: false,
         teamFilesDirectory: deliveryDirectory,
         commandDirectory,
         commandMailboxDirectory: route.env.IORI_COMMAND_DIRECTORY!,
@@ -1547,15 +1549,20 @@ export class TeamManager {
         this.#checkBaselines.delete(childId);
         continue;
       }
-      const status = child.terminalId
-        ? this.terminals.summary(child.terminalId)?.cliStatus
+      const terminal = child.terminalId
+        ? this.terminals.summary(child.terminalId)
         : undefined;
-      if (status?.state !== "active") {
+      const status = terminal?.cliStatus;
+      if (terminal?.setup) {
+        this.#checkBaselines.set(childId, now);
+        continue;
+      }
+      if (!terminal?.cli || (status && status.state !== "active")) {
         this.#checkBaselines.delete(childId);
         continue;
       }
       if (
-        status.stalledSince !== undefined ||
+        status?.stalledSince !== undefined ||
         this.#notifiedStalls.has(childId)
       )
         continue;
@@ -1588,12 +1595,15 @@ export class TeamManager {
             return false;
           if (this.#checkBaselines.get(entry.child.id) !== entry.sentAt)
             return false;
-          const status = entry.child.terminalId
-            ? this.terminals.summary(entry.child.terminalId)?.cliStatus
+          const terminal = entry.child.terminalId
+            ? this.terminals.summary(entry.child.terminalId)
             : undefined;
+          const status = terminal?.cliStatus;
           return (
-            status?.state === "active" &&
-            status.stalledSince === undefined &&
+            !!terminal?.cli &&
+            !terminal.setup &&
+            (!status || status.state === "active") &&
+            status?.stalledSince === undefined &&
             !this.#notifiedStalls.has(entry.child.id)
           );
         });
@@ -2599,6 +2609,10 @@ export class TeamManager {
       child.parentResponse = "pending";
       child.startedAt = Date.now();
       child.firstStartedAt ??= child.startedAt;
+      if (!this.terminals.summary(child.terminalId)?.cliStatus) {
+        this.#checkBaselines.set(child.id, child.startedAt);
+        this.#scheduleCheckIn();
+      }
       delete child.endedAt;
       delete child.waiting;
       delete child.stoppedBy;
