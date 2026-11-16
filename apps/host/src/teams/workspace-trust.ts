@@ -21,7 +21,7 @@ export async function trustTeamWorkspace(
   for (const path of paths) {
     if (!path) continue;
     const entry = await discoverRepository(path).catch(() => undefined);
-    if (!entry) continue;
+    if (!entry || key(entry.root) !== key(path)) continue;
     const entryCommon = await realpath(entry.commonDir).catch(() => undefined);
     if (entryCommon && key(common) === key(entryCommon)) return true;
   }

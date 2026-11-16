@@ -10,6 +10,24 @@
   padding: 8px 7px 0;
   gap: 5px;
 }
+.nav-brand-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+}
+.nav-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding-inline: 8px;
+}
+.nav-brand img {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
 .nav-sidebar .nav-search {
   display: flex;
   align-items: center;

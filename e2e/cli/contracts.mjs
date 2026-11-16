@@ -122,8 +122,8 @@ export async function teamChild(
       e.child.id === childId &&
       e.child.terminalId,
   );
-  await context.terminal(client, started.child.terminalId);
-  return { childId, terminalId: started.child.terminalId, events, parent };
+  const pty = await context.terminal(client, started.child.terminalId);
+  return { childId, terminalId: started.child.terminalId, events, parent, pty };
 }
 
 async function reportArrives(context, child) {
@@ -264,6 +264,57 @@ export function contracts(cli, { approval = true } = {}) {
         },
       ),
     ),
+  );
+
+  test(
+    "親が応答中の子を中断する",
+    requireLaunch((t) => {
+      const started = Promise.withResolvers();
+      return withCli(
+        t,
+        cli,
+        {
+          interrupt: [{ hold: true, onStart: started.resolve }],
+        },
+        async (context) => {
+          const child = await teamChild(context, cli, "interrupt");
+          context.stage("子の応答中にモデルの応答を保留する");
+          await started.promise;
+          await status(child.events, child.terminalId, "active");
+          const beforeOutput = child.pty.values.at(-1).output.length;
+          const beforeEvent = child.events.values.length;
+          context.stage("親から中断し子が入力待ちへ戻る");
+          await actorCommand(child.parent, "interrupt", [
+            "interrupt",
+            child.childId,
+          ]);
+          await Promise.any([
+            child.pty
+              .waitFor(({ output }) =>
+                /interrupt(?:ed|ion)|operation aborted/iu.test(
+                  output.slice(beforeOutput),
+                ),
+              )
+              .then(({ output }) => output.slice(beforeOutput)),
+            child.events
+              .waitFor(() =>
+                child.events.values
+                  .slice(beforeEvent)
+                  .find(
+                    (event) =>
+                      event.type === "terminal.updated" &&
+                      event.terminal.id === child.terminalId &&
+                      ["done", "idle"].includes(
+                        event.terminal.cliStatus?.state,
+                      ),
+                  ),
+              )
+              .then(() => ""),
+          ]);
+        },
+        { team: true, untrustedChild: cli === "codex" },
+      );
+    }),
   );
 
   test(

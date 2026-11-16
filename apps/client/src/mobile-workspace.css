@@ -59,12 +59,15 @@
   background: var(--background);
 }
 .mobile-home header {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
   height: calc(var(--spacing) * 12 + 1px);
   margin-inline: -14px;
   border-bottom: 1px solid var(--border);
+}
+.mobile-home header > :last-child {
+  justify-self: end;
 }
 .mobile-home header strong {
   font-family: var(--font-heading);

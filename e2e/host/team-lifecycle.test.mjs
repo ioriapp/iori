@@ -139,6 +139,56 @@ test("追加したリポジトリのworktreeだけチーム起動時に信頼を
       ),
       false,
     );
+    await client.request("folders.sidebar.remove", { path: repositories[0] });
+    const nestedRepository = join(dataRoot, "nested");
+    const nestedFolder = join(nestedRepository, "docs");
+    await mkdir(nestedFolder, { recursive: true });
+    const openedFolder = await client.request("folders.open", {
+      path: nestedFolder,
+    });
+    assert.equal(openedFolder.folder.workspacePath, nestedFolder);
+    const sidebar = await client.request("folders.history", {});
+    assert.deepEqual(
+      sidebar.folders
+        .filter((folder) => folder.inSidebar)
+        .map((folder) => folder.workspacePath),
+      [nestedFolder],
+    );
+    const nestedGit = (...args) =>
+      execFileSync("git", ["-C", nestedRepository, ...args]);
+    nestedGit("init", "-b", "main");
+    nestedGit("config", "user.name", "Worktree E2E");
+    nestedGit("config", "user.email", "worktree@localhost");
+    await writeFile(join(nestedRepository, "source.txt"), "nested repository");
+    nestedGit("add", ".");
+    nestedGit("commit", "-m", "initial");
+    const nestedResult = await actorCommand(context.parent, "nested-folder", [
+      "delegate",
+      "--role",
+      "Worker",
+      "--difficulty",
+      "low",
+      "--title",
+      "Nested folder",
+      "--worktree",
+      "new",
+      "--repo",
+      nestedRepository,
+      "--body",
+      "Do the work.",
+    ]);
+    const nestedChild = await childTerminal(
+      client,
+      context,
+      nestedResult.data.child,
+    );
+    const nestedOutput = await nestedChild.output(/TRUST_ARGS:.+\r?\n/u);
+    assert.equal(
+      JSON.parse(nestedOutput.match(/TRUST_ARGS:(.+)\r?\n/u)[1]).includes(
+        "--trust-workspace",
+      ),
+      false,
+    );
   }));
 
 test("別のリポジトリへの委譲は指定先にworktreeを作る", (t) =>

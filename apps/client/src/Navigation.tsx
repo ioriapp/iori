@@ -3,6 +3,7 @@ import {
   locallyRemoving,
 } from "./worktree-removal-flow.ts";
 import { Spinner } from "./components/ui/spinner.tsx";
+import ioriIcon from "./assets/iori-icon.svg";
 import { connection } from "./connection.ts";
 import { creationOrder, worktreeOrder, definitionOrder } from "@iori/protocol";
 import { terminalTitle } from "./workspace-panel.tsx";
@@ -1038,6 +1039,31 @@ ${item.path}`
       <SidebarHeader>
         {hasWindowChrome && (
           <div className="window-sidebar-drag-strip" data-tauri-drag-region />
+        )}
+        {!isMobile && (
+          <div
+            className="nav-brand-row"
+            data-tauri-drag-region={hasWindowChrome ? "" : undefined}
+          >
+            <div
+              className="nav-brand"
+              data-tauri-drag-region={hasWindowChrome ? "" : undefined}
+            >
+              <img
+                src={ioriIcon}
+                width={20}
+                height={20}
+                alt=""
+                data-tauri-drag-region={hasWindowChrome ? "" : undefined}
+              />
+              <span
+                className="app-wordmark"
+                data-tauri-drag-region={hasWindowChrome ? "" : undefined}
+              >
+                iori
+              </span>
+            </div>
+          </div>
         )}
         <div
           className="nav-search"

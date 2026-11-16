@@ -87,6 +87,7 @@ const CTRL_C_INTERRUPT_CLIS = new Set([
   "qoder",
 ]);
 const DOUBLE_ESC_INTERRUPT_CLIS = new Set(["amp"]);
+const SEPARATE_ESC_INTERRUPT_CLIS = new Set(["opencode"]);
 const DEFAULT_CHECK_MINUTE_MS = 60_000;
 const DEFAULT_CHECK_POLL_MS = 5_000;
 
@@ -116,6 +117,8 @@ function cliInterruptKey(cliId: string | undefined): {
     return { sequence: "\u0003", keyName: "ctrl-c" };
   if (cliId && DOUBLE_ESC_INTERRUPT_CLIS.has(cliId))
     return { sequence: "\u001b\u001b", keyName: "escape escape" };
+  if (cliId && SEPARATE_ESC_INTERRUPT_CLIS.has(cliId))
+    return { sequence: "\u001b", keyName: "escape escape" };
   return { sequence: "\u001b", keyName: "escape" };
 }
 export class TeamManager {
@@ -1960,6 +1963,15 @@ export class TeamManager {
         sequence,
       });
       if (!sent) throw new Error("Child is not running.");
+      if (cliId && SEPARATE_ESC_INTERRUPT_CLIS.has(cliId)) {
+        // OpenCode merged consecutive writes; 50ms separated them in the
+        // compatibility monitor. Leave margin for a slower terminal.
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        const secondSent = await this.terminals.sendCliInput(child.terminalId, {
+          sequence: "\u001b",
+        });
+        if (!secondSent) throw new Error("Child is not running.");
+      }
       (child.inputs ??= []).push({ at: Date.now(), body: keyName });
       this.#saveChild(child);
       return ok("Interrupt sent to the child's CLI screen.");

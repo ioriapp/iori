@@ -232,6 +232,7 @@ export async function startFakeModel({ scripts, host = "127.0.0.1" }) {
         response.writeHead(200, { "Content-Type": "application/json" });
         response.end(JSON.stringify({ text: "OK" }));
       }
+      step.onStart?.();
     };
     const start = () => {
       if (!step.after) return send();

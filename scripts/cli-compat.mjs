@@ -94,6 +94,7 @@ async function attempt(cli, number, names) {
   const directory = join(evidence, cli, String(number));
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const results = [];
+  const enqueued = new Set();
   // run() starts a separate test process; only the fixture's environment reaches its Host.
   process.env.IORI_CLI_COMPAT_EVIDENCE = directory;
   process.env.IORI_CLI_COMPAT_CLI = cli;
@@ -122,6 +123,14 @@ async function attempt(cli, number, names) {
       : {}),
   });
   for await (const event of stream) {
+    if (
+      event.type === "test:enqueue" &&
+      event.data.type === "test" &&
+      event.data.nesting === 0 &&
+      event.data.name !== file &&
+      (!names || names.includes(event.data.name))
+    )
+      enqueued.add(event.data.name);
     if (["test:pass", "test:fail"].includes(event.type)) {
       const data = event.data;
       if (
@@ -131,6 +140,7 @@ async function attempt(cli, number, names) {
         continue;
       results.push({
         name: data.name,
+        ...(data.name === file ? { kind: "file" } : {}),
         status: data.skip
           ? "skipped"
           : data.todo
@@ -157,6 +167,14 @@ async function attempt(cli, number, names) {
         { flag: "a", mode: 0o600 },
       );
   }
+  if (results.some((test) => test.kind === "file" && test.status === "failed"))
+    for (const name of enqueued)
+      if (!results.some((test) => test.name === name))
+        results.push({
+          name,
+          status: "skipped",
+          reason: "試験プロセスが終了したため未実行",
+        });
   await writeFile(
     join(directory, "results.json"),
     JSON.stringify(results, null, 2) + "\n",
@@ -224,27 +242,72 @@ try {
       (test.status === "skipped" && test.reason === "起動に失敗したため未実行");
     const failed = tests.filter(retryable);
     if (failed.length && !stopping) {
+      const fileFailed = failed.some((test) => test.kind === "file");
       activeAttempt = attempt(
         cli,
         2,
-        failed.map((test) => test.name),
+        fileFailed ? undefined : failed.map((test) => test.name),
       );
       const retried = await activeAttempt;
-      tests = tests.map((test) =>
-        retryable(test)
-          ? {
-              ...(retried.find((retry) => retry.name === test.name) ?? test),
-              retried: true,
-            }
-          : test,
-      );
+      const missing = (test) => ({
+        name: test.name,
+        status: "skipped",
+        reason: "再実行されなかったため未実行",
+        retried: true,
+      });
+      const repeat = (test, actual) =>
+        !actual ||
+        (retryable(test) &&
+          actual.status !== "passed" &&
+          actual.status !== "failed")
+          ? missing(test)
+          : { ...actual, retried: true };
+      if (fileFailed) {
+        const previous = tests.filter((test) => test.kind !== "file");
+        const actual = retried.filter((test) => test.kind !== "file");
+        const fileError = retried.find(
+          (test) => test.kind === "file" && test.status === "failed",
+        );
+        tests = [
+          ...previous.map((test) =>
+            repeat(
+              test,
+              actual.find((retry) => retry.name === test.name),
+            ),
+          ),
+          ...actual
+            .filter((test) => !previous.some((item) => item.name === test.name))
+            .map((test) => ({ ...test, retried: true })),
+          ...(fileError || !actual.length
+            ? [
+                {
+                  ...(fileError ?? failed.find((test) => test.kind === "file")),
+                  retried: true,
+                },
+              ]
+            : []),
+        ];
+      } else {
+        tests = tests.map((test) =>
+          retryable(test)
+            ? repeat(
+                test,
+                retried.find((retry) => retry.name === test.name),
+              )
+            : test,
+        );
+      }
     }
     clis.push({
       cli,
       version,
       ...(versionError ? { versionError } : {}),
       status:
-        tests.some((test) => test.status === "failed") || !tests.length
+        tests.some(
+          (test) =>
+            test.status === "failed" ||
+            test.reason === "再実行されなかったため未実行",
+        ) || !tests.length
           ? "failed"
           : "passed",
       tests,
@@ -267,7 +330,11 @@ try {
   await temporaryDirectory.close();
   const failed = clis.flatMap((cli) =>
     cli.tests
-      .filter((test) => test.status === "failed")
+      .filter(
+        (test) =>
+          test.status === "failed" ||
+          test.reason === "再実行されなかったため未実行",
+      )
       .map((test) => ({
         cli: cli.cli,
         version: cli.version,
