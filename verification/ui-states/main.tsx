@@ -1,3 +1,5 @@
+import { ConnectedHostUpdates } from "../../apps/client/src/updates/ConnectedHostUpdates.tsx";
+import { connectedHostUpdates } from "../../apps/client/src/updates/connected-hosts.ts";
 import { ReadingPreview } from "./ReadingPreview.tsx";
 import { UsageStatus } from "../../apps/client/src/usage/UsageStatus.tsx";
 import { UsagePreferences } from "../../apps/client/src/usage/preferences.tsx";
@@ -100,6 +102,10 @@ const query = new URLSearchParams(location.search);
 const theme = query.get("theme") === "dark" ? "dark" : "light";
 document.documentElement.classList.toggle("dark", theme === "dark");
 document.documentElement.style.colorScheme = theme;
+if (current.connectedHostUpdates) {
+  const items = current.connectedHostUpdates;
+  connectedHostUpdates.getSnapshot = () => items;
+}
 const flow = current.flow;
 if (current.kind === "notice") {
   if (flow) showUninstallNotice(flow, t, noop);
@@ -148,7 +154,7 @@ function TerminalFontSettingsPreview() {
     <ProductSettings
       open
       section="display"
-      initialDetail
+      initialDetail={stateId !== "light-settings-list"}
       state={{
         ...connection.getSnapshot(),
         initial: {
@@ -428,7 +434,8 @@ function ChildStatesPreview() {
   );
 }
 function UsagePreview() {
-  const state = Number(stateId.split("-").at(-1));
+  const state =
+    stateId === "light-board" ? 20 : Number(stateId.split("-").at(-1));
   const graph = stateId.includes("-circle-") ? "circle" : "bar";
   const display =
     query.get("display") === "remaining" || [8, 25].includes(state)
@@ -505,6 +512,25 @@ function UsagePreview() {
   );
 }
 function Frame() {
+  if (current.kind === "connected-host-updates")
+    return (
+      <TooltipProvider>
+        <MaintenanceClisContext.Provider
+          value={() =>
+            Object.fromEntries(
+              (current.connectedHostUpdates ?? []).map((item) => [
+                item.host.publicKey,
+                clis,
+              ]),
+            )
+          }
+        >
+          <div className="app-root">
+            <ConnectedHostUpdates t={t} onOpenTerminal={noop} />
+          </div>
+        </MaintenanceClisContext.Provider>
+      </TooltipProvider>
+    );
   if (current.kind === "reading")
     return (
       <TooltipProvider>

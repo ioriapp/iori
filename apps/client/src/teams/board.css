@@ -587,3 +587,7 @@
   outline: 2px solid var(--ring);
   outline-offset: 2px;
 }
+
+:root:not(.dark) :is(.board-section, .board-turns) {
+  border: 1px solid var(--border);
+}

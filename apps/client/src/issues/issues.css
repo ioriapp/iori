@@ -353,3 +353,7 @@
   :is(p, ul, ol, blockquote, table, pre):last-child {
   margin-bottom: 0;
 }
+
+:root:not(.dark) .issues-post {
+  border-color: var(--border);
+}

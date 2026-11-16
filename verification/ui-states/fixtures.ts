@@ -1,3 +1,4 @@
+import type { ConnectedHostUpdate } from "../../apps/client/src/updates/connected-hosts.ts";
 import type {
   CliListResult,
   BoardData,
@@ -160,11 +161,13 @@ export type Fixture = {
     | "terminal-font"
     | "child-states"
     | "usage"
-    | "reading";
+    | "reading"
+    | "connected-host-updates";
   initial: Record<string, Record<string, unknown>>;
   machine?: SshMachine;
   events: SshEvent[];
   flow?: UninstallFlow;
+  connectedHostUpdates?: ConnectedHostUpdate[];
   notice?: { text: string; detail?: boolean; dismissible?: boolean };
   notes: string[];
   unavailable?: string;
@@ -186,6 +189,48 @@ export const terminalFontNames = [
 ];
 
 export function fixture(id: string): Fixture {
+  if (id === "light-board") {
+    const result = usageFixture("usage-bar-20");
+    const board = result.initial.Board.data as BoardData;
+    board.conversations[0].plan = {
+      goal: "（仮）ライトテーマの見づらさを直す",
+      tasks: [
+        {
+          number: 1,
+          title: "（仮）変更前の画面を撮影する",
+          state: "done",
+          added: false,
+          updatedAt: 0,
+        },
+        {
+          number: 2,
+          title: "（仮）ライトテーマを調整する",
+          state: "in_progress",
+          added: false,
+          updatedAt: 0,
+        },
+      ],
+      activity: [],
+    };
+    result.initial.Board.section = "plan";
+    return result;
+  }
+  if (id === "light-settings-list")
+    return { kind: "terminal-font", initial: {}, events: [], notes: [] };
+
+  if (id.startsWith("connected-host-updates-"))
+    return {
+      kind: "connected-host-updates",
+      initial: {},
+      events: [],
+      notes: [],
+      connectedHostUpdates: [
+        host,
+        { ...host, publicKey: "ui-state-host-2", hostName: "office-win" },
+      ]
+        .slice(0, id.endsWith("two") ? 2 : 1)
+        .map((host) => ({ host, state: "confirmation", plan: plan(1) })),
+    };
   if (id.startsWith("reading-"))
     return { kind: "reading", initial: {}, events: [], notes: [] };
   if (id.startsWith("usage-")) return usageFixture(id);

@@ -40,6 +40,9 @@ export function ConnectedHostUpdates({
     connectedHostUpdates.subscribe,
     connectedHostUpdates.getSnapshot,
   );
+  const confirmations = items.filter(
+    (item) => item.state === "confirmation" && item.plan,
+  );
   const cancel = useRef<HTMLButtonElement>(null);
   const [dismissed, setDismissed] = useState(false);
   const dismiss = () => setDismissed(true);
@@ -87,6 +90,17 @@ export function ConnectedHostUpdates({
           ))}
         </div>
         <DialogFooter>
+          {confirmations.length >= 2 && (
+            <Button
+              variant="destructive"
+              onClick={() => {
+                for (const item of confirmations)
+                  void confirmConnectedHostUpdate(item.host.publicKey);
+              }}
+            >
+              {t("Stop all and update")}
+            </Button>
+          )}
           <DialogClose asChild>
             <Button variant="outline" ref={cancel}>
               {t("Close")}

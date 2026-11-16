@@ -22,7 +22,7 @@ Androidのアプリが背面へ回るとTerminalの受信を閉じ、前面へ�
 
 設定の「Terminalのフォント」で指定した名前は、カンマで分けて各名前をCSSの文字列として引用し、その後ろに既定のフォントの並び（末尾のSymbols Nerd Font Monoとmonospaceを含む）を付ける。空の時は既定の並びだけを使う。保存後はフォントの読み込みが終わったら文字の画像を作り直して再描画し、文字の幅に合わせてTerminalの寸法も合わせ直す。
 
-Terminalの16色（ANSI色）は、明るい表示ではVS CodeのLight+、暗い表示ではDark+の既定値を使い、テーマの変更に追従する。[VS CodeのTerminal色の定義](https://github.com/microsoft/vscode/blob/main/src/vs/workbench/contrib/terminal/common/terminalColorRegistry.ts)を出典とする。背景・通常の文字・カーソル・選択はioriの共通の色に合わせる。
+Terminalの16色（ANSI色）は、明るい表示ではVS CodeのLight+、暗い表示ではDark+の既定値を使い、テーマの変更に追従する。[VS CodeのTerminal色の定義](https://github.com/microsoft/vscode/blob/main/src/vs/workbench/contrib/terminal/common/terminalColorRegistry.ts)を出典とする。背景・通常の文字・カーソル・選択はioriの共通の色に合わせる。CLIが背景に合わない色の文字を出しても読めるよう、VS Codeの既定と同じく、文字と背景のコントラストが4.5:1未満の文字は明るさを自動で補正する（[VS CodeのTerminalの見た目](https://code.visualstudio.com/docs/terminal/appearance)）。
 
 出力の履歴はHostが保持し、さかのぼって読める。Clientが切れている間の出力も、接続復帰後に続きから表示する。サイズ変更、非表示、デバイスの引き継ぎで入力先・カーソル・プロセスを保つ。
 

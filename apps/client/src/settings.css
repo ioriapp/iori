@@ -951,3 +951,7 @@
 .usage-display-setting .field-copy {
   flex: 1 1 260px;
 }
+
+:root:not(.dark) :is(.ssh-candidates-box, .ssh-manual-row) > .group-body {
+  border-color: var(--border);
+}

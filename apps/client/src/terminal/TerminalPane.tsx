@@ -1163,6 +1163,7 @@ export function TerminalPane({
       lineHeight: 1.25,
       scrollback: MAX_TERMINAL_SNAPSHOT_LINES,
       theme: initialTheme.theme,
+      minimumContrastRatio: 4.5,
       allowTransparency: false,
       ...buildWindowsPtyCompatibilityOptions(windowsPty),
     });

@@ -265,3 +265,7 @@ code {
 [data-slot="select-trigger"] > svg {
   flex: none;
 }
+
+:root:not(.dark) .section-body {
+  border-color: var(--border);
+}

@@ -741,6 +741,7 @@ const japanese: Record<string, string> = {
   "Work that will be interrupted": "中断される作業",
   "Stop and restart": "停止して再起動する",
   "Stop and update": "停止して更新する",
+  "Stop all and update": "すべて停止して更新する",
   "Stop and uninstall": "停止してアンインストールする",
   "Could not update iori Host": "iori Hostを更新できませんでした",
   "Could not restart iori Host": "iori Hostを再起動できませんでした",
