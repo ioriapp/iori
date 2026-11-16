@@ -195,7 +195,6 @@ export interface TeamParamsByMethod {
   "teams.delete": { teamId: string };
   "teams.settings": TeamSettings;
   "cli.models": { cliId: string };
-  "cli.help": { command: string };
 }
 export interface TeamResultByMethod {
   "teams.board": BoardData;
@@ -218,8 +217,6 @@ export interface TeamResultByMethod {
   "teams.delete": { teamId: string };
   "teams.settings": TeamSettings;
   "cli.models": CliModels;
-  /** The model argument that `<command> --help` shows, and that command. */
-  "cli.help": { helpCommand?: string; modelArgument?: string };
 }
 export type TeamMethod = keyof TeamParamsByMethod;
 const methods: TeamMethod[] = [
@@ -240,7 +237,6 @@ const methods: TeamMethod[] = [
   "teams.delete",
   "teams.settings",
   "cli.models",
-  "cli.help",
 ];
 export function isTeamMethod(value: unknown): value is TeamMethod {
   return typeof value === "string" && methods.includes(value as TeamMethod);
@@ -441,9 +437,6 @@ export function parseTeamParams<M extends TeamMethod>(
       break;
     case "cli.models":
       result = { cliId: id(v.cliId) };
-      break;
-    case "cli.help":
-      result = { command: id(v.command) };
       break;
     case "teams.hidden.set":
       if (typeof v.hidden !== "boolean") throw new Error("Expected a boolean");

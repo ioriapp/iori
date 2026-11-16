@@ -650,7 +650,7 @@ try {
       const rule = reapplied.rules[0];
       assert.equal(rule.name, ruleName);
       assert.equal(rule.profile, "Any");
-      assert.equal(rule.protocol, "UDP");
+      assert.equal(rule.protocol, "Any");
       assert.equal(rule.action, "Allow");
       assert.equal(rule.direction, "Inbound");
       assert.equal(rule.enabled, "True");

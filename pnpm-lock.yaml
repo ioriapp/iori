@@ -9,7 +9,7 @@ patchedDependencies:
   '@xterm/addon-serialize@0.15.0-beta.300': b35533fe252e7e45433150170348889f4e08a6c17f7017ac34ea694d831fec7f
   '@xterm/addon-webgl@0.20.0-beta.299': 94687e89a0115e6e6aa102837f986debdc029c091527ee5eb4a4e17ceaf9473e
   '@xterm/xterm@6.1.0-beta.303': dd0ccc59cd1ccf99f4d76e5aa2456da165fa0804dce19a833d7638bd07ffa393
-  node-pty@1.1.0: 24daff282e603ccf610f1cfe504aafdb8998e0adc2fd04b797444e23b326ff10
+  node-pty@1.1.0: 623b30aff8175f4af2630004123d13208d8389baac1d93edee7ec06f456335c3
 
 importers:
 
@@ -207,7 +207,7 @@ importers:
         version: 3.3.1
       node-pty:
         specifier: 1.1.0
-        version: 1.1.0(patch_hash=24daff282e603ccf610f1cfe504aafdb8998e0adc2fd04b797444e23b326ff10)
+        version: 1.1.0(patch_hash=623b30aff8175f4af2630004123d13208d8389baac1d93edee7ec06f456335c3)
       qrcode:
         specifier: 1.5.4
         version: 1.5.4
@@ -8044,7 +8044,7 @@ snapshots:
 
   node-addon-api@7.1.1: {}
 
-  node-pty@1.1.0(patch_hash=24daff282e603ccf610f1cfe504aafdb8998e0adc2fd04b797444e23b326ff10):
+  node-pty@1.1.0(patch_hash=623b30aff8175f4af2630004123d13208d8389baac1d93edee7ec06f456335c3):
     dependencies:
       node-addon-api: 7.1.1
 

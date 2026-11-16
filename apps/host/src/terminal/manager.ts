@@ -300,9 +300,6 @@ export class TerminalManager {
   cliModels(id: string) {
     return this.#clis.models(id, this.#shell());
   }
-  cliHelp(command: string) {
-    return this.#clis.help(command, this.#shell());
-  }
   requestCliUsageRefresh(cliId?: string) {
     return this.#clis.requestUsageRefresh(cliId);
   }
@@ -366,6 +363,9 @@ export class TerminalManager {
     return this.#withOperation(context, () =>
       this.#clis.setIcon(context, params),
     );
+  }
+  initialUsagePending() {
+    return this.#clis.initialUsagePending;
   }
   cliUsage() {
     return this.#clis.usage;

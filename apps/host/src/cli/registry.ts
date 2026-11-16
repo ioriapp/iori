@@ -130,6 +130,7 @@ export class CliRegistry {
   }
 
   readonly usage = new Map<string, import("@iori/protocol").CliUsage>();
+  readonly initialUsagePending = new Set<string>();
   readonly #usageMonitors = new Map<string, AbortController>();
   readonly #usageRefresh = new Map<string, () => void | Promise<void>>();
   readonly #requestedRefresh = new Map<
@@ -245,12 +246,14 @@ export class CliRegistry {
         ) {
           const controller = new AbortController();
           this.#usageMonitors.set(definition.id, controller);
+          this.initialUsagePending.add(definition.id);
           definition
             .usageMonitor(
               shell,
               command,
               AbortSignal.any([controller.signal, this.#controller.signal]),
               (usage) => {
+                this.initialUsagePending.delete(definition.id);
                 if (usage)
                   usage = {
                     ...usage,
@@ -274,6 +277,8 @@ export class CliRegistry {
             )
             .catch(() => {})
             .finally(() => {
+              if (this.initialUsagePending.delete(definition.id))
+                this.onUsageChanged?.();
               this.#usageMonitors.delete(definition.id);
             });
         }
@@ -788,54 +793,6 @@ export class CliRegistry {
       };
     }
   }
-  /** Draft the model argument of a launch command from its `--help`. */
-  async help(
-    command: string,
-    shell: ShellDefinition,
-  ): Promise<Response<{ helpCommand?: string; modelArgument?: string }>> {
-    const executable =
-      /^(?:&\s+)?(?:'[^']+'|"[^"$`\\]+"|[A-Za-z0-9_.:/\\-]+)/u.exec(
-        command.trim(),
-      )?.[0];
-    if (!executable) return { ok: true, result: {} };
-    const helpCommand = executable + " --help";
-    const { output, code } = await runInShell(
-      shell,
-      helpCommand,
-      this.#controller.signal,
-      undefined,
-      true,
-    );
-    const model =
-      code === 0
-        ? output.split(/\r?\n/u).flatMap((line) => {
-            const long =
-              /(?:^|[\s,])(--model)(?:\s+|=)(?:<[^>]+>|\[[^\]]+\]|[A-Z][A-Z_-]*)/u.exec(
-                line,
-              );
-            if (long) return [long[1]!];
-            // -m is also commonly a message flag. Only draft it when the help
-            // explicitly identifies its argument or description as a model.
-            const short =
-              /(?:^|[\s,])(-m)\s+(?:<([^>]+)>|\[([^\]]+)\]|([A-Z][A-Z_-]*))(.*)$/u.exec(
-                line,
-              );
-            return short && /model/iu.test(short.slice(2).join(" "))
-              ? [short[1]!]
-              : [];
-          })[0]
-        : undefined;
-    return {
-      ok: true,
-      result: model
-        ? {
-            helpCommand: helpCommand.replace(/^&\s+/u, ""),
-            modelArgument: model + " {model}",
-          }
-        : {},
-    };
-  }
-
   /** How the shell runs the resolved command; a command line runs as it is. */
   #invocation(
     definition: CliDefinition | undefined,

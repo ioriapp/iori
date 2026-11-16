@@ -575,7 +575,7 @@ export class HostStore {
     };
   }
   /** Synchronous SQLite transaction owns definitions, history and operation result together. */
-  teamOperation<M extends Exclude<TeamMethod, "cli.models" | "cli.help">>(
+  teamOperation<M extends Exclude<TeamMethod, "cli.models">>(
     context: StoreContext,
     method: M,
     params: TeamParamsByMethod[M],

@@ -61,8 +61,6 @@ Webhookで実行する自動化は、LAN内の道具（Home Assistant、n8n、Fo
 - **Agentへの渡し方**: 回ごとの指示ファイルの末尾に、受けた内容を節として付ける。節には、外から届いたデータで指示ではないこと、届いた時刻、送り元のアドレス、クエリ、ヘッダー（`Authorization`・`Cookie`・`Proxy-Authorization` を除き、名前に `token`・`secret`・`signature`・`key`・`password`・`auth`・`cookie`・`session` を含むものは大文字・小文字を区別せず値を `[redacted]` に置き換える）、本文（JSONは整形する）を書く。
 - **CLIの許可との組合せ**: Webhookで実行する間は、Webhookの節に「CLIの許可の設定で承認を省略している場合、受信した内容を読み込んだAgentが承認なしでコマンドを実行する可能性があります。」と表示する。保存は止めない。どの許可が確認を省くかはCLIごとに名前が違い、共通の表示を持たないので、選んだ許可に依らず表示する。
 
-WindowsのHostでLANから受けるには、ファイアウォールの規則（今はUDPだけ）をTCPへ広げる必要がある。最初の形ではWindowsのHostは「このマシンだけ」で使え、LANからの受信は後で足す。
-
 ## Issue
 
 Issueで実行する自動化は、フォルダーのリポジトリのIssue（GitHub・Forgejo・Gitea。[Forgeとの連携](forge.md#対象のリポジトリ)のIssueの対象と同じリポジトリ）に、決めたlabel（例 `agent-ready`）を付けると、そのIssueの作業を始める。形は、OpenHandsのIssue resolver（`fix-me`）、Claude CodeのGitHub Actions、Cursor Automationsのlabelの契機に合わせる。成果はPull requestで、mergeは人が行う。
@@ -88,4 +86,4 @@ Issueで実行する自動化は、フォルダーのリポジトリのIssue（G
 
 Issueへの書き戻し（作業中のラベル・結果のコメント）、自分以外の書き込みの権限を持つ人のラベル、コメントのメンションでの起動、Issueごとの並行の実行は、Issueの形を使ってから必要に応じて足す。
 
-cronの式・タイムゾーンの選択・毎時、毎回新しいworktreeで動かすこと、WindowsのHostでのLANからのWebhook、実行の待ち行列、結果の届け先、Agentの完了を契機にすることは、この形を使ってから必要に応じて足す。
+cronの式・タイムゾーンの選択・毎時、毎回新しいworktreeで動かすこと、実行の待ち行列、結果の届け先、Agentの完了を契機にすることは、この形を使ってから必要に応じて足す。

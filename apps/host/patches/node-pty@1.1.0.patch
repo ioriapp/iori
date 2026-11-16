@@ -2,7 +2,7 @@ diff --git a/binding.gyp b/binding.gyp
 index 5f63978b07ab50aaf7523219a2170ec737a6b5db..bbd9e06136e8922f40b5779e35d4fc835f1479ab 100644
 --- a/binding.gyp
 +++ b/binding.gyp
-@@ -1,13 +1,18 @@
+@@ -1,13 +1,21 @@
  {
    'target_defaults': {
      'dependencies': [
@@ -19,13 +19,13 @@ index 5f63978b07ab50aaf7523219a2170ec737a6b5db..bbd9e06136e8922f40b5779e35d4fc83
 +    ],
      'conditions': [
        ['OS=="win"', {
--        'msvs_configuration_attributes': {
--          'SpectreMitigation': 'Spectre'
--        },
+         'msvs_configuration_attributes': {
+           'SpectreMitigation': 'Spectre'
+         },
          'msvs_settings': {
              'VCCLCompilerTool': {
                'AdditionalOptions': [
-@@ -42,32 +39,16 @@
+@@ -42,32 +42,16 @@
              '-lshlwapi'
            ],
          },
@@ -62,7 +62,7 @@ index 5f63978b07ab50aaf7523219a2170ec737a6b5db..bbd9e06136e8922f40b5779e35d4fc83
        ]
      }, { # OS!="win"
        'targets': [
-@@ -88,6 +95,16 @@
+@@ -88,6 +98,16 @@
                'libraries!': [
                  '-lutil'
                ]
@@ -101,26 +101,6 @@ index 1ac5758bedd8cf54f32280dea4e4aeb5afdee30d..e619813759c6f14694838bdfbd0ea5f8
          ]
      },
      'targets' : [
-@@ -40,9 +40,6 @@
-                 '-lshell32',
-                 '-luser32',
-             ],
--            'msvs_configuration_attributes': {
--                'SpectreMitigation': 'Spectre'
--            },
-             'msvs_settings': {
-                 # Specify this setting here to override a setting from somewhere
-                 # else, such as node's common.gypi.
-@@ -142,9 +139,6 @@
-                 '-ladvapi32',
-                 '-luser32',
-             ],
--            'msvs_configuration_attributes': {
--                'SpectreMitigation': 'Spectre'
--            },
-             'msvs_settings': {
-                 # Specify this setting here to override a setting from somewhere
-                 # else, such as node's common.gypi.
 diff --git a/lib/conpty_console_list_agent.js b/lib/conpty_console_list_agent.js
 index 8c4fca9022a6d6f015bca87f61625cde2278f428..0a01730616488119aa21ef441cf3c441e02a974c 100644
 --- a/lib/conpty_console_list_agent.js

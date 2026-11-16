@@ -2,7 +2,7 @@ import type { ParserEvent, OscEvent } from "./parser-events.ts";
 import type { TerminalModes } from "./types.ts";
 import type { TerminalSnapshot } from "./types.ts";
 import type { IPtyForkOptions, IWindowsPtyForkOptions } from "node-pty";
-export const DAEMON_PROTOCOL = 18;
+export const DAEMON_PROTOCOL = 19;
 export interface DaemonHello {
   version: number;
   pid: number;

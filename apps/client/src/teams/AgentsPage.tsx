@@ -171,7 +171,6 @@ function simpleOf(value: SimpleFieldsValue): CliSimpleDefinition {
 type Adding = {
   mode: AddMode;
   simple: SimpleFieldsValue;
-  help?: string;
   json: string;
   file?: { name: string; text: string };
   files?: File[];
@@ -317,14 +316,10 @@ function Reason({ reason }: { reason: CliDefinitionReason }) {
  * adding and in editing it. */
 function SimpleFields({
   value,
-  help,
   onChange,
-  onCommandDone,
 }: {
   value: SimpleFieldsValue;
-  help?: string;
   onChange: (value: SimpleFieldsValue) => void;
-  onCommandDone?: () => void;
 }) {
   const { t } = useI18n();
   return (
@@ -347,7 +342,6 @@ function SimpleFields({
           onChange={(event) =>
             onChange({ ...value, command: event.target.value })
           }
-          onBlur={onCommandDone}
         />
       </FieldRow>
       <FieldRow stacked label={t("Model argument")} className="field-code">
@@ -360,14 +354,6 @@ function SimpleFields({
             onChange({ ...value, modelArgument: event.target.value })
           }
         />
-        {help && (
-          <p className="cli-def-help" data-iori-state="cli-help-filled">
-            <Sentence
-              text={t("Filled in from {command}")}
-              values={{ command: <code>{help}</code> }}
-            />
-          </p>
-        )}
       </FieldRow>
       <FieldRow stacked label={t("Model candidates")} className="field-code">
         <div className="cli-def-models">
@@ -845,7 +831,6 @@ export function AgentsPage({
       "error" in response ? t("Could not change the order. Retry.") : "",
     );
   };
-  const helps = useRef(new Map<string, Promise<string | undefined>>());
   const uploads = useRef<string[]>([]);
   const discardUploads = () => {
     const ids = uploads.current.splice(0);
@@ -1126,36 +1111,6 @@ export function AgentsPage({
     }
     setBusy(undefined);
   };
-  /** Draft the model argument once per launch command, from its `--help`. */
-  const draftModelArgument = async () => {
-    if (!adding || adding.mode !== "simple") return;
-    const command = adding.simple.command.trim();
-    if (!command || helps.current.has(command)) return;
-    const probe = connection
-      .requestHost(host, "cli.help", { command })
-      .then((response) =>
-        response?.ok && response.result.modelArgument
-          ? `${response.result.helpCommand ?? ""}\u0000${response.result.modelArgument}`
-          : undefined,
-      )
-      .catch(() => undefined);
-    helps.current.set(command, probe);
-    const found = await probe;
-    if (!found) return;
-    const [helpCommand, modelArgument] = found.split("\u0000");
-    setAdding((current) =>
-      current &&
-      current.simple.command.trim() === command &&
-      !current.simple.modelArgument.trim()
-        ? {
-            ...current,
-            help: helpCommand,
-            simple: { ...current.simple, modelArgument: modelArgument! },
-          }
-        : current,
-    );
-  };
-
   const startEdit = (id: string, simple?: CliSimpleDefinition, json = "") => {
     const value = simple && fieldsOf(simple);
     setEditing(
@@ -1580,17 +1535,7 @@ export function AgentsPage({
         {state.mode === "simple" && (
           <SimpleFields
             value={state.simple}
-            help={state.help}
-            onChange={(simple) =>
-              update({
-                simple,
-                // The note belongs to the argument filled in from `--help`.
-                ...(simple.modelArgument !== state.simple.modelArgument
-                  ? { help: undefined }
-                  : {}),
-              })
-            }
-            onCommandDone={() => void draftModelArgument()}
+            onChange={(simple) => update({ simple })}
           />
         )}
         {state.mode === "json" && (

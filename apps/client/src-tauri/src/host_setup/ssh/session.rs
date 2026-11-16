@@ -165,10 +165,11 @@ async fn connect(
     };
     let mut command = platform::command();
     command
-        // Enter cmd on Windows before reading the protocol. On Unix the
-        // missing cmd.exe is followed by exec sh. Keep cmd's command echo so
-        // its prompt cannot share a line with a protocol response.
-        .args(["-T", &destination, "cmd.exe /d ; exec sh"])
+        // Windows resolves cmd to cmd.exe. WSL interop requires the .exe
+        // extension, so omitting it keeps WSL on the Unix exec sh path.
+        // Keep cmd's command echo so its prompt cannot share a line with a
+        // protocol response.
+        .args(["-T", &destination, "cmd /d ; exec sh"])
         .env(
             "SSH_ASKPASS",
             std::env::current_exe().map_err(|e| e.to_string())?,

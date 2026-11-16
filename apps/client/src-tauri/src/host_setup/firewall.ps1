@@ -9,12 +9,12 @@ if (-not $Remote -and $env:IORI_FIREWALL_QUERY -eq '1') {
     $rule = Get-NetFirewallRule -Name $name -ErrorAction SilentlyContinue
     $application = if ($rule) { $rule | Get-NetFirewallApplicationFilter }
     $port = if ($rule) { $rule | Get-NetFirewallPortFilter }
-    if ($rule -and $rule.Enabled -eq 'True' -and $rule.Action -eq 'Allow' -and $rule.Direction -eq 'Inbound' -and $rule.Profile -eq 'Any' -and $application.Program -ieq $program -and $port.Protocol -eq 'UDP') { 'true' } else { 'false' }
+    if ($rule -and $rule.Enabled -eq 'True' -and $rule.Action -eq 'Allow' -and $rule.Direction -eq 'Inbound' -and $rule.Profile -eq 'Any' -and $application.Program -ieq $program -and $port.Protocol -eq 'Any') { 'true' } else { 'false' }
     exit
 }
 # The elevated process receives a literal path, never code from the WebView.
 $literalProgram = "'" + [Management.Automation.Language.CodeGeneration]::EscapeSingleQuotedStringContent($program) + "'"
-$rules = " `$rule=Get-NetFirewallRule -Name '$name' -ErrorAction SilentlyContinue; if (`$rule) { Set-NetFirewallRule -Name '$name' -Direction Inbound -Action Allow -Enabled True -Profile Any -Protocol UDP -Program $literalProgram } else { New-NetFirewallRule -Name '$name' -DisplayName 'iori Host' -Direction Inbound -Action Allow -Enabled True -Profile Any -Protocol UDP -Program $literalProgram | Out-Null }; Get-NetFirewallApplicationFilter | Where-Object { `$_.Program -ieq $literalProgram } | Get-NetFirewallRule | Where-Object { `$_.Direction -eq 'Inbound' -and `$_.Action -eq 'Block' } | Remove-NetFirewallRule"
+$rules = " `$rule=Get-NetFirewallRule -Name '$name' -ErrorAction SilentlyContinue; if (`$rule) { Set-NetFirewallRule -Name '$name' -Direction Inbound -Action Allow -Enabled True -Profile Any -Protocol Any -Program $literalProgram } else { New-NetFirewallRule -Name '$name' -DisplayName 'iori Host' -Direction Inbound -Action Allow -Enabled True -Profile Any -Protocol Any -Program $literalProgram | Out-Null }; Get-NetFirewallApplicationFilter | Where-Object { `$_.Program -ieq $literalProgram } | Get-NetFirewallRule | Where-Object { `$_.Direction -eq 'Inbound' -and `$_.Action -eq 'Block' } | Remove-NetFirewallRule"
 $script = "`$ErrorActionPreference='Stop';try { $rules;exit 0 } catch { exit 1 }"
 $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($script))
 function Start-IoriFirewallChild([switch]$Elevated) {

@@ -305,7 +305,6 @@ export const teamJapanese: Record<string, string> = {
   JSON: "JSON",
   "Upload file": "ファイルをアップロード",
   "Model argument": "モデルの引数",
-  "Filled in from {command}": "{command}から自動入力",
   "Model candidates": "モデルの候補",
   "Get with a command": "コマンドで取得",
   "Enter manually": "手動で入力",

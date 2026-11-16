@@ -349,6 +349,8 @@ const japanese: Record<string, string> = {
     "{host}のiori Hostをアンインストールし、保存データを削除しました。",
   "Uninstalled iori Host on {host}. Some items need your attention.":
     "{host}のiori Hostをアンインストールしました。確認が必要な項目があります。",
+  "SSH authentication is required to continue uninstalling iori Host on {host}.":
+    "{host}のiori Hostのアンインストールを続けるには、SSHの認証が必要です。",
   "Could not uninstall iori Host on {host}.":
     "{host}のiori Hostをアンインストールできませんでした。",
   "Could not delete the tokens for these sites. Revoke each token on its site, then delete it from Credential Manager.":

@@ -1,6 +1,5 @@
 import { pickerClis } from "../cli-list.ts";
 import { pickerTeams } from "./team-data.ts";
-import { webhookScopes, type WebhookScope } from "./webhook-scope.ts";
 import { ErrorMessage } from "../Settings.tsx";
 import { FolderPicker } from "../FolderPicker.tsx";
 import { ForgeFailure } from "../forge/ForgeFailure.tsx";
@@ -16,7 +15,6 @@ import {
   useEffect,
   useState,
   useRef,
-  useSyncExternalStore,
   type ReactNode,
 } from "react";
 import { ArrowLeft, Plus, MoreHorizontal } from "lucide-react";
@@ -66,6 +64,7 @@ type AutomationDraft = {
   onceInput: string;
   saved?: Automation;
 };
+type WebhookScope = "lan" | "local";
 function editable(value: AutomationList["automations"][number]): Automation {
   const {
     lastRun: _lastRun,
@@ -154,11 +153,6 @@ export function Automations({
   registerBack: (back: () => boolean) => void;
 }) {
   const { t, language, clis } = useI18n();
-  const hostOs = useSyncExternalStore(
-    connection.subscribe,
-    () => connection.getSnapshot().observedHosts[host]?.os,
-  );
-  const scopes = webhookScopes(hostOs);
   const selectableTeams = pickerTeams(teams);
   const selectableClis = pickerClis(clis);
   const [data, setData] = useState<AutomationList>();
@@ -1079,7 +1073,7 @@ export function Automations({
                 checked={!!draft.webhook}
                 onCheckedChange={(enabled) =>
                   edit({
-                    webhook: enabled ? { scope: scopes[0] } : undefined,
+                    webhook: enabled ? { scope: "lan" } : undefined,
                   })
                 }
               />,
@@ -1109,12 +1103,12 @@ export function Automations({
                         ? "LAN and VPN"
                         : "This machine only",
                     )}
-                    options={(
+                    options={
                       [
                         ["lan", t("LAN and VPN")],
                         ["local", t("This machine only")],
                       ] satisfies [WebhookScope, string][]
-                    ).filter(([scope]) => scopes.includes(scope))}
+                    }
                     change={(scope) =>
                       edit({ webhook: { scope: scope as "lan" | "local" } })
                     }

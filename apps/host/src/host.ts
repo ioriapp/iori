@@ -1254,9 +1254,6 @@ export async function startHost(
       case "cli.models":
         response = await terminalManager.cliModels(request.params.cliId);
         break;
-      case "cli.help":
-        response = await terminalManager.cliHelp(request.params.command);
-        break;
       case "cli.list":
         response = await terminalManager.listClis(request.params.refreshUsage);
         break;

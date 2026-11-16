@@ -1,6 +1,6 @@
 {
-  "version": 18,
-  "sha256": "d73760414c397cbd8728d03a13f210793dd0d8d2e835a936c4c791044bbfb21a",
+  "version": 19,
+  "sha256": "0ae29520b868c45226619d18997f75148b24ff156400fe13c655af9474cb0491",
   "sources": [
     "src/fs/atomic-write.js",
     "src/terminal/daemon/channel.js",

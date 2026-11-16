@@ -4,6 +4,7 @@ import { ConnectedHostUpdates } from "./updates/ConnectedHostUpdates.tsx";
 import { MaintenanceClisContext } from "./updates/HostMaintenanceDetails.tsx";
 import type { CliSummary } from "@iori/protocol";
 import { NoticeStack } from "./components/flow/Toast.tsx";
+import { notices } from "./notices.ts";
 import {
   HostUninstallDialog,
   showUninstallNotice,
@@ -241,7 +242,9 @@ function AppContent({
   );
   const uninstallFlows = useUninstallFlows();
   const [uninstallDetail, setUninstallDetail] = useState<UninstallFlow>();
-  const notifiedUninstalls = useRef(new Map<string, string>());
+  const notifiedUninstalls = useRef(
+    new Map<string, { signature: string; phase: string }>(),
+  );
   const [setupOpen, setSetupOpen] = useState(false);
   const [addHostChoiceOpen, setAddHostChoiceOpen] = useState(false);
   const [setupStarted, setSetupStarted] = useState(false);
@@ -341,8 +344,12 @@ function AppContent({
   const t = useMemo(() => translator(language), [language]);
   const notifyUninstall = (flow: UninstallFlow) => {
     const signature = JSON.stringify([flow.operationId, flow.phase]);
-    if (notifiedUninstalls.current.get(flow.hostKey) === signature) return;
-    notifiedUninstalls.current.set(flow.hostKey, signature);
+    if (notifiedUninstalls.current.get(flow.hostKey)?.signature === signature)
+      return;
+    notifiedUninstalls.current.set(flow.hostKey, {
+      signature,
+      phase: flow.phase.type,
+    });
     showUninstallNotice(
       flow,
       t,
@@ -395,7 +402,15 @@ function AppContent({
   useEffect(() => {
     for (const flow of uninstallFlows) {
       const phase = flow.phase;
-      if (!["done", "failed", "sshLost"].includes(phase.type))
+      if (
+        notifiedUninstalls.current.get(flow.hostKey)?.phase === "sshPrompt" &&
+        (phase.type !== "sshPrompt" || !flow.closed)
+      )
+        notices.dismiss(flow.hostKey);
+      if (
+        !["done", "failed", "sshLost", "sshPrompt"].includes(phase.type) ||
+        (phase.type === "sshPrompt" && !flow.closed)
+      )
         notifiedUninstalls.current.delete(flow.hostKey);
       const normal =
         phase.type === "done" &&
@@ -403,7 +418,7 @@ function AppContent({
       if (
         normal ||
         (flow.closed &&
-          ["done", "failed", "sshLost"].includes(phase.type) &&
+          ["done", "failed", "sshLost", "sshPrompt"].includes(phase.type) &&
           !(
             phase.type === "sshLost" &&
             state.removals[flow.hostKey]?.sshLostNoticeDismissed

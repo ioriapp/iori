@@ -304,6 +304,13 @@ export function fixture(id: string): Fixture {
     result.flow!.phase = { type: "sshFailed", failure: failures[id] };
     return result;
   }
+  if (id === "B9-closed-sshPrompt") {
+    const result = fixture("B4");
+    result.kind = "notice";
+    result.flow!.closed = true;
+    result.flow!.operationId = "restored-uninstall";
+    return result;
+  }
   if (id === "B9-closed-sshLost") {
     const result = fixture("B3-disconnect");
     result.kind = "notice";

@@ -61,7 +61,8 @@ export function showUninstallNotice(
   if (
     phase.type !== "done" &&
     phase.type !== "failed" &&
-    phase.type !== "sshLost"
+    phase.type !== "sshLost" &&
+    phase.type !== "sshPrompt"
   )
     return;
   const failed = phase.type !== "done";
@@ -70,18 +71,20 @@ export function showUninstallNotice(
     (phase.outcome.type === "tokensRemaining" ||
       phase.outcome.type === "filesRemaining");
   const key =
-    phase.type === "sshLost"
-      ? "The SSH connection to {host} was lost, so the uninstall result could not be checked."
-      : failed
-        ? "Could not uninstall iori Host on {host}."
-        : warning
-          ? "Uninstalled iori Host on {host}. Some items need your attention."
-          : phase.type === "done" && phase.outcome.type === "started"
-            ? "Started uninstalling iori Host on {host}."
-            : phase.type === "done" &&
-                phase.outcome.type === "uninstalledWithData"
-              ? "Deleted iori Host and its saved data on {host}."
-              : "Uninstalled iori Host on {host}.";
+    phase.type === "sshPrompt"
+      ? "SSH authentication is required to continue uninstalling iori Host on {host}."
+      : phase.type === "sshLost"
+        ? "The SSH connection to {host} was lost, so the uninstall result could not be checked."
+        : failed
+          ? "Could not uninstall iori Host on {host}."
+          : warning
+            ? "Uninstalled iori Host on {host}. Some items need your attention."
+            : phase.type === "done" && phase.outcome.type === "started"
+              ? "Started uninstalling iori Host on {host}."
+              : phase.type === "done" &&
+                  phase.outcome.type === "uninstalledWithData"
+                ? "Deleted iori Host and its saved data on {host}."
+                : "Uninstalled iori Host on {host}.";
   notices.show({
     key: flow.hostKey,
     text: onHost(t, key, flow.hostName),
@@ -277,12 +280,11 @@ export function HostUninstallDialog({
     if (phase.type === "confirming") setDeleteData(flow.deleteData);
   }, [phase.type, flow.deleteData]);
   const names = [hostName];
-  const beforeStart = [
-    "confirming",
-    "sshConnecting",
-    "sshPrompt",
-    "sshFailed",
-  ].includes(phase.type);
+  const beforeStart =
+    !(flow.operationId && phase.type === "sshPrompt") &&
+    ["confirming", "sshConnecting", "sshPrompt", "sshFailed"].includes(
+      phase.type,
+    );
   const close = () => {
     if (beforeStart) void actions.cancel(hostKey);
     else actions.close(hostKey);
@@ -430,9 +432,12 @@ export function HostUninstallDialog({
           />
         </div>
       );
-      footer.primary = phase.prompt.attempt > 1 ? null : t("Uninstall");
+      if (flow.operationId) footer.cancel = t("Close");
+      footer.primary =
+        flow.operationId || phase.prompt.attempt > 1 ? null : t("Uninstall");
       footer.primaryDisabled = true;
-      if (phase.prompt.attempt > 1) footer.secondary = skip;
+      if (!flow.operationId && phase.prompt.attempt > 1)
+        footer.secondary = skip;
       break;
     case "sshFailed": {
       const failure = phase.failure;

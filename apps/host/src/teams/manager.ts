@@ -2344,6 +2344,7 @@ export class TeamManager {
             conversation.id,
             this.terminals.cliUsage(),
             failed,
+            this.terminals.initialUsagePending(),
           )
         : { waiting: "candidates" as const };
       if (!allocation.candidate || !role || !team) {
@@ -2355,7 +2356,11 @@ export class TeamManager {
             >((candidate) =>
               !available.has(candidate.cli)
                 ? [{ cli: candidate.cli, reason: "not_installed" }]
-                : belowUsageMinimum(
+                : (candidate.minimum !== "" &&
+                      this.terminals
+                        .initialUsagePending()
+                        .has(candidate.cli)) ||
+                    belowUsageMinimum(
                       candidate.minimum,
                       this.terminals.cliUsage().get(candidate.cli),
                       candidate.model,

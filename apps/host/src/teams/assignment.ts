@@ -25,12 +25,14 @@ export function chooseCandidate(
   usage: ReadonlyMap<string, CliUsage> = new Map(),
   // Candidate IDs that failed with a CLI error earlier in this task.
   failed: ReadonlySet<string> = new Set(),
+  initialUsagePending: ReadonlySet<string> = new Set(),
 ): { candidate?: Candidate; waiting?: "capacity" | "candidates" } {
   const under = (count: number, limit: string | undefined) =>
     !limit || BigInt(count) < BigInt(limit);
   const candidates = role.candidates[role.split ? difficulty : "medium"].filter(
     (c) =>
       available.has(c.cli) &&
+      !(c.minimum !== "" && initialUsagePending.has(c.cli)) &&
       !belowUsageMinimum(c.minimum, usage.get(c.cli), c.model) &&
       !failed.has(c.id),
   );
