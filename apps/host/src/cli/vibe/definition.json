@@ -5,6 +5,7 @@
   "command": "vibe",
   "icon": { "light": "mistral.svg" },
   "version": { "args": ["--version"] },
+  "models": { "unavailable": true },
   "launch": {
     "permissions": {
       "ask": ["--agent", "ask"],
@@ -55,6 +56,25 @@
         "when": { "parent_session_id": { "not": null } },
         "ignore": true
       },
+      {
+        "event": "pre_agent",
+        "when": { "parent_session_id": { "not": null } },
+        "ignore": true
+      },
+      { "event": "pre_agent", "state": "active" },
+      {
+        "event": "notification",
+        "when": { "parent_session_id": { "not": null } },
+        "ignore": true
+      },
+      {
+        "event": "notification",
+        "when": { "notification_type": "approval_requested" },
+        "state": "waiting",
+        "attention": "approval",
+        "tool": "tool_name"
+      },
+      { "event": "session_start", "state": "idle" },
       { "event": "pre_tool", "state": "active", "tool": "tool_name" },
       { "event": "post_tool", "toolFinished": true },
       { "event": "post_agent", "state": "done" }

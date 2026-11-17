@@ -43,7 +43,11 @@ export const connection = {
   connectionIdOf: () => "ui-state",
 };
 // どのボタンを押してもnativeやHostへは接続しない。処理の遷移は扱わない。
-export const native = { fontFamilies: async () => terminalFontNames };
+export const native = {
+  fontFamilies: async () => terminalFontNames,
+  loadView: async () => undefined,
+  saveView: async () => {},
+};
 export const hasWindowChrome = false;
 export const clientVersion = version;
 export const hostReleaseNotes = "";

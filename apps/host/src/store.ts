@@ -627,6 +627,14 @@ export class HostStore {
         }
         const fresh = structuredClone(definition);
         if (p.name !== undefined) fresh.name = p.name;
+        if (
+          method === "teams.create" &&
+          p.template &&
+          !p.sourceId &&
+          !p.definition &&
+          p.parent
+        )
+          fresh.parent = { ...p.parent, minimum: "" };
         fresh.parent.id = randomUUID();
         for (const role of fresh.roles) {
           role.id = randomUUID();

@@ -50,7 +50,7 @@ function selectStep(history, scripts, format, tools) {
           userText,
         );
       const readDelivery =
-        /(?:^|\n)Read (.+?) and follow its instructions\.(?: Then read (.+?) and follow its instructions\.| Then open the file (.+?) with your file-reading tool \(it is a normal file, not an iori command\) and follow the delegated request\.)?(?:$|\n)/mu.exec(
+        /(?:^|\n)Read (.+?) and follow its instructions\.(?: Then read (.+?) and follow its instructions\.| Then open the file (.+?) (?:with your file-reading tool \(it is a normal file, not an iori command\) )?and follow the delegated request\.)?(?:$|\n)/mu.exec(
           userText,
         );
       if (delivery || readDelivery) {
@@ -82,27 +82,30 @@ function selectStep(history, scripts, format, tools) {
   }
   if (deliveryResponses < deliveryPaths.length) {
     const file = deliveryPaths[deliveryResponses];
-    const read = tools.find((tool) => tool.name === "read");
+    const read = tools.find((tool) =>
+      ["Read", "read", "read_file"].includes(tool.name),
+    );
     return {
       marker: undefined,
       index: deliveryResponses,
       delivery: true,
-      step:
-        format === "anthropic-messages"
+      step: read
+        ? {
+            tool: read.name,
+            input: (read.parameters ?? read.input_schema)?.properties?.filePath
+              ? { filePath: file }
+              : (read.parameters ?? read.input_schema)?.properties?.file_path
+                ? { file_path: file }
+                : { path: file },
+          }
+        : format === "anthropic-messages"
           ? { tool: "Read", input: { file_path: file } }
-          : read
-            ? {
-                tool: "read",
-                input: read.parameters?.properties?.filePath
-                  ? { filePath: file }
-                  : { path: file },
-              }
-            : {
-                tool: "exec_command",
-                input: {
-                  cmd: "cat -- '" + file.replaceAll("'", "'\\''") + "'",
-                },
+          : {
+              tool: "exec_command",
+              input: {
+                cmd: "cat -- '" + file.replaceAll("'", "'\\''") + "'",
               },
+            },
     };
   }
   return { marker, index, step: scripts[marker]?.[index] ?? { text: "OK" } };

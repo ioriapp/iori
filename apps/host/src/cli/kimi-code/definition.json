@@ -12,6 +12,7 @@
     ]
   },
   "launch": {
+    "initialPrompt": { "mode": "paste" },
     "model": ["--model", "{model}"],
     "permissions": {
       "yolo": ["--yolo"],

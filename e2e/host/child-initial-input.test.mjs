@@ -10,103 +10,163 @@ import {
   registerScriptedCli,
 } from "../../verification/host/scripted-definition.mjs";
 
-test("hookもpasteの印もない子のPTYに最初の依頼が一度だけ届く", (t) =>
-  runHostTest(t, async ({ client, dataRoot, stage }) => {
-    stage("親と子のCLIの定義を登録する");
-    const parentCli = await registerScriptedCli(client, dataRoot);
-    const childCli = await registerScriptedCli(client, dataRoot, {
-      noReady: true,
-    });
-    const candidate = {
-      id: "worker-candidate",
-      cli: childCli,
-      model: "",
-      tools: [],
-      minimum: "",
-    };
-    stage("子の候補を持つチームを作って有効にする");
-    const team = await client.request("teams.create", {
-      definition: {
-        name: "Initial input",
-        description: "",
-        instruction: "",
-        parent: { ...candidate, id: "parent", cli: parentCli },
-        roles: [
-          {
-            id: "worker",
-            name: "Worker",
-            when: "",
-            limit: "",
-            reuse: true,
-            split: false,
+async function writeDelayedCli(dataRoot, cli) {
+  await writeFakeCli(
+    join(dataRoot, "bin"),
+    cli === "kimi-code" ? "kimi" : "vtcode",
+    `
+if (process.argv.includes("--version")) { console.log("delayed-cli 1.0.0"); process.exit(0); }
+process.stdin.setRawMode(true);
+process.stdin.resume();
+let ready = false, buffer = "", requests = 0;
+process.stdin.on("data", data => {
+  if (!ready) { console.log("INPUT_BEFORE_READY"); return; }
+  buffer += data.toString().replaceAll("\\x1b[200~", "").replaceAll("\\x1b[201~", "");
+  const lines = buffer.split(/[\\r\\n]/u);
+  buffer = lines.pop();
+  for (const line of lines) {
+    if (!line) continue;
+    if (line.startsWith("[iori] Parent ")) console.log("INITIAL_INPUT_COUNT=" + requests);
+    else { requests++; console.log("INITIAL_REQUEST_RECEIVED:" + line); }
+  }
+});
+console.log("NO_READY_SCREEN");
+await new Promise(resolve => setTimeout(resolve, 650));
+ready = true;
+process.stdout.write("\\x1b[?2004h");
+`,
+  );
+}
+
+for (const childDefinition of [undefined, "kimi-code", "vtcode"])
+  test(
+    childDefinition
+      ? `${childDefinition}の子は起動中に出力が止まってもpasteの印まで最初の依頼を待つ`
+      : "hookもpasteの印もない子のPTYに最初の依頼が一度だけ届く",
+    (t) =>
+      runHostTest(t, async ({ client, dataRoot, stage }) => {
+        stage("親と子のCLIの定義を登録する");
+        const parentCli = await registerScriptedCli(client, dataRoot);
+        const childCli =
+          childDefinition ??
+          (await registerScriptedCli(client, dataRoot, {
+            noReady: true,
+          }));
+        if (childDefinition) await writeDelayedCli(dataRoot, childDefinition);
+        const candidate = {
+          id: "worker-candidate",
+          cli: childCli,
+          model: "",
+          tools: [],
+          minimum: "",
+        };
+        stage("子の候補を持つチームを作って有効にする");
+        const team = await client.request("teams.create", {
+          definition: {
+            name: "Initial input",
+            description: "",
             instruction: "",
-            request: "",
-            report: "",
-            candidates: { high: [], medium: [candidate], low: [] },
+            parent: { ...candidate, id: "parent", cli: parentCli },
+            roles: [
+              {
+                id: "worker",
+                name: "Worker",
+                when: "",
+                limit: "",
+                reuse: true,
+                split: false,
+                instruction: "",
+                request: "",
+                report: "",
+                candidates: { high: [], medium: [candidate], low: [] },
+              },
+            ],
           },
-        ],
-      },
-    });
-    await client.request("teams.settings", {
-      enabled: true,
-      defaultTeam: team.saved.id,
-      limits: {},
-    });
-    stage("チームの親のPTYが入力を受け付ける");
-    const events = await client.events();
-    await events.waitFor((event) => event.type === "snapshot");
-    const { terminal: parent } = await client.request("team.launch", {
-      teamId: team.saved.id,
+        });
+        await client.request("teams.settings", {
+          enabled: true,
+          defaultTeam: team.saved.id,
+          limits: {},
+        });
+        stage("チームの親のPTYが入力を受け付ける");
+        const events = await client.events();
+        await events.waitFor((event) => event.type === "snapshot");
+        const { terminal: parent } = await client.request("team.launch", {
+          teamId: team.saved.id,
+          cwd: dataRoot,
+        });
+        const parentPty = await client.terminal(parent.id);
+        await parentPty.output("ACTOR_READY");
+        // The parent definition takes its instructions as typed input.
+        await parentPty.output("ACTOR_PROMPT:");
+        stage("親のPTYから子へ委譲する");
+        const delegated = await actorCommand(parentPty, "delegate", [
+          "delegate",
+          "--role",
+          "Worker",
+          "--difficulty",
+          "low",
+          "--title",
+          "First request",
+          "--worktree",
+          "parent",
+          "--body",
+          "Receive the first request.",
+        ]);
+        const childId = delegated.data.child;
+        stage("委譲した子のPTYを開いて最初の画面を受け取る");
+        const changed = await events.waitFor(
+          (event) =>
+            event.type === "teams.child.updated" &&
+            event.child.id === childId &&
+            event.child.terminalId,
+        );
+        const child = await client.terminal(changed.child.terminalId);
+        await child.output("NO_READY_SCREEN");
+        stage("子のPTYに最初の依頼が届く");
+        await child.waitFor(({ output }) =>
+          /INITIAL_REQUEST_RECEIVED:Read .+ and follow its instructions\. Then open the file .+ with your file-reading tool/u.test(
+            output,
+          ),
+        );
+        stage("親のPTYから子へ後続の依頼を送る");
+        await actorCommand(parentPty, "barrier", [
+          "send",
+          childId,
+          "--kind",
+          "request",
+          "--body",
+          "INITIAL_INPUT_BARRIER",
+        ]);
+        stage("子が後続の依頼を受け、初回依頼が一度だけ届いたと返す");
+        const { output } = await child.waitFor(({ output }) =>
+          /INITIAL_INPUT_COUNT=\d+\r?\n/u.test(output),
+        );
+        assert.equal(
+          Number(output.match(/INITIAL_INPUT_COUNT=(\d+)\r?\n/u)[1]),
+          1,
+        );
+        assert.doesNotMatch(output, /INPUT_BEFORE_READY/u);
+      }),
+  );
+
+test("単独CLIの最初の依頼はシェルのpasteの印では送信しない", (t) =>
+  runHostTest(t, async ({ client, dataRoot, stage }) => {
+    stage("入力画面の準備が遅い単独CLIを起動する");
+    await writeDelayedCli(dataRoot, "kimi-code");
+    const { terminal } = await client.request("cli.launch", {
+      cliId: "kimi-code",
       cwd: dataRoot,
+      instruction: "Receive the first request.",
     });
-    const parentPty = await client.terminal(parent.id);
-    await parentPty.output("ACTOR_READY");
-    // The parent definition takes its instructions as typed input.
-    await parentPty.output("ACTOR_PROMPT:");
-    stage("親のPTYから子へ委譲する");
-    const delegated = await actorCommand(parentPty, "delegate", [
-      "delegate",
-      "--role",
-      "Worker",
-      "--difficulty",
-      "low",
-      "--title",
-      "First request",
-      "--worktree",
-      "parent",
-      "--body",
-      "Receive the first request.",
-    ]);
-    const childId = delegated.data.child;
-    stage("委譲した子のPTYを開いて最初の画面を受け取る");
-    const changed = await events.waitFor(
-      (event) =>
-        event.type === "teams.child.updated" &&
-        event.child.id === childId &&
-        event.child.terminalId,
-    );
-    const child = await client.terminal(changed.child.terminalId);
-    await child.output("NO_READY_SCREEN");
-    stage("子のPTYに最初の依頼が届く");
-    await child.waitFor(({ output }) =>
-      /INITIAL_REQUEST_RECEIVED:Read .+ and follow its instructions\. Then open the file .+ with your file-reading tool/u.test(
+    const pty = await client.terminal(terminal.id);
+    stage("CLIの印の後で最初の依頼が届く");
+    const { output } = await pty.waitFor(({ output }) =>
+      /INITIAL_REQUEST_RECEIVED:Read .+ and follow its instructions\./u.test(
         output,
       ),
     );
-    stage("親のPTYから子へ後続の依頼を送る");
-    await actorCommand(parentPty, "barrier", [
-      "send",
-      childId,
-      "--kind",
-      "request",
-      "--body",
-      "INITIAL_INPUT_BARRIER",
-    ]);
-    stage("子が後続の依頼を受け、初回依頼が一度だけ届いたと返す");
-    const { output } = await child.waitFor(({ output }) =>
-      /INITIAL_INPUT_COUNT=\d+\r?\n/u.test(output),
-    );
-    assert.equal(Number(output.match(/INITIAL_INPUT_COUNT=(\d+)\r?\n/u)[1]), 1);
+    assert.doesNotMatch(output, /INPUT_BEFORE_READY/u);
   }));
 
 test("Antigravity CLIの子は追加したリポジトリとそのworktreeで信頼の指定と最初の依頼を受け取る", (t) =>

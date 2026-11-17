@@ -41,7 +41,7 @@ import {
 } from "../terminal/manager.ts";
 import { collectGit } from "../git-process.ts";
 import { copyDeliveryFile } from "../fs/delivery-file.ts";
-import { chooseCandidate } from "./assignment.ts";
+import { chooseCandidate, roleCandidates } from "./assignment.ts";
 import { PendingCliStates } from "./pending-cli-states.ts";
 import {
   assignedCandidate,
@@ -2325,8 +2325,11 @@ export class TeamManager {
               ? [other.candidate]
               : [],
           );
+      const candidates = role
+        ? roleCandidates(role, child.difficulty, team?.parent)
+        : [];
       const failed = new Set(
-        (role?.candidates[role.split ? child.difficulty : "medium"] ?? [])
+        candidates
           .filter((candidate) =>
             failures.some((assignment) =>
               sameAssignment(assignedCandidate(candidate), assignment),
@@ -2345,36 +2348,36 @@ export class TeamManager {
             this.terminals.cliUsage(),
             failed,
             this.terminals.initialUsagePending(),
+            team?.parent,
           )
         : { waiting: "candidates" as const };
       if (!allocation.candidate || !role || !team) {
         child.waiting = allocation.waiting;
         child.waitingReasons = !role
           ? [{ reason: "role_removed" }]
-          : role.candidates[role.split ? child.difficulty : "medium"].flatMap<
-              import("@iori/protocol").CandidateWaitingReason
-            >((candidate) =>
-              !available.has(candidate.cli)
-                ? [{ cli: candidate.cli, reason: "not_installed" }]
-                : (candidate.minimum !== "" &&
-                      this.terminals
-                        .initialUsagePending()
-                        .has(candidate.cli)) ||
-                    belowUsageMinimum(
-                      candidate.minimum,
-                      this.terminals.cliUsage().get(candidate.cli),
-                      candidate.model,
-                    )
-                  ? [
-                      {
-                        cli: candidate.cli,
-                        reason: "usage",
-                        minimum: candidate.minimum,
-                      },
-                    ]
-                  : failed.has(candidate.id)
-                    ? [{ cli: candidate.cli, reason: "failed" }]
-                    : [],
+          : candidates.flatMap<import("@iori/protocol").CandidateWaitingReason>(
+              (candidate) =>
+                !available.has(candidate.cli)
+                  ? [{ cli: candidate.cli, reason: "not_installed" }]
+                  : (candidate.minimum !== "" &&
+                        this.terminals
+                          .initialUsagePending()
+                          .has(candidate.cli)) ||
+                      belowUsageMinimum(
+                        candidate.minimum,
+                        this.terminals.cliUsage().get(candidate.cli),
+                        candidate.model,
+                      )
+                    ? [
+                        {
+                          cli: candidate.cli,
+                          reason: "usage",
+                          minimum: candidate.minimum,
+                        },
+                      ]
+                    : failed.has(candidate.id)
+                      ? [{ cli: candidate.cli, reason: "failed" }]
+                      : [],
             );
         if (!child.waitingReasons.length && child.waiting === "candidates")
           child.waitingReasons = [{ reason: "no_candidates" }];

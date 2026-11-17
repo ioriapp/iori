@@ -5,6 +5,7 @@
   "command": "hermes",
   "icon": { "light": "hermes.svg" },
   "version": { "args": ["--version"] },
+  "models": { "unavailable": true },
   "launch": {
     "initialPrompt": {
       "mode": "argument",

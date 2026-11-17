@@ -4,6 +4,33 @@ import { runHostTest } from "../../verification/host/process.mjs";
 import { connectClient } from "../../verification/host/client.mjs";
 import { registerScriptedCli } from "../../verification/host/scripted-definition.mjs";
 
+test("テンプレートから選んだ親でチームを作る", (t) =>
+  runHostTest(t, async ({ client }) => {
+    const parent = {
+      id: "selected-parent",
+      cli: "codex",
+      model: "gpt-6.1-sol",
+      effort: "high",
+      permission: "full-auto",
+      sandbox: "workspace-write",
+      tools: ["search"],
+      minimum: "50",
+    };
+    const created = await client.request("teams.create", {
+      template: "development",
+      language: "ja",
+      parent,
+    });
+    assert.notEqual(created.saved.parent.id, parent.id);
+    const savedParent = { ...created.saved.parent };
+    delete savedParent.cliName;
+    assert.deepEqual(savedParent, {
+      ...parent,
+      id: created.saved.parent.id,
+      minimum: "",
+    });
+  }));
+
 test("チームの編集、履歴、メモと復元を再起動後も保持する", (t) =>
   runHostTest(t, async ({ client, restart, stage }) => {
     stage("テンプレートから作ったチームの役割の上限を変更する");

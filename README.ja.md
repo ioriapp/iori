@@ -120,6 +120,8 @@ Client は LAN か VPN で Host へ直接接続します。Windows の Host は�
 
 直接接続ができない時は、自分で立てた [iroh-relay](https://github.com/n0-computer/iroh) の URL を Host の設定の「接続」に入れると、Client はまず直接接続を試行し、届かない時だけ Relay を通します。
 
+外出先から接続する方法は[外出先から iori に接続する](guides/remote-access.ja.md)を参照してください。
+
 ## 更新する
 
 新しいバージョンがあると、Client の設定の入口にインジケーターが表示されます。Client は設定の「この PC」→「一般」から更新します。Host は Client の設定で Host の「バージョン」から更新し、Client と同じバージョンになります。

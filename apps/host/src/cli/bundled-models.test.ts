@@ -4,16 +4,7 @@ import { test } from "node:test";
 import { cliDefinitions, listsModels } from "./definitions.ts";
 
 // 実物の一覧の取り方を確かめて定義へ書いたら、表から外す（#333）。
-const knownMissing = [
-  "amp",
-  "qoder",
-  "grok",
-  "codebuddy",
-  "hermes",
-  "vtcode",
-  "kiro",
-  "vibe",
-];
+const knownMissing = ["amp", "qoder", "grok", "codebuddy", "kiro"];
 
 test("同梱のCLIはモデルの候補の出し方か、無いことの明示を持つ", () => {
   const missing = cliDefinitions

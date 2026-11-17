@@ -120,6 +120,8 @@ Clients connect to the Host directly over your LAN or a VPN. Windows Firewall bl
 
 If the Host cannot be reached directly, you can run your own [iroh-relay](https://github.com/n0-computer/iroh) server and enter its URL in the Host's **Connection** settings. The Client tries a direct connection first and uses the relay only when needed.
 
+For setup instructions, see [Remote access](guides/remote-access.md).
+
 ## Update
 
 The Client checks for updates and shows a badge on Settings when a new version is available. Update it from **Settings → This PC → General**. You can update the Host from its **Version** settings in the Client. The Host is updated to the same version as the Client.

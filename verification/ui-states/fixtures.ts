@@ -1,3 +1,4 @@
+import { teamEditorFixture } from "./team-editor-states.ts";
 import type { ConnectedHostUpdate } from "../../apps/client/src/updates/connected-hosts.ts";
 import type {
   CliListResult,
@@ -152,6 +153,7 @@ export const clis = Object.fromEntries(
 
 export type Fixture = {
   kind:
+    | "team-editor"
     | "setup"
     | "uninstall"
     | "version"
@@ -189,6 +191,13 @@ export const terminalFontNames = [
 ];
 
 export function fixture(id: string): Fixture {
+  if (id.startsWith("team-parent-"))
+    return {
+      kind: "team-editor",
+      initial: { TeamEditor: teamEditorFixture(id).values },
+      events: [],
+      notes: [],
+    };
   if (id === "light-board") {
     const result = usageFixture("usage-bar-20");
     const board = result.initial.Board.data as BoardData;

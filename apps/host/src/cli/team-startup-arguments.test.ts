@@ -285,3 +285,48 @@ test("Claude variadic managed options remove all values before the next option",
     "--name keep -- --model prompt",
   );
 });
+
+test("Claude grants iori directories without replacing the user's settings", () => {
+  const definition = cliDefinitions.find((entry) => entry.id === "claude")!;
+  const directories = ["/team/bin", "/team/files"];
+  for (const [startupArguments, shellId] of [
+    ["", "bash"],
+    [`--settings '{"permissions":{"allow":["Read"]}}'`, "bash"],
+    ["--settings 'custom settings.json'", "bash"],
+    ['--settings="custom settings.json"', "powershell"],
+    ["--settings ${SETTINGS_FILE}", "bash"],
+  ]) {
+    const args = definition.teamArguments!({
+      ...launch,
+      commandMailboxDirectory: directories[0],
+      startupArguments,
+      startupShell: shell(shellId!),
+    });
+    if (startupArguments) {
+      assert.deepEqual(
+        args.filter((arg) => arg === "--settings"),
+        [],
+      );
+      assert.deepEqual(
+        args.filter((arg, index) => args[index - 1] === "--add-dir"),
+        directories,
+      );
+      assert.equal(
+        teamStartupArguments(
+          startupArguments,
+          shell(shellId!),
+          definition.managedTeamArguments!,
+          args,
+        ),
+        startupArguments,
+      );
+    } else {
+      assert.equal(args.includes("--add-dir"), false);
+      const index = args.indexOf("--settings");
+      assert.notEqual(index, -1);
+      assert.deepEqual(JSON.parse(args[index + 1]!), {
+        permissions: { additionalDirectories: directories },
+      });
+    }
+  }
+});

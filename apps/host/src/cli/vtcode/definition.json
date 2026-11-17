@@ -5,7 +5,9 @@
   "command": "vtcode",
   "icon": { "light": "vtcode.svg" },
   "version": { "args": ["--version"] },
+  "models": { "unavailable": true },
   "launch": {
+    "initialPrompt": { "mode": "paste" },
     "model": ["--model", "{model}"],
     "permissions": {
       "strict": ["--security-level", "strict"],

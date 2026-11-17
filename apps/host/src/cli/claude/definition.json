@@ -36,6 +36,11 @@
       },
       { "names": ["--append-system-prompt-file"] },
       { "names": ["--allowedTools", "--allowed-tools"], "arity": "many" },
+      {
+        "names": ["--settings"],
+        "arity": "many",
+        "alsoRemove": [{ "names": ["--add-dir"], "arity": "many" }]
+      },
       { "names": ["--add-dir"], "arity": "many" }
     ]
   },

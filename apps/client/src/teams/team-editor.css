@@ -1817,3 +1817,81 @@
 .team-hidden-items [data-slot="collapsible-content"] > * {
   border-top: 1px solid var(--border);
 }
+
+.team-new-dialog[data-slot="dialog-content"] {
+  max-width: min(680px, calc(100% - 2rem));
+  max-height: calc(100dvh - 2rem);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.team-new-dialog > [data-slot="dialog-header"],
+.team-new-dialog > [data-slot="dialog-footer"] {
+  flex: none;
+}
+.team-new-dialog .team-new-body {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+}
+.team-new-dialog .team-source-command {
+  height: auto;
+  flex: 1 0 12rem;
+  min-height: 12rem;
+  padding: 0;
+}
+.team-source-list-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+.team-source-list-wrap > [data-slot="command-list"] {
+  height: 100%;
+  max-height: 100%;
+}
+.team-source-list-wrap[data-more]::after {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--border);
+  box-shadow: 0 -8px 16px var(--shadow-color);
+}
+.team-new-dialog .team-parent-execution,
+.team-new-dialog .team-field {
+  margin-bottom: 0;
+}
+.team-new-dialog .team-field {
+  flex: none;
+  gap: var(--space-2);
+}
+.team-new-dialog .team-new-parent[data-hidden] {
+  position: absolute;
+  width: 100%;
+  visibility: hidden;
+  pointer-events: none;
+}
+.team-new-dialog .team-candidate-row {
+  background: transparent;
+  border-top: 0;
+  padding: 0;
+}
+.team-new-dialog .team-execution-heading {
+  padding-bottom: var(--space-2);
+}
+
+.team-new-dialog .team-new-body {
+  min-height: 0;
+}
+.team-new-parent .team-execution-cells [data-slot="select-trigger"],
+.team-new-parent .team-execution-cells .team-cli-model,
+.team-new-parent .team-execution-cells .team-permission-summary {
+  background: transparent;
+}

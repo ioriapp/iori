@@ -15,6 +15,16 @@ export interface RunningCli {
   conversation?: string;
   role?: string;
 }
+export function roleCandidates(
+  role: Role,
+  difficulty: Difficulty,
+  parent?: Candidate,
+): Candidate[] {
+  const candidates = role.candidates[role.split ? difficulty : "medium"];
+  return candidates.length || !parent?.cli
+    ? candidates
+    : [{ ...parent, minimum: "" }];
+}
 export function chooseCandidate(
   role: Role,
   difficulty: Difficulty,
@@ -26,10 +36,11 @@ export function chooseCandidate(
   // Candidate IDs that failed with a CLI error earlier in this task.
   failed: ReadonlySet<string> = new Set(),
   initialUsagePending: ReadonlySet<string> = new Set(),
+  parent?: Candidate,
 ): { candidate?: Candidate; waiting?: "capacity" | "candidates" } {
   const under = (count: number, limit: string | undefined) =>
     !limit || BigInt(count) < BigInt(limit);
-  const candidates = role.candidates[role.split ? difficulty : "medium"].filter(
+  const candidates = roleCandidates(role, difficulty, parent).filter(
     (c) =>
       available.has(c.cli) &&
       !(c.minimum !== "" && initialUsagePending.has(c.cli)) &&

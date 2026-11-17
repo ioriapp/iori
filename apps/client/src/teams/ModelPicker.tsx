@@ -230,7 +230,13 @@ export function ModelPicker({
         }}
       />
       <CommandList>
-        <CommandEmpty>{t("No matching models.")}</CommandEmpty>
+        <CommandEmpty>
+          {t(
+            catalogs.length
+              ? "No matching models."
+              : "CLI not found on this Host. Install it and retry.",
+          )}
+        </CommandEmpty>
         {!searching && recent.length > 0 && (
           <CommandGroup heading={t("Models used in this team")}>
             {recent.map(({ cli, model }) => modelItem(cli, model, "recent:"))}

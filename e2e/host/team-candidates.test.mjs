@@ -225,3 +225,74 @@ test("OpenCode 2の候補のEffortを子の起動設定へ渡す", (t) =>
     );
     assert.equal(config.model, "openai/gpt-5.2#low");
   }));
+
+test("候補が空なら親のCLIとモデルで子を起動し記録する", (t) =>
+  runHostTest(t, async ({ client, dataRoot, stage }) => {
+    await writeFakeCli(
+      join(dataRoot, "bin"),
+      "opencode",
+      'if (process.argv.includes("--version")) console.log("opencode v2.2.6"); else { console.log("OPENCODE_CONFIG:" + process.env.OPENCODE_CONFIG_CONTENT); process.stdin.resume(); }\n',
+    );
+    const context = await setup(client, dataRoot);
+    const definition = structuredClone(context.definition);
+    definition.parent = {
+      ...definition.parent,
+      cli: "opencode",
+      model: "openai/gpt-5.2",
+      effort: "low",
+      minimum: "100",
+    };
+    definition.roles[0].candidates.medium = [];
+    await client.request("teams.save", { teamId: context.teamId, definition });
+    stage("候補が空の役割へ委譲する");
+    const result = await delegate(context.parent, "inherit", "Inherited");
+    assert.notEqual(result.data.waiting, "candidates");
+    const started = await context.events.waitFor(
+      (event) =>
+        event.type === "teams.child.updated" &&
+        event.child.id === result.data.child &&
+        event.child.terminalId,
+    );
+    const child = await client.terminal(started.child.terminalId);
+    const { output } = await child.waitFor(({ output }) =>
+      /OPENCODE_CONFIG:(\{[^\r\n]+\})/u.test(output),
+    );
+    const config = JSON.parse(
+      output.match(/OPENCODE_CONFIG:(\{[^\r\n]+\})/u)[1],
+    );
+    assert.equal(config.model, "openai/gpt-5.2#low");
+    const records = await client.request("teams.records", {});
+    const agent = records.tasks
+      .flatMap((task) => task.agents)
+      .find((entry) => entry.id === result.data.child);
+    assert.equal(agent.candidate.cli, "opencode");
+    assert.equal(agent.candidate.model, "openai/gpt-5.2");
+  }));
+
+test("候補と親が未設定なら待機して親へ一度知らせる", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    const context = await setup(client, dataRoot);
+    await startFirst(client, context);
+    const second = await delegate(context.parent, "empty-parent", "Waiting");
+    assert.equal(second.data.waiting, "capacity");
+    const definition = structuredClone(context.definition);
+    definition.parent.cli = "";
+    definition.roles[0].candidates.medium = [];
+    await client.request("teams.save", { teamId: context.teamId, definition });
+    await context.events.waitFor(
+      (event) =>
+        event.type === "teams.child.updated" &&
+        event.child.id === second.data.child &&
+        event.child.waiting === "candidates",
+    );
+    const tasks = await actorCommand(context.parent, "empty-tasks", ["tasks"]);
+    assert.deepEqual(
+      tasks.data.children.find((entry) => entry.child === second.data.child)
+        .waitingReasons,
+      [{ reason: "no_candidates" }],
+    );
+    await context.parent.output(notice);
+    await actorCommand(context.parent, "empty-barrier", ["tasks"]);
+    const output = await context.parent.output("ACTOR_RESULT:empty-barrier:");
+    assert.equal(output.split(notice).length - 1, 1);
+  }));

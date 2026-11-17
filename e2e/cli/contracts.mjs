@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { capabilities } from "./capabilities.mjs";
 import test from "node:test";
 import { join } from "node:path";
 import { createServer } from "node:net";
@@ -28,9 +29,11 @@ export async function launchTeam(context, parentCli, cli, instruction) {
     minimum: "",
     ...(cli === "codex"
       ? { permission: "never", sandbox: "danger-full-access" }
-      : cli === "omp"
+      : cli === "omp" || cli === "hermes"
         ? { permission: "yolo" }
-        : {}),
+        : cli === "vibe"
+          ? { permission: "auto-approve" }
+          : {}),
   };
   const team = await client.request("teams.create", {
     definition: {
@@ -184,6 +187,7 @@ export function contracts(cli, { approval = true } = {}) {
   if (approval)
     test(
       "道具の承認待ちと要約を受信する",
+      { skip: capabilities[cli]?.unsupported?.approval },
       requireLaunch((t) =>
         withCli(
           t,
@@ -212,6 +216,7 @@ export function contracts(cli, { approval = true } = {}) {
 
   test(
     "HostとTerminalの再起動後に同じ会話を再開する",
+    { skip: capabilities[cli]?.unsupported?.resume },
     requireLaunch((t) =>
       withCli(
         t,

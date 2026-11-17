@@ -180,6 +180,7 @@ export interface TeamParamsByMethod {
     language?: "en" | "ja";
     sourceId?: string;
     definition?: TeamDefinition;
+    parent?: Candidate;
     name?: string;
   };
   "teams.save": {
@@ -459,6 +460,12 @@ export function parseTeamParams<M extends TeamMethod>(
         ...(v.definition === undefined
           ? {}
           : { definition: parseTeamDefinition(v.definition) }),
+        ...(v.parent === undefined ||
+        v.template === undefined ||
+        v.sourceId !== undefined ||
+        v.definition !== undefined
+          ? {}
+          : { parent: parseCandidate(v.parent) }),
         ...(v.name === undefined ? {} : { name: id(v.name) }),
       };
       if (

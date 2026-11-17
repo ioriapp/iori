@@ -2423,9 +2423,10 @@ export class TerminalRuntime {
           (d) => d.id === runtime.cli?.id,
         )?.waitForInputCursor;
         if (
-          cursor
+          !runtime.pendingCliCommand &&
+          (cursor
             ? event.params.includes(25) && event.modes.bracketedPaste
-            : event.params.includes(2004)
+            : event.params.includes(2004))
         )
           runtime.inputModeReady = true;
       } else {
@@ -2496,6 +2497,8 @@ export class TerminalRuntime {
         if (
           !runtime.setup &&
           !runtime.hooks?.isSessionStart &&
+          !runtime.pendingCliCommand &&
+          runtime.inputModeReady &&
           runtime.modes.bracketedPaste
         )
           runtime.cliReady = true;
@@ -2508,6 +2511,7 @@ export class TerminalRuntime {
         if (runtime.pendingCliCommand && editorReady) {
           const input = runtime.pendingCliCommand;
           runtime.pendingCliCommand = undefined;
+          runtime.inputModeReady = false;
           child.write(input + "\r");
         } else if (
           !managed &&

@@ -1,6 +1,13 @@
+import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createTeam } from "./fixtures/journeys.ts";
-import { test, expect } from "./fixtures/test.ts";
+import {
+  test,
+  expect,
+  openFolder,
+  visibleTerminal,
+  terminalId,
+} from "./fixtures/test.ts";
 
 test(
   "チームを編集して保存し保存の競合を解決する",
@@ -156,5 +163,69 @@ test(
     const afterDisable = await app.request("teams.read", { teamId: saved.id });
     expect("parentInput" in afterDisable.saved).toBe(false);
     expect("checkMinutes" in afterDisable.saved).toBe(false);
+  },
+);
+
+// AC-14: テンプレートから作ったチームで親を設定し直さず会話を始められる。
+test(
+  "テンプレートの親に先頭のCLIが入り作成後すぐに会話を始められる",
+  { tag: "@desktop" },
+  async ({ page, registeredApp: app }) => {
+    await app.request("cli.order.set", { order: [app.cliId] });
+    await app.request("teams.settings", {
+      enabled: true,
+      defaultTeam: "",
+      limits: {},
+    });
+    await app.open(page);
+    await openFolder(page, app);
+    await page
+      .getByRole("button", { name: "AI Agents/Teams", exact: true })
+      .click();
+    await page.getByRole("button", { name: "Teams", exact: true }).click();
+    await page
+      .getByRole("button", { name: "New team", exact: true })
+      .last()
+      .click();
+    const dialog = page.getByRole("dialog", { name: "New team", exact: true });
+    await dialog
+      .getByRole("option", { name: "Development", exact: true })
+      .click();
+    await expect(
+      dialog.getByRole("combobox", {
+        name: `CLI and model: ${app.cliId} › Default`,
+        exact: true,
+      }),
+    ).toBeVisible();
+    await dialog.getByRole("button", { name: "Create", exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    await page.getByRole("button", { name: "Parent", exact: true }).click();
+    await expect(
+      page.getByRole("combobox", {
+        name: `CLI and model: ${app.cliId} › Default`,
+        exact: true,
+      }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Worker", exact: true }).click();
+    await expect(
+      page.getByText(
+        `No candidates. Runs with the parent's settings (${app.cliId} › Default).`,
+        { exact: true },
+      ),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Candidates are tried in this order.", { exact: true }),
+    ).toHaveCount(0);
+    await page
+      .getByRole("button", { name: basename(app.folder), exact: true })
+      .click();
+    await page.getByRole("button", { name: "New tab", exact: true }).click();
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: /Development/ })
+      .click();
+    const terminal = visibleTerminal(page);
+    await expect(terminal).toBeVisible();
+    await app.terminalText(await terminalId(terminal), "ACTOR_READY");
   },
 );

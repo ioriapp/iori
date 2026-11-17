@@ -111,6 +111,14 @@ try {
                 requestAnimationFrame(() => requestAnimationFrame(resolve)),
               );
             });
+            if (
+              ["team-parent-picker", "team-parent-no-cli-picker"].includes(
+                state.id,
+              )
+            ) {
+              await page.locator(".team-new-parent .team-cli-model").click();
+              await page.locator(".team-search-popover").waitFor();
+            }
             if (state.id.startsWith("terminal-font-")) {
               const input = page.locator(
                 '[data-iori-field="terminal-font-family"]',
@@ -125,6 +133,16 @@ try {
               )
                 await input.focus();
             }
+            if (
+              [
+                "team-parent-empty",
+                "team-parent-empty-high",
+                "team-parent-unset",
+              ].includes(state.id)
+            )
+              await page
+                .locator(".team-execution-list")
+                .scrollIntoViewIfNeeded();
             if (renderError) row.unavailable = renderError;
             row.height = await page
               .locator(".host-flow-dialog")

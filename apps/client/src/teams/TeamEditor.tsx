@@ -104,6 +104,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogBody,
   DialogDescription,
   DialogFooter,
   DialogHeader,
@@ -172,7 +173,9 @@ function ShortSelect({
   value,
   options,
   onChange,
+  disabled,
 }: {
+  disabled?: boolean;
   label: string;
   value?: string;
   options: string[];
@@ -188,7 +191,7 @@ function ShortSelect({
         )
       }
     >
-      <SelectTrigger aria-label={t(label)}>
+      <SelectTrigger aria-label={t(label)} disabled={disabled}>
         <SelectValue />
       </SelectTrigger>
       <SelectContent position="popper">
@@ -452,6 +455,7 @@ function Permissions({
         <Button
           variant="outline"
           className="team-permission-summary"
+          disabled={!item.cli}
           aria-label={`${t("Permissions")}: ${summary}`}
         >
           <span>{summary}</span>
@@ -634,6 +638,7 @@ function ExecutionRow({
                   <span className="team-mobile-cell-label">Effort</span>
                   <ShortSelect
                     label="Effort"
+                    disabled={!item.cli}
                     value={item.effort}
                     options={effortOptions}
                     onChange={(effort) => onChange({ effort })}
@@ -1028,6 +1033,32 @@ export function TeamEditor({
   useEffect(() => setConfirmationError(""), [confirmation]);
   const [newTeamOpen, setNewTeamOpen] = useState(false);
   const [teamSource, setTeamSource] = useState("template:development");
+  const [newParent, setNewParent] = useState(() =>
+    candidate(pickerClis(clis)[0]?.id ?? "", ""),
+  );
+  const openNewTeam = () => {
+    const cli = pickerClis(clis)[0];
+    setNewParent(candidate(cli?.id ?? "", "", cli?.name));
+    setNewTeamOpen(true);
+  };
+  const sourceListRef = useRef<HTMLDivElement>(null);
+  const [sourceHasMore, setSourceHasMore] = useState(false);
+  const updateSourceShadow = () => {
+    const el = sourceListRef.current;
+    if (el)
+      setSourceHasMore(el.scrollHeight > el.clientHeight + el.scrollTop + 1);
+  };
+  const mountSourceList = useCallback((el: HTMLDivElement | null) => {
+    sourceListRef.current = el;
+    if (!el) return;
+    const update = () =>
+      setSourceHasMore(el.scrollHeight > el.clientHeight + el.scrollTop + 1);
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    if (el.firstElementChild) observer.observe(el.firstElementChild);
+    update();
+    return () => observer.disconnect();
+  }, []);
   const [copyTeam, setCopyTeam] = useState<Team | null>(null);
   const [copyHost, setCopyHost] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -1275,6 +1306,7 @@ export function TeamEditor({
   };
   const create = async (source: {
     template?: string;
+    parent?: Candidate;
     language?: "en" | "ja";
     sourceId?: string;
     definition?: TeamDefinition;
@@ -1304,7 +1336,11 @@ export function TeamEditor({
     const [kind, id] = teamSource.split(":");
     void create(
       kind === "template"
-        ? { template: id, language: locale === "ja-JP" ? "ja" : "en" }
+        ? {
+            template: id,
+            language: locale === "ja-JP" ? "ja" : "en",
+            parent: newParent,
+          }
         : {
             sourceId: id,
             name: `${data.teams.find((r) => r.saved.id === id)?.saved.name} — ${t("Duplicate")}`,
@@ -1793,7 +1829,7 @@ export function TeamEditor({
             size="icon-sm"
             aria-label={t("New team")}
             data-iori-action="team-new"
-            onClick={() => guard(() => setNewTeamOpen(true))}
+            onClick={() => guard(openNewTeam)}
           >
             <Plus size={16} />
           </Button>
@@ -1949,10 +1985,7 @@ export function TeamEditor({
               <PageHeader
                 title={t("Teams")}
                 actions={
-                  <Button
-                    variant="outline"
-                    onClick={() => setNewTeamOpen(true)}
-                  >
+                  <Button variant="outline" onClick={openNewTeam}>
                     <Plus size={15} />
                     {t("New team")}
                   </Button>
@@ -2236,8 +2269,8 @@ export function TeamEditor({
                     />
                   </SettingsRow>
                 </div>
-                <div className="team-candidate-heading">
-                  {selectedRole.split && (
+                {selectedRole.split && (
+                  <div className="team-candidate-heading">
                     <ToggleGroup
                       type="single"
                       variant="outline"
@@ -2252,14 +2285,21 @@ export function TeamEditor({
                         </ToggleGroupItem>
                       ))}
                     </ToggleGroup>
-                  )}
-                </div>
+                  </div>
+                )}
                 <div className="team-execution-list">
                   {candidateRows.length > 0 ? (
                     <ExecutionHeading />
                   ) : (
                     <p className="team-hint">
-                      {t("No candidates configured.")}
+                      {team?.parent.cli
+                        ? t(
+                            "No candidates. Runs with the parent's settings ({model}).",
+                          ).replace(
+                            "{model}",
+                            `${cliName(team.parent.cli)} › ${team.parent.model ? modelLabel(team.parent.cli, team.parent.model) : t("Default")}`,
+                          )
+                        : t("No candidates configured.")}
                     </p>
                   )}
                   <DndContext
@@ -2801,63 +2841,117 @@ export function TeamEditor({
         </DialogContent>
       </Dialog>
       <Dialog open={newTeamOpen} onOpenChange={setNewTeamOpen}>
-        <DialogContent className="team-dialog">
+        <DialogContent
+          className="team-dialog team-new-dialog"
+          onOpenAutoFocus={(event) => {
+            const dialog = event.target as HTMLElement;
+            const parent =
+              dialog.querySelector<HTMLElement>(".team-new-parent")!;
+            const height =
+              dialog.getBoundingClientRect().height +
+              (teamSource.startsWith("existing:")
+                ? parent.offsetHeight + 16
+                : 0);
+            dialog.style.height = `${Math.min(height, window.innerHeight - 32)}px`;
+          }}
+        >
           <DialogHeader>
             <DialogTitle>{t("New team")}</DialogTitle>
             <DialogDescription>
               {t("Start with a template or an existing team.")}
             </DialogDescription>
           </DialogHeader>
-          <Command>
-            <CommandInput placeholder={t("Search")} />
-            <CommandList>
-              <CommandGroup heading={t("Templates")}>
-                {Object.entries(templates).map(([id]) => (
-                  <CommandItem
-                    key={id}
-                    data-iori-template={id}
-                    value={`template:${id}`}
-                    keywords={[
-                      t(
-                        {
-                          development: "Development",
-                          research: "Research",
-                          writing: "Writing",
-                          minimal: "Minimal",
-                        }[id]!,
-                      ),
-                    ]}
-                    onSelect={() => setTeamSource(`template:${id}`)}
-                  >
-                    {t(
-                      {
-                        development: "Development",
-                        research: "Research",
-                        writing: "Writing",
-                        minimal: "Minimal",
-                      }[id]!,
-                    )}
-                    {teamSource === `template:${id}` && <Check size={14} />}
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-              <CommandGroup heading={t("Existing teams")}>
-                {data.teams.map((r) => (
-                  <CommandItem
-                    key={r.saved.id}
-                    value={`existing:${r.saved.id}`}
-                    keywords={[r.saved.name]}
-                    onSelect={() => setTeamSource(`existing:${r.saved.id}`)}
-                  >
-                    {r.saved.name}
-                    {teamSource === `existing:${r.saved.id}` && (
-                      <Check size={14} />
-                    )}
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-            </CommandList>
-          </Command>
+          <DialogBody className="team-new-body">
+            <Command className="team-source-command">
+              <CommandInput placeholder={t("Search")} />
+              <div
+                className="team-source-list-wrap"
+                data-more={sourceHasMore || undefined}
+              >
+                <CommandList
+                  ref={mountSourceList}
+                  onScroll={updateSourceShadow}
+                >
+                  <CommandGroup heading={t("Templates")}>
+                    {Object.entries(templates).map(([id]) => (
+                      <CommandItem
+                        key={id}
+                        data-iori-template={id}
+                        value={`template:${id}`}
+                        keywords={[
+                          t(
+                            {
+                              development: "Development",
+                              research: "Research",
+                              writing: "Writing",
+                              minimal: "Minimal",
+                            }[id]!,
+                          ),
+                        ]}
+                        onSelect={() => setTeamSource(`template:${id}`)}
+                      >
+                        {t(
+                          {
+                            development: "Development",
+                            research: "Research",
+                            writing: "Writing",
+                            minimal: "Minimal",
+                          }[id]!,
+                        )}
+                        {teamSource === `template:${id}` && <Check size={14} />}
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                  <CommandGroup heading={t("Existing teams")}>
+                    {data.teams.map((r) => (
+                      <CommandItem
+                        key={r.saved.id}
+                        value={`existing:${r.saved.id}`}
+                        keywords={[r.saved.name]}
+                        onSelect={() => setTeamSource(`existing:${r.saved.id}`)}
+                      >
+                        {r.saved.name}
+                        {teamSource === `existing:${r.saved.id}` && (
+                          <Check size={14} />
+                        )}
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                </CommandList>
+              </div>
+            </Command>
+            <div
+              className="team-field team-new-parent"
+              data-hidden={teamSource.startsWith("existing:") || undefined}
+              role="group"
+              aria-labelledby="new-team-parent-label"
+              aria-describedby="new-team-parent-description"
+              aria-hidden={teamSource.startsWith("existing:") || undefined}
+              inert={teamSource.startsWith("existing:") || undefined}
+            >
+              <Label id="new-team-parent-label">{t("Parent")}</Label>
+              <p className="team-hint" id="new-team-parent-description">
+                {t("Roles without candidates also run with these settings.")}
+              </p>
+              <div className="team-execution-list team-parent-execution">
+                <ExecutionHeading parent />
+                <DndContext sensors={sensors}>
+                  <ExecutionRow
+                    item={newParent}
+                    parent
+                    onChange={(changes) =>
+                      setNewParent((value) => ({ ...value, ...changes }))
+                    }
+                    availableModels={selectableModels}
+                    recent={[]}
+                    limits={{}}
+                    available={availableClis}
+                    onLimits={onLimits}
+                  />
+                </DndContext>
+              </div>
+            </div>
+          </DialogBody>
           <DialogFooter>
             <Button variant="outline" onClick={() => setNewTeamOpen(false)}>
               {t("Cancel")}

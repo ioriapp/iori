@@ -1,3 +1,4 @@
+import { TeamEditorPreview } from "./TeamEditorPreview.tsx";
 import { ConnectedHostUpdates } from "../../apps/client/src/updates/ConnectedHostUpdates.tsx";
 import { connectedHostUpdates } from "../../apps/client/src/updates/connected-hosts.ts";
 import { ReadingPreview } from "./ReadingPreview.tsx";
@@ -512,6 +513,8 @@ function UsagePreview() {
   );
 }
 function Frame() {
+  if (current.kind === "team-editor")
+    return <TeamEditorPreview state={stateId} language={language} />;
   if (current.kind === "connected-host-updates")
     return (
       <TooltipProvider>

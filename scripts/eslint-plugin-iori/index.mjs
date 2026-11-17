@@ -1,3 +1,4 @@
+import noAndroidMonkey from "./rules/no-android-monkey.mjs";
 import noWebTerminalObservation from "./rules/no-web-terminal-observation.mjs";
 import noWorkspaceEntranceClick from "./rules/no-workspace-entrance-click.mjs";
 import noTerminalEchoMarker from "./rules/no-terminal-echo-marker.mjs";
@@ -19,6 +20,7 @@ export default {
     version: "0.1.0",
   },
   rules: {
+    "no-android-monkey": noAndroidMonkey,
     "no-web-terminal-observation": noWebTerminalObservation,
     "no-workspace-entrance-click": noWorkspaceEntranceClick,
     "no-terminal-echo-marker": noTerminalEchoMarker,

@@ -185,6 +185,14 @@ export default [
     rules: { "no-undef": "error" },
   },
   {
+    files: ["{verification,scripts,e2e}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"],
+    ignores: [
+      "scripts/eslint-plugin-iori/test/no-android-monkey.test.mjs",
+      "scripts/eslint-plugin-iori/rules/no-android-monkey.mjs",
+    ],
+    rules: { "iori/no-android-monkey": "error" },
+  },
+  {
     files: ["verification/**/*.mjs", "e2e/**/*.mjs"],
     rules: {
       "iori/no-ssh-start-process": "error",

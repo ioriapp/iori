@@ -1,3 +1,4 @@
+import { providerHome } from "./provider-home.mjs";
 import { capabilities } from "./capabilities.mjs";
 import { randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
@@ -20,7 +21,14 @@ export const model = (cli) =>
         ? "openai-codex/gpt-6-luna"
         : "gpt-6-luna";
 export const commandStep = (cli, command, extra = {}) => ({
-  tool: cli === "claude" ? "Bash" : cli === "codex" ? "exec_command" : "bash",
+  tool:
+    cli === "claude"
+      ? "Bash"
+      : cli === "codex"
+        ? "exec_command"
+        : cli === "hermes"
+          ? "terminal"
+          : "bash",
   input: cli === "codex" ? { cmd: command, ...extra } : { command, ...extra },
   delayMs: 0,
 });
@@ -143,7 +151,10 @@ export async function withCli(
         await mkdir(cwd);
         if (untrustedChild) execFileSync("git", ["init", "-q", cwd]);
         const prepared = await prepareCliHome(dataRoot, {
-          clis: capabilities[cli]?.fakeModel ? [cli] : [],
+          clis:
+            capabilities[cli]?.fakeModel && !["hermes", "vibe"].includes(cli)
+              ? [cli]
+              : [],
           fakeModel: fake,
           fakeModelClis:
             !realModel && capabilities[cli]?.fakeModel ? [cli] : [],
@@ -189,8 +200,12 @@ export async function withCli(
               for (const step of steps)
                 if (step.tool === "bash") step.tool = "shell";
         }
+        const providerEnvironment = fake
+          ? await providerHome(cli, prepared.home, fake.baseURL)
+          : {};
         return {
           ...prepared.environment,
+          ...providerEnvironment,
           HOME: prepared.home,
           PATH: process.env.PATH,
           CODEX_HOME: join(prepared.home, ".codex"),

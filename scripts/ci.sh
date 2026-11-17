@@ -117,6 +117,55 @@ collect_active_cargo_target_keys() {
   done <<< "$container_ids"
   printf '%s\n' "${keys[@]}"
 }
+seed_cargo_target() {
+  local active inventory active_key key stamp encoded marker_path best_key="" best_stamp=""
+  local -a active_keys=()
+  # Full CI runs holding this lock cannot build a donor while it is copied.
+  [[ -z "$check_args" && -n "${ci_lock:-}" ]] || return 0
+  active=$(collect_active_cargo_target_keys "$stage/cargo-target-seed-active.log") || return 1
+  while IFS= read -r active_key; do
+    [[ -n "$active_key" ]] && active_keys+=("$active_key")
+  done <<< "$active"
+  for active_key in "${active_keys[@]}"; do [[ "$active_key" != "$workspace_cache_key" ]] || return 0; done
+  inventory=$(docker run --rm -v iori-ci-cargo-target:/cargo-target "$tag" bash -Eeuo pipefail -c '
+    target="/cargo-target/$1"
+    if [[ -d "$target" && -z "$(find "$target" -mindepth 1 -maxdepth 1 ! -name .iori-worktree-path -print -quit)" ]]; then
+      rm -f "$target/.iori-worktree-path"
+      rmdir "$target" || true
+    fi
+    [[ ! -e "/cargo-target/$1" ]] || exit 0
+    for target in /cargo-target/*; do
+      [[ -f "$target/.iori-worktree-path" && ! -e "$target/.iori-needs-clean" ]] || continue
+      [[ -d "$target/debug" || -d "$target/release" ]] || continue
+      key=${target##*/}
+      [[ "$key" =~ ^[a-f0-9]{64}$ ]] || continue
+      printf "%s\t%s\t%s\n" "$key" "$(stat -c %y "$target/.iori-worktree-path")" "$(base64 -w0 "$target/.iori-worktree-path")"
+    done
+  ' bash "$workspace_cache_key") || return 1
+  while IFS=$'\t' read -r key stamp encoded; do
+    [[ "$key" =~ ^[a-f0-9]{64}$ && -n "$stamp" ]] || continue
+    [[ "$key" != "$workspace_cache_key" ]] || continue
+    for active_key in "${active_keys[@]}"; do [[ "$key" != "$active_key" ]] || continue 2; done
+    marker_path=$(printf '%s' "$encoded" | base64 --decode) || return 1
+    [[ "$marker_path" == /* && -e "$marker_path" ]] || continue
+    if [[ -z "$best_stamp" || "$stamp" > "$best_stamp" ]]; then best_key=$key; best_stamp=$stamp; fi
+  done <<< "$inventory"
+  [[ -n "$best_key" ]] || return 0
+  docker run --rm -v iori-ci-cargo-target:/cargo-target "$tag" bash -Eeuo pipefail -c '
+    source="/cargo-target/$1"
+    target="/cargo-target/$2"
+    [[ ! -e "$target" && -f "$source/.iori-worktree-path" && ! -e "$source/.iori-needs-clean" ]] || exit 0
+    temporary=$(mktemp -d /cargo-target/.seed-XXXXXXXX)
+    trap '\''rm -rf -- "$temporary"'\'' EXIT
+    started=$(date +%s)
+    cp -a "$source/." "$temporary/"
+    printf "%s\n" "$3" >"$temporary/.iori-worktree-path"
+    touch "$temporary/.iori-needs-clean"
+    bytes=$(du -sb "$temporary" | cut -f1)
+    mv -T "$temporary" "$target"
+    printf "CI Cargo target seed: source=%s size=%s bytes seconds=%s\n" "$1" "$bytes" "$(( $(date +%s) - started ))"
+  ' bash "$best_key" "$workspace_cache_key" "$root"
+}
 cleanup_cargo_targets() {
   local active_before active_after_output inventory cutoff now kind key value marker_path is_active result
   local active_after_key active_key spec mode target mtime bytes
@@ -234,17 +283,37 @@ cleanup_cargo_targets() {
   [[ "$result" == CI\ Cargo\ target\ cleanup:* ]] || return 1
   printf '%s\n' "$result"
 }
+if ! seed_cargo_target; then
+  printf 'CI Cargo target seed: warning: copy failed\n'
+fi
 if ! cleanup_cargo_targets; then
   printf 'CI Cargo target cleanup: warning: cleanup failed\n'
 fi
+cat >"$stage/clean-copied-cargo.mjs" <<'EOF'
+import { execFileSync } from "node:child_process";
+import { unlinkSync } from "node:fs";
+import { join } from "node:path";
+
+for (const manifest of ["Cargo.toml", "apps/client/src-tauri/Cargo.toml"]) {
+  const metadata = JSON.parse(execFileSync("cargo", ["metadata", "--format-version", "1", "--locked", "--manifest-path", manifest], { maxBuffer: Infinity }));
+  const packages = metadata.packages.filter((pkg) => pkg.source === null);
+  const selection = packages.flatMap((pkg) => ["-p", pkg.name]);
+  if (selection.length === 0) throw new Error(`No local Cargo packages found in ${manifest}`);
+  for (const profile of [[], ["--release"]]) {
+    execFileSync("cargo", ["clean", "--manifest-path", manifest, ...profile, ...selection], { stdio: "inherit" });
+  }
+}
+unlinkSync(join(process.env.CARGO_TARGET_DIR, ".iori-needs-clean"));
+EOF
 cid=$(docker create --label org.iori.ci.workspace=bounded-check --memory 8g --memory-swap 8g \
   -w /work -e CI=true -e npm_config_store_dir=/pnpm/store -e pnpm_config_store_dir=/pnpm/store \
   -e CARGO_TARGET_DIR="/cargo-target/$workspace_cache_key" -e CARGO_BUILD_JOBS=2 \
   -v iori-ci-pnpm-store:/pnpm/store \
   -v iori-ci-cargo-registry:/opt/cargo/registry \
   -v iori-ci-cargo-target:/cargo-target \
-  "$tag" bash -Eeuo pipefail -c "git config --global --add safe.directory /work; timeout --kill-after=20s 900 bash scripts/ci-check.sh$check_args")
+  "$tag" bash -Eeuo pipefail -c "git config --global --add safe.directory /work; if [[ -z '$check_args' && -f \"\$CARGO_TARGET_DIR/.iori-needs-clean\" ]]; then node /tmp/clean-copied-cargo.mjs; fi; timeout --kill-after=20s 900 bash scripts/ci-check.sh$check_args")
 docker cp "$stage/src/." "$cid:/work/"
+docker cp "$stage/clean-copied-cargo.mjs" "$cid:/tmp/clean-copied-cargo.mjs"
 copy_seconds=$(( $(date +%s) - copy_started ))
 run_started=$(date +%s)
 docker start "$cid" >/dev/null

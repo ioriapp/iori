@@ -29,6 +29,10 @@ export const teamJapanese: Record<string, string> = {
     "このデバイスのAutomationの下書きを復元できませんでした。もう一度お試しください。",
   "Could not save this draft on this device. Save the automation or copy its instructions.":
     "このデバイスに下書きを保存できませんでした。Automationを保存するか、指示をコピーしてください。",
+  "Roles without candidates also run with these settings.":
+    "候補のない役割も、この設定で動きます。",
+  "No candidates. Runs with the parent's settings ({model}).":
+    "候補がないため、親と同じ設定（{model}）で動きます。",
   "No candidates configured.": "候補が設定されていません。",
   "Not set": "未設定",
   "Choose a parent CLI": "親のCLIを選択してください",

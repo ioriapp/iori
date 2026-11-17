@@ -219,15 +219,24 @@ export async function withDeviceLocks(plan, command, args) {
   const inherited = alreadyLocked(plan); // Reject partial inheritance before flock.
   await mkdir(lockRoot, { recursive: true });
   const prefix = [];
+  let androidLockHeld = false;
   // During migration the owner can hold the old global lock once around an entire
   // batch. It is intentionally not baked into the permanent per-device protocol.
-  for (const { device, shared } of inherited ? [] : plan)
+  for (const { device, shared } of inherited ? [] : plan) {
+    androidLockHeld ||= device === "android";
     prefix.push(
       "flock",
-      "--close",
+      androidLockHeld ? "--no-fork" : "--close",
       shared ? "--shared" : "--exclusive",
       path.join(lockRoot, device + ".lock"),
+      ...(device === "android"
+        ? [
+            process.execPath,
+            path.join(repo, "verification/native/android-rotation.mjs"),
+          ]
+        : []),
     );
+  }
   prefix.push(command, ...args);
   console.log(
     "[locks] waiting: " +

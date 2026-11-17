@@ -38,6 +38,7 @@ function stateDataPlugin(catalog) {
       "host-setup/HostSetupDialog.tsx",
       "ClientInitialization.tsx",
       "teams/ChildRows.tsx",
+      "teams/TeamEditor.tsx",
       "terminal/TerminalPane.tsx",
       "IntegrationsSettings.tsx",
       "Settings.tsx",
@@ -116,6 +117,7 @@ function stateDataPlugin(catalog) {
         }
         if (
           [
+            "TeamEditor",
             "HostSetupDialog",
             "SshSetup",
             "IntegrationsSettings",
