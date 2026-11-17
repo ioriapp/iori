@@ -1,3 +1,5 @@
+import { createECDH, randomBytes } from "node:crypto";
+import type { App } from "./test.ts";
 import { expect, type Locator, type Page } from "@playwright/test";
 import { mkdir, writeFile, readFile } from "node:fs/promises";
 import { dirname } from "node:path";
@@ -139,4 +141,122 @@ export async function longPress(target: Locator) {
   } finally {
     await session.detach();
   }
+}
+
+// Androidだけを通信の中継で再現し、本物のHostからの応答を記録する。
+export async function unifiedPushAndroid(page: Page, app: App) {
+  const key = createECDH("prime256v1");
+  key.generateKeys();
+  const subscription = {
+    endpoint: "https://push.example.test/iori",
+    keys: {
+      p256dh: key.getPublicKey().toString("base64url"),
+      auth: randomBytes(16).toString("base64url"),
+    },
+  };
+  const received: { params: unknown; response: unknown }[] = [];
+  let foreground: ((value: boolean) => void) | undefined;
+  let disconnects = 0;
+  let saved: { distributor?: string; subscription?: typeof subscription } = {};
+  await page.routeWebSocket(
+    new URL(app.url).searchParams.get("iori-bridge")!,
+    (route) => {
+      foreground = (value) =>
+        route.send(
+          JSON.stringify({
+            event: "native://foreground",
+            payload: { foreground: value },
+          }),
+        );
+      const server = route.connectToServer();
+      const requests = new Map<number, unknown>();
+      route.onMessage((data) => {
+        const request = JSON.parse(String(data)) as {
+          id: number;
+          command: string;
+          args: { distributor?: string; json?: string };
+        };
+        const respond = (result?: unknown) =>
+          route.send(JSON.stringify({ id: request.id, result }));
+        if (request.command === "native_disconnect") disconnects++;
+        if (request.command === "native_unifiedpush_distributors")
+          return respond([{ id: "io.heckel.ntfy", name: "ntfy" }]);
+        if (request.command === "native_unifiedpush_state")
+          return respond(saved);
+        if (request.command === "native_unifiedpush_register") {
+          saved = { distributor: request.args.distributor, subscription };
+          respond();
+          route.send(
+            JSON.stringify({
+              event: "native://unifiedpush",
+              payload: { kind: "endpoint", subscription },
+            }),
+          );
+          return;
+        }
+        if (request.command === "native_unifiedpush_unregister") {
+          saved = {};
+          return respond();
+        }
+        if (request.command === "native_request" && request.args.json) {
+          const message = JSON.parse(request.args.json) as {
+            method: string;
+            params: unknown;
+          };
+          if (message.method === "notifications.push.set")
+            requests.set(request.id, message.params);
+        }
+        server.send(data);
+      });
+      server.onMessage((data) => {
+        const response = JSON.parse(String(data)) as {
+          id?: number;
+          result?: string;
+        };
+        if (response.id !== undefined && requests.has(response.id)) {
+          received.push({
+            params: requests.get(response.id),
+            response: JSON.parse(response.result!),
+          });
+          requests.delete(response.id);
+        }
+        route.send(data);
+      });
+    },
+  );
+  return {
+    background() {
+      foreground?.(false);
+    },
+    async expectDisconnected() {
+      await expect.poll(() => disconnects).toBeGreaterThan(0);
+    },
+    async expectRegistrationFailure() {
+      await expect
+        .poll(() => received)
+        .toContainEqual({
+          params: { subscription, language: "en", waiting: true, done: true },
+          response: expect.objectContaining({ ok: false }),
+        });
+    },
+    async expectUnregistered() {
+      await expect.poll(() => app.pushSettings()).toEqual([]);
+    },
+    async expectRegistered() {
+      await expect
+        .poll(() => received)
+        .toContainEqual({
+          params: { subscription, language: "en", waiting: true, done: true },
+          response: expect.objectContaining({ ok: true }),
+        });
+      await expect
+        .poll(() => app.pushSettings())
+        .toContainEqual({
+          subscription,
+          language: "en",
+          waiting: true,
+          done: true,
+        });
+    },
+  };
 }

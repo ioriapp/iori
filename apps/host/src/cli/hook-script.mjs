@@ -1,6 +1,7 @@
 // Lifecycle delivery follows Orca's managed hook scripts, without spool/retry.
 // Copyright (c) 2026 Lovecast Inc.; MIT license: ./ORCA-LICENSE.txt.
 import { request } from "node:http";
+import { approvalRequest } from "./approval-client.mjs";
 
 // The event when the CLI does not name it in the payload, a reply that the
 // CLI requires, and the `id` of the CLI whose settings hold this hook. An
@@ -30,6 +31,24 @@ try {
   if (process.env.IORI_CLI_HOOK_ADAPTER) {
     const adapter = await import(process.env.IORI_CLI_HOOK_ADAPTER);
     if ((await adapter.preparePayload(payload)) === false) process.exit(0);
+  }
+  if (
+    payload.hook_event_name === "PermissionRequest" &&
+    payload.tool_name !== "AskUserQuestion" &&
+    process.env.IORI_CLI_APPROVAL_FILE
+  ) {
+    const result = await approvalRequest(payload);
+    if (result?.decision === "allow" || result?.decision === "deny") {
+      process.stdout.write(
+        JSON.stringify({
+          hookSpecificOutput: {
+            hookEventName: "PermissionRequest",
+            decision: { behavior: result.decision },
+          },
+        }) + "\n",
+      );
+    }
+    if (result?.accepted || result?.decision) process.exit(0);
   }
   await new Promise((resolve) => {
     const body = JSON.stringify(payload);

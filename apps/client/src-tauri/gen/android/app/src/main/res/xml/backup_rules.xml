@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <full-backup-content>
+    <exclude domain="sharedpref" path="iori_unifiedpush.xml" />
+    <exclude domain="database" path="unifiedpush-connector" />
+    <exclude domain="database" path="unifiedpush-connector-journal" />
+    <exclude domain="database" path="unifiedpush-connector-wal" />
+    <exclude domain="database" path="unifiedpush-connector-shm" />
     <exclude domain="sharedpref" path="iori_identity.xml" />
     <exclude domain="root" path="registrations.sqlite3" />
     <exclude domain="root" path="registrations.sqlite3-journal" />

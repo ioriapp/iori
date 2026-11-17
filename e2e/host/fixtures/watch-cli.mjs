@@ -189,7 +189,10 @@ async function handleInstruction(text) {
     return;
   }
   if (text.includes("HOOK_WAITING")) {
-    await hook("PermissionRequest", { ...payload, tool_name: "Bash" });
+    await hook("PermissionRequest", {
+      ...payload,
+      tool_name: text.includes("HOOK_WAITING_CHANGED") ? "Read" : "Bash",
+    });
     console.log("HOOK_WAITING_SENT");
     return;
   }

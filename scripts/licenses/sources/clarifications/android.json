@@ -238,5 +238,21 @@
     "text": "Apache-2.0.txt",
     "metadata": "https://dl.google.com/dl/android/maven2/androidx/viewpager2/viewpager2/1.0.0/viewpager2-1.0.0.pom",
     "source": "https://raw.githubusercontent.com/spdx/license-list-data/31846481de7ea17d92f2f46fad76abe58b2e9bb0/text/Apache-2.0.txt"
+  },
+  "org.unifiedpush.android:connector:3.3.5": {
+    "license": "Apache-2.0",
+    "author": "S1m",
+    "reason": "The published artifact has no license text; the tagged upstream source provides the Apache-2.0 license.",
+    "text": "unifiedpush-Apache-2.0.txt",
+    "metadata": "https://repo.maven.apache.org/maven2/org/unifiedpush/android/connector/3.3.5/connector-3.3.5.pom",
+    "source": "https://codeberg.org/UnifiedPush/android-connector/raw/tag/3.3.5/LICENSE"
+  },
+  "com.google.code.findbugs:jsr305:3.0.2": {
+    "license": "Apache-2.0 AND CC-BY-2.5",
+    "author": "Brian Goetz (concurrent annotations); no author declared for the remaining annotations",
+    "reason": "The POM declares Apache-2.0; matching sources declare CC-BY-2.5 for concurrent annotations and include their copyright notices.",
+    "text": "jsr305-LICENSES.txt",
+    "metadata": "https://repo.maven.apache.org/maven2/com/google/code/findbugs/jsr305/3.0.2/jsr305-3.0.2.pom",
+    "source": "https://repo.maven.apache.org/maven2/com/google/code/findbugs/jsr305/3.0.2/jsr305-3.0.2-sources.jar"
   }
 }

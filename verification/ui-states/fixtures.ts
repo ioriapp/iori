@@ -153,6 +153,7 @@ export const clis = Object.fromEntries(
 
 export type Fixture = {
   kind:
+    | "approval"
     | "team-editor"
     | "setup"
     | "uninstall"
@@ -160,6 +161,7 @@ export type Fixture = {
     | "notice"
     | "initialization"
     | "integrations"
+    | "push-notifications"
     | "terminal-font"
     | "child-states"
     | "usage"
@@ -191,6 +193,27 @@ export const terminalFontNames = [
 ];
 
 export function fixture(id: string): Fixture {
+  if (id.startsWith("approval-"))
+    return {
+      kind: "approval",
+      initial: {
+        MobileAttentionRow: {
+          pending:
+            id === "approval-04"
+              ? "allow"
+              : id === "approval-deny"
+                ? "deny"
+                : undefined,
+          failed: id === "approval-06",
+          unavailable: id === "approval-unavailable",
+          expanded: id === "approval-02-expanded",
+        },
+      },
+      events: [],
+      notes: [],
+    };
+  if (id.startsWith("push-"))
+    return { kind: "push-notifications", initial: {}, events: [], notes: [] };
   if (id.startsWith("team-parent-"))
     return {
       kind: "team-editor",

@@ -183,6 +183,48 @@ export interface CliSession {
   file?: string;
 }
 
+export interface CliApproval {
+  id: string;
+  canRespond: true;
+  tool?: string;
+  command?: string;
+  paths?: string[];
+  resources?: string[];
+}
+
+export interface TerminalApprovalResponse {
+  status: "sent" | "stale" | "unavailable";
+}
+
+function parseCliApproval(value: unknown): CliApproval | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const item = value as Record<string, unknown>;
+  if (typeof item.id !== "string" || !item.id || item.canRespond !== true)
+    return undefined;
+  return {
+    id: item.id,
+    canRespond: true,
+    ...(typeof item.tool === "string" ? { tool: approvalText(item.tool) } : {}),
+    ...(typeof item.command === "string"
+      ? { command: approvalText(item.command) }
+      : {}),
+    ...Object.fromEntries(
+      ["paths", "resources"].flatMap((key) =>
+        Array.isArray(item[key])
+          ? [
+              [
+                key,
+                item[key]
+                  .filter((v): v is string => typeof v === "string")
+                  .map(approvalText),
+              ],
+            ]
+          : [],
+      ),
+    ),
+  };
+}
+
 /** Live hook state. It belongs to this Host process, never to saved sessions. */
 export interface CliStatus {
   state: "active" | "waiting" | "done" | "stopped" | "idle";
@@ -201,6 +243,7 @@ export interface CliStatus {
     kind: "approval" | "question";
     tool?: string;
     summary?: string;
+    approval?: CliApproval;
   };
   /** While active: when the Host saw the CLI stop making progress (no
    * terminal output for 2 minutes, or a stopped descendant process). */
@@ -230,6 +273,9 @@ export function parseCliStatus(value: unknown): CliStatus | undefined {
     if (item.kind === "approval" || item.kind === "question") {
       attention = {
         kind: item.kind,
+        ...(item.kind === "approval" && parseCliApproval(item.approval)
+          ? { approval: parseCliApproval(item.approval) }
+          : {}),
         ...(typeof item.tool === "string"
           ? { tool: item.tool.slice(0, 4096) }
           : {}),
@@ -323,14 +369,18 @@ export function cliNotificationId(target: CliNotificationTarget): number {
 
 /** Text exposed in OS notifications: strip controls and redact credentials. */
 export function notificationText(value: string): string {
+  return approvalText(value).slice(0, 4096);
+}
+
+/** Approval details retain the full command while removing secrets and controls. */
+export function approvalText(value: string): string {
   return value
     .replace(/\p{Cc}/gu, " ")
     .replace(/[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/gu, "")
     .replace(
       /((?:token|password|secret|api[_-]?key|authorization)(?:\s*[=:]\s*|\s+)|Bearer\s+)(?:"[^"]*"|'[^']*'|\S+)/giu,
       "$1[redacted]",
-    )
-    .slice(0, 4096);
+    );
 }
 
 /** Notification targets can arrive through an external OS protocol URL. */

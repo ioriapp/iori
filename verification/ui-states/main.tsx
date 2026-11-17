@@ -1,3 +1,5 @@
+import { ApprovalPreview } from "./ApprovalPreview.tsx";
+import { notificationSettingsFixture } from "./notification-states.ts";
 import { TeamEditorPreview } from "./TeamEditorPreview.tsx";
 import { ConnectedHostUpdates } from "../../apps/client/src/updates/ConnectedHostUpdates.tsx";
 import { connectedHostUpdates } from "../../apps/client/src/updates/connected-hosts.ts";
@@ -133,10 +135,15 @@ function Version() {
   );
 }
 function TerminalFontSettingsPreview() {
+  const push =
+    current.kind === "push-notifications"
+      ? notificationSettingsFixture(stateId)
+      : undefined;
   const [preferences, setPreferences] = useState<Preferences>({
     notifyWaiting: true,
     notifyDone: true,
-    backgroundConnection: false,
+    backgroundConnection: push?.mode === "background",
+    unifiedPushDistributor: push?.distributor,
     notificationPrompted: true,
     closeToExit: false,
     language,
@@ -154,13 +161,13 @@ function TerminalFontSettingsPreview() {
   return (
     <ProductSettings
       open
-      section="display"
+      section={push ? "notifications" : "display"}
       initialDetail={stateId !== "light-settings-list"}
       state={{
         ...connection.getSnapshot(),
         initial: {
           ...connection.getSnapshot().initial,
-          mobile: matchMedia("(max-width:767px)").matches,
+          mobile: !!push || matchMedia("(max-width:767px)").matches,
         },
       }}
       preferences={preferences}
@@ -182,6 +189,7 @@ function TerminalFontSettingsPreview() {
       disconnectedSeconds={0}
       accessoryLayout={getDefaultTerminalAccessoryLayout()}
       onDefaultShellChange={noop}
+      unifiedPush={push}
       onNotificationPermission={noop}
       uninstallActions={actions}
       onUninstallClose={noop}
@@ -513,6 +521,8 @@ function UsagePreview() {
   );
 }
 function Frame() {
+  if (stateId.startsWith("approval-"))
+    return <ApprovalPreview state={stateId} language={language} />;
   if (current.kind === "team-editor")
     return <TeamEditorPreview state={stateId} language={language} />;
   if (current.kind === "connected-host-updates")
@@ -580,7 +590,7 @@ function Frame() {
             stateId === "B5-last" ? (
               <Onboarding />
             ) : null
-          ) : current.kind === "terminal-font" ? (
+          ) : ["terminal-font", "push-notifications"].includes(current.kind) ? (
             <TerminalFontSettingsPreview />
           ) : (
             <SettingsBackdrop />

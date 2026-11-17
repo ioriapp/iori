@@ -40,6 +40,10 @@ export async function hookInstallContext(
       await readFile(new URL("./hook-script.mjs", import.meta.url), "utf8"),
     );
     await writeText(
+      join(directory, "approval-client.mjs"),
+      await readFile(new URL("./approval-client.mjs", import.meta.url), "utf8"),
+    );
+    await writeText(
       join(directory, "ORCA-LICENSE.txt"),
       await readFile(new URL("./ORCA-LICENSE.txt", import.meta.url), "utf8"),
     );
@@ -125,6 +129,7 @@ export async function removeCliHooks(
   for (const file of [
     "iori-cli-hook.mjs",
     "iori-cli-hook.cmd",
+    "approval-client.mjs",
     "ORCA-LICENSE.txt",
   ])
     await removeHookFile(join(directory, file));

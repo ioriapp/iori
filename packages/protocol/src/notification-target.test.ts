@@ -91,3 +91,86 @@ test("通知文は改行・制御文字・文字の向きの制御を除き、�
       `${name}=[redacted]`,
     );
 });
+
+// The Client and Host must keep the existing OS notification text and target.
+test("判断待ちと完了・失敗の通知文を日本語・英語で共用する", async () => {
+  const { createCliNotification, notificationLabels } =
+    await import("./push-notifications.ts");
+  const hostKey = "ab".repeat(32);
+  const terminal = {
+    id: "e6e3a59a-1f09-43a4-aaed-72688ae4c4f8",
+    createdAt: 1,
+    cwd: "C:\\work\\project\\branch",
+    shell: "bash",
+    title: "CLI title",
+    cols: 80,
+    rows: 24,
+    lastDesktopSize: { cols: 80, rows: 24 },
+    restartPending: false,
+    cli: { id: "test", name: "Test CLI" },
+  };
+  const folders = [
+    {
+      path: "C:\\work\\project",
+      workspacePath: "C:\\work\\project",
+      kind: "git" as const,
+      openedAt: 1,
+      inSidebar: true,
+      worktrees: [{ path: terminal.cwd, branch: "branch", primary: false }],
+    },
+  ];
+  const cases = [
+    {
+      state: "waiting" as const,
+      attention: { kind: "approval" as const, summary: "run task" },
+      ja: "承認待ち",
+      en: "Waiting for approval",
+      body: "run task",
+    },
+    {
+      state: "waiting" as const,
+      attention: { kind: "question" as const, summary: "choose target" },
+      ja: "入力待ち",
+      en: "Needs input",
+      body: "choose target",
+    },
+    {
+      state: "done" as const,
+      response: "Finished work",
+      ja: "完了",
+      en: "Done",
+      body: "Finished work",
+    },
+    {
+      state: "done" as const,
+      outcome: "failure" as const,
+      ja: "失敗",
+      en: "Failed",
+      body: "CLI title",
+    },
+  ];
+  for (const state of cases)
+    for (const language of ["ja", "en"] as const) {
+      const notification = createCliNotification(
+        hostKey,
+        { ...terminal, cliStatus: { ...state, since: 1 } },
+        folders,
+        (key) => notificationLabels[language][key],
+      );
+      assert.deepEqual(notification, {
+        id: cliNotificationId({ hostKey, terminalId: terminal.id }),
+        title: `project / branch - Test CLI ${state[language]}`,
+        body: state.body,
+        target: { hostKey, terminalId: terminal.id },
+      });
+    }
+});
+
+test("通知のプレビューは秘密を伏せ、改行を整え、Unicode文字を途中で分割しない", async () => {
+  const { notificationPreview } = await import("./push-notifications.ts");
+  assert.equal(
+    notificationPreview("run\n token=private-value\t task"),
+    "run token=[redacted] task",
+  );
+  assert.equal(notificationPreview("😀".repeat(181)), "😀".repeat(179) + "…");
+});

@@ -1,3 +1,4 @@
+import { ApprovalBroker } from "../cli/approval-broker.ts";
 import { terminalSubmitPaste } from "./terminal-submit.ts";
 import { commitAtomicFile } from "../fs/atomic-write.ts";
 import { copyDeliveryFile } from "../fs/delivery-file.ts";
@@ -257,6 +258,7 @@ interface RuntimeTerminal {
   inputModeReady: boolean;
   ptyExited: boolean;
   hooks?: CliHooks;
+  approvalFile?: string;
   hookRoute?: { url: string; dispose: () => void };
   /** A CLI typed in this shell puts the `iori` command's location on PATH. */
   commandPath?: boolean;
@@ -401,6 +403,7 @@ export class TerminalRuntime {
   readonly #operationChains = new Map<string, Promise<void>>();
   #stopping = false;
   readonly #remote: RemotePtys;
+  readonly #approvals: ApprovalBroker;
   onDelivered?: (id: string) => void;
   readonly #retiringClis = new Map<
     string,
@@ -412,6 +415,7 @@ export class TerminalRuntime {
     terminalId: string,
     reason: "exit" | "user",
   ) => void | Promise<void>;
+  onCliNotification?: (terminal: TerminalSummary) => void;
   onCliState?: (terminalId: string, state: HookState) => void | Promise<void>;
   onSetupFailed?: (
     terminalId: string,
@@ -574,6 +578,8 @@ export class TerminalRuntime {
       await this.#killAndWait(runtime);
       runtime.hookObserver?.dispose();
       runtime.hookObserver = undefined;
+      this.#approvals.remove(runtime.record.id);
+      runtime.approvalFile = undefined;
       runtime.hookRoute?.dispose();
       runtime.hookRoute = undefined;
       runtime.cli = undefined;
@@ -708,7 +714,9 @@ export class TerminalRuntime {
     shellIntegration: ShellIntegration,
     clis: RuntimeCli,
     remote: RemotePtys,
+    approvals: ApprovalBroker,
   ) {
+    this.#approvals = approvals;
     this.#remote = remote;
     this.#imagesRoot = imagesRoot;
     this.#shellIntegration = shellIntegration;
@@ -733,6 +741,8 @@ export class TerminalRuntime {
     const defaultShell =
       resolveShell(discovered.shells, stored)?.id ?? discovered.preferred;
     if (defaultShell) store.setDefaultTerminalShell(defaultShell);
+    const approvals = new ApprovalBroker(join(storageRoot, "cli-approvals"));
+    await approvals.start();
     const manager = new TerminalRuntime(
       store,
       publish,
@@ -743,6 +753,7 @@ export class TerminalRuntime {
       new ShellIntegration(storageRoot),
       clis,
       remote,
+      approvals,
     );
     if (!preserveImages) {
       await manager.#removeImages(manager.#imagesRoot);
@@ -832,6 +843,8 @@ export class TerminalRuntime {
           ?.waitForInputCursor ||
           runtime.showCursor);
       runtime.cliStatus = state?.status;
+      if (runtime.cliStatus?.attention?.approval)
+        delete runtime.cliStatus.attention.approval;
       if (
         runtime.cliStatus?.state === "active" &&
         runtime.cliStatus.stalledSince === undefined
@@ -1521,8 +1534,9 @@ export class TerminalRuntime {
     }
   }
 
-  disconnected() {
+  disconnected(): Promise<void> {
     this.#stopping = true;
+    const closed = this.#approvals.close();
     this.#clearStallTimer();
     for (const runtime of this.#runtimes.values()) {
       runtime.hookObserver?.dispose();
@@ -1535,9 +1549,11 @@ export class TerminalRuntime {
         this.#detachSubscriber(runtime, subscriber, OVERFLOW_RESET_CODE);
     }
     this.#runtimes.clear();
+    return closed;
   }
   async close(): Promise<void> {
     this.#stopping = true;
+    await this.#approvals.close();
     this.#clearStallTimer();
     await this.#stallChecking;
     for (const runtime of this.#runtimes.values()) {
@@ -1560,6 +1576,8 @@ export class TerminalRuntime {
   }
 
   #clearCli(runtime: RuntimeTerminal): void {
+    this.#approvals.remove(runtime.record.id);
+    runtime.approvalFile = undefined;
     const hadCli = Boolean(runtime.cli);
     runtime.hookObserver?.dispose();
     runtime.hookObserver = undefined;
@@ -1739,6 +1757,7 @@ export class TerminalRuntime {
   }
 
   #notifyCliState(runtime: RuntimeTerminal, state: HookState): void {
+    this.onCliNotification?.(this.#summary(runtime.record));
     runtime.notifications = runtime.notifications
       .then(() => this.onCliState?.(runtime.record.id, state))
       .catch(() => {
@@ -1896,6 +1915,12 @@ export class TerminalRuntime {
 
   #updateCliState(runtime: RuntimeTerminal, next: HookState | undefined): void {
     if (!next || !runtime.cli || runtime.stopped || this.#stopping) return;
+    const pending = runtime.cliStatus?.attention?.approval;
+    if (pending && !next.attention?.approval) {
+      if (next.state === "waiting" && next.attention?.kind === "approval") {
+        next = { ...next, attention: runtime.cliStatus!.attention };
+      } else this.#approvals.cancel(runtime.record.id);
+    }
     this.#resetStallTracking(runtime);
     const initialStall = runtime.initialCliStall;
     if (initialStall) {
@@ -2192,7 +2217,67 @@ export class TerminalRuntime {
     return launch?.env;
   }
 
+  respondApproval(
+    terminalId: string,
+    approvalId: string,
+    decision: "allow" | "deny",
+  ) {
+    const runtime = this.#runtimes.get(terminalId);
+    if (!runtime?.cli || runtime.stopped)
+      return { status: "unavailable" as const };
+    return this.#approvals.respond(terminalId, approvalId, decision);
+  }
+
   async #registerCliHooks(runtime: RuntimeTerminal): Promise<void> {
+    if (runtime.hooks?.approval && !runtime.approvalFile) {
+      runtime.approvalFile = await this.#approvals.register(
+        runtime.record.id,
+        (payload, id) =>
+          this.#runSerial(runtime, () => {
+            if (
+              this.#stopping ||
+              runtime.stopped ||
+              (payload.iori_cli && runtime.cli?.id !== payload.iori_cli)
+            )
+              return false;
+            const session = cliDefinitions
+              .find((d) => d.id === runtime.cli?.id)
+              ?.session?.(payload);
+            const currentSession = this.#store.terminalCli(
+              runtime.record.id,
+            )?.session;
+            if (session && currentSession && session.id !== currentSession.id)
+              return false;
+            const approval = runtime.hooks?.approval?.(payload, id);
+            if (!approval) return false;
+            const next = runtime.hooks?.normalize(
+              payload,
+              runtime.cliStatus,
+              runtime.record.cwd,
+            );
+            if (next?.attention?.kind !== "approval") return false;
+            this.#updateCliState(runtime, {
+              ...next,
+              attention: { ...next.attention, approval },
+            });
+            return true;
+          }),
+        (id) => {
+          if (runtime.cliStatus?.attention?.approval?.id !== id) return;
+          const { approval: _approval, ...attention } =
+            runtime.cliStatus.attention;
+          // Removing the capability cannot end the CLI's own approval prompt.
+          runtime.cliStatus = { ...runtime.cliStatus, attention };
+          if (!runtime.waitPresentation && !this.#stopping)
+            this.#notifyCliState(runtime, runtime.cliStatus);
+          this.#saveCli(runtime);
+          this.#publish({
+            type: "terminal.updated",
+            terminal: this.#summary(runtime.record),
+          });
+        },
+      );
+    }
     if (runtime.hooks?.observe && !runtime.hookObserver) {
       runtime.hookObserver = runtime.hooks.observe((state) => {
         void this.#runSerial(runtime, () => {
@@ -2356,6 +2441,7 @@ export class TerminalRuntime {
               : {}),
             TERM: "xterm-256color",
             IORI_CLI_HOOK_URL: runtime.hookRoute?.url ?? "",
+            IORI_CLI_APPROVAL_FILE: runtime.approvalFile ?? "",
             IORI_CLI_TRANSCRIPT_REVIEWER: "",
             ...(dialect === "cmd"
               ? { IORI_ESCAPE: "\u001b", IORI_BELL: "\u0007" }

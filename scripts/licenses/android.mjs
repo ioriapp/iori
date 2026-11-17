@@ -43,10 +43,6 @@ export async function androidHashes() {
     path.join(root, "verification/connection/build-android.mjs"),
     "utf8",
   );
-  const scanner = /const scannerDependency\s*=\s*([\s\S]*?);/.exec(script)?.[0];
-  if (!scanner) throw new Error("Android scanner dependency not found");
-  hashes["verification/connection/build-android.mjs#scannerDependency"] =
-    createHash("sha256").update(scanner).digest("hex");
   const gradleSetup = /const gradleFile\s*=[\s\S]*?const manifestFile\s*=/.exec(
     script,
   )?.[0];

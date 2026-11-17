@@ -7,6 +7,7 @@ import {
 } from "@playwright/test";
 import { fork } from "node:child_process";
 import type {
+  PushNotificationSettings,
   RequestMethod,
   RequestParamsByMethod,
   ResultByMethod,
@@ -80,6 +81,7 @@ export type App = Started & {
   addDevice(options?: {
     register?: boolean;
   }): Promise<{ app: App; page: Page; context: BrowserContext }>;
+  pushSettings(): Promise<PushNotificationSettings[]>;
   setOffline(value: boolean): Promise<void>;
   files(files: Record<string, string>): Promise<void>;
   updates: {
@@ -299,6 +301,7 @@ export const test = base.extend<Fixtures>({
             `app.resume is not supported on ${clientPlatform} client`,
           );
         },
+        pushSettings: () => call("pushSettings", { hostId: descriptor.id }),
         host: makeHost(descriptor),
         request: (method, params) => call("request", { method, params }),
         register: realClient

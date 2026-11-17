@@ -37,6 +37,7 @@ function stateDataPlugin(catalog) {
     [
       "host-setup/HostSetupDialog.tsx",
       "ClientInitialization.tsx",
+      "MobileAttentionRow.tsx",
       "teams/ChildRows.tsx",
       "teams/TeamEditor.tsx",
       "terminal/TerminalPane.tsx",
@@ -111,7 +112,10 @@ function stateDataPlugin(catalog) {
             edits.push({
               start,
               end,
-              text: `__uiInitial(${JSON.stringify(module)}, ${JSON.stringify(name)}, ${value ? value.getText(file) : "undefined"})`,
+              text:
+                module === "MobileAttentionRow"
+                  ? `(terminal.id === "claude-1" ? __uiInitial(${JSON.stringify(module)}, ${JSON.stringify(name)}, ${value ? value.getText(file) : "undefined"}) : ${value ? value.getText(file) : "undefined"})`
+                  : `__uiInitial(${JSON.stringify(module)}, ${JSON.stringify(name)}, ${value ? value.getText(file) : "undefined"})`,
             });
           }
         }

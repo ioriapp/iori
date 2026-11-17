@@ -8,6 +8,8 @@ import {
 } from "./files-transfer.ts";
 export * from "./files-transfer.ts";
 export * from "./display-order.ts";
+export * from "./push-notifications.ts";
+import type { PushNotificationSettings } from "./push-notifications.ts";
 export * from "./worktree-name.ts";
 export * from "./automation-time.ts";
 import {
@@ -97,11 +99,16 @@ import {
 } from "./cli-definitions.ts";
 export * from "./cli-definitions.ts";
 import { parseCliStatus, parseCliUsage } from "./cli.ts";
-export type { CliStatus } from "./cli.ts";
+export type {
+  CliStatus,
+  CliApproval,
+  TerminalApprovalResponse,
+} from "./cli.ts";
 export {
   parseCliNotificationTarget,
   cliNotificationId,
   notificationText,
+  approvalText,
 } from "./cli.ts";
 export type {
   CliNotification,
@@ -299,6 +306,7 @@ export type RequestMethod =
   | "devices.list"
   | "invite.create"
   | "devices.revoke"
+  | "notifications.push.set"
   | "host.info"
   | "host.relay.set"
   | "cli.list"
@@ -313,6 +321,7 @@ export type RequestMethod =
   | "terminal.setup"
   | "cli.resume"
   | "terminal.image.write"
+  | "terminal.approval.respond"
   | "terminal.close"
   | "terminal.defaultShell.set"
   | "github.accounts"
@@ -359,6 +368,7 @@ export interface Device {
 }
 
 export interface HostInfo {
+  pushNotifications?: true;
   connectionScope?: "loopback" | "network";
   relay?: RelaySettings;
   publicKey: string;
@@ -453,6 +463,7 @@ export interface RequestParamsByMethod
   "devices.list": Record<string, never>;
   "invite.create": Record<string, never>;
   "devices.revoke": { publicKey: string };
+  "notifications.push.set": PushNotificationSettings;
   "host.info": Record<string, never>;
   "host.relay.set": { relay?: RelaySettings };
   "cli.list": { refreshUsage?: boolean };
@@ -484,6 +495,11 @@ export interface RequestParamsByMethod
     data: string;
     first: boolean;
     last: boolean;
+  };
+  "terminal.approval.respond": {
+    terminalId: string;
+    approvalId: string;
+    decision: "allow" | "deny";
   };
   "terminal.close": { terminalId: string; confirm?: boolean };
   "terminal.defaultShell.set": { shell: string };
@@ -535,6 +551,7 @@ export interface ResultByMethod
   "devices.list": { devices: Device[]; currentDevicePublicKey: string };
   "invite.create": { invite: Invite };
   "devices.revoke": { publicKey: string };
+  "notifications.push.set": {};
   "host.info": HostInfo;
   "host.relay.set": { relay?: RelaySettings };
   "cli.list": CliListResult;
@@ -549,6 +566,7 @@ export interface ResultByMethod
   "terminal.setup": TerminalCreatedResult;
   "cli.resume": TerminalCreatedResult;
   "terminal.image.write": { path: string };
+  "terminal.approval.respond": import("./cli.ts").TerminalApprovalResponse;
   "terminal.close": TerminalClosedResult;
   "terminal.defaultShell.set": TerminalDefaultShellResult;
   "github.accounts": GitHubAccounts;
@@ -865,6 +883,7 @@ function optionalOs(value: unknown): { os?: string } {
 function parseHostInfo(value: unknown): HostInfo {
   const input = record(value);
   return {
+    ...(input.pushNotifications === true ? { pushNotifications: true } : {}),
     ...(input.connectionScope === "loopback" ||
     input.connectionScope === "network"
       ? { connectionScope: input.connectionScope }
@@ -1955,6 +1974,7 @@ export const resultSchemas: {
   "devices.list": { parse: parseDevicesListResult },
   "invite.create": { parse: parseInviteCreateResult },
   "devices.revoke": { parse: parseRevokeResult },
+  "notifications.push.set": { parse: () => ({}) },
   "host.info": { parse: parseHostInfo },
   "host.relay.set": { parse: (value) => optionalRelay(record(value)) },
   "host.update.prepare": { parse: parseMaintenancePlan },
@@ -1994,6 +2014,14 @@ export const resultSchemas: {
   "cli.resume": { parse: parseTerminalCreatedResult },
   "terminal.image.write": {
     parse: (value) => ({ path: string(record(value).path, "path") }),
+  },
+  "terminal.approval.respond": {
+    parse: (value) => {
+      const status = record(value).status;
+      if (status !== "sent" && status !== "stale" && status !== "unavailable")
+        return fail("Invalid approval response status");
+      return { status };
+    },
   },
   "terminal.close": { parse: parseTerminalClosedResult },
   "terminal.defaultShell.set": { parse: parseTerminalDefaultShellResult },
@@ -2172,6 +2200,44 @@ export function parseRequest(value: unknown): Request {
         method: "host.relay.set",
         params: optionalRelay(params),
       };
+    case "notifications.push.set": {
+      if (params.language !== "ja" && params.language !== "en")
+        return fail("invalid notification language");
+      const settings: PushNotificationSettings = {
+        language: params.language,
+        waiting: boolean(params.waiting, "waiting"),
+        done: boolean(params.done, "done"),
+      };
+      if (params.subscription !== undefined) {
+        const subscription = record(params.subscription);
+        const endpoint = string(subscription.endpoint, "endpoint");
+        try {
+          if (endpoint.length > 2048 || new URL(endpoint).protocol !== "https:")
+            return fail("invalid push endpoint");
+        } catch {
+          return fail("invalid push endpoint");
+        }
+        const keys = record(subscription.keys);
+        const p256dh = string(keys.p256dh, "p256dh");
+        const auth = string(keys.auth, "auth");
+        // Unpadded, canonical base64url: 65-byte uncompressed P-256 point and 16-byte auth secret.
+        if (
+          !/^[A-Za-z0-9_-]{86}[AEIMQUYcgkosw048]$/u.test(p256dh) ||
+          atob(p256dh.replaceAll("-", "+").replaceAll("_", "/")).charCodeAt(
+            0,
+          ) !== 4 ||
+          !/^[A-Za-z0-9_-]{21}[AQgw]$/u.test(auth)
+        )
+          return fail("invalid push keys");
+        settings.subscription = { endpoint, keys: { p256dh, auth } };
+      }
+      return {
+        kind: "request",
+        operationId,
+        method: "notifications.push.set",
+        params: settings,
+      };
+    }
     case "devices.revoke":
       return {
         kind: "request",
@@ -2320,6 +2386,19 @@ export function parseRequest(value: unknown): Request {
         },
       };
     }
+    case "terminal.approval.respond":
+      if (params.decision !== "allow" && params.decision !== "deny")
+        return fail("Invalid approval decision");
+      return {
+        kind: "request",
+        operationId,
+        method: "terminal.approval.respond",
+        params: {
+          terminalId: nonEmptyString(params.terminalId, "terminalId"),
+          approvalId: nonEmptyString(params.approvalId, "approvalId"),
+          decision: params.decision,
+        },
+      };
     case "terminal.close":
       if (params.confirm !== undefined && typeof params.confirm !== "boolean") {
         return fail("confirm must be a boolean");

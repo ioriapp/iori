@@ -27,11 +27,7 @@ Claude Code・Codex・Pi・OpenCode・Cursor CLI・Antigravity CLI などの CLI
 
 ### Team に任せる
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/team-delegation-dark.gif">
-  <source media="(prefers-color-scheme: light)" srcset="docs/images/team-delegation-light.gif">
-  <img alt="親のエージェントがタスクを委譲し、Board に計画と作業中のエージェントが並ぶ" src="docs/images/team-delegation-dark.gif">
-</picture>
+<img alt="親のエージェントが計画して委譲し、Codex の Worker が変更して報告、Claude Code の Reviewer が確かめ、親が両方を受け入れる。Board が計画の進みを示す" src="docs/images/team-delegation-dark.gif">
 
 大きな仕事は、複数のエージェントからなる **Team** に任せられます。親エージェントがあなたと相談して目標を決め、計画を書き、Worker や Reviewer といった役割の子エージェントへ仕事を委譲します。役割ごとに、担当への指示と、難易度に応じた CLI とモデルの候補を設定できるので、簡単な仕事は安いモデルに回すといった使い分けができます。Team には、開発・調査・執筆のテンプレートがあり、テンプレートをもとに自由に役割やモデルの割り当て、担当への指示を変更できます。
 

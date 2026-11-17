@@ -49,6 +49,7 @@ export default defineConfig<TestOptions>({
           {
             name: "android-client",
             grep: /@phone/,
+            grepInvert: /@web-only/,
             use: { clientPlatform: "android" as const },
           },
         ]

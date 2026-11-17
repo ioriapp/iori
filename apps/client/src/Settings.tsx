@@ -1,3 +1,5 @@
+import { UnifiedPushSettings } from "./UnifiedPushSettings.tsx";
+import type { UnifiedPushSettingsState } from "./unified-push.ts";
 import { NewWorktreeLayoutSettings } from "./NewWorktreeLayoutSettings.tsx";
 import { native } from "./native.ts";
 import { Command as CommandPrimitive } from "cmdk";
@@ -108,6 +110,7 @@ export type Preferences = {
   notifyWaiting: boolean;
   notifyDone: boolean;
   backgroundConnection: boolean;
+  unifiedPushDistributor?: string;
   notificationPrompted: boolean;
   closeToExit: boolean;
   receiveDevelopmentVersions?: boolean;
@@ -1143,6 +1146,7 @@ export function SettingsDialog({
   onDefaultShellChange,
   onNotificationPermission,
   notificationError,
+  unifiedPush,
 }: {
   uninstallActions: UninstallActions;
   onUninstallClose: () => void;
@@ -1172,6 +1176,7 @@ export function SettingsDialog({
   onDefaultShellChange: (hostKey: string) => void;
   onNotificationPermission: () => void;
   notificationError?: boolean;
+  unifiedPush?: UnifiedPushSettingsState;
 }) {
   const [preferenceField, setPreferenceField] = useState<string>();
   const onPreferencesChange = (change: Partial<Preferences>) => {
@@ -1696,60 +1701,52 @@ export function SettingsDialog({
                 />
               )}
               {current === "notifications" && (
-                <Section>
-                  {(
-                    [
+                <>
+                  <Section>
+                    {(
                       [
-                        "notifyWaiting",
-                        "Attention notifications",
-                        "notifications-waiting",
-                      ],
-                      [
-                        "notifyDone",
-                        "Completion notifications",
-                        "notifications-done",
-                      ],
-                    ] as const
-                  ).map(([key, label, action]) => (
-                    <FieldRow
-                      key={key}
-                      className="v9-settings-row v9-settings-switch-row"
-                    >
-                      <span>{t(label)}</span>
-                      <Switch
-                        checked={preferences[key]}
-                        aria-label={t(label)}
-                        data-iori-action={action}
-                        onCheckedChange={(checked) => {
-                          onPreferencesChange({ [key]: checked });
-                          if (checked) onNotificationPermission();
-                        }}
-                      />
-                      {preferenceError(key)}
-                    </FieldRow>
-                  ))}
-                  {state.initial?.mobile && (
-                    <>
-                      <FieldRow className="v9-settings-row v9-settings-switch-row">
-                        <span>{t("Keep connected in the background")}</span>
+                        [
+                          "notifyWaiting",
+                          "Attention notifications",
+                          "notifications-waiting",
+                        ],
+                        [
+                          "notifyDone",
+                          "Completion notifications",
+                          "notifications-done",
+                        ],
+                      ] as const
+                    ).map(([key, label, action]) => (
+                      <FieldRow
+                        key={key}
+                        className="v9-settings-row v9-settings-switch-row"
+                      >
+                        <span>{t(label)}</span>
                         <Switch
-                          checked={preferences.backgroundConnection}
-                          aria-label={t("Keep connected in the background")}
-                          data-iori-action="notifications-background"
-                          onCheckedChange={(backgroundConnection) => {
-                            if (backgroundConnection)
-                              onNotificationPermission();
-                            onPreferencesChange({ backgroundConnection });
+                          checked={preferences[key]}
+                          aria-label={t(label)}
+                          data-iori-action={action}
+                          onCheckedChange={(checked) => {
+                            onPreferencesChange({ [key]: checked });
+                            if (checked) onNotificationPermission();
                           }}
                         />
-                        {preferenceError("backgroundConnection")}
+                        {preferenceError(key)}
                       </FieldRow>
-                      <p className="settings-note">
-                        {t(
-                          "Background connection shows a persistent notification and uses battery. When it is off or notifications are denied, return to the app to check pending decisions.",
-                        )}
-                      </p>
-                    </>
+                    ))}
+                  </Section>
+                  {state.initial?.mobile && unifiedPush && (
+                    <UnifiedPushSettings
+                      push={{
+                        ...unifiedPush,
+                        choose: (mode, distributor) => {
+                          setPreferenceField(undefined);
+                          unifiedPush.choose(mode, distributor);
+                        },
+                      }}
+                      t={t}
+                      onNotificationPermission={onNotificationPermission}
+                    />
                   )}
                   {notificationError && (
                     <ErrorMessage
@@ -1762,13 +1759,14 @@ export function SettingsDialog({
                     <Button
                       variant="outline"
                       size="sm"
+                      className="mt-4"
                       data-iori-action="notifications-permission"
                       onClick={onNotificationPermission}
                     >
                       {t("Allow OS notifications")}
                     </Button>
                   )}
-                </Section>
+                </>
               )}
               {current === "keyboard" && (
                 <KeyboardSettings

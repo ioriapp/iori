@@ -2,15 +2,14 @@
   "inputs": {
     "apps/client/src-tauri/gen/android/settings.gradle": "99856053f245337d20d308dbeaf9cd7250ad0c186ebbb6866ab46a6e7005ee19",
     "apps/client/src-tauri/gen/android/build.gradle.kts": "975b86375423d877cfd5a90648bed227bae5665a82fce99e3ebd901419e80bf9",
-    "apps/client/src-tauri/gen/android/app/build.gradle.kts": "e076885d5c4b7318866ff84fc862f17b2aa9309f30e43d22b150bcbc5da64d27",
+    "apps/client/src-tauri/gen/android/app/build.gradle.kts": "d1ac6fc8a1d9b65c62fdc630c4bc69e5b179ba79a256003fb28539eb09eb5d12",
     "apps/client/src-tauri/gen/android/gradle/wrapper/gradle-wrapper.properties": "b347084df5a6747528d85c39c1ec723ac38110c91a4a6a950e4483509f209945",
     "apps/client/src-tauri/plugins/apk-installer/android/build.gradle.kts": "7855c680f266966cdd1b52a7cdf5ea9f553432fcd1507110bc20515d8de768a8",
     "apps/client/src-tauri/plugins/clipboard-image/android/build.gradle.kts": "0975e480c11609f8c64b76e934a35b164d5860e82131647dfbe36118fbdf0f65",
     "apps/client/src-tauri/Cargo.lock#tauri": "9fd50e19905530230e9ccd194bbc6bff143d5c572c644e0181209643f7f6367a",
-    "verification/connection/build-android.mjs#scannerDependency": "9d23a255cfe86981df7f14cb722e4beb1befe97453631e367076754f52d77a75",
-    "verification/connection/build-android.mjs#gradleSetup": "33aa8f584a762ea30e46e737012eadae9f322e2d12459e15ca1c9a97d1c325b0"
+    "verification/connection/build-android.mjs#gradleSetup": "3314151782c1dde4c449be6647cf45817ddbcc2a11b9466ae355e32f3b9a62fb"
   },
-  "count": 68,
+  "count": 73,
   "packages": {
     "androidx.activity:activity-ktx:1.10.1": {
       "author": "The Android Open Source Project",
@@ -666,12 +665,42 @@
         }
       ]
     },
-    "com.google.errorprone:error_prone_annotations:2.15.0": {
-      "metadata": "https://repo.maven.apache.org/maven2/com/google/errorprone/error_prone_annotations/2.15.0/error_prone_annotations-2.15.0.pom",
+    "com.google.code.findbugs:jsr305:3.0.2": {
+      "metadata": "https://repo.maven.apache.org/maven2/com/google/code/findbugs/jsr305/3.0.2/jsr305-3.0.2.pom",
+      "files": [
+        {
+          "name": "clarification (Apache-2.0 AND CC-BY-2.5)",
+          "source": "https://repo.maven.apache.org/maven2/com/google/code/findbugs/jsr305/3.0.2/jsr305-3.0.2-sources.jar",
+          "hash": "51390c49afacad6e3b792f18e7e51c7ded9dcea9a74770cc4bb1cc0adf3b8bab"
+        }
+      ]
+    },
+    "com.google.code.gson:gson:2.13.2": {
+      "metadata": "https://repo.maven.apache.org/maven2/com/google/code/gson/gson/2.13.2/gson-2.13.2.pom",
+      "files": [
+        {
+          "name": "LICENSE",
+          "source": "https://raw.githubusercontent.com/google/gson/e67037d17f94415179066c8301fee4a610d9515e/LICENSE",
+          "hash": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+        }
+      ]
+    },
+    "com.google.crypto.tink:tink:1.23.0": {
+      "metadata": "https://repo.maven.apache.org/maven2/com/google/crypto/tink/tink/1.23.0/tink-1.23.0.pom",
+      "files": [
+        {
+          "name": "LICENSE",
+          "source": "https://raw.githubusercontent.com/tink-crypto/tink-java/9933383feb3c116b8f2060e1b066bbd3bb43ca77/LICENSE",
+          "hash": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+        }
+      ]
+    },
+    "com.google.errorprone:error_prone_annotations:2.41.0": {
+      "metadata": "https://repo.maven.apache.org/maven2/com/google/errorprone/error_prone_annotations/2.41.0/error_prone_annotations-2.41.0.pom",
       "files": [
         {
           "name": "COPYING",
-          "source": "https://raw.githubusercontent.com/google/error-prone/e188bc5ce81975299588346248e6616f340443eb/COPYING",
+          "source": "https://raw.githubusercontent.com/google/error-prone/e14c5e601037c22c9f1517934768891c877d2fb0/COPYING",
           "hash": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
         }
       ]
@@ -681,8 +710,18 @@
       "files": [
         {
           "name": "LICENSE",
-          "source": "https://raw.githubusercontent.com/google/guava/e98ea2340f6acc94ed9e2cca08976ccae68c3412/LICENSE",
+          "source": "https://raw.githubusercontent.com/google/guava/fce80fd984c8227262a63972ccc68ae6f2ad0519/LICENSE",
           "hash": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+        }
+      ]
+    },
+    "com.google.protobuf:protobuf-java:4.33.6": {
+      "metadata": "https://repo.maven.apache.org/maven2/com/google/protobuf/protobuf-java/4.33.6/protobuf-java-4.33.6.pom",
+      "files": [
+        {
+          "name": "LICENSE",
+          "source": "https://raw.githubusercontent.com/protocolbuffers/protobuf/80432ea7d807f042f1b537802f9817922512625b/LICENSE",
+          "hash": "6e5e117324afd944dcf67f36cf329843bc1a92229a8cd9bb573d7a83130fea7d"
         }
       ]
     },
@@ -691,12 +730,12 @@
       "files": [
         {
           "name": "LICENSE",
-          "source": "https://raw.githubusercontent.com/zxing/zxing/56b8a9a7b53392097891463023a26c406b422225/LICENSE",
+          "source": "https://raw.githubusercontent.com/zxing/zxing/23bb4bdf1ae8e771337723e738542549147002a5/LICENSE",
           "hash": "3f62881f0566227a24b12e5a754cc79f39aaa94883038e95c94812e1f50af42f"
         },
         {
           "name": "NOTICE",
-          "source": "https://raw.githubusercontent.com/zxing/zxing/56b8a9a7b53392097891463023a26c406b422225/NOTICE",
+          "source": "https://raw.githubusercontent.com/zxing/zxing/23bb4bdf1ae8e771337723e738542549147002a5/NOTICE",
           "hash": "4db4b60aace29ec6c5c4f13ca9cac1930d3c0c54bcc67dceead0c10771120e66"
         }
       ]
@@ -718,17 +757,17 @@
       "files": [
         {
           "name": "license/LICENSE.txt",
-          "source": "https://raw.githubusercontent.com/JetBrains/kotlin/4fcadcb8303f3752e173b1b4e3da60f80227a824/license/LICENSE.txt",
+          "source": "https://raw.githubusercontent.com/JetBrains/kotlin/c34c7c22b455159ca3323a1adaa7202a5b2d13d0/license/LICENSE.txt",
           "hash": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
         },
         {
           "name": "license/COPYRIGHT.txt",
-          "source": "https://raw.githubusercontent.com/JetBrains/kotlin/4fcadcb8303f3752e173b1b4e3da60f80227a824/license/COPYRIGHT.txt",
+          "source": "https://raw.githubusercontent.com/JetBrains/kotlin/c34c7c22b455159ca3323a1adaa7202a5b2d13d0/license/COPYRIGHT.txt",
           "hash": "8f1a1700adb5490604c6094fb137bf73f6c28d3ee554b58f3ff8ef975a79672d"
         },
         {
           "name": "license/NOTICE.txt",
-          "source": "https://raw.githubusercontent.com/JetBrains/kotlin/4fcadcb8303f3752e173b1b4e3da60f80227a824/license/NOTICE.txt",
+          "source": "https://raw.githubusercontent.com/JetBrains/kotlin/c34c7c22b455159ca3323a1adaa7202a5b2d13d0/license/NOTICE.txt",
           "hash": "0b09a83d3ef7795c7dec65e815866597c066c53898f2852a76599b8f5552941a"
         }
       ]
@@ -739,12 +778,12 @@
       "files": [
         {
           "name": "LICENSE.txt",
-          "source": "https://raw.githubusercontent.com/Kotlin/kotlinx.coroutines/7e0d1b3e9ca83652427ae00dda7d1673f058a743/LICENSE.txt",
+          "source": "https://raw.githubusercontent.com/Kotlin/kotlinx.coroutines/2ac8def478229b9cacd2c18f07a2e83a10a3aa84/LICENSE.txt",
           "hash": "b1febe6399dffb10d19d35e7663ab16300c93cb0476a94115df1cc0097a8ffd8"
         },
         {
           "name": "license/NOTICE.txt",
-          "source": "https://raw.githubusercontent.com/Kotlin/kotlinx.coroutines/7e0d1b3e9ca83652427ae00dda7d1673f058a743/license/NOTICE.txt",
+          "source": "https://raw.githubusercontent.com/Kotlin/kotlinx.coroutines/2ac8def478229b9cacd2c18f07a2e83a10a3aa84/license/NOTICE.txt",
           "hash": "1ab6de67ef738bffae63f9aa6a8798a35e87341c83ea28d09c8dc8ca6993232a"
         }
       ]
@@ -755,12 +794,12 @@
       "files": [
         {
           "name": "LICENSE.txt",
-          "source": "https://raw.githubusercontent.com/Kotlin/kotlinx.coroutines/7e0d1b3e9ca83652427ae00dda7d1673f058a743/LICENSE.txt",
+          "source": "https://raw.githubusercontent.com/Kotlin/kotlinx.coroutines/2ac8def478229b9cacd2c18f07a2e83a10a3aa84/LICENSE.txt",
           "hash": "b1febe6399dffb10d19d35e7663ab16300c93cb0476a94115df1cc0097a8ffd8"
         },
         {
           "name": "license/NOTICE.txt",
-          "source": "https://raw.githubusercontent.com/Kotlin/kotlinx.coroutines/7e0d1b3e9ca83652427ae00dda7d1673f058a743/license/NOTICE.txt",
+          "source": "https://raw.githubusercontent.com/Kotlin/kotlinx.coroutines/2ac8def478229b9cacd2c18f07a2e83a10a3aa84/license/NOTICE.txt",
           "hash": "1ab6de67ef738bffae63f9aa6a8798a35e87341c83ea28d09c8dc8ca6993232a"
         }
       ]
@@ -771,17 +810,17 @@
       "files": [
         {
           "name": "LICENSE.txt",
-          "source": "https://raw.githubusercontent.com/Kotlin/kotlinx.serialization/6f6a2e66c3dbf4a34e86a030368ecb0f7a734d22/LICENSE.txt",
+          "source": "https://raw.githubusercontent.com/Kotlin/kotlinx.serialization/99172ab9ff063e16466226bbeb9a5d00703bbf41/LICENSE.txt",
           "hash": "c5accbbd8546e94c34aed24afe689a617627d18eed5a6c48277e48db57c23851"
         },
         {
           "name": "license/LICENSE.txt",
-          "source": "https://raw.githubusercontent.com/Kotlin/kotlinx.serialization/6f6a2e66c3dbf4a34e86a030368ecb0f7a734d22/license/LICENSE.txt",
+          "source": "https://raw.githubusercontent.com/Kotlin/kotlinx.serialization/99172ab9ff063e16466226bbeb9a5d00703bbf41/license/LICENSE.txt",
           "hash": "0eec219eba99cd8da85c3c781732a515fba284c55e9531739f11762c80a754b4"
         },
         {
           "name": "license/NOTICE.txt",
-          "source": "https://raw.githubusercontent.com/Kotlin/kotlinx.serialization/6f6a2e66c3dbf4a34e86a030368ecb0f7a734d22/license/NOTICE.txt",
+          "source": "https://raw.githubusercontent.com/Kotlin/kotlinx.serialization/99172ab9ff063e16466226bbeb9a5d00703bbf41/license/NOTICE.txt",
           "hash": "ec77bba5c852830abfdefcdefbf4a22577ff4df79ec323a898d5100ca1d6f8d6"
         }
       ]
@@ -803,8 +842,19 @@
       "files": [
         {
           "name": "LICENSE",
-          "source": "https://raw.githubusercontent.com/jspecify/jspecify/d4c88c7450e603afbf57727e664319699ace71d6/LICENSE",
+          "source": "https://raw.githubusercontent.com/jspecify/jspecify/8935b4f218376b58b659c1688a5c707a8fe1ac31/LICENSE",
           "hash": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+        }
+      ]
+    },
+    "org.unifiedpush.android:connector:3.3.5": {
+      "author": "S1m",
+      "metadata": "https://repo.maven.apache.org/maven2/org/unifiedpush/android/connector/3.3.5/connector-3.3.5.pom",
+      "files": [
+        {
+          "name": "clarification (Apache-2.0)",
+          "source": "https://codeberg.org/UnifiedPush/android-connector/raw/tag/3.3.5/LICENSE",
+          "hash": "afd676dbbb649dcff16322eb3c6c5b9daa144c40f275e5b64db40c59ab2c216c"
         }
       ]
     }

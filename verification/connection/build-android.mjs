@@ -55,8 +55,6 @@ const rustupHome = "/root/projects/iori/.local/android-rustup";
 const javaHome = "/root/projects/iori/.local/android-tools/jdk-21.0.12.1+1";
 state.androidJavaHome = javaHome;
 await writeFile(stateFile, JSON.stringify(state, null, 2));
-const scannerDependency =
-  '    implementation("com.journeyapps:zxing-android-embedded:4.3.0")';
 
 function fail(message) {
   throw new Error(message);
@@ -339,18 +337,24 @@ async function installScannerPlugin() {
 
   const gradleFile = path.join(androidRoot, "app/build.gradle.kts");
   let gradle = await readFile(gradleFile, "utf8");
-  if (!gradle.includes(scannerDependency)) {
-    const dependencyBlock = /^dependencies\s*\{\r?\n/m;
-    if (!dependencyBlock.test(gradle)) {
-      fail("生成したAndroid build.gradle.ktsにdependencies blockがありません");
-    }
-    gradle = gradle.replace(
-      dependencyBlock,
-      (match) => `${match}${scannerDependency}\n`,
-    );
-    await writeFile(gradleFile, gradle);
+  // Tauri regenerates this file for verification and Release identifiers.
+  // Keep application dependencies in the checked-in Gradle file as the source.
+  const applicationGradle = await readFile(
+    path.join(
+      repoRoot,
+      "apps/client/src-tauri/gen/android/app/build.gradle.kts",
+    ),
+    "utf8",
+  );
+  for (const [dependency] of applicationGradle.matchAll(
+    /^    implementation\("[^"\n]+"\)$/gm,
+  )) {
+    if (!gradle.includes(dependency))
+      gradle = gradle.replace(
+        /^dependencies\s*\{\r?\n/m,
+        (match) => `${match}${dependency}\n`,
+      );
   }
-
   const sdkSettings = [
     [/compileSdk\s*=\s*\d+/, "compileSdk = 36"],
     [/targetSdk\s*=\s*\d+/, "targetSdk = 36"],
@@ -485,6 +489,53 @@ function verifyApk(apk, aapt) {
   if (!contents.stdout.includes("lib/arm64-v8a/libiori_client_lib.so")) {
     fail("APKにarm64-v8aのClient native libraryが含まれていません");
   }
+}
+
+async function resetAndroidCodegen() {
+  const buildScripts = path.join(
+    buildEnv.CARGO_TARGET_DIR,
+    "aarch64-linux-android",
+    release ? "release" : "debug",
+    "build",
+  );
+  let entries;
+  try {
+    entries = await readdir(buildScripts, { withFileTypes: true });
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+    return;
+  }
+  const generated = path.join(
+    sourceRoot,
+    "apps/client/src-tauri/gen/android/app/src/main/java",
+    ...verificationIdentifier.split("."),
+    "generated/TauriActivity.kt",
+  );
+  const stale = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !/^tauri-[0-9a-f]+$/u.test(entry.name))
+      continue;
+    const directory = path.join(buildScripts, entry.name);
+    let output;
+    try {
+      output = await readFile(path.join(directory, "output"), "utf8");
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+      continue;
+    }
+    const previous = output
+      .split(/\r?\n/u)
+      .find((line) => line.endsWith("/generated/TauriActivity.kt"));
+    // Tauri does not track WRY_ANDROID_KOTLIN_FILES_OUT_DIR as a rerun input.
+    // Keep compiled dependencies and invalidate only its old codegen output.
+    if (previous && previous !== `cargo:rerun-if-changed=${generated}`)
+      stale.push(directory);
+  }
+  process.stdout.write(
+    `Android codegen cache to remove: ${JSON.stringify(stale)}\n`,
+  );
+  for (const directory of stale)
+    await rm(directory, { recursive: true, force: true });
 }
 
 const buildEnv = { ...process.env };
@@ -637,6 +688,7 @@ async function main() {
   if (release && !process.argv.includes("--refresh-android-notices"))
     await copyAndroidNotice(path.join(androidRoot, "app/src/main/assets"));
   await refreshSourceMtimes(sourceRoot);
+  await resetAndroidCodegen();
   await run(
     "pnpm",
     [

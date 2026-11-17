@@ -1,3 +1,4 @@
+import { DatabaseSync } from "node:sqlite";
 import { startHostTest } from "../../../verification/host/process.mjs";
 import { startBridge } from "../../../verification/web/bridge.mjs";
 import { registerScriptedCli } from "../../../verification/host/scripted-definition.mjs";
@@ -231,6 +232,20 @@ const methods = {
       );
     }
     return terminals.get(key).values.at(-1)?.output ?? "";
+  },
+  async pushSettings({ hostId = 0 }) {
+    const database = new DatabaseSync(
+      join(hosts[hostId].dataRoot, "iori-host", "host.sqlite"),
+      { readOnly: true },
+    );
+    try {
+      return database
+        .prepare("SELECT value_json FROM push_subscriptions")
+        .all()
+        .map((row) => JSON.parse(row.value_json));
+    } finally {
+      database.close();
+    }
   },
   async fault({ deviceId = 0, action, args }) {
     await devices[deviceId].web.faults[action](...args);

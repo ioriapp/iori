@@ -194,14 +194,39 @@ export function contracts(cli, { approval = true } = {}) {
           cli,
           {
             approval: [
-              commandStep(cli, 'node -e "console.log(42)"'),
-              { text: "42", delayMs: 0 },
+              commandStep(
+                cli,
+                cli === "claude" || cli === "opencode"
+                  ? `node -e "require('fs').writeFileSync('approved-tool.txt', 'executed')"`
+                  : 'node -e "console.log(42)"',
+              ),
+              { text: "COMPAT_TOOL_FINISHED", delayMs: 0 },
             ],
           },
           async (context) => {
-            const { id, pty } = await launch(context, cli);
-            const events = await context.client.events();
-            await submit(pty, marker("approval"));
+            let id, pty, events;
+            if (cli === "claude") {
+              // Use the same trusted team preparation as the daily child contracts.
+              const file = join(
+                context.dataRoot,
+                "cli-home/.claude/settings.json",
+              );
+              const settings = JSON.parse(await readFile(file, "utf8"));
+              settings.permissions = {
+                ask: ["Bash"],
+                deny: ["mcp__*"],
+                defaultMode: "default",
+              };
+              await writeFile(file, JSON.stringify(settings));
+              const child = await teamChild(context, cli, "approval");
+              id = child.terminalId;
+              pty = child.pty;
+              events = child.events;
+            } else {
+              ({ id, pty } = await launch(context, cli));
+              events = await context.client.events();
+              await submit(pty, marker("approval"));
+            }
             context.stage("道具の承認待ちと実行する内容を受信する");
             const waiting = await status(events, id, "waiting");
             assert.equal(waiting.attention?.kind, "approval");
@@ -209,7 +234,37 @@ export function contracts(cli, { approval = true } = {}) {
               waiting.attention?.summary ?? "",
               /node|console\.log/u,
             );
+            if (cli === "claude" || cli === "opencode") {
+              context.stage("外から許可すると対象のツールが実行される");
+              const approval = waiting.attention.approval;
+              assert.equal(approval?.canRespond, true);
+              assert.deepEqual(
+                await context.client.request("terminal.approval.respond", {
+                  terminalId: id,
+                  approvalId: approval.id,
+                  decision: "allow",
+                }),
+                { status: "sent" },
+              );
+
+              const completion = await events.waitFor(
+                (e) =>
+                  e.type === "terminal.updated" &&
+                  e.terminal.id === id &&
+                  e.terminal.cliStatus?.state === "done" &&
+                  e.terminal.cliStatus.since > waiting.since,
+              );
+              assert.equal(completion.terminal.cliStatus.attention, undefined);
+              assert.equal(
+                await readFile(
+                  join(context.dataRoot, "repository/approved-tool.txt"),
+                  "utf8",
+                ),
+                "executed",
+              );
+            }
           },
+          { team: cli === "claude" },
         ),
       ),
     );

@@ -16,6 +16,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import type {
   Device,
+  PushNotificationSettings,
   Event,
   FolderHistoryItem,
   ForgeMapping,
@@ -247,6 +248,10 @@ export class HostStore {
         public_key TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         registered_at INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS push_subscriptions (
+        device_public_key TEXT PRIMARY KEY REFERENCES devices(public_key) ON DELETE CASCADE,
+        value_json TEXT NOT NULL
       );
       CREATE TABLE IF NOT EXISTS terminal_clis (
         terminal_id TEXT PRIMARY KEY REFERENCES terminals(id) ON DELETE CASCADE,
@@ -817,8 +822,50 @@ export class HostStore {
       .run(value);
   }
 
+  setPushNotificationSettings(
+    publicKey: string,
+    settings: PushNotificationSettings,
+  ): void {
+    if (settings.subscription)
+      this.#database
+        .prepare(
+          "INSERT INTO push_subscriptions(device_public_key, value_json) VALUES (?, ?) ON CONFLICT(device_public_key) DO UPDATE SET value_json = excluded.value_json",
+        )
+        .run(publicKey, JSON.stringify(settings));
+    else
+      this.#database
+        .prepare("DELETE FROM push_subscriptions WHERE device_public_key = ?")
+        .run(publicKey);
+  }
+
+  pushSubscriptions(): {
+    publicKey: string;
+    settings: PushNotificationSettings;
+  }[] {
+    const rows = this.#database
+      .prepare("SELECT device_public_key, value_json FROM push_subscriptions")
+      .all() as { device_public_key: string; value_json: string }[];
+    return rows.map((row) => ({
+      publicKey: row.device_public_key,
+      settings: JSON.parse(row.value_json) as PushNotificationSettings,
+    }));
+  }
+
+  removePushSubscription(
+    publicKey: string,
+    settings: PushNotificationSettings,
+  ): void {
+    // A failed in-flight delivery must not remove a replacement registration.
+    this.#database
+      .prepare(
+        "DELETE FROM push_subscriptions WHERE device_public_key = ? AND value_json = ?",
+      )
+      .run(publicKey, JSON.stringify(settings));
+  }
+
   hostInfo(identity: HostIdentity, addresses: string[]): HostInfo {
     return {
+      pushNotifications: true,
       publicKey: identity.publicKey,
       hostName: identity.hostName,
       os: identity.os,

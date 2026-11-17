@@ -6,6 +6,7 @@ import { notificationText } from "@iori/protocol";
 import { editHookFile } from "../hook-config.ts";
 import { claudeSettingsTarget, writeHooks } from "../definition-hooks.ts";
 import {
+  approvalDetails,
   cliFailure,
   toolActivity,
   toolFinished,
@@ -31,10 +32,36 @@ const events = [
 const path = (home: string) =>
   join(process.env.CLAUDE_CONFIG_DIR ?? join(home, ".claude"), "settings.json");
 export const hooks: CliHooks = {
+  approval: (payload, id) =>
+    payload.hook_event_name === "PermissionRequest" &&
+    payload.tool_name !== "AskUserQuestion"
+      ? approvalDetails(id, payload.tool_name, payload.tool_input)
+      : undefined,
   observe: observeTurns,
   isSessionStart: (payload) => payload.hook_event_name === "SessionStart",
   install: (ctx) =>
-    writeHooks(ctx, claudeSettingsTarget(path(ctx.home)), events),
+    writeHooks(
+      ctx,
+      {
+        ...claudeSettingsTarget(path(ctx.home)),
+        place: {
+          ...claudeSettingsTarget(path(ctx.home)).place!,
+          entry: (event, command) => ({
+            hooks: [
+              {
+                type: "command",
+                command,
+                ...(event === "PermissionRequest" ? { timeout: 600 } : {}),
+              },
+            ],
+            ...(event.includes("ToolUse") || event === "PermissionRequest"
+              ? { matcher: "*" }
+              : {}),
+          }),
+        },
+      },
+      events,
+    ),
   remove: (ctx) =>
     editHookFile(
       path(ctx.home),

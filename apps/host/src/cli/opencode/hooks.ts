@@ -3,8 +3,10 @@ import { removeHookFile } from "../hook-files.ts";
 // Derived from Orca status-plugin-lifecycle-source.ts.
 // Copyright (c) 2026 Lovecast Inc.; MIT license: ../ORCA-LICENSE.txt.
 import { mkdir, writeFile } from "node:fs/promises";
+import { pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
 import {
+  approvalDetails,
   cliFailure,
   toolActivity,
   toolFinished,
@@ -23,6 +25,7 @@ const path = (home: string) =>
   );
 const source = `// Copyright (c) 2026 Lovecast Inc.; MIT license accompanies iori Host (cli/ORCA-LICENSE.txt).
 import { request } from 'node:http';
+import { approvalRequest } from APPROVAL_CLIENT;
 const sender = (waiting = new Set()) => {
   const url = process.env.IORI_CLI_HOOK_URL;
   let serial = Promise.resolve();
@@ -37,9 +40,8 @@ const sender = (waiting = new Set()) => {
     })).catch(()=>{});
   };
 };
-const v1 = async () => {
+const v1 = async (waiting = new Set()) => {
   const url = process.env.IORI_CLI_HOOK_URL;
-  const waiting = new Set();
   const roots = new Map();
   const errors = new Map();
   const post = sender(waiting);
@@ -121,13 +123,15 @@ export default {
       });
     }
     if (!process.env.IORI_CLI_HOOK_URL) return;
-    const legacy = await v1();
+    const waiting = new Set();
+    const legacy = await v1(waiting);
     const post = sender();
     const roots = new Map();
     const tools = new Map();
     const commands = new Map();
     const questions = new Set();
     const interrupted = new Set();
+    const approvals = new Map();
     const controller = new AbortController();
     const emit = (type, properties) => legacy.event({event:{type, properties}});
     void (async () => {
@@ -160,11 +164,22 @@ export default {
         }
         if (e === 'session.status' && !interrupted.has(sessionID)) emit(e, {sessionID, status:{type:p.status?.type}});
         if (e === 'permission.asked') {
+          waiting.add(p.id);
           const command = p.action === 'shell' ? commands.get(p.source?.id) : undefined;
-          emit(e, {id:p.id, sessionID:p.sessionID, permission:p.action,
-            patterns:command === undefined ? p.resources : [command]});
+          const payload = {hook_event_name:e, iori_cli:'opencode', id:p.id, sessionID:p.sessionID, permission:p.action,
+            patterns:command === undefined ? p.resources : [command], resources:p.resources, tool_input:{command}};
+          if (process.env.IORI_CLI_APPROVAL_FILE) {
+            const abort = new AbortController();
+            approvals.set(p.id, abort);
+            void approvalRequest(payload, abort.signal).then(async result => {
+              if (abort.signal.aborted) return;
+              if (result?.decision === 'allow' || result?.decision === 'deny') {
+                await ctx.permission.reply({sessionID:p.sessionID, requestID:p.id, decision:result.decision === 'allow' ? 'once' : 'reject'});
+              } else if (!result?.accepted) emit(e, payload);
+            }).catch(() => {}).finally(() => { if (approvals.get(p.id) === abort) approvals.delete(p.id); });
+          } else emit(e, payload);
         }
-        if (e === 'permission.replied') emit(e, {requestID:p.requestID, sessionID:p.sessionID});
+        if (e === 'permission.replied') { approvals.get(p.requestID)?.abort(); approvals.delete(p.requestID); emit(e, {requestID:p.requestID, sessionID:p.sessionID}); }
         if (e === 'form.created' && p.form?.metadata?.kind === 'question') {
           questions.add(p.form.id);
           emit('question.asked', {id:p.form.id, sessionID});
@@ -186,15 +201,33 @@ export default {
         }
       }
     })().catch(() => {});
-    return () => controller.abort();
+    return () => { controller.abort(); for (const abort of approvals.values()) abort.abort(); };
   },
 };
 `;
 export const hooks: CliHooks = {
+  approval: (payload, id) =>
+    payload.hook_event_name === "permission.asked"
+      ? approvalDetails(
+          id,
+          payload.permission,
+          payload.tool_input,
+          payload.resources,
+        )
+      : undefined,
   async install(ctx) {
     const target = path(ctx.home);
     await mkdir(dirname(target), { recursive: true });
-    await writeFile(target, source, { mode: 0o600 });
+    await writeFile(
+      target,
+      source.replace(
+        "APPROVAL_CLIENT",
+        JSON.stringify(
+          pathToFileURL(join(dirname(ctx.script), "approval-client.mjs")).href,
+        ),
+      ),
+      { mode: 0o600 },
+    );
   },
   async remove(ctx) {
     if (

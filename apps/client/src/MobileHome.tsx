@@ -18,6 +18,7 @@ import { basename } from "./workspace-panel.tsx";
 import { CliIcon } from "./CliIcon.tsx";
 import { CliStateDot, CliElapsed } from "./CliStatus.tsx";
 import type { AttentionItem } from "./attention.ts";
+import { MobileAttentionRow } from "./MobileAttentionRow.tsx";
 
 export type OpenWorktree = {
   host: HostInfo;
@@ -147,41 +148,22 @@ export function MobileHome({
               ),
           );
           const detail = terminal.cliStatus?.attention;
+          const approval =
+            detail?.kind === "approval" ? detail.approval : undefined;
           return (
-            <button
-              key={`${host.publicKey}:${terminal.id}`}
-              className="mobile-task"
-              data-iori-attention-terminal={terminal.id}
-              onClick={() => onAttention({ host, terminal })}
-            >
-              <div>
-                <CliStateDot status={terminal.cliStatus} t={t} />
-                {terminal.cli && (
-                  <CliIcon
-                    hostKey={host.publicKey}
-                    cli={terminal.cli}
-                    size={15}
-                  />
-                )}
-                <strong>{terminal.cli?.name}</strong>
-                <span className="mobile-task-title">
-                  {terminal.title !== terminal.cli?.name ? terminal.title : ""}
-                </span>
-                <ArrowRight size={16} />
-              </div>
-              <p>
-                {host.hostName} ·{" "}
-                {location
+            <MobileAttentionRow
+              key={`${host.publicKey}:${terminal.id}:${approval?.id ?? ""}`}
+              item={{ host, terminal }}
+              approval={approval?.canRespond === true ? approval : undefined}
+              connected={connectedHosts.includes(host.publicKey)}
+              location={`${host.hostName} · ${
+                location
                   ? `${basename(location.folder.workspacePath)} · ${location.worktree.branch ?? basename(location.worktree.path)}`
-                  : (terminal.worktreePath ?? terminal.cwd)}
-              </p>
-              <span>
-                {t("Attention")} ·{" "}
-                {t(detail?.kind === "question" ? "Question" : "Approval")}
-                {detail?.tool ? ` · ${detail.tool}` : ""}
-              </span>
-              {detail?.summary && <code>{detail.summary}</code>}
-            </button>
+                  : (terminal.worktreePath ?? terminal.cwd)
+              }`}
+              onOpen={() => onAttention({ host, terminal })}
+              t={t}
+            />
           );
         })}
         {!attention.length && (

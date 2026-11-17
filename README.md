@@ -27,11 +27,7 @@ Claude Code, Codex, Pi, OpenCode, Cursor CLI, Antigravity CLI and other CLIs run
 
 ### Delegate to a team
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/team-delegation-dark.gif">
-  <source media="(prefers-color-scheme: light)" srcset="docs/images/team-delegation-light.gif">
-  <img alt="A parent agent delegates tasks, and the Board shows the plan and the agents working on it" src="docs/images/team-delegation-dark.gif">
-</picture>
+<img alt="A parent agent plans and delegates; a Codex Worker makes the change and reports, a Claude Code Reviewer checks it, and the parent accepts both while the Board tracks the plan" src="docs/images/team-delegation-dark.gif">
 
 For larger jobs, you can delegate to a **Team** of agents. A parent agent discusses the goal with you, writes a plan, and delegates work to child agents in roles such as Worker and Reviewer. For each role, you can set instructions and CLI and model candidates by difficulty, so simple tasks can go to a cheaper model. Teams come with templates for development, research and writing. Use a template as a starting point and customize its roles, model assignments and instructions.
 

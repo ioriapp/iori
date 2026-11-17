@@ -12,20 +12,10 @@ import { isClientWindowForeground } from "./window-presence.ts";
 import {
   parseCliNotificationTarget,
   cliNotificationId,
-  notificationText,
+  notificationPreview,
+  createCliNotification,
 } from "@iori/protocol";
-import { basename } from "./workspace-panel.tsx";
 import { isLiveChildUpdate, isPartialChildList } from "./teams/children.ts";
-
-// Based on Orca notification-options.ts; Copyright (c) 2026 Lovecast Inc.
-// MIT license: ../../host/src/cli/ORCA-LICENSE.txt.
-// Iterate Unicode characters so a notification never splits a surrogate pair.
-const notificationPreview = (value: string, maximum = 180) => {
-  const characters = [...notificationText(value).replace(/\s+/gu, " ").trim()];
-  return characters.length > maximum
-    ? characters.slice(0, maximum - 1).join("") + "…"
-    : characters.join("");
-};
 
 export type NotificationPreferences = {
   notifyWaiting: boolean;
@@ -269,42 +259,14 @@ export function useCliNotifications(
         );
         if (clientState.foreground && displayed && isClientWindowForeground())
           continue;
-        const kind =
-          status.state === "done"
-            ? status.outcome === "failure"
-              ? "Failed"
-              : "Done"
-            : status.attention?.kind === "question"
-              ? "Needs input"
-              : "Waiting for approval";
-        const worktreePath = terminal.worktreePath ?? terminal.cwd;
-        const folder = folders.find(
-          (entry) =>
-            entry.host.publicKey === host.publicKey &&
-            (entry.folder.path === worktreePath ||
-              entry.folder.worktrees?.some(
-                (worktree) => worktree.path === worktreePath,
-              )),
-        )?.folder;
-        const context = [
-          folder?.kind === "git" ? basename(folder.workspacePath) : undefined,
-          basename(worktreePath),
-        ]
-          .filter(Boolean)
-          .join(" / ");
-        const notification = {
-          id: cliNotificationId({
-            hostKey: host.publicKey,
-            terminalId: terminal.id,
-          }),
-          title: `${notificationPreview(context, 80)} - ${notificationPreview(terminal.cli.name, 40)} ${t(kind)}`,
-          body: notificationPreview(
-            (status.state === "done"
-              ? status.response
-              : status.attention?.summary) || terminal.title,
-          ),
-          target: { hostKey: host.publicKey, terminalId: terminal.id },
-        };
+        const notification = createCliNotification(
+          host.publicKey,
+          terminal,
+          folders
+            .filter((entry) => entry.host.publicKey === host.publicKey)
+            .map((entry) => entry.folder),
+          t,
+        )!;
         void native
           .notificationPermission()
           .then((permission) => {

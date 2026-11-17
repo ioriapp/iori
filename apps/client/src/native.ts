@@ -15,6 +15,22 @@ export type InitialState = {
   hosts: HostInfo[];
   activeHostKey: string | null;
 };
+export type UnifiedPushSubscription = {
+  endpoint: string;
+  keys: { p256dh: string; auth: string };
+};
+export type UnifiedPushEvent =
+  | { kind: "endpoint"; subscription: UnifiedPushSubscription }
+  | { kind: "unregistered" }
+  | {
+      kind: "failed";
+      reason: "action_required" | "network" | "internal" | "vapid_required";
+    };
+export type UnifiedPushState = {
+  distributor?: string;
+  subscription?: UnifiedPushSubscription;
+};
+
 let mobile = false;
 export const native = {
   resetRegistration: () => invoke<void>("native_reset_registration"),
@@ -144,6 +160,45 @@ export const native = {
       ...options,
       sourceJson: JSON.stringify(options),
     });
+  },
+  unifiedPush: {
+    distributors: () =>
+      mobile
+        ? invoke<{ id: string; name: string }[]>(
+            "native_unifiedpush_distributors",
+          )
+        : Promise.resolve([]),
+    register: (distributor: string) =>
+      mobile
+        ? invoke<void>("native_unifiedpush_register", { distributor })
+        : Promise.resolve(),
+    unregister: () =>
+      mobile
+        ? invoke<void>("native_unifiedpush_unregister")
+        : Promise.resolve(),
+    state: () =>
+      mobile
+        ? invoke<UnifiedPushState>("native_unifiedpush_state")
+        : Promise.resolve<UnifiedPushState>({}),
+  },
+  onUnifiedPush: async (fn: (event: UnifiedPushEvent) => void) => {
+    if (!mobile) return () => {};
+    const stop = await listen<UnifiedPushEvent>(
+      "native://unifiedpush",
+      ({ payload }) => fn(payload),
+    );
+    try {
+      await invoke<UnifiedPushState>("native_unifiedpush_state", {
+        events: true,
+      });
+    } catch (error) {
+      stop();
+      throw error;
+    }
+    return () => {
+      stop();
+      void invoke("native_unifiedpush_state", { events: false });
+    };
   },
   backgroundConnection: (enabled: boolean, title: string, body: string) =>
     invoke<void>("native_background_connection", { enabled, title, body }),

@@ -1,6 +1,6 @@
 import { isAbsolute, relative, resolve, sep } from "node:path";
-import type { CliStatus } from "@iori/protocol";
-import { notificationText } from "@iori/protocol";
+import type { CliStatus, CliApproval } from "@iori/protocol";
+import { notificationText, approvalText } from "@iori/protocol";
 import type { ShellDefinition } from "../terminal/platform.ts";
 
 export type HookPayload = Record<string, unknown>;
@@ -51,7 +51,55 @@ export interface CliObserver {
   ) => Promise<void>;
   dispose: () => void;
 }
+/** Explicit display fields only: never forward file contents or arbitrary tool input. */
+export function approvalDetails(
+  id: string,
+  tool: unknown,
+  input: unknown,
+  resources?: unknown,
+): CliApproval | undefined {
+  const fields = toolInput(input);
+  const paths = [
+    fields.file_path,
+    fields.filePath,
+    fields.path,
+    fields.notebook_path,
+    ...(Array.isArray(object(input).paths)
+      ? (object(input).paths as unknown[])
+      : []),
+  ].filter((v): v is string => typeof v === "string");
+  const items = Array.isArray(resources)
+    ? resources.filter((v): v is string => typeof v === "string")
+    : [];
+  const command =
+    typeof fields.command === "string" ? fields.command : undefined;
+  const details = [command, ...paths, ...items].filter(
+    (value): value is string => typeof value === "string" && !!value.trim(),
+  );
+  if (
+    !details.length ||
+    [
+      typeof tool === "string" ? tool : "",
+      command ?? "",
+      ...paths,
+      ...items,
+    ].reduce((bytes, value) => bytes + Buffer.byteLength(value, "utf8"), 0) >
+      64 * 1024
+  )
+    return undefined;
+  return {
+    id,
+    canRespond: true,
+    ...(typeof tool === "string" ? { tool: approvalText(tool) } : {}),
+    ...(typeof fields.command === "string"
+      ? { command: approvalText(fields.command) }
+      : {}),
+    ...(paths.length ? { paths: paths.map(approvalText) } : {}),
+    ...(items.length ? { resources: items.map(approvalText) } : {}),
+  };
+}
 export interface CliHooks {
+  approval?: (payload: HookPayload, id: string) => CliApproval | undefined;
   observe?: (emit: (state: HookState) => void) => CliObserver;
   env?: Record<string, string>;
   isSessionStart?: (payload: HookPayload) => boolean;

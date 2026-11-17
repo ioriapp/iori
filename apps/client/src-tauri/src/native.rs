@@ -744,6 +744,26 @@ pub fn init() -> TauriPlugin<Wry> {
             let android_plugin = api
                 .register_android_plugin("io.github.ioriapp.iori", "IoriNativePlugin")
                 .map_err(|error| error.to_string());
+            #[cfg(target_os = "android")]
+            if let Ok(plugin) = &android_plugin {
+                let handle = app.clone();
+                let channel = tauri::ipc::Channel::<serde_json::Value>::new(move |body| {
+                    if let tauri::ipc::InvokeResponseBody::Json(payload) = body {
+                        if let Ok(event) = serde_json::from_str::<serde_json::Value>(&payload) {
+                            let _ = handle.emit("native://unifiedpush", event);
+                        }
+                    }
+                    Ok(())
+                });
+                plugin
+                    .run_mobile_plugin::<()>(
+                        "registerListener",
+                        serde_json::json!({
+                            "event": "unifiedpush", "handler": channel
+                        }),
+                    )
+                    .map_err(|error| error.to_string())?;
+            }
             #[cfg(not(target_os = "android"))]
             let _ = api;
             app.manage(Arc::new(NativeContext::new(
@@ -1568,5 +1588,80 @@ pub(crate) async fn native_background_connection(
     }
     #[cfg(not(target_os = "android"))]
     let _ = (enabled, title, body, context);
+    Ok(())
+}
+
+#[tauri::command]
+pub(crate) async fn native_unifiedpush_distributors(
+    context: State<'_, Arc<NativeContext>>,
+) -> Result<serde_json::Value, String> {
+    let value =
+        android_native_call(&context, "unifiedPushDistributors", serde_json::json!({})).await?;
+    Ok(value
+        .get("distributors")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!([])))
+}
+
+#[tauri::command]
+pub(crate) async fn native_unifiedpush_register(
+    distributor: String,
+    context: State<'_, Arc<NativeContext>>,
+) -> Result<(), String> {
+    android_native_call(
+        &context,
+        "unifiedPushRegister",
+        serde_json::json!({ "distributor": distributor }),
+    )
+    .await?;
+    Ok(())
+}
+
+#[tauri::command]
+pub(crate) async fn native_unifiedpush_unregister(
+    context: State<'_, Arc<NativeContext>>,
+) -> Result<(), String> {
+    android_native_call(&context, "unifiedPushUnregister", serde_json::json!({})).await?;
+    Ok(())
+}
+
+#[tauri::command]
+pub(crate) async fn native_unifiedpush_state(
+    events: Option<bool>,
+    context: State<'_, Arc<NativeContext>>,
+) -> Result<serde_json::Value, String> {
+    android_native_call(
+        &context,
+        "unifiedPushState",
+        serde_json::json!({ "events": events }),
+    )
+    .await
+}
+
+async fn android_native_call(
+    context: &NativeContext,
+    command: &str,
+    args: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    #[cfg(target_os = "android")]
+    {
+        context
+            .android_plugin
+            .as_ref()
+            .map_err(|error| error.clone())?
+            .run_mobile_plugin_async(command, args)
+            .await
+            .map_err(|error| error.to_string())
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = (context, command, args);
+        Ok(serde_json::json!({}))
+    }
+}
+
+pub(crate) async fn notification_ready(app: &AppHandle) -> Result<(), String> {
+    let context = app.state::<Arc<NativeContext>>();
+    android_native_call(&context, "notificationReady", serde_json::json!({})).await?;
     Ok(())
 }

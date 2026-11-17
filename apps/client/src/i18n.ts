@@ -1,5 +1,10 @@
 import { teamJapanese } from "./teams/translations.ts";
 const japanese: Record<string, string> = {
+  "approval.allow": "許可",
+  Deny: "拒否",
+  "Show all ({N} more lines)": "すべて表示（あと{N}行）",
+  "Could not send. Check the connection and try again.":
+    "送信できませんでした。接続を確認して、もう一度お試しください。",
   "There are no open Issues.": "OpenのIssueはありません。",
   "There are no closed Issues.": "ClosedのIssueはありません。",
   Staged: "ステージ済み",
@@ -864,6 +869,27 @@ const japanese: Record<string, string> = {
   "Needs input": "入力待ち",
   Failed: "失敗",
   "Exit when the window closes": "ウィンドウを閉じたら終了する",
+  "When the app is closed": "アプリを閉じているとき",
+  "Don't receive": "受け取らない",
+  "Receive from Hosts on your LAN or VPN. Shows one ongoing notification and uses battery.":
+    "LAN・VPN内のHostから受け取ります。通知が常に1件表示され、バッテリーを消費します。",
+  UnifiedPush: "UnifiedPush",
+  "Receive through a UnifiedPush app, even outside your LAN or VPN. Notification contents are encrypted.":
+    "LAN・VPNの外でも、UnifiedPushのアプリを通して受け取ります。通知の内容は暗号化されます。",
+  "UnifiedPush app": "UnifiedPushのアプリ",
+  "Install a UnifiedPush app such as ntfy, then open it once.":
+    "ntfyなどのUnifiedPushのアプリをインストールして、そのアプリを一度起動してください。",
+  "UnifiedPush apps": "UnifiedPushのアプリの一覧",
+  "Couldn't register with {app}. Open {app} and check its settings.":
+    "{app}で登録できませんでした。{app}を開いて設定を確認してください。",
+  "Couldn't register with {app}. Connect to the internet and try again.":
+    "{app}で登録できませんでした。インターネットに接続して、もう一度お試しください。",
+  "Turned off because no UnifiedPush app was found.":
+    "UnifiedPushのアプリが見つからないため、オフにしました。",
+  "Turned off because {app} removed the registration.":
+    "{app}で登録が解除されたため、オフにしました。",
+  "{host}'s iori Host doesn't support UnifiedPush notifications. Update iori Host.":
+    "{host}のiori HostはUnifiedPushの通知に対応していません。iori Hostを更新してください。",
   Notifications: "通知",
   General: "一般",
   Attention: "Attention",
@@ -1207,7 +1233,8 @@ const japanese: Record<string, string> = {
   "Could not connect to the Host. Check that the Host is running, then try again.":
     "Hostに接続できませんでした。Hostが起動していることを確認して、もう一度お試しください。",
 };
-const englishErrors: Record<string, string> = {
+const english: Record<string, string> = {
+  "approval.allow": "Allow",
   invalid_request: "Check the input and try again.",
   not_registered:
     "This device is not registered with the Host. Register using an invitation.",
@@ -1223,8 +1250,8 @@ const englishErrors: Record<string, string> = {
 export function translator(language: string) {
   return (key: string) =>
     language.toLowerCase().startsWith("ja")
-      ? (japanese[key] ?? englishErrors[key] ?? key)
-      : (englishErrors[key] ?? key);
+      ? (japanese[key] ?? english[key] ?? key)
+      : (english[key] ?? key);
 }
 export function registeredMessage(language: string, name: string) {
   return language.toLowerCase().startsWith("ja")

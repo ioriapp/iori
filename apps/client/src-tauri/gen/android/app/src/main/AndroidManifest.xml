@@ -14,12 +14,16 @@
     <uses-feature android:name="android.software.leanback" android:required="false" />
 
     <application
+        android:allowBackup="false"
         android:fullBackupContent="@xml/backup_rules"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:theme="@style/Theme.iori_client"
         android:usesCleartextTraffic="${usesCleartextTraffic}">
+        <service android:name="io.github.ioriapp.iori.IoriPushService" android:exported="false">
+            <intent-filter><action android:name="org.unifiedpush.android.connector.PUSH_EVENT" /></intent-filter>
+        </service>
         <service android:name="io.github.ioriapp.iori.IoriConnectionService" android:exported="false" android:foregroundServiceType="specialUse">
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="Keep the user-enabled LAN/VPN Host connection active to receive CLI decision and response notifications" />
         </service>

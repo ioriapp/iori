@@ -1,3 +1,4 @@
+import { PushNotifications } from "./push-notifications.ts";
 import {
   readConnectionScope,
   allowNetworkConnections,
@@ -569,10 +570,12 @@ export async function startHost(
         await terminalManager.close();
         terminalManager = await TerminalManager.create(
           store,
-          (event) => events.publish(event),
+          publishTerminalEvent,
           storage.root,
           forgeCommand,
         );
+        terminalManager.onCliNotification = (terminal) =>
+          pushNotifications.notify(terminal);
         teamManager = await TeamManager.create(
           store,
           terminalManager,
@@ -679,6 +682,17 @@ export async function startHost(
   );
   const sessions = new Set<Session>();
   const sessionsByKey = new Map<string, Set<Session>>();
+  const pushNotifications = new PushNotifications(
+    store,
+    identity.publicKey,
+    (publicKey) => (sessionsByKey.get(publicKey)?.size ?? 0) > 0,
+    () => workspaces.history(),
+  );
+  const publishTerminalEvent = (event: Event) => {
+    if (event.type === "terminal.closed")
+      pushNotifications.forget(event.terminalId);
+    events.publish(event);
+  };
   const unauthenticated = new Set<Session>();
   const handshakes = new Set<NativeIncoming>();
   let stopping = false;
@@ -1125,6 +1139,10 @@ export async function startHost(
         }
         break;
       }
+      case "notifications.push.set":
+        store.setPushNotificationSettings(session.publicKey, request.params);
+        response = { ok: true, result: {} };
+        break;
       case "devices.list":
         response = store.devices(session.publicKey);
         break;
@@ -1500,6 +1518,16 @@ export async function startHost(
         break;
       case "terminal.image.write":
         response = await terminalManager.writeImage(request.params);
+        break;
+      case "terminal.approval.respond":
+        response = {
+          ok: true,
+          result: await terminalManager.respondApproval(
+            request.params.terminalId,
+            request.params.approvalId,
+            request.params.decision,
+          ),
+        };
         break;
       case "terminal.close":
         response = await terminalManager.closeTerminal(
@@ -1963,7 +1991,10 @@ export async function startHost(
     terminalManager.detachConnection(session.connection);
     const peerSessions = sessionsByKey.get(session.publicKey);
     peerSessions?.delete(session);
-    if (peerSessions?.size === 0) sessionsByKey.delete(session.publicKey);
+    if (peerSessions?.size === 0) {
+      sessionsByKey.delete(session.publicKey);
+      if (!stopping) pushNotifications.disconnected(session.publicKey);
+    }
   }
 
   async function handleAccepted(incoming: NativeIncoming): Promise<void> {
@@ -2076,10 +2107,12 @@ export async function startHost(
     await loadCliDefinitions(storage.root);
     terminalManager = await TerminalManager.create(
       store,
-      (event) => events.publish(event),
+      publishTerminalEvent,
       storage.root,
       forgeCommand,
     );
+    terminalManager.onCliNotification = (terminal) =>
+      pushNotifications.notify(terminal);
     await maintenance.initialize();
     teamManager = await TeamManager.create(
       store,
@@ -2218,6 +2251,7 @@ export async function startHost(
     async close() {
       if (stopping) return;
       stopping = true;
+      pushNotifications.close();
       stopDiagnostics();
       maintenance.close();
       cancelRebindWait?.();

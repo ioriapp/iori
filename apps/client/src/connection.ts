@@ -91,6 +91,7 @@ export class ConnectionController {
       for (const record of this.connections.values())
         if (!record.connected)
           this.scheduleHostReconnect(record.host.publicKey);
+    if (!enabled && !this.foreground) this.setForeground(false);
   };
   private retry?: ReturnType<typeof setTimeout>;
   private connection?: { hostKey: string; promise: Promise<string> };
@@ -108,6 +109,7 @@ export class ConnectionController {
       retry?: ReturnType<typeof setTimeout>;
       backoff: number;
       eventSubscriptionId?: string;
+      disconnecting?: Promise<void>;
     }
   >();
   private connectionHosts = new Map<string, string>();
@@ -387,6 +389,15 @@ export class ConnectionController {
     this.update({ removals });
   }
   async forgetHost(key: string) {
+    if (
+      this.state.connectedHosts.includes(key) &&
+      this.state.observedHosts[key]?.pushNotifications
+    )
+      await this.requestHost(key, "notifications.push.set", {
+        language: "en",
+        waiting: false,
+        done: false,
+      }).catch(() => {});
     if (!this.forgottenHosts.includes(key)) {
       this.forgottenHosts = [...this.forgottenHosts, key];
       await native
@@ -579,8 +590,22 @@ export class ConnectionController {
       for (const record of this.connections.values()) {
         if (record.retry) clearTimeout(record.retry);
         record.retry = undefined;
+        const id = record.connectionId;
+        if (id) {
+          this.connectionHosts.delete(id);
+          record.connectionId = undefined;
+          record.promise = undefined;
+          this.setConnected(record, false);
+          record.disconnecting = native.disconnect(id).catch(() => undefined);
+        }
       }
       this.retry = undefined;
+      this.connection = undefined;
+      this.update({
+        connectionId: undefined,
+        connected: false,
+        disconnectedAt: Date.now(),
+      });
     } else if (!this.pairing) {
       for (const record of this.connections.values())
         if (!record.connected && !record.revoked)
@@ -614,9 +639,20 @@ export class ConnectionController {
   }
   private async connect(host: HostInfo) {
     const record = this.recordFor(host);
+    if (record.disconnecting) {
+      await record.disconnecting;
+      record.disconnecting = undefined;
+    }
+    if (!this.canReconnect()) throw new Error("Host is unavailable");
     if (record.connectionId) return record.connectionId;
     if (record.promise) return record.promise;
     const promise = native.connect(host).then(({ connectionId }) => {
+      if (!this.canReconnect()) {
+        record.disconnecting = native
+          .disconnect(connectionId)
+          .catch(() => undefined);
+        throw new Error("Host is unavailable");
+      }
       record.connectionId = connectionId;
       record.disconnectedAt = undefined;
       this.connectionHosts.set(connectionId, host.publicKey);
@@ -667,6 +703,7 @@ export class ConnectionController {
         );
         if (!response?.ok) throw new Error("Host info unavailable");
         await this.subscribeEvents(record, id);
+        if (record.connectionId !== id) throw new Error("Host is unavailable");
         this.setConnected(record, true);
         record.disconnectedAt = undefined;
         if (this.state.host?.publicKey === hostKey)

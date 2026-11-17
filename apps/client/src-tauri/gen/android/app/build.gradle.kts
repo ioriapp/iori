@@ -71,6 +71,8 @@ rust {
 }
 
 dependencies {
+    implementation("com.fasterxml.jackson.core:jackson-databind:2.15.3")
+    implementation("org.unifiedpush.android:connector:3.3.5")
     implementation("androidx.webkit:webkit:1.14.0")
     implementation("androidx.appcompat:appcompat:1.7.1")
     implementation("androidx.activity:activity-ktx:1.10.1")

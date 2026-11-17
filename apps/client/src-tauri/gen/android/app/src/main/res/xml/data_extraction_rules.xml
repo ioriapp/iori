@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <data-extraction-rules>
     <cloud-backup>
+        <exclude domain="sharedpref" path="iori_unifiedpush.xml" />
+        <exclude domain="database" path="unifiedpush-connector" />
+        <exclude domain="database" path="unifiedpush-connector-journal" />
+        <exclude domain="database" path="unifiedpush-connector-wal" />
+        <exclude domain="database" path="unifiedpush-connector-shm" />
         <exclude domain="sharedpref" path="iori_identity.xml" />
         <exclude domain="root" path="registrations.sqlite3" />
         <exclude domain="root" path="registrations.sqlite3-journal" />
@@ -8,6 +13,11 @@
         <exclude domain="root" path="registrations.sqlite3-shm" />
     </cloud-backup>
     <device-transfer>
+        <exclude domain="sharedpref" path="iori_unifiedpush.xml" />
+        <exclude domain="database" path="unifiedpush-connector" />
+        <exclude domain="database" path="unifiedpush-connector-journal" />
+        <exclude domain="database" path="unifiedpush-connector-wal" />
+        <exclude domain="database" path="unifiedpush-connector-shm" />
         <exclude domain="sharedpref" path="iori_identity.xml" />
         <exclude domain="root" path="registrations.sqlite3" />
         <exclude domain="root" path="registrations.sqlite3-journal" />

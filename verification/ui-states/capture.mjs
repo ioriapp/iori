@@ -30,7 +30,7 @@ const states = (await readCatalog(catalogPath)).filter(
 const sizes = [
   { name: "pc", width: 1440, height: 900 },
   { name: "wqhd", width: 2560, height: 1440 },
-  { name: "phone", width: 390, height: 844 },
+  { name: "phone", width: 390, height: Number(option("phone-height", "844")) },
 ].filter(
   (size) =>
     !option("sizes", "") || option("sizes", "").split(",").includes(size.name),
@@ -57,6 +57,7 @@ try {
     const context = await browser.newContext({
       viewport: { width: size.width, height: size.height },
       deviceScaleFactor: 1,
+      ...(size.name === "phone" ? { isMobile: true, hasTouch: true } : {}),
       reducedMotion: "reduce",
     });
     const page = await context.newPage();
@@ -86,7 +87,14 @@ try {
         };
         try {
           await copyFile(
-            join(reference, name),
+            join(
+              reference,
+              state.reference
+                ? state.reference.includes("{theme}")
+                  ? state.reference.replace("{theme}", theme)
+                  : `${state.reference}-${theme}.png`
+                : name,
+            ),
             join(output, `reference-${name}`),
           );
           row.reference = `reference-${name}`;
@@ -118,6 +126,15 @@ try {
             ) {
               await page.locator(".team-new-parent .team-cli-model").click();
               await page.locator(".team-search-popover").waitFor();
+            }
+            if (state.id === "push-multiple-open") {
+              await page
+                .getByRole("combobox", {
+                  name: "UnifiedPushのアプリ",
+                  exact: true,
+                })
+                .click();
+              await page.getByRole("listbox").waitFor();
             }
             if (state.id.startsWith("terminal-font-")) {
               const input = page.locator(

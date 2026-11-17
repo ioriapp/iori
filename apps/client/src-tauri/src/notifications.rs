@@ -17,8 +17,13 @@ pub(crate) fn enqueue(app: &AppHandle, target: NotificationTarget) {
 }
 
 #[tauri::command]
-pub(crate) fn native_take_notifications(app: AppHandle) -> Vec<NotificationTarget> {
-    std::mem::take(&mut *app.state::<PendingNotifications>().0.lock().unwrap())
+pub(crate) async fn native_take_notifications(
+    app: AppHandle,
+) -> Result<Vec<NotificationTarget>, String> {
+    crate::native::notification_ready(&app).await?;
+    Ok(std::mem::take(
+        &mut *app.state::<PendingNotifications>().0.lock().unwrap(),
+    ))
 }
 
 #[derive(Default)]

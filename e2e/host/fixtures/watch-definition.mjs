@@ -33,6 +33,7 @@ export async function registerWatchCli(
             event: "PermissionRequest",
             state: "waiting",
             attention: "approval",
+            tool: "tool_name",
           },
           { event: "Stop", state: "done" },
         ],

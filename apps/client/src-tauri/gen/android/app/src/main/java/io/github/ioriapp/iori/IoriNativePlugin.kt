@@ -33,6 +33,8 @@ import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
+import org.unifiedpush.android.connector.UnifiedPush
+import java.lang.ref.WeakReference
 
 private const val STORAGE_KEY_ALIAS = "io.github.ioriapp.iori.identity.v1"
 
@@ -44,12 +46,116 @@ class ViewArgs {
 @InvokeArg
 class BackgroundConnectionArgs { var enabled: Boolean = false; var title: String = "iori"; var body: String = "" }
 
+@InvokeArg
+class UnifiedPushArgs { var distributor: String = ""; var events: Boolean? = null }
+
 @TauriPlugin
 class IoriNativePlugin(private val activity: Activity) : Plugin(activity) {
   private var webView: WebView? = null
+  private var pushEventsReady = false
+  private var resumed = true
+  private var launchNotification = activity.intent?.takeIf {
+    it.hasExtra(app.tauri.notification.NOTIFICATION_INTENT_KEY)
+  }?.let { Intent(it) }
+
+  companion object {
+    private var pushPlugin = WeakReference<IoriNativePlugin>(null)
+    fun pushChanged() { pushPlugin.get()?.deliverPushEvent() }
+  }
+
+  private fun deliverPushEvent() {
+    activity.runOnUiThread {
+      if (pushEventsReady && resumed) {
+        val preferences = IoriPushService.preferences(activity)
+        preferences.getString("event", null)?.let {
+          preferences.edit().remove("event").apply()
+          trigger("unifiedpush", JSObject(it))
+        }
+      }
+    }
+  }
+
+  override fun onPause() { resumed = false }
+  override fun onResume() { resumed = true; deliverPushEvent() }
+
+  @Command
+  fun notificationReady(invoke: Invoke) {
+    activity.runOnUiThread {
+      launchNotification?.let { intent ->
+        launchNotification = null
+        // NotificationPlugin.load handles the launch intent before Rust can
+        // register its action listener. Replay it once after that listener exists.
+        app.tauri.notification.NotificationPlugin.instance?.onIntent(intent)
+      }
+      invoke.resolve()
+    }
+  }
+
+  @Command
+  fun unifiedPushDistributors(invoke: Invoke) {
+    try {
+      val distributors = org.json.JSONArray()
+      for (id in UnifiedPush.getDistributors(activity)) {
+        val info = activity.packageManager.getApplicationInfo(id, 0)
+        distributors.put(JSObject().put("id", id).put("name", activity.packageManager.getApplicationLabel(info).toString()))
+      }
+      invoke.resolve(JSObject().put("distributors", distributors))
+    } catch (error: Exception) { invoke.reject(error.message ?: "Could not list UnifiedPush distributors") }
+  }
+
+  @Command
+  fun unifiedPushRegister(invoke: Invoke) {
+    activity.runOnUiThread {
+      try {
+        val distributor = invoke.parseArgs(UnifiedPushArgs::class.java).distributor
+        require(UnifiedPush.getDistributors(activity).contains(distributor))
+        if (UnifiedPush.getSavedDistributor(activity) != distributor) {
+          UnifiedPush.unregister(activity, instance = IoriPushService.INSTANCE)
+          IoriPushService.preferences(activity).edit().clear().apply()
+        }
+        UnifiedPush.saveDistributor(activity, distributor)
+        IoriPushService.preferences(activity).edit().remove("event").apply()
+        UnifiedPush.register(activity, instance = IoriPushService.INSTANCE)
+        invoke.resolve()
+      } catch (error: Exception) { invoke.reject(error.message ?: "Could not register UnifiedPush") }
+    }
+  }
+
+  @Command
+  fun unifiedPushUnregister(invoke: Invoke) {
+    activity.runOnUiThread {
+      try {
+        UnifiedPush.unregister(activity, instance = IoriPushService.INSTANCE)
+        // The connector removes its registration synchronously; distributors need
+        // not send an onUnregistered callback for a local unregister request.
+        IoriPushService.unregistered(activity)
+        invoke.resolve()
+      } catch (error: Exception) { invoke.reject(error.message ?: "Could not unregister UnifiedPush") }
+    }
+  }
+
+  @Command
+  fun unifiedPushState(invoke: Invoke) {
+    activity.runOnUiThread {
+      try {
+        invoke.parseArgs(UnifiedPushArgs::class.java).events?.let { pushEventsReady = it }
+        val state = JSObject()
+        val distributor = UnifiedPush.getSavedDistributor(activity)
+        if (distributor != null) {
+          state.put("distributor", distributor)
+          IoriPushService.preferences(activity).getString("subscription", null)?.let {
+            state.put("subscription", org.json.JSONObject(it))
+          }
+        }
+        invoke.resolve(state)
+        deliverPushEvent()
+      } catch (error: Exception) { invoke.reject(error.message ?: "Could not read UnifiedPush state") }
+    }
+  }
 
   override fun load(webView: WebView) {
     this.webView = webView
+    pushPlugin = WeakReference(this)
     // Android draws edge-to-edge. Keep the whole WebView inside the actual
     // system bars and cutouts so both fixed headers and dialogs remain usable.
     // The on-screen keyboard shrinks the WebView (the IME inset already

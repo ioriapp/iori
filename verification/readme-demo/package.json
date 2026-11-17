@@ -1,0 +1,23 @@
+{
+  "name": "iori-readme-demo",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@remotion/bundler": "4.0.543",
+    "@remotion/cli": "4.0.543",
+    "@remotion/fonts": "4.0.543",
+    "@remotion/media": "4.0.543",
+    "@remotion/renderer": "4.0.543",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "remotion": "4.0.543"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.1",
+    "@types/react": "19.2.18",
+    "typescript": "6.0.3"
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true
+  }
+}

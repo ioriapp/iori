@@ -1,3 +1,4 @@
+import { closedAppMode, useUnifiedPush } from "./unified-push.ts";
 import { UsagePreferences } from "./usage/preferences.tsx";
 import { ClientInitialization } from "./ClientInitialization.tsx";
 import { ConnectedHostUpdates } from "./updates/ConnectedHostUpdates.tsx";
@@ -130,6 +131,10 @@ function readPreferences(value: unknown): Preferences {
       | "closeToExit"
       | "receiveDevelopmentVersions"
     >),
+    ...(typeof value.unifiedPushDistributor === "string" &&
+    value.unifiedPushDistributor
+      ? { unifiedPushDistributor: value.unifiedPushDistributor }
+      : {}),
     language: ["system", "en", "ja"].includes(value.language as string)
       ? (value.language as Preferences["language"])
       : defaultPreferences.language,
@@ -705,6 +710,13 @@ function AppContent({
     void loadPreferences();
   };
 
+  const unifiedPush = useUnifiedPush(
+    preferencesLoaded && !!state.initial?.mobile,
+    state,
+    preferences,
+    changePreferences,
+    language,
+  );
   const [notificationDialog, setNotificationDialog] = useState(false);
   const [notificationError, setNotificationError] = useState(false);
   const requestNotificationPermission = async () => {
@@ -757,7 +769,8 @@ function AppContent({
       .then((permission) => {
         if (!active) return;
         const enabled =
-          preferences.backgroundConnection && permission === "granted";
+          closedAppMode(preferences) === "background" &&
+          permission === "granted";
         connection.setBackgroundConnection(enabled);
         return native.backgroundConnection(
           enabled,
@@ -774,6 +787,7 @@ function AppContent({
   }, [
     preferencesLoaded,
     preferences.backgroundConnection,
+    preferences.unifiedPushDistributor,
     state.initial?.mobile,
     t,
   ]);
@@ -784,9 +798,11 @@ function AppContent({
   const allowNotifications = async (background: boolean) => {
     try {
       const permission = await native.requestNotificationPermission();
+      if (background)
+        unifiedPush.choose(permission === "granted" ? "background" : "none");
       changePreferences({
         notificationPrompted: true,
-        backgroundConnection: permission === "granted" && background,
+        ...(!background ? { backgroundConnection: false } : {}),
       });
       setNotificationDialog(false);
       setNotificationError(false);
@@ -1481,6 +1497,7 @@ function AppContent({
         onOpenChange={setSettingsOpen}
         onCloseHandler={setSettingsClose}
         notificationError={notificationError}
+        unifiedPush={unifiedPush}
         onNotificationPermission={() => {
           setNotificationError(false);
           void requestNotificationPermission();

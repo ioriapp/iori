@@ -58,6 +58,7 @@ export class TerminalManager {
   onRestoreTeamTerminals?: () => Promise<void>;
   onCliExit?: (id: string, reason: "exit" | "user") => void | Promise<void>;
   onSetupFailed?: (id: string, exitCode: number) => void | Promise<void>;
+  onCliNotification?: (terminal: TerminalSummary) => void;
   onCliState?: (id: string, state: HookState) => void | Promise<void>;
   onCliInput?: (id: string) => void;
   onCliStalled?: (
@@ -192,6 +193,8 @@ export class TerminalManager {
     this.#runtime.onCliExit = (id, reason) => {
       return this.onCliExit?.(id, reason);
     };
+    this.#runtime.onCliNotification = (terminal) =>
+      this.onCliNotification?.(terminal);
     this.#runtime.onCliState = (id, state) => {
       return this.onCliState?.(id, state);
     };
@@ -209,17 +212,19 @@ export class TerminalManager {
     await this.#channel.call("activate");
     this.#channel.disconnected = () => {
       if (!this.#closing) {
-        this.#runtime.disconnected();
-        this.#ready = this.#connect().then(async () => {
-          for (const terminal of this.#store.listTerminals())
-            this.#publish({
-              type: "terminal.updated",
-              terminal: this.summary(terminal.id)!,
-            });
-          if (!this.continuedTerminals) this.onTerminalsLost?.();
-          this.onCliProcessesChanged?.();
-          if (this.#eventsReady) await this.#channel.call("commandsReady");
-        });
+        this.#ready = this.#runtime
+          .disconnected()
+          .then(() => this.#connect())
+          .then(async () => {
+            for (const terminal of this.#store.listTerminals())
+              this.#publish({
+                type: "terminal.updated",
+                terminal: this.summary(terminal.id)!,
+              });
+            if (!this.continuedTerminals) this.onTerminalsLost?.();
+            this.onCliProcessesChanged?.();
+            if (this.#eventsReady) await this.#channel.call("commandsReady");
+          });
         void this.#ready.catch(() => {});
       }
     };
@@ -513,6 +518,12 @@ export class TerminalManager {
     ...args: Parameters<TerminalRuntime["stopTeamTerminal"]>
   ): Promise<Awaited<ReturnType<TerminalRuntime["stopTeamTerminal"]>>> {
     return this.#call("stopTeamTerminal", ...args);
+  }
+  async respondApproval(
+    ...args: Parameters<TerminalRuntime["respondApproval"]>
+  ) {
+    await this.#ready;
+    return this.#runtime.respondApproval(...args);
   }
   async writeImage(
     ...args: Parameters<TerminalRuntime["writeImage"]>
