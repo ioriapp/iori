@@ -101,7 +101,12 @@ import { discoverShells, resolveShell } from "./shells.ts";
 import { shellActivity, type ShellActivity } from "./shell-activity.ts";
 
 import { ToolActivity, type CliHooks, type HookState } from "../cli/hooks.ts";
-import { cliDefinitions, withCurrentCliIcon } from "../cli/definitions.ts";
+import {
+  cliDefinitions,
+  definitionInfo,
+  withCurrentCliIcon,
+} from "../cli/definitions.ts";
+import { osc7501Fields } from "../cli/osc7501.ts";
 import type { CliRegistry } from "../cli/registry.ts";
 import { readCommonHook } from "../cli/common-hook.ts";
 export type RuntimeCli = Pick<
@@ -256,6 +261,8 @@ interface RuntimeTerminal {
   pendingLines: { line: string; delivered?: () => void; deliveryId?: string }[];
   cliReady: boolean;
   inputModeReady: boolean;
+  initialPromptWorking?: boolean;
+  initialPromptSignaled?: boolean;
   ptyExited: boolean;
   hooks?: CliHooks;
   approvalFile?: string;
@@ -291,6 +298,13 @@ interface RuntimeTerminal {
   exitDisposer?: pty.IDisposable;
   /** The PTY is not being read because the shown view is behind. */
   backpressured: boolean;
+}
+
+function initialPromptReadyWhen(runtime: RuntimeTerminal) {
+  const definition = cliDefinitions.find((item) => item.id === runtime.cli?.id);
+  const prompt =
+    definition && definitionInfo(definition)?.file.launch.initialPrompt;
+  return prompt?.mode === "paste" ? prompt.readyWhen : undefined;
 }
 
 type FrameReader = () => Promise<unknown | undefined>;
@@ -837,6 +851,7 @@ export class TerminalRuntime {
         ? cliDefinitions.find((d) => d.id === saved.cli.id)?.hooks
         : undefined;
       runtime.cliReady = state?.ready ?? false;
+      runtime.initialPromptSignaled = state?.ready ?? false;
       runtime.inputModeReady =
         screen.snapshot.modes.bracketedPaste &&
         (!cliDefinitions.find((d) => d.id === runtime.cli?.id)
@@ -1593,6 +1608,8 @@ export class TerminalRuntime {
     runtime.pendingLines = [];
     runtime.initialInput = undefined;
     runtime.cliReady = false;
+    runtime.initialPromptWorking = false;
+    runtime.initialPromptSignaled = false;
     runtime.cli = undefined;
     runtime.observedModel = undefined;
     this.onCliStallCleared?.(runtime.record.id);
@@ -1771,7 +1788,22 @@ export class TerminalRuntime {
     runtime.stoppedDescendantSince?.clear();
   }
 
-  #noteCliInput(runtime: RuntimeTerminal): void {
+  #endBackgroundWait(runtime: RuntimeTerminal): void {
+    if (!runtime.cliStatus?.backgroundTasks?.length) return;
+    const { backgroundTasks: _backgroundTasks, ...status } = runtime.cliStatus;
+    runtime.cliStatus = status;
+    this.#saveCli(runtime);
+    this.#publish({
+      type: "terminal.updated",
+      terminal: this.#summary(runtime.record),
+    });
+  }
+
+  #noteCliInput(
+    runtime: RuntimeTerminal,
+    preserveBackgroundTasks = false,
+  ): void {
+    if (!preserveBackgroundTasks) this.#endBackgroundWait(runtime);
     this.#resetStallTracking(runtime);
     if (runtime.cliStatus?.stalledSince === undefined) return;
     if (runtime.initialCliStall) {
@@ -1937,6 +1969,7 @@ export class TerminalRuntime {
       JSON.stringify(runtime.cliStatus.attention) ===
         JSON.stringify(next.attention);
     const activityOnly =
+      !next.backgroundTasks?.length &&
       sameInternalState &&
       runtime.cliStatus?.response === next.response &&
       JSON.stringify(runtime.cliStatus?.backgroundTasks) ===
@@ -1964,6 +1997,7 @@ export class TerminalRuntime {
         ? (runtime.waitPresentation?.previous ?? previous)
         : previous;
     const sameState =
+      !next.backgroundTasks?.length &&
       continued?.state === next.state &&
       continued.outcome === next.outcome &&
       JSON.stringify(continued.attention) === JSON.stringify(next.attention);
@@ -2005,7 +2039,11 @@ export class TerminalRuntime {
     text: string,
     beforeWrite?: () => void,
     onAccepted?: () => void,
-    options?: { holdOnWait?: boolean; rawSingleLine?: boolean },
+    options?: {
+      holdOnWait?: boolean;
+      rawSingleLine?: boolean;
+      preserveBackgroundTasks?: boolean;
+    },
   ): Promise<boolean> {
     const holdOnWait = options?.holdOnWait !== false;
     const child = runtime.pty;
@@ -2062,7 +2100,7 @@ export class TerminalRuntime {
               runtime.record.id,
               payload,
             );
-            this.#noteCliInput(runtime);
+            this.#noteCliInput(runtime, options?.preserveBackgroundTasks);
             onAccepted?.();
             if (!timer) timer = setTimeout(settle, SUBMIT_NO_OUTPUT_MS);
           });
@@ -2096,7 +2134,7 @@ export class TerminalRuntime {
                 return undefined;
               }
               await this.#remote.channel.call("write", runtime.record.id, "\r");
-              this.#noteCliInput(runtime);
+              this.#noteCliInput(runtime, options?.preserveBackgroundTasks);
               this.#updateCliState(
                 runtime,
                 runtime.hooks?.onInput?.("\r", runtime.cliStatus),
@@ -2142,6 +2180,7 @@ export class TerminalRuntime {
           (!runtime.inputModeReady ||
             // Startup probes can disable paste again before the input UI mounts.
             !runtime.modes.bracketedPaste)) ||
+          (initialPromptReadyWhen(runtime) && !runtime.cliReady) ||
           (runtime.hooks?.isSessionStart && !runtime.cliReady))) ||
       !runtime.pty ||
       !runtime.cli ||
@@ -2154,11 +2193,21 @@ export class TerminalRuntime {
       while (runtime.pendingLines.length) {
         const message = runtime.pendingLines[0]!;
         if (
-          !(await this.#submit(runtime, message.line, () => {
-            // Once writing starts, an interrupted delivery must never be replayed.
-            runtime.pendingLines.shift();
-            this.#saveCli(runtime);
-          }))
+          !(await this.#submit(
+            runtime,
+            message.line,
+            () => {
+              // Once writing starts, an interrupted delivery must never be replayed.
+              runtime.pendingLines.shift();
+              this.#saveCli(runtime);
+            },
+            undefined,
+            {
+              // Internal reminders repeat until the CLI itself produces an event.
+              preserveBackgroundTasks:
+                message.deliveryId?.startsWith("background-wake:"),
+            },
+          ))
         )
           return;
         message.delivered?.();
@@ -2344,7 +2393,7 @@ export class TerminalRuntime {
                 };
             }
             if (runtime.hooks?.isSessionStart?.(payload)) {
-              runtime.cliReady = true;
+              if (!initialPromptReadyWhen(runtime)) runtime.cliReady = true;
               runtime.initialArgumentDelivered?.();
               runtime.initialArgumentDelivered = undefined;
               runtime.initialDeliveryIds = undefined;
@@ -2358,6 +2407,7 @@ export class TerminalRuntime {
                     runtime.cliStatus,
                     runtime.record.cwd,
                   ));
+            if (applyState !== false) this.#endBackgroundWait(runtime);
             if (
               next &&
               ["active", "done"].includes(next.state) &&
@@ -2406,6 +2456,8 @@ export class TerminalRuntime {
     if (command && runtime.commandPath)
       command = withCommandPath(command, shell);
     runtime.inputModeReady = false;
+    runtime.initialPromptWorking = false;
+    runtime.initialPromptSignaled = false;
     if (setup && dialect === "powershell")
       command = `$global:LASTEXITCODE=0\n${command}\nif (-not $?) { if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; exit 1 }`;
     const args = managed
@@ -2517,6 +2569,17 @@ export class TerminalRuntime {
           runtime.inputModeReady = true;
       } else {
         if (
+          !historical &&
+          !runtime.pendingCliCommand &&
+          event.number === 7501 &&
+          initialPromptReadyWhen(runtime) === "osc7501-idle"
+        ) {
+          const state = osc7501Fields(event.data)?.get("state");
+          if (state === "working") runtime.initialPromptWorking = true;
+          if (state === "idle" && runtime.initialPromptWorking)
+            runtime.initialPromptSignaled = true;
+        }
+        if (
           applyTerminalMetadata(
             runtime.record,
             [event],
@@ -2582,10 +2645,12 @@ export class TerminalRuntime {
         // announces readiness immediately; plain-input CLIs can also settle.
         if (
           !runtime.setup &&
-          !runtime.hooks?.isSessionStart &&
+          (!runtime.hooks?.isSessionStart ||
+            !!initialPromptReadyWhen(runtime)) &&
           !runtime.pendingCliCommand &&
           runtime.inputModeReady &&
-          runtime.modes.bracketedPaste
+          runtime.modes.bracketedPaste &&
+          (!initialPromptReadyWhen(runtime) || runtime.initialPromptSignaled)
         )
           runtime.cliReady = true;
         this.#sendInitialInput(runtime);

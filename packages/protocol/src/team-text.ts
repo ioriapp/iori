@@ -226,6 +226,20 @@ export function teamNotice(
   return `[iori] ${teamChildLabel(role, title)} ${event}${event === "failed" && failure ? `: ${oneLine(failure).replace(/\.+$/u, "")}` : ""}. Run iori tasks and iori read to check.${event === "failed" && continueTask ? ` To continue with the next candidate, delegate again with --continue ${continueTask}. The new child starts without the previous conversation, so write a self-contained request.` : ""}`;
 }
 
+export function teamPlanReminder(
+  updatedAt: number | undefined,
+  now: number,
+): string {
+  if (updatedAt === undefined)
+    return " No plan yet; write the goal and tasks with iori plan.";
+  const minutes = Math.max(0, Math.floor((now - updatedAt) / 60_000));
+  const elapsed =
+    minutes >= 60
+      ? `${Math.floor(minutes / 60)}h ${minutes % 60}m`
+      : `${minutes}m`;
+  return ` Plan last updated ${elapsed} ago; if task states, order or checkpoints changed, update them with iori plan.`;
+}
+
 export type TeamStallReason = "output" | "stopped";
 
 export function teamStallNotice(
@@ -263,4 +277,8 @@ export function teamCheckInNotice(
       ? "If it repeats itself or works off task, act; otherwise do nothing."
       : "If one repeats itself or works off task, act; otherwise do nothing.";
   return `[iori] ${items.join("; ")}. ${ending}`;
+}
+
+export function teamBackgroundWakeNotice(minutes: number): string {
+  return `[iori] Your background command is still running ${minutes} minutes after your response ended. Check its status and output. If it already did what you needed but has not exited, stop it and continue; if it is still needed, keep waiting.`;
 }

@@ -363,9 +363,11 @@ export const teamJapanese: Record<string, string> = {
     "親が子のTerminalに入力を送信できます。承認への回答も含みます。オフのときも、親は子の画面の確認と停止ができます。",
   "Check on working children": "作業中の子を確認",
   "While a child keeps working, the parent reads its screen at this interval. Each check uses the parent's tokens.":
-    "子の作業が続いている間、選択した間隔で親が子の画面を確認します。確認のたびに親のトークンを使用します。",
-  Off: "オフ",
-  "Every 15 minutes": "15分ごと",
-  "Every 30 minutes": "30分ごと",
-  "Every hour": "1時間ごと",
+    "子の作業が続いている間、この間隔で親が子の画面を確認します。確認のたびに親のトークンを使用します。",
+  "Remind children waiting on background commands":
+    "バックグラウンドのコマンドを待つ子に確認を促す",
+  "When a child ends its response while a background command keeps running, iori asks the child to check that command at this interval. Each reminder uses the child's tokens.":
+    "子がバックグラウンドのコマンドを残して応答を終えたとき、この間隔で子にそのコマンドの確認を促します。確認のたびに子のトークンを使用します。",
+  "Interval in minutes": "間隔（分）",
+  minutes: "分",
 };

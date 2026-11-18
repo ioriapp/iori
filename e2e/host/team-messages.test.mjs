@@ -189,6 +189,134 @@ test("子の報告が親に通知され、親が本文を読める", (t) =>
     assert.match(JSON.stringify(result), /Completed the work\./u);
   }));
 
+test("委譲は未着手の計画を作業中にし、親が更新しない時だけ知らせで促す", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    const { parent, child } = await launchChild(
+      client,
+      dataRoot,
+      "Do the work.",
+      { muse: true },
+    );
+    await actorCommand(parent, "add-plan", [
+      "plan",
+      "add",
+      "--title",
+      "Implement",
+    ]);
+    await actorCommand(child, "ask-first", ["ask", "--body", "First question"]);
+    const first = await parent.output(
+      'INITIAL_REQUEST_RECEIVED:[iori] Worker "Messages" asked a question.',
+    );
+    assert.doesNotMatch(first, /Plan last updated|No plan yet/u);
+
+    const before = (await actorCommand(parent, "plan-before", ["plan", "show"]))
+      .data;
+    await actorCommand(parent, "delegate-plan", [
+      "delegate",
+      "--role",
+      "Worker",
+      "--difficulty",
+      "low",
+      "--title",
+      "Planned",
+      "--worktree",
+      "parent",
+      "--plan",
+      "1",
+      "--body",
+      "Work",
+    ]);
+    const running = (
+      await actorCommand(parent, "plan-running", ["plan", "show"])
+    ).data;
+    assert.equal(running.tasks[0].state, "in_progress");
+    assert.equal(running.activity.length, before.activity.length + 1);
+    const { at, ...activity } = running.activity.at(-1);
+    assert.equal(typeof at, "number");
+    assert.deepEqual(activity, {
+      kind: "update",
+      request: false,
+      by: "host",
+      task: 1,
+      text: "Running",
+    });
+
+    await actorCommand(child, "report-second", ["report", "--body", "Report"]);
+    const second = await parent.output(
+      "if task states, order or checkpoints changed, update them with iori plan.",
+    );
+    assert.match(
+      second,
+      /reported\. Run iori tasks and iori read to check\. Plan last updated \d+m ago; if task states, order or checkpoints changed, update them with iori plan\./u,
+    );
+
+    await actorCommand(parent, "plan-done", [
+      "plan",
+      "update",
+      "1",
+      "--state",
+      "done",
+    ]);
+    const done = (
+      await actorCommand(parent, "plan-done-show", ["plan", "show"])
+    ).data;
+    await actorCommand(parent, "delegate-done", [
+      "delegate",
+      "--role",
+      "Worker",
+      "--difficulty",
+      "low",
+      "--title",
+      "Done",
+      "--worktree",
+      "parent",
+      "--plan",
+      "1",
+      "--body",
+      "Work",
+    ]);
+    assert.deepEqual(
+      (await actorCommand(parent, "plan-after-done", ["plan", "show"])).data,
+      done,
+    );
+    await actorCommand(child, "ask-third", ["ask", "--body", "Third question"]);
+    const { output } = await parent.waitFor(
+      ({ output }) =>
+        (
+          output.match(
+            /INITIAL_REQUEST_RECEIVED:\[iori\] Worker "Messages" asked a question\./gu,
+          ) ?? []
+        ).length === 2,
+    );
+    const notices = [
+      ...output.matchAll(/INITIAL_REQUEST_RECEIVED:(\[iori\][^\r\n]*)/gu),
+    ].map((match) => match[1]);
+    assert.doesNotMatch(notices.at(-1), /Plan last updated|No plan yet/u);
+  }));
+
+test("計画がない会話では2回目の子の知らせで計画の作成を促す", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    const { parent, child } = await launchChild(
+      client,
+      dataRoot,
+      "Do the work.",
+      { muse: true },
+    );
+    await actorCommand(child, "ask-first", ["ask", "--body", "Question"]);
+    const first = await parent.output(
+      'INITIAL_REQUEST_RECEIVED:[iori] Worker "Messages" asked a question.',
+    );
+    assert.doesNotMatch(first, /No plan yet/u);
+    await actorCommand(child, "report-second", ["report", "--body", "Report"]);
+    const second = await parent.output(
+      "No plan yet; write the goal and tasks with iori plan.",
+    );
+    assert.match(
+      second,
+      /reported\. Run iori tasks and iori read to check\. No plan yet; write the goal and tasks with iori plan\./u,
+    );
+  }));
+
 test("子の質問を親が読み、回答を子へ届ける", (t) =>
   runHostTest(t, async ({ client, dataRoot, stage }) => {
     stage("親から子へ委譲し、子が質問する");

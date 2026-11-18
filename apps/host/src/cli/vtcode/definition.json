@@ -7,7 +7,7 @@
   "version": { "args": ["--version"] },
   "models": { "unavailable": true },
   "launch": {
-    "initialPrompt": { "mode": "paste" },
+    "initialPrompt": { "mode": "paste", "readyWhen": "osc7501-idle" },
     "model": ["--model", "{model}"],
     "permissions": {
       "strict": ["--security-level", "strict"],

@@ -115,9 +115,19 @@ export type TeamDefinition = {
   roles: Role[];
   /** The parent may send input to its children's terminals (default off). */
   parentInput?: boolean;
-  /** Minutes between check-ins on working children; absent means off. */
-  checkMinutes?: 15 | 30 | 60;
+  /** Minutes between check-ins on working children (1-1440); absent means off. */
+  checkMinutes?: number;
+  /**
+   * Minutes after a child ends its response with background work still running
+   * before Host asks the child to check that work, then again at the same
+   * interval (1-1440). Absent means the default (15); 0 means off.
+   */
+  backgroundWakeMinutes?: number;
 };
+/** Default for `TeamDefinition.backgroundWakeMinutes`. */
+export const defaultBackgroundWakeMinutes = 15;
+/** Largest minutes value for team intervals (one day). */
+export const maxTeamIntervalMinutes = 1440;
 export type Team = TeamDefinition & {
   id: string;
   version: number;
@@ -338,10 +348,22 @@ export function parseTeamDefinition(value: unknown): TeamDefinition {
     instruction: text(v.instruction),
     roles,
     ...(v.parentInput === true ? { parentInput: true } : {}),
-    ...(v.checkMinutes === 15 || v.checkMinutes === 30 || v.checkMinutes === 60
-      ? { checkMinutes: v.checkMinutes }
+    ...(teamMinutes(v.checkMinutes, 1) !== undefined
+      ? { checkMinutes: teamMinutes(v.checkMinutes, 1) }
+      : {}),
+    ...(teamMinutes(v.backgroundWakeMinutes, 0) !== undefined
+      ? { backgroundWakeMinutes: teamMinutes(v.backgroundWakeMinutes, 0) }
       : {}),
   };
+}
+/** Whole minutes from `min` to one day; anything else is left unset. */
+function teamMinutes(value: unknown, min: number): number | undefined {
+  return typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= min &&
+    value <= maxTeamIntervalMinutes
+    ? value
+    : undefined;
 }
 export function parseTeamSettings(value: unknown): TeamSettings {
   const v = object(value);

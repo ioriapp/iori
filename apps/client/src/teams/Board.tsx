@@ -10,7 +10,12 @@ import {
   Check,
   X,
 } from "lucide-react";
-import type { BoardData, BoardAgent, Changes } from "@iori/protocol";
+import type {
+  BoardData,
+  BoardAgent,
+  Changes,
+  PlanActivity,
+} from "@iori/protocol";
 import { connection } from "../connection.ts";
 import { StatusDot } from "../components/StatusDot.tsx";
 import { Button } from "../components/ui/button.tsx";
@@ -289,12 +294,29 @@ export function Board({
     data?.agents.filter((agent) => agent.conversation === conversation?.id) ??
     [];
   const plan = conversation?.plan;
-  const tasks = plan?.tasks.filter((task) => task.state !== "cancelled") ?? [];
+  const tasks = ["done", "in_progress", "pending"].flatMap(
+    (state) => plan?.tasks.filter((task) => task.state === state) ?? [],
+  );
   const completed = tasks.filter((task) => task.state === "done").length;
-  const goalUpdate = plan?.activity
-    .slice()
-    .reverse()
-    .find((entry) => entry.kind === "goal" && entry.request);
+  const activity = [...(plan?.activity ?? [])].reverse();
+  const goalUpdate = activity.find(
+    (entry) => entry.kind === "goal" && entry.request,
+  );
+  const renderActivity = (event: PlanActivity, index: number) => (
+    <p key={index}>
+      <time>{timeOf(event.at, language)}</time>
+      <span>
+        {t(
+          event.by === "host"
+            ? "Started when delegated"
+            : event.request
+              ? "Plan updated after your request"
+              : "Parent updated the plan",
+        )}
+        {event.task !== undefined && ` · Task ${event.task}`} · {event.text}
+      </span>
+    </p>
+  );
   const turns = agents.flatMap((agent) =>
     agent.cliStatus?.attention
       ? [
@@ -790,41 +812,9 @@ export function Board({
                     </button>
                   </CollapsibleTrigger>
                 </div>
-                {[...plan.activity]
-                  .reverse()
-                  .slice(0, 5)
-                  .map((event, index) => (
-                    <p key={index}>
-                      <time>{timeOf(event.at, language)}</time>
-                      <span>
-                        {t(
-                          event.request
-                            ? "Plan updated after your request"
-                            : "Parent updated the plan",
-                        )}
-                        {event.task !== undefined && ` · Task ${event.task}`} ·{" "}
-                        {event.text}
-                      </span>
-                    </p>
-                  ))}
+                {activity.slice(0, 5).map(renderActivity)}
                 <CollapsibleContent>
-                  {[...plan.activity]
-                    .reverse()
-                    .slice(5)
-                    .map((event, index) => (
-                      <p key={index}>
-                        <time>{timeOf(event.at, language)}</time>
-                        <span>
-                          {t(
-                            event.request
-                              ? "Plan updated after your request"
-                              : "Parent updated the plan",
-                          )}
-                          {event.task !== undefined && ` · Task ${event.task}`}{" "}
-                          · {event.text}
-                        </span>
-                      </p>
-                    ))}
+                  {activity.slice(5).map(renderActivity)}
                 </CollapsibleContent>
               </section>
             </Collapsible>

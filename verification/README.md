@@ -112,6 +112,14 @@ Windows Hostのプロセス停止とフォルダー削除は `node scripts/run-b
 - 認証ファイルをコピーして使わない。CLI の互換の監視は検証用の設定へ分離し、OwnerのCLIのログイン（Codex・Pi・OpenCode・omp）を参照しない。本物のモデルを使うのはClaude Codeの試験用トークンだけである。OAuthの更新が試験の側で起きると、元のCLIが認証できなくなるためである。
 - Claude Codeは認証ファイルを一時ファイルからrenameで置き換えるため、symlinkでは新しいrefresh tokenを検証用ホームへ書いてしまい、元のログインが使えなくなる。実モデルを使う検証のClaude Codeは、`claude setup-token` で作った試験専用のトークンを 準備時のエラーが示すファイル（0600、`CLAUDE_CODE_OAUTH_TOKEN=<トークン>` の1行）から読み、環境変数 `CLAUDE_CODE_OAUTH_TOKEN` だけで受け取る。検証用ホームに `.credentials.json` は置かず、元のファイルは開かない。Windowsで起動する時は標準入力で渡し、sshやPowerShellのコマンドラインに載せない。ファイルが無い時は準備の始めに置き場所を伝えて止まる。トークンの値はログ・証拠・結果・スクリーンショット・会話へ出さない。検証コードがClaudeの `.credentials.json` をリンク・コピーしようとするとlint（`iori/no-claude-credentials-link-copy`）が止める。
 
+## README の動画
+
+README の「Delegate to a team」の GIF（`docs/images/team-delegation-dark.gif`）は `verification/readme-demo/` で撮り直す。独立の npm のパッケージ（Remotion）で、workspace に入れていない。録画専用の Host・HOME・公開のサンプルのプロジェクト（acme-web）を使い、本物の Claude Code（試験用のトークン）と Codex（Owner のログイン。宣伝の録画だけの例外で、`CLAUDE.md` の決まりに従う）で、親 → Worker → 報告 → Reviewer → 親の受け入れを撮る。
+
+- 録画: `env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT node scripts/run-bounded-check.mjs --memory-max=8G node verification/readme-demo/run.mjs --real-models`。Agent のツールの呼び出しの中で前面に実行すると途中で止まることがあったので、背景のプロセスとして起動して終わりを待つ。
+- 編集と書き出し: 同じ入口に `--render-only=<録画の証拠のフォルダー>` を付ける。mp4 と README 用の GIF（幅1100・毎秒15コマ）を書き出す。
+- 映してはいけない値（機械名・個人のパスなど）は、録画中に全フレームで照らし、結果を証拠の `capture.json` に残す。公開の前に `safe` を確かめる。
+
 ## SSHでWindows Hostを導入する
 
 `verification/host-setup/build.mjs --client Windows --ssh-windows` でWindows・Linuxの検証用Clientと署名済みのWindows Hostを作る。準備から回収まで `IORI_VERIFICATION_CONFIG=verification/host-setup/tauri.conf.json`・`IORI_VERIFICATION_EVIDENCE_ROOT`・`IORI_VERIFICATION_PORT` を同じ値にし、Node 24で `node scripts/run-bounded-check.mjs node` に続けて各入口を実行する。

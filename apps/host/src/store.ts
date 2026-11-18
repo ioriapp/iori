@@ -730,6 +730,7 @@ export class HostStore {
       roles,
       parentInput,
       checkMinutes,
+      backgroundWakeMinutes,
     } = definition;
     const clean = structuredClone({
       name,
@@ -739,6 +740,7 @@ export class HostStore {
       roles,
       ...(parentInput ? { parentInput } : {}),
       ...(checkMinutes ? { checkMinutes } : {}),
+      ...(backgroundWakeMinutes !== undefined ? { backgroundWakeMinutes } : {}),
     });
     const names = new Map([
       ...cliDefinitions.map((cli) => [cli.id, cli.name] as const),
@@ -1034,6 +1036,50 @@ export class HostStore {
         .prepare("SELECT 1 FROM sidebar_targets WHERE workspace_path = ?")
         .get(path) !== undefined
     );
+  }
+
+  promoteFolder(path: string, workspacePath: string): boolean {
+    return this.#transaction(() => {
+      const result = this.#database
+        .prepare(
+          `UPDATE folder_history SET kind = 'git', workspace_path = ?
+           WHERE path = ? AND kind = 'folder' AND workspace_path = ?
+             AND EXISTS (SELECT 1 FROM sidebar_targets WHERE workspace_path = ?)`,
+        )
+        .run(workspacePath, path, path, path);
+      if (Number(result.changes) === 0) return false;
+      if (workspacePath === path) {
+        this.#database
+          .prepare(
+            "UPDATE sidebar_targets SET kind = 'git' WHERE workspace_path = ?",
+          )
+          .run(path);
+      } else {
+        this.#database
+          .prepare(
+            `INSERT OR IGNORE INTO sidebar_targets (workspace_path, kind, opened_at)
+             SELECT ?, 'git', opened_at FROM sidebar_targets WHERE workspace_path = ?`,
+          )
+          .run(workspacePath, path);
+        this.#database
+          .prepare(
+            "UPDATE sidebar_targets SET kind = 'git' WHERE workspace_path = ?",
+          )
+          .run(workspacePath);
+        this.#database
+          .prepare(
+            "UPDATE OR IGNORE sidebar_order SET workspace_path = ? WHERE workspace_path = ?",
+          )
+          .run(workspacePath, path);
+        this.#database
+          .prepare("DELETE FROM sidebar_order WHERE workspace_path = ?")
+          .run(path);
+        this.#database
+          .prepare("DELETE FROM sidebar_targets WHERE workspace_path = ?")
+          .run(path);
+      }
+      return true;
+    });
   }
 
   openFolder(

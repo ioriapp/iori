@@ -28,6 +28,8 @@ export type PlanActivity = {
   at: number;
   kind: "goal" | "add" | "update" | "cancel";
   request: boolean;
+  /** Host changed the plan itself (a delegated task started); absent means the parent. */
+  by?: "host";
   task?: number;
   text: string;
   previousGoal?: string;

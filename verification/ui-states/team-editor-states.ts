@@ -1,6 +1,9 @@
 import type { CliSummary, Team, TeamList } from "@iori/protocol";
 
 export const allStates = [
+  { id: "team-parent-intervals-default", label: "親・間隔の初期設定" },
+  { id: "team-parent-intervals-on", label: "親・間隔をオン" },
+  { id: "team-parent-intervals-off", label: "親・間隔をオフ" },
   { id: "team-parent-template", label: "新しいTeam・テンプレート" },
   { id: "team-parent-picker", label: "新しいTeam・CLIとモデル" },
   { id: "team-parent-existing", label: "新しいTeam・既存のTeam" },
@@ -33,6 +36,12 @@ export function teamEditorFixture(state: string) {
     version: 1,
     updated: "2026-11-17T00:00:00Z",
     parent,
+    ...(state === "team-parent-intervals-on"
+      ? { checkMinutes: 15, backgroundWakeMinutes: 15 }
+      : {}),
+    ...(state === "team-parent-intervals-off"
+      ? { backgroundWakeMinutes: 0 }
+      : {}),
     roles: [
       {
         id: "worker",
@@ -73,16 +82,19 @@ export function teamEditorFixture(state: string) {
     "team-parent-empty-high",
     "team-parent-unset",
   ].includes(state);
+  const intervals = state.startsWith("team-parent-intervals-");
   return {
     cliList,
     initial,
     values: {
-      selection: role
-        ? { page: "team", teamId: team.id, detail: "worker" }
-        : { page: "teams" },
-      mobileDetail: role,
+      selection: intervals
+        ? { page: "team", teamId: team.id, detail: "parent" }
+        : role
+          ? { page: "team", teamId: team.id, detail: "worker" }
+          : { page: "teams" },
+      mobileDetail: role || intervals,
       expanded: { [team.id]: true },
-      newTeamOpen: !role,
+      newTeamOpen: !role && !intervals,
       teamSource:
         state === "team-parent-existing"
           ? "existing:development"

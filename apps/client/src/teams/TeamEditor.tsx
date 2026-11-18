@@ -1,7 +1,11 @@
 import { pickerClis } from "../cli-list.ts";
 import { HiddenItems } from "./HiddenItems.tsx";
 import { pickerTeams } from "./team-data.ts";
-import { nameOrder } from "@iori/protocol";
+import {
+  nameOrder,
+  defaultBackgroundWakeMinutes,
+  maxTeamIntervalMinutes,
+} from "@iori/protocol";
 import { useIsMobile } from "../hooks/use-mobile.ts";
 import type { SettingsEditor } from "../settings-save.ts";
 import {
@@ -2130,45 +2134,66 @@ export function TeamEditor({
                       }
                     />
                   </SettingsRow>
-                  <SettingsRow
-                    label="Check on working children"
-                    hint="While a child keeps working, the parent reads its screen at this interval. Each check uses the parent's tokens."
-                  >
-                    <Select
-                      value={
-                        team.checkMinutes !== undefined
-                          ? String(team.checkMinutes)
-                          : "off"
-                      }
-                      onValueChange={(raw) =>
-                        editTeam((value) => {
-                          const next = { ...value };
-                          if (raw === "15" || raw === "30" || raw === "60") {
-                            next.checkMinutes = Number(raw) as 15 | 30 | 60;
-                          } else {
-                            delete next.checkMinutes;
-                          }
-                          return next;
-                        })
+                  {(
+                    [
+                      {
+                        field: "checkMinutes",
+                        label: "Check on working children",
+                        hint: "While a child keeps working, the parent reads its screen at this interval. Each check uses the parent's tokens.",
+                        minutes: team.checkMinutes,
+                      },
+                      {
+                        field: "backgroundWakeMinutes",
+                        label: "Remind children waiting on background commands",
+                        hint: "When a child ends its response while a background command keeps running, iori asks the child to check that command at this interval. Each reminder uses the child's tokens.",
+                        minutes:
+                          team.backgroundWakeMinutes ??
+                          defaultBackgroundWakeMinutes,
+                      },
+                    ] as const
+                  ).map(({ field, label, hint, minutes }) => (
+                    <SettingsRow
+                      key={field}
+                      label={label}
+                      hint={hint}
+                      detail={
+                        !!minutes && (
+                          <>
+                            <LimitInput
+                              key={`${team.id}-${field}`}
+                              value={String(minutes)}
+                              label={`${t(label)}: ${t("Interval in minutes")}`}
+                              min={1}
+                              max={maxTeamIntervalMinutes}
+                              onChange={(raw) =>
+                                editTeam((value) => ({
+                                  ...value,
+                                  [field]: Number(raw),
+                                }))
+                              }
+                            />
+                            <span>{t("minutes")}</span>
+                          </>
+                        )
                       }
                     >
-                      <SelectTrigger
-                        aria-label={t("Check on working children")}
-                      >
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent position="popper">
-                        <SelectItem value="off">{t("Off")}</SelectItem>
-                        <SelectItem value="15">
-                          {t("Every 15 minutes")}
-                        </SelectItem>
-                        <SelectItem value="30">
-                          {t("Every 30 minutes")}
-                        </SelectItem>
-                        <SelectItem value="60">{t("Every hour")}</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </SettingsRow>
+                      <Switch
+                        checked={!!minutes}
+                        aria-label={t(label)}
+                        onCheckedChange={(checked) =>
+                          editTeam((value) => {
+                            const next = { ...value };
+                            if (checked)
+                              next[field] = defaultBackgroundWakeMinutes;
+                            else if (field === "checkMinutes")
+                              delete next.checkMinutes;
+                            else next.backgroundWakeMinutes = 0;
+                            return next;
+                          })
+                        }
+                      />
+                    </SettingsRow>
+                  ))}
                 </SettingsSection>
                 <SettingsSection title={t("Parent instructions")}>
                   <Field

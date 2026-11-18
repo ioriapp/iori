@@ -160,6 +160,16 @@ try {
               await page
                 .locator(".team-execution-list")
                 .scrollIntoViewIfNeeded();
+            if (state.id.startsWith("team-parent-intervals-"))
+              await page
+                .locator(".settings-section")
+                .filter({
+                  has: page.getByRole("switch", {
+                    name: "作業中の子を確認",
+                    exact: true,
+                  }),
+                })
+                .scrollIntoViewIfNeeded();
             if (renderError) row.unavailable = renderError;
             row.height = await page
               .locator(".host-flow-dialog")

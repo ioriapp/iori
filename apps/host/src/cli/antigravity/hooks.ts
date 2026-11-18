@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { CliStatus } from "@iori/protocol";
 import { editHookFile } from "../hook-config.ts";
 import { writeHooks } from "../definition-hooks.ts";
+import { osc7501Fields } from "../osc7501.ts";
 import {
   cliFailure,
   attention,
@@ -92,13 +93,8 @@ function parseOsc7501(data: string):
       message?: string;
     }
   | undefined {
-  if (!data) return undefined;
-  const fields = new Map<string, string>();
-  for (const part of data.split(":")) {
-    const eq = part.indexOf("=");
-    if (eq <= 0) return undefined;
-    fields.set(part.slice(0, eq), part.slice(eq + 1));
-  }
+  const fields = osc7501Fields(data);
+  if (!fields) return undefined;
   const state = fields.get("state");
   if (!state || !oscStates.has(state)) return undefined;
   const app = fields.get("app");
@@ -202,10 +198,10 @@ export const hooks: CliHooks = {
     if (event === "Stop")
       return {
         response: text(payload.last_assistant_message),
-        state:
-          payload.fullyIdle === false || payload.fully_idle === false
-            ? "active"
-            : "done",
+        state: "done",
+        ...(payload.fullyIdle === false || payload.fully_idle === false
+          ? { backgroundTasks: [{}] }
+          : {}),
       };
     if (
       event === "PostToolUse" &&

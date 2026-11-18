@@ -1012,3 +1012,209 @@ test("checkMinutesがあると作業中の子へ間隔ごとに知らせ、報�
       },
     },
   ));
+
+async function backgroundTeam(
+  client,
+  dataRoot,
+  cli,
+  backgroundWakeMinutes = 7,
+) {
+  const script = new URL(
+    "../../verification/host/background-cli.mjs",
+    import.meta.url,
+  ).href;
+  await writeFakeCli(
+    join(dataRoot, "bin"),
+    cli === "antigravity" ? "agy" : "claude",
+    `process.argv.push(${JSON.stringify(cli === "antigravity" ? "--antigravity" : "--claude")}); await import(${JSON.stringify(script)});`,
+  );
+  const parentCli = await registerWatchCli(
+    client,
+    dataRoot,
+    "background-parent",
+  );
+  const team = await client.request("teams.create", {
+    definition: {
+      name: "Background",
+      description: "",
+      instruction: "",
+      backgroundWakeMinutes,
+      checkMinutes: 7,
+      parent: {
+        id: "parent",
+        cli: parentCli,
+        model: "",
+        tools: [],
+        minimum: "",
+      },
+      roles: [teamRole("worker", "Worker", cli)],
+    },
+  });
+  await client.request("teams.settings", {
+    enabled: true,
+    defaultTeam: team.saved.id,
+    limits: {},
+  });
+  const events = await client.events();
+  await events.waitFor((e) => e.type === "snapshot");
+  const { terminal: launched } = await client.request("team.launch", {
+    teamId: team.saved.id,
+    cwd: dataRoot,
+  });
+  const parent = await client.terminal(launched.id);
+  await parent.output("WATCH_READY:startup");
+  async function child(title) {
+    const entry = await delegateChild(parent, client, events, title, {
+      title,
+      body: "Wait for background work",
+    });
+    const output = await entry.terminal.output(
+      /BACKGROUND_CONTROL:([^\r\n]+)/u,
+    );
+    return {
+      ...entry,
+      control: output.match(/BACKGROUND_CONTROL:([^\r\n]+)/u)[1],
+    };
+  }
+  return { parent, parentId: launched.id, child, team, events };
+}
+const backgroundEnvironment = {
+  environment: { IORI_TEST_CHECK_MINUTE_MS: "300", IORI_TEST_STALL_MS: "900" },
+};
+const backgroundReceived = (minutes) =>
+  `BACKGROUND_RECEIVED:[iori] Your background command is still running ${minutes} minutes after your response ended. Check its status and output. If it already did what you needed but has not exited, stop it and continue; if it is still needed, keep waiting.`;
+
+for (const cli of ["antigravity", "claude"]) {
+  test(`${cli}のバックグラウンド待ちへ同じ間隔で確認し、確認後の未報告を親へ知らせる`, (t) =>
+    runHostTest(
+      t,
+      async ({ client, dataRoot }) => {
+        const context = await backgroundTeam(client, dataRoot, cli);
+        const child = await context.child("Background");
+        const first = await child.terminal.output(
+          /BACKGROUND_RECEIVED:[^\r\n]+\r?\n/u,
+        );
+        assert.ok(first.includes(backgroundReceived(7)), first);
+        const repeated = await child.terminal.waitFor(
+          ({ output }) => output.split("BACKGROUND_RECEIVED:").length >= 3,
+        );
+        assert.ok(
+          repeated.output.includes(backgroundReceived(14)),
+          repeated.output,
+        );
+        assert.equal(
+          (await client.terminal(context.parentId)).values
+            .at(-1)
+            .output.includes('Worker "Background" is idle without'),
+          false,
+        );
+        await appendFile(child.control, "RESPOND\n");
+        await child.terminal.output("BACKGROUND_WILL_RESPOND");
+        await child.terminal.output("BACKGROUND_RESPONSE_ENDED");
+        await context.parent.output(
+          'Worker "Background" is idle without a report or question',
+        );
+        const tasks = await parentCommand(context.parent, "background-tasks", [
+          "tasks",
+        ]);
+        const unreported = tasks.data.children.find(
+          (entry) => entry.child === child.childId,
+        );
+        assert.equal(unreported.waiting, "report");
+        assert.equal(unreported.userInput, undefined);
+      },
+      backgroundEnvironment,
+    ));
+
+  test(`${cli}のバックグラウンド待ちが再開したときとオフのときは確認を送らない`, (t) =>
+    runHostTest(
+      t,
+      async ({ client, dataRoot }) => {
+        const context = await backgroundTeam(client, dataRoot, cli);
+        const child = await context.child("Background");
+        await appendFile(child.control, "ACTIVE\n");
+        await child.terminal.output("BACKGROUND_ACTIVE");
+        await context.parent.output(
+          'Worker "Background" has been working for 7m',
+        );
+        assert.equal(
+          (await client.terminal(child.terminalId)).values
+            .at(-1)
+            .output.includes("BACKGROUND_RECEIVED:"),
+          false,
+        );
+        await client.request("teams.save", {
+          teamId: context.team.saved.id,
+          definition: {
+            ...context.team.saved,
+            backgroundWakeMinutes: 0,
+            checkMinutes: 21,
+          },
+        });
+        await appendFile(child.control, "STOP\n");
+        await child.terminal.output("BACKGROUND_STOP:2");
+        const clock = await context.child("Clock");
+        await appendFile(clock.control, "ACTIVE\n");
+        await clock.terminal.output("BACKGROUND_ACTIVE");
+        await context.parent.output('Worker "Clock" has been working for 21m');
+        assert.equal(
+          (await client.terminal(child.terminalId)).values
+            .at(-1)
+            .output.includes("BACKGROUND_RECEIVED:"),
+          false,
+        );
+      },
+      backgroundEnvironment,
+    ));
+}
+
+test("Antigravityのバックグラウンド待ちで親へ応答なしを知らせない", (t) =>
+  runHostTest(
+    t,
+    async ({ client, dataRoot }) => {
+      const context = await backgroundTeam(client, dataRoot, "antigravity", 0);
+      await context.child("Background");
+      const clock = await context.child("Clock");
+      await appendFile(clock.control, "ACTIVE\n");
+      await clock.terminal.output("BACKGROUND_ACTIVE");
+      const output = await context.parent.output(
+        'Worker "Clock" has been working for 7m',
+      );
+      assert.equal(
+        output.includes('Worker "Background" is not responding'),
+        false,
+      );
+    },
+    backgroundEnvironment,
+  ));
+
+test("報告済みの子にはバックグラウンドの確認を送らず親の判定待ちを保つ", (t) =>
+  runHostTest(
+    t,
+    async ({ client, dataRoot }) => {
+      const context = await backgroundTeam(client, dataRoot, "claude");
+      const reported = await context.child("Reported");
+      await appendFile(reported.control, "REPORT\n");
+      await reported.terminal.output("BACKGROUND_REPORTED");
+      await context.parent.output('Worker "Reported" reported');
+      const running = await context.child("Running");
+      await running.terminal.output(backgroundReceived(14));
+      const tasks = await parentCommand(
+        context.parent,
+        "reported-background-tasks",
+        ["tasks"],
+      );
+      assert.equal(
+        tasks.data.children.find((entry) => entry.child === reported.childId)
+          .state,
+        "reported",
+      );
+      assert.equal(
+        (await client.terminal(reported.terminalId)).values
+          .at(-1)
+          .output.includes("BACKGROUND_RECEIVED:"),
+        false,
+      );
+    },
+    backgroundEnvironment,
+  ));

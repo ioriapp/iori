@@ -464,6 +464,7 @@ export class WorkspaceService {
   readonly #onEvent: (event: Event) => void;
   readonly #onGitChange: (paths: string[]) => void;
   readonly #watchers = new Map<string, WorktreeWatcher>();
+  readonly #folderWatchers = new Map<string, { close(): void }>();
   readonly #suspended = new Set<WorktreeWatcher>();
   readonly #removing = new Map<string, number>();
 
@@ -520,14 +521,20 @@ export class WorkspaceService {
     const folders = this.#store.folderHistory();
     const resolved = await Promise.all(
       folders.map(async (folder): Promise<FolderHistoryItem> => {
-        if (folder.kind !== "git" || !folder.inSidebar) return folder;
+        if (!folder.inSidebar) return folder;
         try {
+          if (folder.kind === "folder") this.#watchFolder(folder.path);
           const workspace =
             (await inspectGitWorkspace(folder.path)) ??
-            (await inspectGitWorkspace(folder.workspacePath));
+            (folder.kind === "git"
+              ? await inspectGitWorkspace(folder.workspacePath)
+              : undefined);
           if (!workspace) return folder;
+          if (folder.kind === "folder")
+            this.#promoteFolder(folder.path, workspace);
           const enriched: FolderHistoryItem = {
             ...folder,
+            kind: "git",
             workspacePath: workspace.workspacePath,
             inSidebar:
               folder.inSidebar &&
@@ -554,7 +561,11 @@ export class WorkspaceService {
     try {
       const inspected = await inspectOpenedFolder(requestedPath);
       const result = this.#store.openFolder(context, inspected.folder);
-      if (inspected.workspace) this.#watch(inspected.workspace);
+      if (inspected.workspace) {
+        this.#folderWatchers.get(inspected.folder.path)?.close();
+        this.#folderWatchers.delete(inspected.folder.path);
+        this.#watch(inspected.workspace);
+      } else if (result.response.ok) this.#watchFolder(inspected.folder.path);
       if (result.response.ok && inspected.workspace)
         result.response.result.folder.worktrees = publicWorktrees(
           inspected.workspace.worktrees,
@@ -581,6 +592,8 @@ export class WorkspaceService {
   ): Mutation<ResultByMethod["folders.sidebar.remove"]> {
     const result = this.#store.removeSidebarTarget(context, path);
     if (result.changed) {
+      this.#folderWatchers.get(path)?.close();
+      this.#folderWatchers.delete(path);
       for (const [commonDirectory, watcher] of this.#watchers) {
         if (
           watcher.workspacePath === path &&
@@ -595,8 +608,42 @@ export class WorkspaceService {
   }
 
   close(): void {
+    for (const watcher of this.#folderWatchers.values()) watcher.close();
+    this.#folderWatchers.clear();
     for (const watcher of this.#watchers.values()) watcher.close();
     this.#watchers.clear();
+  }
+
+  #promoteFolder(path: string, workspace: GitWorkspace): void {
+    if (!this.#store.promoteFolder(path, workspace.workspacePath)) return;
+    this.#folderWatchers.get(path)?.close();
+    this.#folderWatchers.delete(path);
+    this.#watch(workspace);
+    this.#onEvent({ type: "folders.changed" });
+  }
+
+  #watchFolder(path: string): void {
+    if (this.#folderWatchers.has(path)) return;
+    const batch = batchChanges(async () => {
+      const workspace = await inspectGitWorkspace(path);
+      if (workspace) this.#promoteFolder(path, workspace);
+    });
+    try {
+      const watcher = watch(path, { persistent: false }, (_event, name) => {
+        if (name === null || name.toString() === ".git") batch.changed();
+      });
+      const close = () => {
+        batch.close();
+        watcher.close();
+      };
+      watcher.on("error", () => {
+        close();
+        this.#folderWatchers.delete(path);
+      });
+      this.#folderWatchers.set(path, { close });
+    } catch {
+      batch.close();
+    }
   }
 
   #watch(workspace: GitWorkspace): void {

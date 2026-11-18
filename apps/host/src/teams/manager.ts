@@ -22,7 +22,10 @@ import {
   parentTeamText,
   previousWorkerText,
   teamCheckInNotice,
+  teamBackgroundWakeNotice,
+  defaultBackgroundWakeMinutes,
   teamNotice,
+  teamPlanReminder,
   teamStallNotice,
   updateTeamCommandLocation,
   type Candidate,
@@ -153,7 +156,13 @@ export class TeamManager {
   readonly #cliStates = new Map<string, CliStatus["state"]>();
   readonly #notifiedStalls = new Map<string, number>();
   readonly #checkBaselines = new Map<string, number>();
+  readonly #planRevisions = new Map<string, number>();
+  readonly #lastNotice = new Map<string, { at: number; revision: number }>();
   #checkTimer: NodeJS.Timeout | undefined;
+  readonly #backgroundWakes = new Map<
+    string,
+    { since: number; sentAt: number; pending: boolean }
+  >();
   #draining = false;
   #drainRequested = false;
   #closed = false;
@@ -407,9 +416,10 @@ export class TeamManager {
             if (pending.length === 0) return;
             const parent = manager.#conversation(conversationId).terminalId;
             if (!manager.terminals.isCliRunning(parent)) return;
-            await manager.terminals
-              .sendLine(parent, teamStallNotice(pending))
-              .catch(() => {});
+            await manager.#sendParentNotice(
+              conversationId,
+              teamStallNotice(pending),
+            );
           }, `stall-notice:${conversationId}`)
           .catch(() => {
             console.error("Team CLI stall notification failed");
@@ -476,6 +486,7 @@ export class TeamManager {
     } else {
       this.#checkBaselines.delete(child.id);
     }
+    this.#scheduleCheckIn();
     this.#cliStates.set(child.id, state.state);
     this.#saveChild(child);
     await this.#measureChild(child);
@@ -787,6 +798,10 @@ export class TeamManager {
       responseText = `Plan task ${task.number}: ${command.action === "cancel" ? "cancelled" : "updated"}.`;
     }
     plan.updatedAt = at;
+    this.#planRevisions.set(
+      conversation.id,
+      (this.#planRevisions.get(conversation.id) ?? 0) + 1,
+    );
     this.store.putTeamConversation(conversation);
     return ok(responseText, plan);
   }
@@ -1521,15 +1536,89 @@ export class TeamManager {
         break;
       }
     }
+    hasEligible ||= [...this.#children.values()].some(
+      (child) => this.#backgroundWait(child) !== undefined,
+    );
     if (!hasEligible) return;
     const { pollMs } = checkInTiming();
     this.#checkTimer = setTimeout(() => {
       this.#checkTimer = undefined;
       if (this.#closed) return;
       this.#runCheckIns();
+      this.#runBackgroundWakes();
       this.#scheduleCheckIn();
     }, pollMs);
     this.#checkTimer.unref();
+  }
+  #backgroundWait(
+    child: TeamChild,
+  ): { since: number; minutes: number } | undefined {
+    if (!child.terminalId || child.state !== "running") return;
+    const terminal = this.terminals.summary(child.terminalId);
+    const state = terminal?.cliStatus;
+    if (
+      !terminal?.cli ||
+      terminal.setup ||
+      !state ||
+      !["done", "idle"].includes(state.state) ||
+      !state.backgroundTasks?.length
+    )
+      return;
+    const conversation = this.#conversations.get(child.conversation);
+    const team = conversation
+      ? this.store.readTeam(conversation.teamId)?.saved
+      : undefined;
+    const minutes = team?.backgroundWakeMinutes ?? defaultBackgroundWakeMinutes;
+    return minutes ? { since: state.since, minutes } : undefined;
+  }
+  #runBackgroundWakes(): void {
+    const { minuteMs } = checkInTiming();
+    const now = Date.now();
+    for (const child of this.#children.values()) {
+      const wait = this.#backgroundWait(child);
+      if (!wait) {
+        this.#backgroundWakes.delete(child.id);
+        continue;
+      }
+      let wake = this.#backgroundWakes.get(child.id);
+      if (wake?.since !== wait.since) {
+        wake = { since: wait.since, sentAt: wait.since, pending: false };
+        this.#backgroundWakes.set(child.id, wake);
+      }
+      if (wake.pending || now - wake.sentAt < wait.minutes * minuteMs) continue;
+      wake.pending = true;
+      const current = wake;
+      void this.#run(async () => {
+        const latest = this.#backgroundWait(child);
+        if (
+          this.#closed ||
+          !latest ||
+          latest.since !== current.since ||
+          now - current.sentAt < latest.minutes * minuteMs
+        ) {
+          current.pending = false;
+          return;
+        }
+        const minutes =
+          Math.floor((now - current.since) / (latest.minutes * minuteMs)) *
+          latest.minutes;
+        await this.terminals.sendLine(
+          child.terminalId!,
+          teamBackgroundWakeNotice(minutes),
+          () => {
+            current.sentAt = current.since + minutes * minuteMs;
+            current.pending = false;
+            // This is an internal prompt, so the next response must still report.
+            child.parentResponse = "pending";
+            this.#saveChild(child);
+          },
+          `background-wake:${child.id}:${current.since}:${now}`,
+        );
+      }, child.id).catch(() => {
+        current.pending = false;
+        console.error("Team background command reminder failed");
+      });
+    }
   }
   #runCheckIns(): void {
     if (this.#closed) return;
@@ -1613,9 +1702,10 @@ export class TeamManager {
         if (pending.length === 0) return;
         const parent = this.#conversation(conversationId).terminalId;
         if (!this.terminals.isCliRunning(parent)) return;
-        await this.terminals
-          .sendLine(parent, teamCheckInNotice(pending))
-          .catch(() => {});
+        await this.#sendParentNotice(
+          conversationId,
+          teamCheckInNotice(pending),
+        );
       }, `check-in:${conversationId}`).catch(() => {
         console.error("Team CLI check-in notification failed");
       });
@@ -1626,6 +1716,7 @@ export class TeamManager {
     this.#cliFailures.delete(key);
     this.#notifiedStalls.delete(key);
     this.#checkBaselines.delete(key);
+    this.#backgroundWakes.delete(key);
     const child = this.#children.get(key);
     if (child?.terminalId)
       void this.terminals.releaseSessionTokens(child.terminalId);
@@ -1835,6 +1926,23 @@ export class TeamManager {
         repository,
         handoff?.id,
       );
+      const planTask = conversation.plan?.tasks.find(
+        (entry) => entry.number === command.plan,
+      );
+      if (planTask?.state === "pending") {
+        const at = Date.now();
+        planTask.state = "in_progress";
+        planTask.updatedAt = at;
+        conversation.plan!.activity.push({
+          at,
+          kind: "update",
+          request: false,
+          by: "host",
+          task: planTask.number,
+          text: "Running",
+        });
+        this.store.putTeamConversation(conversation);
+      }
       this.#delegating.add(child.id);
       try {
         this.conditionsChanged();
@@ -2682,21 +2790,43 @@ export class TeamManager {
     child.parentNoticePending = true;
     this.#saveChild(child);
     if (!this.terminals.isCliRunning(parent)) return;
+    await this.#sendParentNotice(
+      child.conversation,
+      teamNotice(
+        child.role?.name ?? child.roleName,
+        child.title,
+        event,
+        child.failure,
+        child.cliError ? child.task : undefined,
+      ),
+      () => {
+        delete child.parentNoticePending;
+        this.#saveChild(child);
+      },
+    );
+  }
+  async #sendParentNotice(
+    conversationId: string,
+    text: string,
+    delivered?: () => void,
+  ): Promise<void> {
+    const conversation = this.#conversation(conversationId);
+    const revision = this.#planRevisions.get(conversationId) ?? 0;
+    const previous = this.#lastNotice.get(conversationId);
+    const plan = conversation.plan;
+    const now = Date.now();
+    const reminder =
+      previous !== undefined && previous.revision === revision
+        ? teamPlanReminder(
+            plan?.goal || plan?.tasks.length ? plan?.updatedAt : undefined,
+            now,
+          )
+        : "";
+    this.#lastNotice.set(conversationId, { at: now, revision });
     await this.terminals
-      .sendLine(
-        parent,
-        teamNotice(
-          child.role?.name ?? child.roleName,
-          child.title,
-          event,
-          child.failure,
-          child.cliError ? child.task : undefined,
-        ),
-        () => {
-          delete child.parentNoticePending;
-          this.#saveChild(child);
-        },
-      )
+      .sendLine(conversation.terminalId, text + reminder, () => {
+        delivered?.();
+      })
       .catch(() => {});
   }
   async #send(

@@ -107,7 +107,9 @@ export interface DefinitionFile {
     permissions: Record<string, string[]>;
     instructionFile?: string[];
     directories?: string[];
-    initialPrompt?: { mode: "argument"; args: string[] } | { mode: "paste" };
+    initialPrompt?:
+      | { mode: "argument"; args: string[] }
+      | { mode: "paste"; readyWhen?: "osc7501-idle" };
     managedArguments: ManagedTeamArgument[];
   };
   resume?: string[];
@@ -518,12 +520,30 @@ function launch(value: unknown): DefinitionFile["launch"] {
   let initialPrompt: DefinitionFile["launch"]["initialPrompt"];
   if (input.initialPrompt !== undefined) {
     const prompt = available(input.initialPrompt, "launch.initialPrompt");
+    if (prompt?.readyWhen !== undefined && prompt.mode !== "paste")
+      fail({
+        kind: "values",
+        field: "launch.initialPrompt.mode",
+        values: ["paste"],
+      });
+    if (prompt?.readyWhen !== undefined && prompt.readyWhen !== "osc7501-idle")
+      fail({
+        kind: "values",
+        field: "launch.initialPrompt.readyWhen",
+        values: ["osc7501-idle"],
+      });
     if (prompt?.mode === "argument")
       initialPrompt = {
         mode: "argument",
         args: words(prompt.args, "launch.initialPrompt.args"),
       };
-    else if (prompt?.mode === "paste") initialPrompt = { mode: "paste" };
+    else if (prompt?.mode === "paste")
+      initialPrompt = {
+        mode: "paste",
+        ...(prompt.readyWhen === "osc7501-idle"
+          ? { readyWhen: prompt.readyWhen }
+          : {}),
+      };
     else if (prompt)
       fail({
         kind: "values",

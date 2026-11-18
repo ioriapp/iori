@@ -224,25 +224,123 @@ export function fixture(id: string): Fixture {
   if (id === "light-board") {
     const result = usageFixture("usage-bar-20");
     const board = result.initial.Board.data as BoardData;
+    const completed = "（仮）変更前の画面を撮影する";
+    const started = "（仮）ライトテーマを調整する";
+    const pending = "（仮）変更後の画面を確認する";
+    const cancelled = "（仮）別の配色を試す";
+    const blocked = "（仮）スマホの表示を確認する";
+    const failed = "（仮）PCの表示を確認する";
+    const at = Date.now();
     board.conversations[0].plan = {
       goal: "（仮）ライトテーマの見づらさを直す",
       tasks: [
         {
+          number: 3,
+          title: pending,
+          state: "pending",
+          added: true,
+          updatedAt: at - 180_000,
+        },
+        {
           number: 1,
-          title: "（仮）変更前の画面を撮影する",
+          title: completed,
           state: "done",
           added: false,
-          updatedAt: 0,
+          updatedAt: at - 240_000,
         },
         {
           number: 2,
-          title: "（仮）ライトテーマを調整する",
+          title: started,
           state: "in_progress",
           added: false,
-          updatedAt: 0,
+          updatedAt: at,
+        },
+        {
+          number: 4,
+          title: cancelled,
+          state: "cancelled",
+          added: true,
+          reason: "（仮）現在の配色を維持する",
+          updatedAt: at - 60_000,
+        },
+        {
+          number: 5,
+          title: blocked,
+          state: "in_progress",
+          added: false,
+          updatedAt: at,
+        },
+        {
+          number: 6,
+          title: failed,
+          state: "in_progress",
+          added: false,
+          updatedAt: at,
         },
       ],
-      activity: [],
+      activity: [
+        {
+          at: at - 300_000,
+          kind: "update",
+          request: false,
+          by: "host",
+          task: 1,
+          text: completed,
+        },
+        {
+          at: at - 240_000,
+          kind: "update",
+          request: false,
+          task: 1,
+          text: completed,
+        },
+        {
+          at: at - 180_000,
+          kind: "add",
+          request: true,
+          task: 3,
+          text: pending,
+        },
+        {
+          at: at - 120_000,
+          kind: "add",
+          request: false,
+          task: 4,
+          text: cancelled,
+        },
+        {
+          at: at - 60_000,
+          kind: "cancel",
+          request: false,
+          task: 4,
+          text: cancelled,
+        },
+        {
+          at,
+          kind: "update",
+          request: false,
+          by: "host",
+          task: 2,
+          text: started,
+        },
+      ],
+    };
+    board.agents[0] = {
+      ...board.agents[0],
+      title: blocked,
+      plan: 5,
+      state: "running",
+      cliStatus: {
+        state: "waiting",
+        since: at,
+        attention: { kind: "approval" },
+      },
+    };
+    board.agents[1] = {
+      ...board.agents[1],
+      title: failed,
+      plan: 6,
+      state: "failed",
     };
     result.initial.Board.section = "plan";
     return result;

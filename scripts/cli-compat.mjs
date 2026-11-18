@@ -315,6 +315,23 @@ try {
         ? []
         : capabilities[cli]?.fakeModel
           ? [
+              ...(capabilities[cli].contracts
+                ? [
+                    "入力",
+                    "状態",
+                    "再開",
+                    "子",
+                    ...(capabilities[cli].approval ? ["承認待ち"] : []),
+                  ]
+                    .filter(
+                      (contract) =>
+                        !capabilities[cli].contracts.includes(contract),
+                    )
+                    .map((contract) => ({
+                      contract,
+                      reason: "偽の API の監視に未組込み",
+                    }))
+                : []),
               ...(!capabilities[cli].approval
                 ? [{ contract: "承認待ち", reason: "その CLI に機能がない" }]
                 : []),

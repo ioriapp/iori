@@ -25,10 +25,11 @@ export const capabilities = {
     },
   },
   vtcode: {
-    fakeModel: false,
+    fakeModel: true,
+    approval: true,
+    contracts: ["入力"],
     catalog: "実物のmodels listは一部の候補だけを表示する",
-    pending:
-      "最初の依頼の応答がなく、入力準備の判定が未解決。偽APIによる全契約の監視には未組込み",
+    pending: "最初の依頼は確認済み。残りの契約は偽の API の監視に未組込み",
   },
   claude: { fakeModel: true, approval: true },
   codex: { fakeModel: true, approval: true },

@@ -11,6 +11,12 @@ import {
 } from "../../verification/host/scripted-definition.mjs";
 
 async function writeDelayedCli(dataRoot, cli) {
+  // VT Code 0.182.4 startup OSC 7501 output, recorded from the real CLI.
+  const vtSignals = [
+    "\x1b]7501;state=idle:id=t5a365cec394d298b67b452b5413a30:app=vtcode:title=VlQgQ29kZQ==:msg=SWRsZQ==\x1b\\",
+    "\x1b]7501;state=working:id=t5a365cec394d298b67b452b5413a30:app=vtcode:title=VlQgQ29kZQ==:msg=SW5pdGlhbGl6aW5nIHNlc3Npb24=\x1b\\",
+    "\x1b]7501;state=idle:id=t5a365cec394d298b67b452b5413a30:app=vtcode:title=VlQgQ29kZQ==:msg=SWRsZQ==\x1b\\",
+  ].join("");
   await writeFakeCli(
     join(dataRoot, "bin"),
     cli === "kimi-code" ? "kimi" : "vtcode",
@@ -32,8 +38,9 @@ process.stdin.on("data", data => {
 });
 console.log("NO_READY_SCREEN");
 await new Promise(resolve => setTimeout(resolve, 650));
-ready = true;
 process.stdout.write("\\x1b[?2004h");
+${cli === "vtcode" ? `process.stdout.write(${JSON.stringify(vtSignals)});` : ""}
+ready = true;
 `,
   );
 }
@@ -41,7 +48,7 @@ process.stdout.write("\\x1b[?2004h");
 for (const childDefinition of [undefined, "kimi-code", "vtcode"])
   test(
     childDefinition
-      ? `${childDefinition}の子は起動中に出力が止まってもpasteの印まで最初の依頼を待つ`
+      ? `${childDefinition}の子は起動中に出力が止まっても準備の合図まで最初の依頼を待つ`
       : "hookもpasteの印もない子のPTYに最初の依頼が一度だけ届く",
     (t) =>
       runHostTest(t, async ({ client, dataRoot, stage }) => {

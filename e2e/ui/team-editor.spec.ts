@@ -128,20 +128,33 @@ test(
       name: "Allow parent input to children",
       exact: true,
     });
-    const checkInterval = page.getByRole("combobox", {
+    const checkInterval = page.getByRole("switch", {
       name: "Check on working children",
+      exact: true,
+    });
+    const backgroundReminder = page.getByRole("switch", {
+      name: "Remind children waiting on background commands",
+      exact: true,
+    });
+    const checkMinutes = page.getByRole("spinbutton", {
+      name: "Check on working children: Interval in minutes",
       exact: true,
     });
     const save = page.getByRole("button", { name: "Save", exact: true });
 
+    await expect(backgroundReminder).toBeChecked();
+    await expect(
+      page.getByRole("spinbutton", {
+        name: "Remind children waiting on background commands: Interval in minutes",
+        exact: true,
+      }),
+    ).toHaveValue("15");
     await expect(parentInput).not.toBeChecked();
-    await expect(checkInterval).toHaveText("Off");
+    await expect(checkInterval).not.toBeChecked();
 
     await parentInput.click();
     await checkInterval.click();
-    await page
-      .getByRole("option", { name: "Every 15 minutes", exact: true })
-      .click();
+    await expect(checkMinutes).toHaveValue("15");
     await save.click();
     await expect(save).toBeDisabled();
 
@@ -152,17 +165,19 @@ test(
     await page.reload();
     await openParentSettings();
     await expect(parentInput).toBeChecked();
-    await expect(checkInterval).toHaveText("Every 15 minutes");
+    await expect(checkInterval).toBeChecked();
+    await expect(checkMinutes).toHaveValue("15");
 
     await parentInput.click();
     await checkInterval.click();
-    await page.getByRole("option", { name: "Off", exact: true }).click();
+    await backgroundReminder.click();
     await save.click();
     await expect(save).toBeDisabled();
 
     const afterDisable = await app.request("teams.read", { teamId: saved.id });
     expect("parentInput" in afterDisable.saved).toBe(false);
     expect("checkMinutes" in afterDisable.saved).toBe(false);
+    expect(afterDisable.saved.backgroundWakeMinutes).toBe(0);
   },
 );
 

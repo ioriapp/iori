@@ -4,6 +4,22 @@ import { join } from "node:path";
 // Each provider points only at this test's fake API, using a fixture credential.
 export async function providerHome(cli, home, baseURL) {
   const files = {
+    vtcode: [
+      ".vtcode/vtcode.toml",
+      `[agent]
+provider = "verification"
+api_key_env = "IORI_FAKE_MODEL_KEY"
+default_model = "gpt-6-luna"
+[[custom_providers]]
+name = "verification"
+display_name = "Verification"
+base_url = "${baseURL}/v1"
+api_key_env = "IORI_FAKE_MODEL_KEY"
+model = "gpt-6-luna"
+context_window = 128000
+api_format = "openai-responses"
+`,
+    ],
     hermes: [
       ".hermes/config.yaml",
       `model:

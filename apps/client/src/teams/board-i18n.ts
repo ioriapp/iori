@@ -63,6 +63,7 @@ const japanese: Record<string, string> = {
   "Goal updated after your request": "追加の指示で目標を更新",
   "Parent updated the plan": "親が計画を更新",
   "Plan updated after your request": "追加の指示で計画を更新",
+  "Started when delegated": "委譲で作業中に変更",
   "Open final screen": "最後の画面を開く",
   "Open parent conversation": "親の会話を開く",
   "Open conversation": "会話を開く",

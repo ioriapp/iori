@@ -54,6 +54,7 @@
 | 作業中の Agent が進まない状態（Not responding）      | 応答なし                                             | 止まっている・進んでいない                               | Apple（`Not Responding`→応答なし）                                                           |
 | 一定の間隔で繰り返す（Every 15 minutes）             | 15分ごと・1時間ごと                                  | 15分おき・毎時                                           | macOS（`Every 15 minutes`→15分ごと、`Every hour`→1時間ごと）                                 |
 | 入力を送る（Send input）                             | 入力を送信                                           | 入力を送る・打ち込む                                     | VS Code（`Send input to a shell session`→入力をシェル セッションに送信する）                 |
+| バックグラウンド（background）                       | バックグラウンド                                     | —                                                        | VS Code・Microsoft（「コマンドはバックグラウンドで実行されています」）                       |
 
 ## 表記
 
