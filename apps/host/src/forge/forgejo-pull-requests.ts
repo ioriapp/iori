@@ -1,7 +1,7 @@
-import { http, pages } from "./forgejo.ts";
+import { http, pullRequestsByHead } from "./forgejo.ts";
 import { ForgeReadError, forgejoFailure } from "./failure.ts";
 import { forgeSites } from "./sites.ts";
-import { array, object, pullRequestUrl, string } from "./response.ts";
+import { object, pullRequestUrl, string } from "./response.ts";
 import {
   PullRequestFailure,
   draftTitle,
@@ -89,17 +89,28 @@ export const forgejoPullRequests: PullRequestWriter = async (
   return {
     defaultBranch,
     async existing(branch) {
-      const query = new URLSearchParams({ state: "open", head: branch });
-      const pulls = (
-        await pages(target.origin, `${endpoint}/pulls?${query}`, signal)
-      ).flatMap(array);
+      const pulls = await pullRequestsByHead(
+        {
+          origin: target.origin,
+          owner: target.owner,
+          repo: target.repo,
+          branch,
+          state: "open",
+          defaultBranch,
+        },
+        signal,
+      );
       // Match the head repository too: a fork can use the same branch name.
-      const pull = pulls.find((value) => {
-        const head = object(object(value).head);
+      const pull = pulls.map(object).find((value) => {
+        if (value.state !== "open") return false;
+        const head = object(value.head);
+        if (!head.repo) return false;
         const repo = object(head.repo);
         return (
           head.ref === branch &&
-          repo.full_name === `${target.owner}/${target.repo}`
+          typeof repo.full_name === "string" &&
+          repo.full_name.toLowerCase() ===
+            `${target.owner}/${target.repo}`.toLowerCase()
         );
       });
       return pull ? url(pull) : undefined;

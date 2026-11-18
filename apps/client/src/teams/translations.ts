@@ -181,7 +181,6 @@ export const teamJapanese: Record<string, string> = {
   "New role": "新しい役割",
   "AI Agents/Teams": "AI Agents/Teams",
   Teams: "Teams",
-  "Use teams": "Team機能を使う",
   "Default team": "既定のTeam",
   None: "なし",
   Default: "既定",
@@ -273,8 +272,8 @@ export const teamJapanese: Record<string, string> = {
   "CLIs available on this Host": "このHostで使えるCLI",
   "All models": "すべてのモデル",
   "Model list": "モデルの一覧",
-  "No teams yet. Create a team from a template.":
-    "Teamはまだありません。テンプレートからTeamを作成してください。",
+  "No teams yet. Choose New team to create one from a template.":
+    "Teamはまだありません。「新しいTeam」からテンプレートを選んで作成してください。",
   "Could not save: enter a team name.":
     "保存できませんでした。Team名を入力してください。",
   "Could not save: enter a name for each role.":

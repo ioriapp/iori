@@ -5,6 +5,7 @@ import { lstat, realpath } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import type { WorktreeCreation, ResultByMethod } from "@iori/protocol";
 import { collectGit } from "./git-process.ts";
+import { hasHead } from "./git-reading.ts";
 import { addGitWorktree } from "./teams/worktrees.ts";
 import { HostStore, type StoreContext } from "./store.ts";
 
@@ -56,10 +57,12 @@ export async function worktreeOptions(
       Number(remoteNames.has(a)) - Number(remoteNames.has(b)) ||
       a.localeCompare(b),
   );
+  const mainPath = await realpath(main.path);
   return {
-    mainPath: await realpath(main.path),
+    mainPath,
     branches,
     defaultBranch,
+    ...((await hasHead(mainPath)) ? {} : { noCommits: true as const }),
   };
 }
 

@@ -161,7 +161,6 @@ test("親CLIが未設定のチームを実行すると設定の案内を履歴�
       language: "ja",
     });
     await client.request("teams.settings", {
-      enabled: true,
       defaultTeam: team.saved.id,
       limits: {},
     });

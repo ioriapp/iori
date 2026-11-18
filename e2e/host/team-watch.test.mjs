@@ -156,7 +156,6 @@ for (const periodic of [false, true]) {
             },
           });
           await client.request("teams.settings", {
-            enabled: true,
             defaultTeam: team.saved.id,
             limits: {},
           });
@@ -254,7 +253,6 @@ test("作業中の子の止まりを親へ1回だけ知らせ、同時停止は1
         },
       });
       await client.request("teams.settings", {
-        enabled: true,
         defaultTeam: team.saved.id,
         limits: {},
       });
@@ -436,7 +434,6 @@ test("iori screenが見えている画面だけを返し別会話を拒み、int
         },
       });
       await client.request("teams.settings", {
-        enabled: true,
         defaultTeam: team.saved.id,
         limits: {},
       });
@@ -662,7 +659,6 @@ test("parentInputは再起動後も保たれ、オフで拒み、オンではwai
     });
     assert.equal(team.saved.parentInput, undefined);
     await client.request("teams.settings", {
-      enabled: true,
       defaultTeam: team.saved.id,
       limits: {},
     });
@@ -862,7 +858,6 @@ test("checkMinutesがあると作業中の子へ間隔ごとに知らせ、報�
       });
       assert.equal(created.saved.checkMinutes, 15);
       await client.request("teams.settings", {
-        enabled: true,
         defaultTeam: created.saved.id,
         limits: {},
       });
@@ -1051,7 +1046,6 @@ async function backgroundTeam(
     },
   });
   await client.request("teams.settings", {
-    enabled: true,
     defaultTeam: team.saved.id,
     limits: {},
   });

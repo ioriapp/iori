@@ -583,6 +583,8 @@ export interface ResultByMethod
     branches: string[];
     defaultBranch: string;
     setupCommand: string;
+    // The repository has no commit yet, so no worktree can branch from it.
+    noCommits?: true;
   };
   "worktrees.create": WorktreeCreation;
   "worktrees.creation": { creation?: WorktreeCreation };
@@ -2050,6 +2052,7 @@ export const resultSchemas: {
         branches: input.branches.map((v) => string(v, "branch")),
         defaultBranch: string(input.defaultBranch, "defaultBranch"),
         setupCommand: string(input.setupCommand, "setupCommand"),
+        ...(input.noCommits === true ? { noCommits: true as const } : {}),
       };
     },
   },

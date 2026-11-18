@@ -20,6 +20,7 @@ export async function forgeFixture(t, dataRoot, { web = false } = {}) {
     marks: [],
     issueCount: undefined,
     pull: false,
+    pullPages: undefined,
     noStatuses: false,
     ci: {},
   };
@@ -270,7 +271,17 @@ export async function forgeFixture(t, dataRoot, { web = false } = {}) {
       return json([{ id: 9, name: "build", status: "failure" }]);
     if (path.endsWith("/logs"))
       return response.writeHead(200).end("first line\n⚙️ failed\nlast line\n");
-    if (path.endsWith("/pulls"))
+    if (path.endsWith("/pulls")) {
+      if (state.pullPages) {
+        const page = Number(url.searchParams.get("page") ?? 1);
+        return json(
+          state.pullPages[page - 1] ?? [],
+          200,
+          page < state.pullPages.length
+            ? { link: `<${origin}${path}?page=${page + 1}>; rel="next"` }
+            : {},
+        );
+      }
       return json(
         state.pull
           ? [
@@ -283,6 +294,22 @@ export async function forgeFixture(t, dataRoot, { web = false } = {}) {
             ]
           : [],
       );
+    }
+    const byBaseHead =
+      /^\/api\/v1\/repos\/owner\/repo\/pulls\/([^/]+)\/(.+)$/u.exec(path);
+    if (state.pullPages && byBaseHead) {
+      const base = decodeURIComponent(byBaseHead[1]);
+      const head = decodeURIComponent(byBaseHead[2]);
+      const match = state.pullPages
+        .flat()
+        .find(
+          (pr) =>
+            (pr.base?.ref ?? "main") === base &&
+            (pr.head?.label ?? pr.head?.ref) === head &&
+            pr.head?.repo?.full_name === "owner/repo",
+        );
+      return match ? json(match) : json({ message: "not found" }, 404);
+    }
     return json({}, 404);
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));

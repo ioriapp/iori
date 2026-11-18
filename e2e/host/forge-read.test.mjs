@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { symlink } from "node:fs/promises";
+import { mkdir, symlink } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
+import { linkGit } from "../../verification/host/environment.mjs";
 import { runHostTest } from "../../verification/host/process.mjs";
 import { forgeFixture } from "../../verification/host/forge-fixture.mjs";
 import {
@@ -396,6 +397,73 @@ test("CIがないコミットでもForgeの監視でPRのアイコンを知ら�
     assert.equal(event.status.checks, undefined);
   }));
 
+test("headを無視するForgeでもPRのアイコンを知らせ一覧の2ページ目以降を読まない", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    const forge = await forgeFixture(t, dataRoot);
+    forge.git("checkout", "-b", "feature/gitea-pr");
+    forge.git("update-ref", "refs/remotes/origin/feature/gitea-pr", forge.sha);
+    forge.git("config", "branch.feature/gitea-pr.remote", "origin");
+    forge.git(
+      "config",
+      "branch.feature/gitea-pr.merge",
+      "refs/heads/feature/gitea-pr",
+    );
+    forge.state.pullPages = [
+      [
+        {
+          number: 99,
+          state: "open",
+          html_url: `${forge.origin}/owner/repo/pulls/99`,
+          base: { ref: "main" },
+          head: {
+            ref: "other-branch",
+            sha: forge.sha,
+            repo: { full_name: "owner/repo" },
+          },
+        },
+      ],
+      [
+        {
+          number: 42,
+          state: "open",
+          html_url: `${forge.origin}/owner/repo/pulls/42`,
+          base: { ref: "main" },
+          head: {
+            ref: "feature/gitea-pr",
+            sha: forge.sha,
+            repo: { full_name: "owner/repo" },
+          },
+        },
+      ],
+    ];
+    const events = await client.events();
+    await events.waitFor((event) => event.type === "snapshot");
+    await client.request("forge.watch", {
+      paths: [forge.repository],
+      selected: forge.repository,
+    });
+    const event = await events.waitFor(
+      (event) =>
+        event.type === "forge.changed" &&
+        event.path === forge.repository &&
+        event.status.pullRequest,
+    );
+    assert.equal(event.status.pullRequest.number, 42);
+    assert.equal(event.status.pullRequest.state, "open");
+    assert.equal(
+      event.status.pullRequest.url,
+      `${forge.origin}/owner/repo/pulls/42`,
+    );
+    assert.equal(
+      forge.requests.some(
+        (request) =>
+          request.path.endsWith("/pulls") &&
+          Number(request.query.get("page") ?? 1) > 1,
+      ),
+      false,
+    );
+  }));
+
 test("push先がないブランチにはForgeのアイコンを出さない", (t) =>
   runHostTest(t, async ({ client, dataRoot }) => {
     const forge = await forgeFixture(t, dataRoot);
@@ -463,3 +531,37 @@ test(
       );
     }),
 );
+
+test("remoteの無いリポジトリでiori issue listはremote追加の案内を返す", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    await linkGit(join(dataRoot, "bin"));
+    const repo = join(dataRoot, "local-repo");
+    await mkdir(repo);
+    execFileSync("git", ["-C", repo, "init", "-b", "main"], { stdio: "pipe" });
+    const cliId = await registerAutomationCli(client, dataRoot);
+    const { terminal: created } = await client.request("cli.launch", {
+      cliId,
+      cwd: repo,
+    });
+    const terminal = await client.terminal(created.id);
+    await terminal.output("AUTOMATION_READY");
+    const list = await automationCommand(terminal, "no-remote-list", [
+      "issue",
+      "list",
+    ]);
+    assert.equal(list.code, 1);
+    assert.equal(
+      list.stdout,
+      "This repository has no remote. Add a remote with git remote add, then try again.\n",
+    );
+    const show = await automationCommand(terminal, "no-remote-show", [
+      "issue",
+      "show",
+      "1",
+    ]);
+    assert.equal(show.code, 1);
+    assert.equal(
+      show.stdout,
+      "This repository has no remote. Add a remote with git remote add, then try again.\n",
+    );
+  }));

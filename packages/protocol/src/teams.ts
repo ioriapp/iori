@@ -152,7 +152,6 @@ export type TeamRecord = {
   hidden?: boolean;
 };
 export type TeamSettings = {
-  enabled: boolean;
   defaultTeam: string;
   limits: Record<string, string>;
 };
@@ -368,7 +367,6 @@ function teamMinutes(value: unknown, min: number): number | undefined {
 export function parseTeamSettings(value: unknown): TeamSettings {
   const v = object(value);
   return {
-    enabled: bool(v.enabled),
     defaultTeam: text(v.defaultTeam),
     limits: Object.fromEntries(
       Object.entries(object(v.limits)).map(([key, value]) => [

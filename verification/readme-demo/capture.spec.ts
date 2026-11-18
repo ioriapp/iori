@@ -118,7 +118,6 @@ test("README: real implementation, sequential review, acceptance and records", a
     },
   });
   await app.request("teams.settings", {
-    enabled: true,
     defaultTeam: team.saved.id,
     limits: {},
   });

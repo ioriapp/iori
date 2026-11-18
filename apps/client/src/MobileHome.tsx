@@ -301,7 +301,7 @@ export function MobileHome({
           ))}
           {!worktrees.length && (
             <p className="mobile-home-empty">
-              {t("Open a folder from the sidebar.")}
+              {t("Open a folder with Add folder in the sidebar.")}
             </p>
           )}
         </section>

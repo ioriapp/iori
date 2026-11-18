@@ -47,7 +47,6 @@ async function setup(client, dataRoot) {
   };
   const team = await client.request("teams.create", { definition });
   await client.request("teams.settings", {
-    enabled: true,
     defaultTeam: team.saved.id,
     limits: {},
   });

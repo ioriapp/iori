@@ -177,7 +177,6 @@ async function probe() {
       assert.ok(saved.ok, "チームを保存する");
       assert.ok(
         store.teamOperation(context(), "teams.settings", {
-          enabled: true,
           defaultTeam: saved.result.saved.id,
           limits: {},
         }).ok,

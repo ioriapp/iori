@@ -603,6 +603,8 @@ const japanese: Record<string, string> = {
     "この名前はブランチに使えません。名前を変更してください。",
   "Could not create the worktree. Check the repository and try again.":
     "worktreeを作成できませんでした。リポジトリを確認して、もう一度お試しください。",
+  "Make the first commit, then you can create a worktree.":
+    "最初のcommitの後に、worktreeを作成できます。",
   "Could not start the CLI or team. Check its settings and try again.":
     "CLI・Teamを開始できませんでした。設定を確認して、もう一度お試しください。",
   Details: "詳細",
@@ -945,8 +947,8 @@ const japanese: Record<string, string> = {
   "Toggle sidebar": "サイドバーの表示を切り替える",
   "Select a worktree in the sidebar.":
     "サイドバーからworktreeを選んでください。",
-  "Open a folder from the sidebar.":
-    "サイドバーからフォルダーを開いてください。",
+  "Open a folder with Add folder in the sidebar.":
+    "サイドバーの「フォルダーを追加」から、フォルダーを開いてください。",
   "No shells on this Host": "このHostで使えるシェルはありません。",
   "Discard invitation input?": "入力した招待を破棄しますか？",
   "Your invitation input will be cleared.":
@@ -990,6 +992,8 @@ const japanese: Record<string, string> = {
   Label: "ラベル",
   "This folder's repository has no known forge.":
     "このフォルダーのリポジトリのForgeがわかりません。",
+  "This folder's repository has no remote.":
+    "このフォルダーのリポジトリにはリモートがありません。",
   "Could not read the issues for this automation.":
     "このAutomationのIssueを読み込めませんでした。",
   "Run from webhook": "Webhookで実行する",

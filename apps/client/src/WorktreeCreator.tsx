@@ -87,6 +87,12 @@ export function WorktreeCreator({
   const nameInput = useRef<HTMLInputElement>(null);
   const [loading, setLoading] = useState(true);
   const git = folder.kind === "git";
+  const noCommits = git && !loading && !!options?.noCommits;
+  const canCreate =
+    !loading && !busy && !!choice && !!options && !options.noCommits;
+  const alert =
+    error ||
+    (noCommits ? "Make the first commit, then you can create a worktree." : "");
   useEffect(() => {
     if (!open) return;
     let current = true;
@@ -129,11 +135,9 @@ export function WorktreeCreator({
           launchable.find((item) => item.id === cli.result.lastUsedId) ??
           launchable[0];
         const selectableTeams = pickerTeams(team.result.teams);
-        const defaultTeam = team.result.enabled
-          ? selectableTeams.find(
-              (item) => item.saved.id === team.result.defaultTeam,
-            )
-          : undefined;
+        const defaultTeam = selectableTeams.find(
+          (item) => item.saved.id === team.result.defaultTeam,
+        );
         const selectedTeam = defaultTeam?.saved.parent.cli
           ? defaultTeam
           : defaultTeam
@@ -284,6 +288,7 @@ export function WorktreeCreator({
       setBase("");
       setChoice("");
       setError("");
+      setOptions(undefined);
       creationAttempt.current = undefined;
     }
     onOpenChange(false);
@@ -305,10 +310,7 @@ export function WorktreeCreator({
               (event.ctrlKey || event.metaKey) &&
               !event.defaultPrevented &&
               !event.nativeEvent.isComposing &&
-              !loading &&
-              !busy &&
-              choice &&
-              options &&
+              canCreate &&
               !(creationId && pressed !== "create")
             ) {
               event.preventDefault();
@@ -355,12 +357,9 @@ export function WorktreeCreator({
                       !event.metaKey &&
                       !event.defaultPrevented &&
                       !event.nativeEvent.isComposing &&
-                      !loading &&
-                      !busy &&
+                      canCreate &&
                       !creationId &&
-                      !createdPath &&
-                      choice &&
-                      options
+                      !createdPath
                     ) {
                       event.preventDefault();
                       void start(false);
@@ -430,7 +429,7 @@ export function WorktreeCreator({
                         </SelectItem>
                       ))}
                     </SelectGroup>
-                    {teams?.enabled && (
+                    {teams && teams.teams.length > 0 && (
                       <SelectGroup>
                         <SelectLabel>{t("Teams")}</SelectLabel>
                         {teams.teams.map(({ saved: team }) => (
@@ -489,10 +488,10 @@ export function WorktreeCreator({
               />
             )
           )}
-          {error && (
+          {alert && (
             <div role="alert">
-              {t(error)}
-              {!clis && (
+              {t(alert)}
+              {error && !clis && (
                 <Button
                   variant="outline"
                   onClick={() => setReload((v) => v + 1)}
@@ -530,7 +529,7 @@ export function WorktreeCreator({
                   )}
                   <Button
                     data-iori-action="worktree-create"
-                    disabled={loading || busy || !choice || !options}
+                    disabled={!canCreate}
                     pending={pressed === "create"}
                     onClick={() => void start(false)}
                   >

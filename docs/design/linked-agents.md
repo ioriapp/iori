@@ -6,7 +6,7 @@ Linked Agent は、会話にチームを付け、親Agentが子Agentへ仕事を
 
 ## チームの会話を始める
 
-タブの「＋」の一覧で、CLIの群の下に「Team」の群を置く。チームを選ぶと、そのチームの親の設定（CLI・モデル・Effort・許可）で親のCLIを起動し、チームの回し方と親への指示を渡す。既定のチームは群の先頭に出す。CLIを直接選んだ時はチームの無い会話になる。チーム機能がオフの時は群を出さない。
+タブの「＋」の一覧で、CLIの群の下に「Team」の群を置く。チームを選ぶと、そのチームの親の設定（CLI・モデル・Effort・許可）で親のCLIを起動し、チームの回し方と親への指示を渡す。既定のチームは群の先頭に出す。CLIを直接選んだ時はチームの無い会話になる。チームが1つも無い時は群を出さない。
 
 会話の途中でチームを付ける・替える操作は作らない。CLIの画面には、後から指示を確かに差し込む方法が無いからである。親への指示を保存し直した時は、新しく始めた会話から反映される。役割と候補の変更は、動いている会話でも親の次の委譲から反映される（[チーム](teams.md#チームが持つもの)）。
 
@@ -59,7 +59,7 @@ Hostは[チーム](teams.md#子の割り当て)の規則で候補を割り当て
 
 画面への入力で最初の依頼を渡す時は、CLIのSessionStartのhookがある時はその通知を待ち、無い時はブラケットペーストのモードが有効になった時に送る。どちらの準備も示さないCLIには、最初の出力の後で出力が落ち着いた時にも送れる。定義で `launch.initialPrompt.mode=paste` を指定したCLIは、ブラケットペーストのモードが有効になるのを待つ。準備を待つ時間で子を失敗にはしない。
 
-作業場所は親が `delegate` で選ぶ。`new` はHostが親のリポジトリに新しいworktreeとブランチを作り、`parent` は親と同じworktree、既存のworktreeは `git worktree list` のフォルダー名（またはブランチ名）で指す。見つからない時は使える名前を示す。`--repo` を付けると、親と別のリポジトリ（同じHostのGitリポジトリ）に子を置ける（[別のリポジトリに子を置く](worktrees.md#別のリポジトリに子を置く)）。作ったworktreeは[worktreeとフォルダー](worktrees.md)の規則で表示し、`finish` で削除する時の条件も同じ文書に従う。`finish --worktree remove` では、Gitで消した後に残ったファイルも消す。子のために作ったブランチも、作った時のブランチのままの時だけ[worktreeとフォルダー](worktrees.md#worktreeを削除する)と同じ決まりで削除し（取り込み済み、作ってからのコミットが無い時、または取り込まれていないコミットがあっても `--discard` 指定時。他のworktreeが使用中の時は除く）、削除したか残した理由を応答へ書く。役割に場所の欄は置かない。WindowsのCodexには、チームの有無にかかわらず、そのセッションのコマンド通信フォルダーを公式の `--add-dir` で渡す。本人の設定がread-onlyの場合や、選んだpermission profileの書き込み範囲が分からない場合は渡さない。チームの候補やAutomationでCodexの `read-only` を選んだ時は、`:read-only` に通信フォルダーへの書き込みだけを足したpermission profileを使い、`iori` のコマンドを承認なしで使えるようにする。Windowsのunelevated sandboxではread-onlyを使い、通信フォルダーは追加しない。許可を「指定なし」時と「＋」から始めた会話は本人のCodex設定を使う。通信フォルダーを渡さない場合、`iori` の実行にはCLIの承認が要り、承認を求めない設定では使えない。Windowsのelevated sandboxで本人の設定がread-onlyの時は、依頼書の読み取りにも承認が要り、承認を求めない設定では依頼書を読めない。unelevatedでは依頼書を読める。Claude Codeのチームの親と子には、ioriのコマンドとチームのファイルのフォルダーだけを許す起動オプションを付ける。ユーザーの起動引数に `--settings` がない場合は `permissions.additionalDirectories` を `--settings` で渡し、ある場合はユーザーの指定を残して `--add-dir` で渡すため、Claude Codeの信頼確認が表示されることがある。
+作業場所は親が `delegate` で選ぶ。`new` はHostが親のリポジトリに新しいworktreeとブランチを作り（リポジトリにcommitが無い時は子を起動せず、`--worktree parent` を使うか最初のcommitを作るよう応答で返す。`--repo` の先も同じ）、`parent` は親と同じworktree、既存のworktreeは `git worktree list` のフォルダー名（またはブランチ名）で指す。見つからない時は使える名前を示す。`--repo` を付けると、親と別のリポジトリ（同じHostのGitリポジトリ）に子を置ける（[別のリポジトリに子を置く](worktrees.md#別のリポジトリに子を置く)）。作ったworktreeは[worktreeとフォルダー](worktrees.md)の規則で表示し、`finish` で削除する時の条件も同じ文書に従う。`finish --worktree remove` では、Gitで消した後に残ったファイルも消す。子のために作ったブランチも、作った時のブランチのままの時だけ[worktreeとフォルダー](worktrees.md#worktreeを削除する)と同じ決まりで削除し（取り込み済み、作ってからのコミットが無い時、または取り込まれていないコミットがあっても `--discard` 指定時。他のworktreeが使用中の時は除く）、削除したか残した理由を応答へ書く。役割に場所の欄は置かない。WindowsのCodexには、チームの有無にかかわらず、そのセッションのコマンド通信フォルダーを公式の `--add-dir` で渡す。本人の設定がread-onlyの場合や、選んだpermission profileの書き込み範囲が分からない場合は渡さない。チームの候補やAutomationでCodexの `read-only` を選んだ時は、`:read-only` に通信フォルダーへの書き込みだけを足したpermission profileを使い、`iori` のコマンドを承認なしで使えるようにする。Windowsのunelevated sandboxではread-onlyを使い、通信フォルダーは追加しない。許可を「指定なし」時と「＋」から始めた会話は本人のCodex設定を使う。通信フォルダーを渡さない場合、`iori` の実行にはCLIの承認が要り、承認を求めない設定では使えない。Windowsのelevated sandboxで本人の設定がread-onlyの時は、依頼書の読み取りにも承認が要り、承認を求めない設定では依頼書を読めない。unelevatedでは依頼書を読める。Claude Codeのチームの親と子には、ioriのコマンドとチームのファイルのフォルダーだけを許す起動オプションを付ける。ユーザーの起動引数に `--settings` がない場合は `permissions.additionalDirectories` を `--settings` で渡し、ある場合はユーザーの指定を残して `--add-dir` で渡すため、Claude Codeの信頼確認が表示されることがある。
 
 ## 親への知らせ
 

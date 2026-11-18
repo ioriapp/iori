@@ -10,7 +10,7 @@ ioriはForgeの情報を読み込むことを基本にする。読み込むの�
 
 ## 対象のリポジトリ
 
-CIの対象は、[PR・CIのアイコン](git-view.md#画面の構成)と同じく、表示中のworktreeのブランチのpush先（`@{push}`）のリポジトリとブランチの、最新のcommitである。Issueの対象は、main worktreeで引数なしの `git push` が使うリモート（Gitの規則で決まり、pushしていなくても決まる）のリポジトリとし、どのworktreeから開いても同じ一覧にする。Forgeの判定と開くURLは、アイコンと同じく[ワークスペースの設定の「Git」](settings.md#ワークスペースのgit)のリモートとWebサイトに従う。
+CIの対象は、[PR・CIのアイコン](git-view.md#画面の構成)と同じく、表示中のworktreeのブランチのpush先（`@{push}`）のリポジトリとブランチの、最新のcommitである。Issueの対象は、main worktreeで引数なしの `git push` が使うリモート（Gitの規則で決まり、pushしていなくても決まる）のリポジトリとし（リモートが無い時、`iori issue` はリモートが無いことを返す）、どのworktreeから開いても同じ一覧にする。Forgeの判定と開くURLは、アイコンと同じく[ワークスペースの設定の「Git」](settings.md#ワークスペースのgit)のリモートとWebサイトに従う。
 
 ## 連携の設定
 

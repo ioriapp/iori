@@ -1,8 +1,12 @@
 # iori
 
-**自分のマシンで動く CLI の AI エージェントを、PC からもスマートフォンからも、CLI 自身の画面のまま使い続けられるアプリ。**
+**自分のマシンで動く CLI の AI エージェントを、PC からもスマートフォンからも、CLI 自身の画面のまま使い続けられるアプリ。アカウントは不要で、通信は iori のサーバーを通りません。**
 
 Claude Code や Codex などの CLI エージェントは、作業するマシンの中で動きます。iori は、手元のデバイスからそのマシンへ接続して、エージェントとの作業を続けるためのアプリです。iori 独自の画面に置き換えることはせず、CLI 自身の画面をそのまま使います。エージェントが質問や承認で止まったときは、スマートフォンからでも確認して答えられます。
+
+- **アカウントも iori のサーバーも不要:** 手元のデバイスは、LAN や Tailscale などの VPN で Host へ直接接続し、その間の通信は暗号化されます。中継が必要なときは、自分で立てた Relay を使います。
+- **GitHub・Forgejo・Gitea に対応:** Issue と CI を読み込めます。Issue にラベルが付いたときに、エージェントを開始することもできます。
+- **Google のサービスを使わない通知:** Android では、UnifiedPush（ntfy など）を使って、アプリを閉じているときも承認待ちの通知を受け取れます。
 
 [English](README.md) | [日本語](README.ja.md)
 
@@ -29,9 +33,9 @@ Claude Code・Codex・Pi・OpenCode・Cursor CLI・Antigravity CLI などの CLI
 
 <img alt="親のエージェントが計画して委譲し、Codex の Worker が変更して報告、Claude Code の Reviewer が確かめ、親が両方を受け入れる。Board が計画の進みを示す" src="docs/images/team-delegation-dark.gif">
 
-大きな仕事は、複数のエージェントからなる **Team** に任せられます。親エージェントがあなたと相談して目標を決め、計画を書き、Worker や Reviewer といった役割の子エージェントへ仕事を委譲します。役割ごとに、担当への指示と、難易度に応じた CLI とモデルの候補を設定できるので、簡単な仕事は安いモデルに回すといった使い分けができます。Team には、開発・調査・執筆のテンプレートがあり、テンプレートをもとに自由に役割やモデルの割り当て、担当への指示を変更できます。
+大きな仕事は、複数のエージェントからなる **Team** に任せられます。親エージェントがあなたと相談して目標を決め、計画を書き、Worker や Reviewer といった役割の子エージェントへ仕事を委譲します。役割ごとに、担当への指示と、難易度に応じた CLI とモデルの候補を設定できるので、簡単な仕事は安いモデルに回すといった使い分けができます。Team には、開発・調査・執筆のテンプレートがあり、テンプレートをもとに自由に役割やモデルの割り当て、担当への指示を変更できます。Team は **AI Agents/Teams → Teams** で作成し、CLI と同じく **＋** のメニューか **開始** のタブから開始します。
 
-**Board** には、計画、どのエージェントがどのタスクを進めているか、その変更と Tokens が並びます。子エージェントは親エージェントへ報告し、親エージェントは結果を確認して、必要な直しを頼んでから受け入れます。
+Team を開始すると、親エージェントの横に **Board** のタブが開きます。**Board** には、計画、どのエージェントがどのタスクを進めているか、その変更と Tokens が並びます。子エージェントは親エージェントへ報告し、親エージェントは結果を確認して、必要な直しを頼んでから受け入れます。
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/team-board-dark.png">
@@ -39,7 +43,7 @@ Claude Code・Codex・Pi・OpenCode・Cursor CLI・Antigravity CLI などの CLI
   <img alt="4件のタスクの計画と、Running の Worker、報告済みの Reviewer が並ぶ Board" src="docs/images/team-board-dark.png">
 </picture>
 
-**Records** では、役割ごとに、各 CLI とモデルの実績（1回目で受け入れられた割合、差し戻しの回数、時間、Tokens）を比べられます。どの役割にどのモデルを使うかを決める材料になります。
+**AI Agents/Teams** の **Records** では、役割ごとに、各 CLI とモデルの実績（1回目で受け入れられた割合、差し戻しの回数、時間、Tokens）を比べられます。どの役割にどのモデルを使うかを決める材料になります。
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/records-dark.png">

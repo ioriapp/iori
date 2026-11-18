@@ -667,7 +667,6 @@ async function teamParent(client, root, cwd, launch = {}, observePids = false) {
     },
   });
   await client.request("teams.settings", {
-    enabled: true,
     defaultTeam: team.saved.id,
     limits: {},
   });
@@ -1808,4 +1807,26 @@ test("finish --worktree remove --discard は子が切り替えた先のユーザ
     assert.equal(await exists(child.cwd), false);
     assert.equal(git(path, "branch", "--list", "user-feature"), "user-feature");
     assert.match(result.text, /not the branch iori created/);
+  }));
+
+test("コミット0件のリポジトリでworktrees.optionsはnoCommitsを返しコミット後は返さない", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    await symlink(
+      execFileSync("which", ["git"], { encoding: "utf8" }).trim(),
+      join(dataRoot, "bin", "git"),
+    );
+    const path = join(dataRoot, "empty-repository");
+    await mkdir(path);
+    const git = (...args) =>
+      execFileSync("git", ["-C", path, ...args], { stdio: "pipe" });
+    git("init", "-b", "main");
+    git("config", "user.name", "Worktree E2E");
+    git("config", "user.email", "worktree@localhost");
+    const empty = await client.request("worktrees.options", { path });
+    assert.equal(empty.noCommits, true);
+    await writeFile(join(path, "base.txt"), "base\n");
+    git("add", ".");
+    git("commit", "-m", "initial");
+    const committed = await client.request("worktrees.options", { path });
+    assert.equal(Object.hasOwn(committed, "noCommits"), false);
   }));

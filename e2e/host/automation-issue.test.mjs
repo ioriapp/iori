@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
+import { linkGit } from "../../verification/host/environment.mjs";
 import { runHostTest } from "../../verification/host/process.mjs";
 import { forgeFixture } from "../../verification/host/forge-fixture.mjs";
 import {
@@ -66,7 +69,6 @@ test("Issueから親CLIが未設定のチームを実行すると設定の案内
       language: "ja",
     });
     await client.request("teams.settings", {
-      enabled: true,
       defaultTeam: team.saved.id,
       limits: {},
     });
@@ -163,4 +165,24 @@ test("自分のIssueのlabelからworktreeで指示を渡し、前の作業が�
         .length,
       2,
     );
+  }));
+
+test("remoteの無いフォルダーでIssueからの実行を有効にして保存すると再起動なしでno-remoteになる", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    await linkGit(join(dataRoot, "bin"));
+    const repo = join(dataRoot, "local-repo");
+    await mkdir(repo);
+    execFileSync("git", ["-C", repo, "init", "-b", "main"], { stdio: "pipe" });
+    const cli = await registerAutomationCli(client, dataRoot);
+    const { automation } = await client.request("automation.save", {
+      definition: automationDefinition(cli, repo, {
+        issue: { label: "agent-ready" },
+      }),
+    });
+    const updated = await waitAutomation(
+      client,
+      automation.id,
+      (item) => item?.issueError === "no-remote",
+    );
+    assert.equal(updated.issueError, "no-remote");
   }));

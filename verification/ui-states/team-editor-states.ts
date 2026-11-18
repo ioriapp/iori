@@ -65,7 +65,6 @@ export function teamEditorFixture(state: string) {
     ],
   };
   const initial: TeamList = {
-    enabled: true,
     defaultTeam: "",
     limits: {},
     teams: [{ saved: team, history: [{ team, summary: "" }], hidden: false }],

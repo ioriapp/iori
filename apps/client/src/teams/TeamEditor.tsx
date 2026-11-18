@@ -892,10 +892,9 @@ export function TeamEditor({
   const working = workingOn !== undefined;
   const settingsQueue = useRef(Promise.resolve(true));
   const [settingsError, setSettingsError] = useState<
-    "enabled" | "defaultTeam" | "limits"
+    "defaultTeam" | "limits"
   >();
   const [remoteSettings, setRemoteSettings] = useState<TeamSettings>({
-    enabled: initial.enabled,
     defaultTeam: initial.defaultTeam,
     limits: initial.limits,
   });
@@ -960,14 +959,12 @@ export function TeamEditor({
       },
     }));
   const confirmedSettings = useRef(remoteSettings);
-  const saveSettings = ({ enabled, defaultTeam, limits }: TeamSettings) => {
-    const next = { enabled, defaultTeam, limits };
+  const saveSettings = ({ defaultTeam, limits }: TeamSettings) => {
+    const next = { defaultTeam, limits };
     const field =
-      enabled !== settingsRef.current.enabled
-        ? "enabled"
-        : defaultTeam !== settingsRef.current.defaultTeam
-          ? "defaultTeam"
-          : "limits";
+      defaultTeam !== settingsRef.current.defaultTeam
+        ? "defaultTeam"
+        : "limits";
     settingsRef.current = next;
     setRemoteSettings(next);
     updateHost((d) => ({ ...d, ...next }));
@@ -1997,22 +1994,6 @@ export function TeamEditor({
               />
               <SettingsSection className="team-list-settings">
                 <SettingsRow
-                  label="Use teams"
-                  error={
-                    settingsError === "enabled"
-                      ? "Could not save settings. Choose it again to retry."
-                      : undefined
-                  }
-                >
-                  <Switch
-                    checked={data.enabled}
-                    onCheckedChange={(enabled) =>
-                      saveSettings({ ...settingsRef.current, enabled })
-                    }
-                    aria-label={t("Use teams")}
-                  />
-                </SettingsRow>
-                <SettingsRow
                   label="Default team"
                   className="team-default"
                   error={
@@ -2025,7 +2006,6 @@ export function TeamEditor({
                     value={data.defaultTeam || "none"}
                     onValueChange={(value) =>
                       saveSettings({
-                        enabled: data.enabled,
                         limits: data.limits,
                         defaultTeam: value === "none" ? "" : value,
                       })
@@ -2068,7 +2048,9 @@ export function TeamEditor({
               </SettingsSection>
               {data.teams.length === 0 && (
                 <p className="team-hint">
-                  {t("No teams yet. Create a team from a template.")}
+                  {t(
+                    "No teams yet. Choose New team to create one from a template.",
+                  )}
                 </p>
               )}
             </PageBody>
@@ -2556,7 +2538,6 @@ export function TeamEditor({
                   registerEditor={registerEditor}
                   onChange={(limits) =>
                     saveSettings({
-                      enabled: data.enabled,
                       defaultTeam: data.defaultTeam,
                       limits,
                     })

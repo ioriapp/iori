@@ -20,7 +20,7 @@ import type {
   TerminalCreatedResult,
 } from "@iori/protocol";
 import { issueWorktreeName } from "@iori/protocol";
-import { repositoryIssues } from "../forge-issues.ts";
+import { repositoryIssues, type RepositoryIssues } from "../forge-issues.ts";
 import { ForgeReadError, forgeReadFailure } from "../forge/failure.ts";
 import type { ForgeDetection } from "../forge/adapters.ts";
 import type { IssueMarkCache } from "../forge/issues.ts";
@@ -48,7 +48,10 @@ export class AutomationManager {
     { key: string; entries: IssueMarkCache }
   >();
   readonly #issueRevisions = new Map<string, number>();
-  readonly #issueErrors = new Map<string, ForgeReadFailure | "no-forge">();
+  readonly #issueErrors = new Map<
+    string,
+    ForgeReadFailure | "no-remote" | "no-forge"
+  >();
   #tail: Promise<unknown> = Promise.resolve();
   readonly #webhook: AutomationWebhookServer;
   readonly detection: ForgeDetection;
@@ -178,6 +181,23 @@ export class AutomationManager {
       await this.#webhook.sync();
       this.publish({ type: "automation.changed" });
       this.#arm();
+      if (automation.enabled && automation.issue) {
+        const current = automation;
+        const pending = this.#issuePolling.get(current.id);
+        if (pending) {
+          void pending.finally(() => {
+            void this.#serial(async () => {
+              const latest = this.store
+                .automations()
+                .find((item) => item.id === current.id);
+              if (latest?.enabled && latest.issue)
+                this.#startIssuePollFor(latest);
+            }).catch(() => {});
+          });
+        } else {
+          this.#startIssuePollFor(current);
+        }
+      }
       return { ok: true, result };
     });
   }
@@ -389,7 +409,8 @@ export class AutomationManager {
         console.error("Automation issue polling failed");
       })
       .finally(() => {
-        this.#issuePolling.delete(snapshot.id);
+        if (this.#issuePolling.get(snapshot.id) === task)
+          this.#issuePolling.delete(snapshot.id);
       });
     this.#issuePolling.set(snapshot.id, task);
   }
@@ -397,9 +418,9 @@ export class AutomationManager {
     if (this.#closed || !snapshot.enabled || !snapshot.issue) return;
     const revision = this.#issueRevisions.get(snapshot.id);
     const since = this.store.automationIssueStart(snapshot.id)!;
-    let issues: Awaited<ReturnType<typeof repositoryIssues>>;
+    let issues: RepositoryIssues | undefined;
     try {
-      issues = await repositoryIssues(
+      const resolved = await repositoryIssues(
         snapshot.cwd,
         this.store,
         this.detection,
@@ -407,13 +428,15 @@ export class AutomationManager {
         true,
         true,
       );
-      if (!issues) {
+      if (!resolved.ok) {
+        const reason = resolved.reason;
         await this.#serial(async () => {
           if (this.#currentIssueAutomation(snapshot, revision, since))
-            this.#setIssueError(snapshot.id, "no-forge");
+            this.#setIssueError(snapshot.id, reason);
         });
         return;
       }
+      issues = resolved.issues;
       const { target } = issues;
       const key = JSON.stringify([
         target.origin,
@@ -546,7 +569,7 @@ export class AutomationManager {
   }
   #setIssueError(
     id: string,
-    error: ForgeReadFailure | "no-forge" | undefined,
+    error: ForgeReadFailure | "no-remote" | "no-forge" | undefined,
   ): void {
     const previous = this.#issueErrors.get(id);
     if (error) this.#issueErrors.set(id, error);

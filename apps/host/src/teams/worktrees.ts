@@ -6,11 +6,14 @@ import { basename, dirname, join, relative } from "node:path";
 import { realpath, readFile, lstat } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import { collectGit } from "../git-process.ts";
-import { discoverRepository } from "../git-reading.ts";
+import { discoverRepository, hasHead } from "../git-reading.ts";
 import {
   removeRemainingWorktreeFolder,
   worktreeRegistered,
 } from "../worktree-residual.ts";
+
+export const NO_COMMITS_FOR_NEW_WORKTREE =
+  "This repository has no commits yet, so a new worktree cannot be created. Use --worktree parent, or make the first commit and try again.";
 
 function formatWorktreeNames(names: string[]): string {
   const limit = 20;
@@ -77,6 +80,8 @@ export async function childWorktree(
     return path;
   }
   const primary = await realpath(entries[0]!.path);
+  if (!(await hasHead(repository.root)))
+    throw new Error(NO_COMMITS_FOR_NEW_WORKTREE);
   const slug = childWorktreeSlug(title);
   const directory = await realpath(dirname(primary));
   const refs = await collectGit(parent, [

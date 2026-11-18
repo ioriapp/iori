@@ -92,6 +92,11 @@ export async function http(
     link: response.headers.get("link"),
   };
 }
+const nextPage = (origin: string, link: string | null) => {
+  const next = /<([^>]+)>;\s*rel="next"/u.exec(link ?? "")?.[1];
+  return next ? forgeUrl(origin, next) : undefined;
+};
+
 export async function pages(
   origin: string,
   endpoint: string,
@@ -102,10 +107,65 @@ export async function pages(
   while (url) {
     const response = await http(url, signal);
     result.push(response.value);
-    const next = /<([^>]+)>;\s*rel="next"/u.exec(response.link ?? "")?.[1];
-    url = next ? forgeUrl(origin, next) : undefined;
+    url = nextPage(origin, response.link);
   }
   return result;
+}
+
+export async function pullRequestsByHead(
+  {
+    origin,
+    owner,
+    repo,
+    branch,
+    state,
+    defaultBranch,
+  }: {
+    origin: string;
+    owner: string;
+    repo: string;
+    branch: string;
+    state: "open" | "all";
+    defaultBranch?: string;
+  },
+  signal?: AbortSignal,
+): Promise<unknown[]> {
+  const repoPath = `/api/v1/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
+  const query = new URLSearchParams({ state, head: branch });
+  const first = await http(`${origin}${repoPath}/pulls?${query}`, signal);
+  const firstPage = array(first.value);
+  // Gitea (and older Forgejo) ignores `head` and returns all PRs; look up by default branch instead of reading every page.
+  const headIgnored = firstPage.some((value) => {
+    const head = object(object(value).head);
+    return head.ref !== branch && head.label !== branch;
+  });
+  if (!headIgnored) {
+    const next = nextPage(origin, first.link);
+    const rest = next
+      ? await pages(origin, next.slice(origin.length), signal)
+      : [];
+    return [...firstPage, ...rest.flatMap(array)];
+  }
+  const base =
+    defaultBranch ??
+    string(
+      object((await http(`${origin}${repoPath}`, signal)).value).default_branch,
+    );
+  if (!base) return firstPage;
+  const headPath = branch.split("/").map(encodeURIComponent).join("/");
+  const response = await forgejoRequest(
+    `${origin}${repoPath}/pulls/${encodeURIComponent(base)}/${headPath}`,
+    signal,
+    { answers: [404] },
+  );
+  let single: unknown[];
+  if (response.status === 404) {
+    await response.body?.cancel().catch(() => undefined);
+    single = [];
+  } else {
+    single = [(await response.json()) as unknown];
+  }
+  return [...firstPage, ...single];
 }
 
 export const forgejo: ForgeAdapter = {
@@ -148,12 +208,9 @@ export const forgejo: ForgeAdapter = {
     );
   },
   async readPullRequest(target, signal) {
-    const { origin, owner, repo, branch } = target;
-    const pulls = await pages(
-      origin,
-      `/api/v1/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls?state=all&head=${encodeURIComponent(branch)}`,
-      signal,
+    return pullStatus(
+      target,
+      await pullRequestsByHead({ ...target, state: "all" }, signal),
     );
-    return pullStatus(target, pulls.flatMap(array));
   },
 };

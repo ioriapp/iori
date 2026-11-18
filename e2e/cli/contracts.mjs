@@ -63,7 +63,6 @@ export async function launchTeam(context, parentCli, cli, instruction) {
     },
   });
   await client.request("teams.settings", {
-    enabled: true,
     defaultTeam: team.saved.id,
     limits: {},
   });

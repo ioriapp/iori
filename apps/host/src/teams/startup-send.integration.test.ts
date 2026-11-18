@@ -179,7 +179,6 @@ process.stdin.resume(); setInterval(()=>{},1000);
       assert.ok(team.ok);
       assert.ok(
         store.teamOperation(context(), "teams.settings", {
-          enabled: true,
           defaultTeam: team.result.saved.id,
           limits: {},
         }).ok,

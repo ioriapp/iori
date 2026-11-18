@@ -427,9 +427,9 @@ async function gitStatus(
   };
 }
 
-async function hasHead(repository: Repository, signal?: Signal) {
+export async function hasHead(root: string, signal?: Signal): Promise<boolean> {
   const { code } = await collectGit(
-    repository.root,
+    root,
     ["rev-parse", "--verify", "-q", "HEAD"],
     signal,
     [0, 1],
@@ -489,7 +489,7 @@ async function gitHistory(
     if (
       error instanceof ReadingFailure &&
       error.code === "git_failed" &&
-      !(await hasHead(repository, signal))
+      !(await hasHead(repository.root, signal))
     )
       return { commits: [], hasMore: false };
     throw gitFailure(error);

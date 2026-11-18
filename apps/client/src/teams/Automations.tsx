@@ -1185,16 +1185,23 @@ export function Automations({
                 "Runs each open issue labeled by this Host's account, one at a time, in a new worktree per issue.",
               ),
             )}
-            {draft.issue && storedAutomation?.issueError === "no-forge" && (
-              <FieldRow data-iori-automation-issue-error>
-                <ErrorMessage
-                  message={t("This folder's repository has no known forge.")}
-                />
-              </FieldRow>
-            )}
+            {draft.issue &&
+              (storedAutomation?.issueError === "no-forge" ||
+                storedAutomation?.issueError === "no-remote") && (
+                <FieldRow data-iori-automation-issue-error>
+                  <ErrorMessage
+                    message={t(
+                      storedAutomation.issueError === "no-remote"
+                        ? "This folder's repository has no remote."
+                        : "This folder's repository has no known forge.",
+                    )}
+                  />
+                </FieldRow>
+              )}
             {draft.issue &&
               storedAutomation?.issueError &&
-              storedAutomation.issueError !== "no-forge" && (
+              storedAutomation.issueError !== "no-forge" &&
+              storedAutomation.issueError !== "no-remote" && (
                 <FieldRow data-iori-automation-issue-error>
                   <ForgeFailure
                     subject={t(

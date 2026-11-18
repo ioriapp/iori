@@ -91,7 +91,6 @@ for (const childDefinition of [undefined, "kimi-code", "vtcode"])
           },
         });
         await client.request("teams.settings", {
-          enabled: true,
           defaultTeam: team.saved.id,
           limits: {},
         });
@@ -228,7 +227,6 @@ test("Antigravity CLIの子は追加したリポジトリとそのworktreeで信
       },
     });
     await client.request("teams.settings", {
-      enabled: true,
       defaultTeam: team.saved.id,
       limits: {},
     });

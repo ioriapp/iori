@@ -406,24 +406,16 @@
   gap: var(--space-2);
 }
 @media (min-width: 768px) {
-  .record-roles {
+  .record-table {
+    overflow-x: auto;
+  }
+  .record-table-grid {
     display: grid;
     grid-template-columns: minmax(200px, 2fr) repeat(
         9,
         minmax(max-content, 1fr)
       );
     column-gap: var(--space-2);
-    overflow-x: auto;
-  }
-  .record-role,
-  .record-table {
-    display: grid;
-    grid-column: 1 / -1;
-    grid-template-columns: subgrid;
-  }
-  .record-role > h2,
-  .record-comparison {
-    grid-column: 1 / -1;
   }
   .record-table-head,
   .record-row {

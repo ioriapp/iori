@@ -26,9 +26,7 @@ test(
     expect(saved).toHaveProperty("cliId", other);
     await app.open(page);
     await openFolder(page, app);
-    await page
-      .getByRole("button", { name: "AI Agents/Teams", exact: true })
-      .click();
+    await page.locator('[data-iori-action="open-agents-teams"]').click();
     const rows = page.locator(
       `[data-iori-cli-row="${app.cliId}"], [data-iori-cli-row="${other}"]`,
     );
@@ -54,9 +52,7 @@ test(
         .getByRole("button", { name: other, exact: true }),
     ).toHaveCount(0);
     await page.keyboard.press("Escape");
-    await page
-      .getByRole("button", { name: "AI Agents/Teams", exact: true })
-      .click();
+    await page.locator('[data-iori-action="open-agents-teams"]').click();
     await page.getByRole("button", { name: "Hidden", exact: true }).click();
     await expect(otherRow).toBeVisible();
     await otherRow

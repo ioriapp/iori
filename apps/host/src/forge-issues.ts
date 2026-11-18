@@ -32,7 +32,10 @@ async function git(
 }
 
 /** The remote `git push` without arguments uses in this worktree, by Git's rules. */
-async function pushRemote(path: string, signal?: AbortSignal) {
+async function pushRemote(
+  path: string,
+  signal?: AbortSignal,
+): Promise<{ remote: string } | { reason: "no-remote" | "no-forge" }> {
   const branch = await git(
     path,
     ["symbolic-ref", "--quiet", "HEAD"],
@@ -57,16 +60,19 @@ async function pushRemote(path: string, signal?: AbortSignal) {
         signal,
         [0, 1],
       );
-  if (configured) return configured;
+  if (configured) return { remote: configured };
   // Otherwise Git pushes to the only remote, or else to origin.
   const remotes = (await git(path, ["remote"], signal))
     .split("\n")
     .filter(Boolean);
-  return remotes.length === 1
-    ? remotes[0]
-    : remotes.includes("origin")
-      ? "origin"
-      : undefined;
+  if (remotes.length === 0) return { reason: "no-remote" };
+  const remote =
+    remotes.length === 1
+      ? remotes[0]
+      : remotes.includes("origin")
+        ? "origin"
+        : undefined;
+  return remote ? { remote } : { reason: "no-forge" };
 }
 
 export type RepositoryIssues = {
@@ -75,6 +81,10 @@ export type RepositoryIssues = {
   context: IssueContext;
   repository: ForgeIssueRepository;
 };
+
+export type RepositoryIssuesResolution =
+  | { ok: true; issues: RepositoryIssues }
+  | { ok: false; reason: "no-remote" | "no-forge" };
 
 /**
  * The Forge repository whose Issues a folder of a repository shows: the push
@@ -88,19 +98,19 @@ export async function repositoryIssues(
   signal?: AbortSignal,
   redetect = false,
   reportDetectionFailure = false,
-): Promise<RepositoryIssues | undefined> {
+): Promise<RepositoryIssuesResolution> {
   const mainPath = await repositoryMainPath(path);
-  const remote = await pushRemote(mainPath, signal);
-  if (!remote) return undefined;
+  const push = await pushRemote(mainPath, signal);
+  if (!("remote" in push)) return { ok: false, reason: push.reason };
   const location = parseRemoteUrl(
-    await git(mainPath, ["remote", "get-url", "--push", remote], signal),
+    await git(mainPath, ["remote", "get-url", "--push", push.remote], signal),
   );
   if (
     !location ||
     location.parts.length !== 2 ||
     location.parts.some((part) => !part)
   )
-    return undefined;
+    return { ok: false, reason: "no-forge" };
   const mapping = store.forgeMapping(location.remoteHost);
   const origin = mapping ? new URL(mapping.webUrl).origin : location.origin;
   const adapter = await detection.resolve(
@@ -110,17 +120,20 @@ export async function repositoryIssues(
     reportDetectionFailure,
   );
   const reader = adapter ? readers[adapter.id] : undefined;
-  if (!adapter || !reader) return undefined;
+  if (!adapter || !reader) return { ok: false, reason: "no-forge" };
   const [owner, repo] = location.parts as [string, string];
   return {
-    reader,
-    target: { origin, owner, repo },
-    context: { store, mainPath, signal },
-    repository: {
-      forge: { id: adapter.id, label: adapter.label },
-      owner,
-      repo,
-      url: reader.issuesUrl({ origin, owner, repo }),
+    ok: true,
+    issues: {
+      reader,
+      target: { origin, owner, repo },
+      context: { store, mainPath, signal },
+      repository: {
+        forge: { id: adapter.id, label: adapter.label },
+        owner,
+        repo,
+        url: reader.issuesUrl({ origin, owner, repo }),
+      },
     },
   };
 }
@@ -183,14 +196,16 @@ export async function answerForgeIssues(
       case "forge.issues.repository":
       case "forge.issues.list":
       case "forge.issues.labels":
-      case "forge.issues.show":
-        issues = await repositoryIssues(
+      case "forge.issues.show": {
+        const resolved = await repositoryIssues(
           request.params.path,
           store,
           detection,
           signal,
         );
+        issues = resolved.ok ? resolved.issues : undefined;
         return { ok: true, result: await read(request, issues) };
+      }
       default:
         throw new Error("Not an Issues request");
     }

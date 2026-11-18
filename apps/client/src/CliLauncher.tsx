@@ -82,7 +82,7 @@ export function CliLauncher({
     };
   }, [hostKey, teamReload, active]);
   const teams =
-    teamList?.host === hostKey && teamList.value.enabled
+    teamList?.host === hostKey
       ? pickerTeams(teamList.value.teams)
           .map((r) => r.saved)
           .sort(
@@ -140,7 +140,7 @@ export function CliLauncher({
           </div>
         </section>
       )}
-      {teamList?.host === hostKey && teamList.value.enabled && (
+      {teamList?.host === hostKey && (large || teams.length > 0) && (
         <section className="cli-launcher-section">
           <div className="cli-launcher-heading">{t("Teams")}</div>
           {!teamError && teams.length === 0 && (

@@ -506,16 +506,22 @@ export class HostStore {
     const row = this.#database
       .prepare("SELECT value_json FROM team_settings WHERE singleton = 1")
       .get() as { value_json: string } | undefined;
-    return row
-      ? (JSON.parse(row.value_json) as TeamSettings)
-      : { enabled: false, defaultTeam: "", limits: {} };
+    if (!row) return { defaultTeam: "", limits: {} };
+    // Older rows also hold `enabled`, which is no longer used.
+    const { defaultTeam, limits } = JSON.parse(row.value_json) as TeamSettings;
+    return { defaultTeam, limits };
   }
   #saveTeamSettings(settings: TeamSettings): void {
     this.#database
       .prepare(
         "INSERT OR REPLACE INTO team_settings(singleton, value_json) VALUES (1, ?)",
       )
-      .run(JSON.stringify(settings));
+      .run(
+        JSON.stringify({
+          defaultTeam: settings.defaultTeam,
+          limits: settings.limits,
+        }),
+      );
   }
   readTeam(id: string): (TeamRecord & { hidden: boolean }) | undefined {
     const row = this.#database
@@ -607,13 +613,13 @@ export class HostStore {
       if (method === "teams.settings") {
         const settings = params as TeamSettings;
         result = {
-          ...settings,
           defaultTeam:
             settings.defaultTeam &&
             this.readTeam(settings.defaultTeam) &&
             !this.readTeam(settings.defaultTeam)!.hidden
               ? settings.defaultTeam
               : "",
+          limits: settings.limits,
         };
         this.#saveTeamSettings(result as TeamSettings);
       } else if (method === "teams.create" || method === "teams.duplicate") {

@@ -82,7 +82,6 @@ async function launchChild(
     },
   });
   await client.request("teams.settings", {
-    enabled: true,
     defaultTeam: team.saved.id,
     limits: {},
   });
@@ -621,7 +620,6 @@ test("iori --jsonの成功と失敗を重複のないJSONで読める", (t) =>
       },
     });
     await client.request("teams.settings", {
-      enabled: true,
       defaultTeam: team.saved.id,
       limits: {},
     });

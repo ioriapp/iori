@@ -177,6 +177,9 @@ const by = (author: string) => (author ? ` by ${author}` : "");
 const gitUnreadable = failed(
   "iori could not read this worktree's Git repository.",
 );
+const noRemote = failed(
+  "This repository has no remote. Add a remote with git remote add, then try again.",
+);
 // The site did not answer as GitHub, Forgejo or Gitea, or did not answer.
 const noForge = failed(
   "iori did not find this worktree's remote on GitHub, Forgejo or Gitea. Check the remote and its Web site in iori: the workspace's Git settings, then try again.",
@@ -296,8 +299,16 @@ async function readIssues(
   let issues: RepositoryIssues | undefined;
   try {
     // Every command asks the site again which Forge it is, as a reload does.
-    issues = await repositoryIssues(path, store, detection, undefined, true);
-    if (!issues) return noForge;
+    const resolved = await repositoryIssues(
+      path,
+      store,
+      detection,
+      undefined,
+      true,
+    );
+    if (!resolved.ok)
+      return resolved.reason === "no-remote" ? noRemote : noForge;
+    issues = resolved.issues;
     return command.kind === "issue-list"
       ? await listIssues(issues, command)
       : await showIssue(issues, command.number);

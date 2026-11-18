@@ -3285,7 +3285,7 @@ function WorkspaceFrameInner({
             {t(
               sidebarFolders.length
                 ? "Select a worktree in the sidebar."
-                : "Open a folder from the sidebar.",
+                : "Open a folder with Add folder in the sidebar.",
             )}
           </p>
         </section>

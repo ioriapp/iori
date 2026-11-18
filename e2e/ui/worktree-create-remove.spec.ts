@@ -1,7 +1,8 @@
 import { createTeam } from "./fixtures/journeys.ts";
 import type { Page } from "@playwright/test";
 import type { App } from "./fixtures/test.ts";
-import { writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   test,
@@ -148,4 +149,33 @@ test(
   "スマホで取り込み済みのworktreeを片付ける",
   { tag: "@phone" },
   cleanup(true),
+);
+
+test(
+  "コミットが0件のリポジトリで新しいworktreeの画面を開くと理由が出て作成できない",
+  { tag: "@desktop" },
+  async ({ page, registeredApp: app }) => {
+    const gitPath = execFileSync("which", ["git"], { encoding: "utf8" }).trim();
+    await symlink(gitPath, join(app.folder, "..", "bin", "git"));
+    git(app.folder, "init", "-b", "main");
+    await app.open(page);
+    await openFolder(page, app, false);
+    await page.getByRole("button", { name: "New worktree" }).click();
+    const dialog = page.getByRole("dialog", { name: "New worktree" });
+    await expect(dialog.getByRole("alert")).toHaveText(
+      "Make the first commit, then you can create a worktree.",
+    );
+    await expect(
+      dialog.getByRole("button", { name: "Create worktree", exact: true }),
+    ).toBeDisabled();
+    await expect(
+      dialog.getByRole("button", {
+        name: "Here (without a worktree)",
+        exact: true,
+      }),
+    ).toBeEnabled();
+    await expect(
+      dialog.getByRole("button", { name: "Cancel", exact: true }),
+    ).toBeEnabled();
+  },
 );

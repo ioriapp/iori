@@ -761,155 +761,161 @@ function HostRecords({
                 onSelect={selectCandidate}
                 t={t}
               />
-              <div
-                className="record-table"
-                role="table"
-                aria-label={role ?? "Records"}
-              >
-                <div className="record-table-head" role="row">
-                  {["Candidate", ...columns].map((column, index) => (
-                    <div
-                      key={column}
-                      role="columnheader"
-                      aria-sort={
-                        sort.column === index
-                          ? sort.descending
-                            ? "descending"
-                            : "ascending"
-                          : undefined
-                      }
-                    >
-                      <button
-                        type="button"
-                        className="record-sort"
-                        aria-label={`${label(column)}: ${t(sort.column === index && !sort.descending ? "Sort descending" : "Sort ascending")}`}
-                        onClick={() =>
-                          setSort({
-                            column: index,
-                            descending:
-                              sort.column === index ? !sort.descending : false,
-                          })
+              <div className="record-table">
+                <div
+                  className="record-table-grid"
+                  role="table"
+                  aria-label={role ?? "Records"}
+                >
+                  <div className="record-table-head" role="row">
+                    {["Candidate", ...columns].map((column, index) => (
+                      <div
+                        key={column}
+                        role="columnheader"
+                        aria-sort={
+                          sort.column === index
+                            ? sort.descending
+                              ? "descending"
+                              : "ascending"
+                            : undefined
                         }
                       >
-                        <span className="record-sort-label">
-                          {label(column)}
-                          <span
-                            className="record-sort-direction"
-                            aria-hidden="true"
-                          >
-                            {sort.column === index &&
-                              (sort.descending ? (
-                                <ArrowDown size={12} />
-                              ) : (
-                                <ArrowUp size={12} />
-                              ))}
-                          </span>
-                        </span>
-                      </button>
-                    </div>
-                  ))}
-                </div>
-                {rows
-                  .filter((row) => row.role === role)
-                  .map((row) => {
-                    const values = [
-                      String(row.tasks),
-                      String(row.agents),
-                      row.decided
-                        ? `${row.firstAccepted}/${row.decided} · ${Math.round((row.firstAccepted / row.decided) * 100)}%`
-                        : undefined,
-                      (row.revisions / row.agents).toFixed(1),
-                      String(row.rejected),
-                      row.time === undefined
-                        ? undefined
-                        : elapsedTime(row.time),
-                      measured(
-                        row.input === undefined
-                          ? undefined
-                          : compactNumber(row.input),
-                        row.measuredTokens,
-                        row.agents,
-                      ),
-                      measured(
-                        row.output === undefined
-                          ? undefined
-                          : compactNumber(row.output),
-                        row.measuredTokens,
-                        row.agents,
-                      ),
-                      measured(
-                        row.cacheHit === undefined
-                          ? undefined
-                          : `${Math.round(row.cacheHit * 100)}%`,
-                        row.measuredCache,
-                        row.agents,
-                      ),
-                    ];
-                    return (
-                      <div
-                        role="row"
-                        className={`record-row ${selected?.key === row.key ? "selected" : ""}`}
-                        key={row.key}
-                        data-iori-record-candidate={row.candidate.cli}
-                        onClick={() => {
-                          setCandidateId(row.key);
-                          setExpanded(undefined);
-                        }}
-                      >
-                        <span className="record-candidate" role="cell">
-                          <button
-                            type="button"
-                            className="record-candidate text-left"
-                          >
-                            <strong className="record-candidate-name">
-                              <span className="record-candidate-number">
-                                {numbers.get(row.key)}
-                              </span>
-                              <CliIcon name={row.candidate.cli} size={14} />
-                              {row.candidate.cliName ?? row.candidate.cli}
-                            </strong>
-                            <span>
-                              {[row.candidate.model, row.candidate.effort]
-                                .filter(Boolean)
-                                .join(" · ")}
+                        <button
+                          type="button"
+                          className="record-sort"
+                          aria-label={`${label(column)}: ${t(sort.column === index && !sort.descending ? "Sort descending" : "Sort ascending")}`}
+                          onClick={() =>
+                            setSort({
+                              column: index,
+                              descending:
+                                sort.column === index
+                                  ? !sort.descending
+                                  : false,
+                            })
+                          }
+                        >
+                          <span className="record-sort-label">
+                            {label(column)}
+                            <span
+                              className="record-sort-direction"
+                              aria-hidden="true"
+                            >
+                              {sort.column === index &&
+                                (sort.descending ? (
+                                  <ArrowDown size={12} />
+                                ) : (
+                                  <ArrowUp size={12} />
+                                ))}
                             </span>
-                          </button>
-                        </span>
-                        {values.map((value, index) => (
-                          <span
-                            className="record-cell"
-                            role="cell"
-                            key={columns[index]}
-                          >
-                            <span className="record-cell-label">
-                              {label(columns[index]!)}
-                            </span>
-                            {value !== undefined && (
-                              <span
-                                className={
-                                  index === 2 ? "record-acceptance" : undefined
-                                }
-                              >
-                                {value}
-                                {index === 2 && (
-                                  <span
-                                    className="record-acceptance-track"
-                                    aria-hidden="true"
-                                  >
-                                    <span
-                                      style={{
-                                        width: `${(row.firstAccepted / row.decided) * 100}%`,
-                                      }}
-                                    />
-                                  </span>
-                                )}
-                              </span>
-                            )}
                           </span>
-                        ))}
+                        </button>
                       </div>
-                    );
-                  })}
+                    ))}
+                  </div>
+                  {rows
+                    .filter((row) => row.role === role)
+                    .map((row) => {
+                      const values = [
+                        String(row.tasks),
+                        String(row.agents),
+                        row.decided
+                          ? `${row.firstAccepted}/${row.decided} · ${Math.round((row.firstAccepted / row.decided) * 100)}%`
+                          : undefined,
+                        (row.revisions / row.agents).toFixed(1),
+                        String(row.rejected),
+                        row.time === undefined
+                          ? undefined
+                          : elapsedTime(row.time),
+                        measured(
+                          row.input === undefined
+                            ? undefined
+                            : compactNumber(row.input),
+                          row.measuredTokens,
+                          row.agents,
+                        ),
+                        measured(
+                          row.output === undefined
+                            ? undefined
+                            : compactNumber(row.output),
+                          row.measuredTokens,
+                          row.agents,
+                        ),
+                        measured(
+                          row.cacheHit === undefined
+                            ? undefined
+                            : `${Math.round(row.cacheHit * 100)}%`,
+                          row.measuredCache,
+                          row.agents,
+                        ),
+                      ];
+                      return (
+                        <div
+                          role="row"
+                          className={`record-row ${selected?.key === row.key ? "selected" : ""}`}
+                          key={row.key}
+                          data-iori-record-candidate={row.candidate.cli}
+                          onClick={() => {
+                            setCandidateId(row.key);
+                            setExpanded(undefined);
+                          }}
+                        >
+                          <span className="record-candidate" role="cell">
+                            <button
+                              type="button"
+                              className="record-candidate text-left"
+                            >
+                              <strong className="record-candidate-name">
+                                <span className="record-candidate-number">
+                                  {numbers.get(row.key)}
+                                </span>
+                                <CliIcon name={row.candidate.cli} size={14} />
+                                {row.candidate.cliName ?? row.candidate.cli}
+                              </strong>
+                              <span>
+                                {[row.candidate.model, row.candidate.effort]
+                                  .filter(Boolean)
+                                  .join(" · ")}
+                              </span>
+                            </button>
+                          </span>
+                          {values.map((value, index) => (
+                            <span
+                              className="record-cell"
+                              role="cell"
+                              key={columns[index]}
+                            >
+                              <span className="record-cell-label">
+                                {label(columns[index]!)}
+                              </span>
+                              {value !== undefined && (
+                                <span
+                                  className={
+                                    index === 2
+                                      ? "record-acceptance"
+                                      : undefined
+                                  }
+                                >
+                                  {value}
+                                  {index === 2 && (
+                                    <span
+                                      className="record-acceptance-track"
+                                      aria-hidden="true"
+                                    >
+                                      <span
+                                        style={{
+                                          width: `${(row.firstAccepted / row.decided) * 100}%`,
+                                        }}
+                                      />
+                                    </span>
+                                  )}
+                                </span>
+                              )}
+                            </span>
+                          ))}
+                        </div>
+                      );
+                    })}
+                </div>
               </div>
             </section>
           ))}

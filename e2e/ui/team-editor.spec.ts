@@ -187,16 +187,9 @@ test(
   { tag: "@desktop" },
   async ({ page, registeredApp: app }) => {
     await app.request("cli.order.set", { order: [app.cliId] });
-    await app.request("teams.settings", {
-      enabled: true,
-      defaultTeam: "",
-      limits: {},
-    });
     await app.open(page);
     await openFolder(page, app);
-    await page
-      .getByRole("button", { name: "AI Agents/Teams", exact: true })
-      .click();
+    await page.locator('[data-iori-action="open-agents-teams"]').click();
     await page.getByRole("button", { name: "Teams", exact: true }).click();
     await page
       .getByRole("button", { name: "New team", exact: true })

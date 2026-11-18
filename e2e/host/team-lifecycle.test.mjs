@@ -51,7 +51,6 @@ async function setup(client, dataRoot, actions, limit = "", cwd = dataRoot) {
     },
   });
   await client.request("teams.settings", {
-    enabled: true,
     defaultTeam: team.saved.id,
     limits: {},
   });
@@ -711,7 +710,6 @@ if (args.includes("--version")) {
       },
     });
     await client.request("teams.settings", {
-      enabled: true,
       defaultTeam: team.saved.id,
       limits: {},
     });
@@ -788,4 +786,57 @@ if (args.includes("--version")) {
         .pendingMessages,
       undefined,
     );
+  }));
+
+test("コミット0件のリポジトリでdelegate --worktree newは子を作らず理由を返す", (t) =>
+  runHostTest(t, async ({ client, dataRoot, stage }) => {
+    await linkGit(join(dataRoot, "bin"));
+    const empty = join(dataRoot, "empty");
+    const otherEmpty = join(dataRoot, "other-empty");
+    await mkdir(empty);
+    await mkdir(otherEmpty);
+    execFileSync("git", ["-C", empty, "init", "-b", "main"], { stdio: "pipe" });
+    execFileSync("git", ["-C", otherEmpty, "init", "-b", "main"], {
+      stdio: "pipe",
+    });
+    const context = await setup(client, dataRoot, ["report-later"], "", empty);
+    const expected =
+      "This repository has no commits yet, so a new worktree cannot be created. Use --worktree parent, or make the first commit and try again.";
+    const runDelegate = async (id, extraArgs = []) => {
+      await context.parent.input(
+        JSON.stringify({
+          id,
+          command: [
+            "delegate",
+            "--role",
+            "Worker",
+            "--difficulty",
+            "low",
+            "--title",
+            id,
+            "--worktree",
+            "new",
+            ...extraArgs,
+            "--body",
+            "Do the work.",
+          ],
+        }) + "\r",
+      );
+      const prefix = `ACTOR_RESULT:${id}:`;
+      const { output } = await context.parent.waitFor(({ output }) => {
+        const start = output.indexOf(prefix);
+        return start !== -1 && output.indexOf("\n", start) !== -1;
+      });
+      const start = output.indexOf(prefix) + prefix.length;
+      return JSON.parse(output.slice(start, output.indexOf("\n", start)));
+    };
+    stage("現在のリポジトリがコミット0件の時");
+    const selfFailure = await runDelegate("empty-self");
+    assert.equal(selfFailure.ok, false);
+    assert.equal(selfFailure.text, expected);
+    stage("--repoで別のコミット0件のリポジトリを指定した時");
+    const repoFailure = await runDelegate("empty-repo", ["--repo", otherEmpty]);
+    assert.equal(repoFailure.ok, false);
+    assert.equal(repoFailure.text, expected);
+    assert.deepEqual((await client.request("teams.children", {})).children, []);
   }));

@@ -58,7 +58,6 @@ export async function createTeam(
   });
   if (options.makeDefault ?? true) {
     await app.request("teams.settings", {
-      enabled: true,
       defaultTeam: saved.id,
       limits: {},
     });

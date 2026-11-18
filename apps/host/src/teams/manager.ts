@@ -1,5 +1,5 @@
 import { definitionOrder, roleOrder, creationOrder } from "@iori/protocol";
-import { discoverRepository } from "../git-reading.ts";
+import { discoverRepository, hasHead } from "../git-reading.ts";
 import { worktreeSetup, worktreeOptions } from "../worktree-creation.ts";
 import type { WorktreeSetup } from "../store.ts";
 import { randomUUID } from "node:crypto";
@@ -62,6 +62,7 @@ import {
   type CommandResult,
 } from "./local-command.ts";
 import {
+  NO_COMMITS_FOR_NEW_WORKTREE,
   childWorktree,
   isResidualChildWorktree,
   removeChildWorktree,
@@ -1743,7 +1744,7 @@ export class TeamManager {
         this.store.terminalOperationResult<TerminalCreatedResult>(context);
       if (previous) return { ok: true, result: previous };
       const team = this.store.readTeam(teamId)?.saved;
-      if (!team || !team.parent.cli || !this.store.teamSettings().enabled)
+      if (!team || !team.parent.cli)
         return { ok: false, error: { code: "invalid_request" } };
       const id = randomUUID();
       const instructions = (directory: string) =>
@@ -1855,6 +1856,8 @@ export class TeamManager {
         const target = await discoverRepository(
           resolve(conversation.cwd, command.repo),
         );
+        if (command.worktree === "new" && !(await hasHead(target.root)))
+          throw new Error(NO_COMMITS_FOR_NEW_WORKTREE);
         const { mainPath } = await worktreeOptions(target.root);
         const parent = await discoverRepository(conversation.cwd).catch(
           () => undefined,
@@ -1865,6 +1868,16 @@ export class TeamManager {
           name: basename(mainPath),
           external: parent?.commonDir !== target.commonDir,
         };
+      } else if (command.worktree === "new") {
+        const parent = await discoverRepository(conversation.cwd).catch(
+          (error) => {
+            if ((error as { code?: string }).code === "not_git_repository")
+              return undefined;
+            throw error;
+          },
+        );
+        if (parent && !(await hasHead(parent.root)))
+          throw new Error(NO_COMMITS_FOR_NEW_WORKTREE);
       }
       if (
         command.plan !== undefined &&

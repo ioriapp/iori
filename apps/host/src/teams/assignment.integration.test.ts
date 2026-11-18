@@ -140,7 +140,6 @@ process.stdout.write('actor ready\\n'); process.stdin.resume(); setInterval(()=>
     assert.ok(team.ok);
     assert.ok(
       store.teamOperation(context(), "teams.settings", {
-        enabled: true,
         defaultTeam: team.result.saved.id,
         limits: { [limitKey(candidate.cli, "cli")]: "1" },
       }).ok,

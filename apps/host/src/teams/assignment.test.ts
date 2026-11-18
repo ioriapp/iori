@@ -32,7 +32,6 @@ const role: Role = {
 test("candidate priority respects all concurrency scopes without crossing difficulty", () => {
   const available = new Set(["pi", "claude"]);
   const settings = {
-    enabled: true,
     defaultTeam: "",
     limits: { [limitKey("pi", "provider", "openai")]: "1" },
   };

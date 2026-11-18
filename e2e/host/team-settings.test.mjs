@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { runHostTest } from "../../verification/host/process.mjs";
 import { connectClient } from "../../verification/host/client.mjs";
@@ -80,7 +82,6 @@ test("既定チームを隠すと既定が解除され、戻しても解除さ�
       language: "ja",
     });
     await client.request("teams.settings", {
-      enabled: true,
       defaultTeam: team.saved.id,
       limits: {},
     });
@@ -120,14 +121,12 @@ test("CLIとモデルの上限設定をHost再起動後も保持する", (t) =>
       '["pi","model","openai/gpt-6-luna"]': "2",
     };
     await client.request("teams.settings", {
-      enabled: true,
       defaultTeam: "",
       limits,
     });
     stage("Host再起動後に上限を読める");
     const restarted = await restart();
     const list = await restarted.request("teams.list");
-    assert.equal(list.enabled, true);
     assert.deepEqual(list.limits, limits);
   }));
 
@@ -315,4 +314,61 @@ test("別の端末の保存との競合を検出し、上書きの履歴を編�
     } finally {
       await other.close();
     }
+  }));
+
+test("enabled を保存していない状態や enabled: false の保存データでもチームを起動できる", (t) =>
+  runHostTest(t, async ({ client, dataRoot, restart, stage }) => {
+    stage("teams.settings を保存していない Host でチームを起動する");
+    const cliId = await registerScriptedCli(client, dataRoot);
+    const created = await client.request("teams.create", {
+      template: "development",
+      language: "ja",
+      parent: {
+        id: "parent",
+        cli: cliId,
+        model: "",
+        tools: [],
+        minimum: "",
+      },
+    });
+    const events = await client.events();
+    await events.waitFor((event) => event.type === "snapshot");
+    const firstLaunch = await client.request("team.launch", {
+      teamId: created.saved.id,
+      cwd: dataRoot,
+    });
+    const firstTerminal = await client.terminal(firstLaunch.terminal.id);
+    await firstTerminal.output("ACTOR_READY");
+
+    stage(
+      "前のバージョンの enabled: false を含む team_settings を読み捨てて起動できる",
+    );
+    const limits = { '["pi","cli",""]': "2" };
+    const db = new DatabaseSync(join(dataRoot, "iori-host", "host.sqlite"));
+    try {
+      db.prepare(
+        "INSERT OR REPLACE INTO team_settings(singleton, value_json) VALUES (1, ?)",
+      ).run(
+        JSON.stringify({
+          enabled: false,
+          defaultTeam: created.saved.id,
+          limits,
+        }),
+      );
+    } finally {
+      db.close();
+    }
+    const restarted = await restart();
+    const list = await restarted.request("teams.list");
+    assert.equal("enabled" in list, false);
+    assert.equal(list.defaultTeam, created.saved.id);
+    assert.deepEqual(list.limits, limits);
+    const restartedEvents = await restarted.events();
+    await restartedEvents.waitFor((event) => event.type === "snapshot");
+    const secondLaunch = await restarted.request("team.launch", {
+      teamId: created.saved.id,
+      cwd: dataRoot,
+    });
+    const secondTerminal = await restarted.terminal(secondLaunch.terminal.id);
+    await secondTerminal.output("ACTOR_READY");
   }));

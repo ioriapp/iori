@@ -20,7 +20,6 @@ async function launchParent(client, dataRoot) {
     },
   });
   await client.request("teams.settings", {
-    enabled: true,
     defaultTeam: team.saved.id,
     limits: {},
   });
@@ -157,7 +156,6 @@ test("最初の指示を引数で受けるCLIの親は、再開の時に指示�
       },
     });
     await client.request("teams.settings", {
-      enabled: true,
       defaultTeam: team.saved.id,
       limits: {},
     });

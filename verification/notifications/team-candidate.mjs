@@ -66,7 +66,6 @@ export async function verifyTeamCandidateNotification({
     );
   const team = await request("teams.create", { definition });
   await request("teams.settings", {
-    enabled: true,
     defaultTeam: team.saved.id,
     limits: {},
   });

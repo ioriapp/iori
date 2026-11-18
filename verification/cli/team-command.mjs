@@ -527,7 +527,6 @@ async function argumentTeamProbe() {
     });
     assert.ok(saved.ok);
     store.teamOperation(context(), "teams.settings", {
-      enabled: true,
       defaultTeam: saved.result.saved.id,
       limits: {},
     });
@@ -1028,7 +1027,6 @@ process.stdout.write('parent ready\\n');process.stdin.resume();setInterval(()=>{
     assert.ok(saved.ok);
     assert.ok(
       store.teamOperation(context(), "teams.settings", {
-        enabled: true,
         defaultTeam: saved.result.saved.id,
         limits: {},
       }).ok,

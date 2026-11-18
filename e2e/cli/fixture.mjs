@@ -338,7 +338,6 @@ export async function assertTeamPermissionArguments(
     },
   });
   await client.request("teams.settings", {
-    enabled: true,
     defaultTeam: team.saved.id,
     limits: {},
   });

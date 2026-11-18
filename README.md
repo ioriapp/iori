@@ -1,8 +1,12 @@
 # iori
 
-**Keep using CLI AI agents running on your own machine, in their own terminal, from your PC or phone.**
+**Keep using CLI AI agents running on your own machine, in their own terminal, from your PC or phone. No account, and no iori server in between.**
 
 CLI agents such as Claude Code and Codex run on the machine where you work. iori connects your device to that machine so you can keep working with your agents. You use the CLI’s own terminal throughout. When an agent pauses for a question or approval, you can review it and respond from your phone.
+
+- **No account, no iori server:** Your devices connect to the Host directly over your LAN or a VPN such as Tailscale, and the connection is encrypted between them. If you need a relay, you use one you run yourself.
+- **GitHub, Forgejo and Gitea:** Read Issues and CI, and start an agent when a label is added to an Issue.
+- **Notifications without Google services:** On Android, approval notifications can reach you through UnifiedPush (for example, ntfy) even when the app is closed.
 
 [English](README.md) | [日本語](README.ja.md)
 
@@ -29,9 +33,9 @@ Claude Code, Codex, Pi, OpenCode, Cursor CLI, Antigravity CLI and other CLIs run
 
 <img alt="A parent agent plans and delegates; a Codex Worker makes the change and reports, a Claude Code Reviewer checks it, and the parent accepts both while the Board tracks the plan" src="docs/images/team-delegation-dark.gif">
 
-For larger jobs, you can delegate to a **Team** of agents. A parent agent discusses the goal with you, writes a plan, and delegates work to child agents in roles such as Worker and Reviewer. For each role, you can set instructions and CLI and model candidates by difficulty, so simple tasks can go to a cheaper model. Teams come with templates for development, research and writing. Use a template as a starting point and customize its roles, model assignments and instructions.
+For larger jobs, you can delegate to a **Team** of agents. A parent agent discusses the goal with you, writes a plan, and delegates work to child agents in roles such as Worker and Reviewer. For each role, you can set instructions and CLI and model candidates by difficulty, so simple tasks can go to a cheaper model. Teams come with templates for development, research and writing. Use a template as a starting point and customize its roles, model assignments and instructions. Create a team in **AI Agents/Teams → Teams**, then start it from the **+** menu or the **Start** tab, just like a CLI.
 
-The **Board** shows the plan, which agent is working on which task, their changes and Tokens. Child agents report back to the parent agent, which checks the results and asks for any necessary fixes before accepting them.
+When you start a team, the **Board** opens as a tab beside the parent agent. It shows the plan, which agent is working on which task, their changes and Tokens. Child agents report back to the parent agent, which checks the results and asks for any necessary fixes before accepting them.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/team-board-dark.png">
@@ -39,7 +43,7 @@ The **Board** shows the plan, which agent is working on which task, their change
   <img alt="The Board with a plan of four tasks, a Worker running and a Reviewer that has reported" src="docs/images/team-board-dark.png">
 </picture>
 
-**Records** compares how each CLI and model did in each role: how often their work was accepted the first time, revisions, time and Tokens. Use it to decide which models to give each role.
+**Records** in **AI Agents/Teams** compares how each CLI and model did in each role: how often their work was accepted the first time, revisions, time and Tokens. Use it to decide which models to give each role.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/records-dark.png">

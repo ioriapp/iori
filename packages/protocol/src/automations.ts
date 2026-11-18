@@ -60,8 +60,9 @@ export type AutomationList = {
   automations: (Automation & {
     lastRun?: AutomationRun;
     // Why the last look for labeled issues failed; cleared when a look succeeds.
+    // "no-remote": the folder is a repository without a remote.
     // "no-forge": the folder is not a repository with a known Forge.
-    issueError?: ForgeReadFailure | "no-forge";
+    issueError?: ForgeReadFailure | "no-remote" | "no-forge";
   })[];
   // Present while any automation runs from a webhook.
   webhook?: AutomationWebhookListener;
