@@ -22,7 +22,7 @@ export function updateCommands(source, { download = false } = {}) {
       }
       return {
         version: runningVersion,
-        backgroundDownload: false,
+        restartsAfterInstall: true,
         foregroundOnly: false,
       };
     },

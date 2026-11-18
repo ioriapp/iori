@@ -560,9 +560,15 @@ test("実行中のタスクを続行すると前の子を停止して新しい�
     const previousChild = (
       await client.request("teams.children", {})
     ).children.find((entry) => entry.id === first.child);
-    const terminal = (await client.request("terminal.list")).terminals.find(
+    const { terminals } = await client.request("terminal.list");
+    const parentTerminal = terminals.find(
+      (entry) => entry.id === context.parentId,
+    );
+    assert.equal(parentTerminal.teamName, "Lifecycle");
+    const terminal = terminals.find(
       (entry) => entry.id === previousChild.terminalId,
     );
+    assert.equal(terminal.teamName, undefined);
     assert.equal(terminal.state, "error");
   }));
 

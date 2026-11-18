@@ -36,7 +36,7 @@ impl Failure {
 #[serde(rename_all = "camelCase")]
 pub struct Options {
     version: String,
-    background_download: bool,
+    restarts_after_install: bool,
     foreground_only: bool,
     administrator_approval: bool,
 }
@@ -58,7 +58,7 @@ pub fn native_update_options(app: tauri::AppHandle) -> Option<Options> {
     if cfg!(any(windows, target_os = "linux", target_os = "android")) {
         Some(Options {
             version: app.package_info().version.to_string(),
-            background_download: cfg!(any(windows, target_os = "linux")),
+            restarts_after_install: cfg!(any(windows, target_os = "linux")),
             foreground_only: cfg!(target_os = "android"),
             administrator_approval: {
                 #[cfg(target_os = "linux")]

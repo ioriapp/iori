@@ -225,6 +225,7 @@ export interface TeamTerminalOptions {
   team: import("../cli/definitions.ts").TeamLaunch;
   env: Record<string, string>;
   conversation: string;
+  teamId?: string;
   role?: string;
 }
 
@@ -1712,21 +1713,36 @@ export class TerminalRuntime {
       ? runtime.waitPresentation.previous
       : runtime?.cliStatus;
     const setup = runtime?.setup ?? this.#store.terminalSetup(record.id);
+    const teamOptions = this.#teamOptions.get(record.id);
     const childIdentity = this.#teamChildIdentities.get(record.id);
-    const teamConversation =
-      this.#teamOptions.get(record.id)?.conversation ??
-      childIdentity?.conversation ??
-      (recovery?.resumePending
+    const resumedConversation =
+      !teamOptions && !childIdentity && recovery?.resumePending
         ? this.#store
             .teamConversations()
-            .find((c) => c.terminalId === record.id)?.id
-        : undefined);
+            .find((c) => c.terminalId === record.id)
+        : undefined;
+    const teamConversation =
+      teamOptions?.conversation ??
+      childIdentity?.conversation ??
+      resumedConversation?.id;
+    const isTeamParent =
+      Boolean(teamConversation) && !childIdentity && !teamOptions?.role;
+    const teamId = isTeamParent
+      ? (teamOptions?.teamId ??
+        resumedConversation?.teamId ??
+        this.#store.teamConversations().find((c) => c.id === teamConversation)
+          ?.teamId)
+      : undefined;
+    const teamName = teamId
+      ? this.#store.readTeam(teamId)?.saved.name
+      : undefined;
     return {
       ...toSummary(record, runtime?.cwdReported ?? false),
       ...(setup
         ? { setup: { state: setup.state, exitCode: setup.exitCode } }
         : {}),
       ...(teamConversation ? { teamConversation } : {}),
+      ...(teamName ? { teamName } : {}),
       ...(childIdentity ? { teamChild: childIdentity.child } : {}),
       worktreePath: this.#store.terminalWorktree(record.id) ?? record.cwd,
       ...(setup && recovery ? { cli: withCurrentCliIcon(recovery.cli) } : {}),

@@ -1,5 +1,5 @@
 use super::{Available, Failure, allowed, http, notes};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use tauri_plugin_updater::{Update, UpdaterExt};
 use tauri_plugin_window_state::{AppHandleExt, StateFlags};
 use tokio::sync::Mutex;
@@ -60,8 +60,20 @@ pub async fn download(app: &tauri::AppHandle) -> Result<(), Failure> {
         }
         update.clone()
     };
+    let mut received = 0u64;
     let downloaded = update
-        .download(|_, _| {}, || {})
+        .download(
+            |chunk, total| {
+                received += chunk as u64;
+                if let Some(total) = total {
+                    let _ = app.emit(
+                        "native://update-progress",
+                        serde_json::json!({"received": received, "total": total}),
+                    );
+                }
+            },
+            || {},
+        )
         .await
         .map_err(download_error)?;
     if let Some((current, bytes)) = state.0.lock().await.as_mut()

@@ -31,7 +31,7 @@ test(
     await page.locator('[data-iori-action="settings-general"]').click();
     await expect(development).toBeChecked();
     await updates
-      .getByRole("button", { name: "Download and install", exact: true })
+      .getByRole("button", { name: "Restart to update", exact: true })
       .click();
     await expect(
       updates.getByRole("button", { name: "Downloading update", exact: true }),
@@ -40,7 +40,7 @@ test(
     await expect(updates.getByRole("alert")).toBeVisible();
     await expect(
       updates.getByRole("button", {
-        name: "Download and install",
+        name: "Restart to update",
         exact: true,
       }),
     ).toBeEnabled();

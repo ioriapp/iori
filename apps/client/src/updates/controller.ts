@@ -8,7 +8,7 @@ import { native } from "../native.ts";
 
 export type UpdateOptions = {
   version: string;
-  backgroundDownload: boolean;
+  restartsAfterInstall: boolean;
   foregroundOnly: boolean;
   administratorApproval?: boolean;
 };
@@ -97,7 +97,6 @@ export function checkUpdate(explicit = false): Promise<void> {
         latest: !available,
         error: undefined,
       });
-      if (available && state.options?.backgroundDownload) void downloadUpdate();
     } catch (error) {
       if (explicitCheck && development === receiveDevelopmentVersions)
         change({ error: failure(error, "source"), latest: false });
@@ -134,14 +133,6 @@ export function downloadUpdate(): Promise<void> {
     })
     .finally(() => {
       downloading = undefined;
-      if (
-        state.available &&
-        (state.available.version !== version ||
-          development !== receiveDevelopmentVersions) &&
-        state.options?.backgroundDownload &&
-        state.phase === "idle"
-      )
-        void downloadUpdate();
     });
   return downloading;
 }

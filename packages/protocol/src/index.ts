@@ -1284,6 +1284,9 @@ function parseTerminalSummary(value: unknown): TerminalSummary {
     ...(typeof input.teamConversation === "string"
       ? { teamConversation: input.teamConversation }
       : {}),
+    ...(typeof input.teamName === "string" && input.teamName
+      ? { teamName: input.teamName }
+      : {}),
     ...(typeof input.teamChild === "string" && input.teamChild
       ? { teamChild: input.teamChild }
       : {}),

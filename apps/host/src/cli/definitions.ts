@@ -24,6 +24,10 @@ import { code as pi } from "./pi/definition.ts";
 import { code as opencode } from "./opencode/definition.ts";
 import { code as cursor } from "./cursor/definition.ts";
 import { code as antigravity } from "./antigravity/definition.ts";
+import { code as qoder } from "./qoder/definition.ts";
+import { code as codebuddy } from "./codebuddy/definition.ts";
+import { code as kiro } from "./kiro/definition.ts";
+import { code as grok } from "./grok/definition.ts";
 import {
   attachedFiles,
   fillArguments,
@@ -453,6 +457,10 @@ const codes: CliCode[] = [
   opencode,
   cursor,
   antigravity,
+  qoder,
+  codebuddy,
+  kiro,
+  grok,
   {
     id: "muse-code",
     teamArguments: (launch, file) => [

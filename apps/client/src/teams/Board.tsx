@@ -1,5 +1,5 @@
 import { creationOrder } from "@iori/protocol";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Activity,
   ListTodo,
@@ -208,6 +208,12 @@ export function Board({
     [showCancelled, setShowCancelled] = useState(false),
     [expanded, setExpanded] = useState<string>();
   const [now, setNow] = useState(Date.now);
+  const sectionPicked = useRef(false);
+  const sectionInitialized = useRef(false);
+  useEffect(() => {
+    sectionPicked.current = false;
+    sectionInitialized.current = false;
+  }, [host, cwd]);
   useEffect(() => {
     if (!visible) return;
     let active = true,
@@ -221,6 +227,21 @@ export function Board({
         });
         if (active) {
           if (result?.ok) {
+            if (!sectionInitialized.current && !sectionPicked.current) {
+              sectionInitialized.current = true;
+              const initialConversation =
+                result.result.conversations.find(
+                  (entry) => entry.id === selected,
+                ) ??
+                result.result.conversations.find(
+                  (entry) => entry.id === result.result.defaultConversation,
+                );
+              const hasTasks =
+                initialConversation?.plan?.tasks.some(
+                  (task) => task.state !== "cancelled",
+                ) ?? false;
+              setSection(hasTasks ? "plan" : "agents");
+            }
             setData(result.result);
             setSelected((current) =>
               result.result.conversations.some((entry) => entry.id === current)
@@ -595,7 +616,14 @@ export function Board({
           ))}
         </section>
       )}
-      <Tabs value={section} onValueChange={setSection} className="board-tabs">
+      <Tabs
+        value={section}
+        onValueChange={(value) => {
+          sectionPicked.current = true;
+          setSection(value);
+        }}
+        className="board-tabs"
+      >
         <TabsList aria-label="Board">
           <TabsTrigger value="plan">Plan</TabsTrigger>
           <TabsTrigger value="agents">Agents</TabsTrigger>

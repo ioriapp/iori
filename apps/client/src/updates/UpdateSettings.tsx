@@ -13,7 +13,6 @@ import { hostNeedsUpdate } from "./host-controller.ts";
 import {
   selectConnectedHostUpdate,
   checkUpdate,
-  downloadUpdate,
   installUpdate,
   resumeInstallation,
   useClientUpdate,
@@ -150,14 +149,7 @@ export function UpdateSettings({
               size="sm"
               data-iori-action="update-install"
               disabled={busy}
-              onClick={() => {
-                if (
-                  update.options?.backgroundDownload &&
-                  update.phase === "idle"
-                )
-                  void downloadUpdate();
-                else void installUpdate();
-              }}
+              onClick={() => void installUpdate()}
             >
               {busy && (
                 <Spinner
@@ -173,10 +165,8 @@ export function UpdateSettings({
                     ? "Installing update"
                     : update.phase === "permission"
                       ? "Continue installation"
-                      : update.options.backgroundDownload
-                        ? update.phase === "ready"
-                          ? "Restart to update"
-                          : "Retry download"
+                      : update.options.restartsAfterInstall
+                        ? "Restart to update"
                         : "Download and install",
               )}
             </Button>

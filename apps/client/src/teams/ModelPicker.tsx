@@ -52,6 +52,9 @@ export function ModelPicker({
   const recent = allRecent
     .filter((entry) => Object.hasOwn(availableModels, entry.cli))
     .sort(compareModels);
+  const recentKeys = new Set(
+    recent.map((entry) => `${entry.cli}\0${entry.model}`),
+  );
   const catalogs = Object.entries(availableModels)
     .sort(([a], [b]) => definitionOrder(cliOrder, language)(a, b))
     .map(([cli, models]): [string, string[]] => [
@@ -277,16 +280,22 @@ export function ModelPicker({
           const useProviders = limits
             ? providers.length > 0
             : providers.length > 1;
+          const showDefault = !limits && !recentKeys.has(`${cli}\0`);
+          const remaining = values.filter(
+            (model) => !recentKeys.has(`${cli}\0${model}`),
+          );
+          if (!showDefault && !remaining.length) return null;
+          const remainingGroups = groupModels(remaining);
           return (
             <CommandGroup key={cli} heading={cliName(cli)}>
-              {!limits && modelItem(cli, "")}
+              {showDefault && modelItem(cli, "")}
               {useProviders
-                ? Object.entries(groups).map(([provider, list]) =>
+                ? Object.entries(remainingGroups).map(([provider, list]) =>
                     provider
                       ? providerRow(cli, provider, list)
                       : list.map((model) => modelItem(cli, model)),
                   )
-                : values.map((model) => modelItem(cli, model))}
+                : remaining.map((model) => modelItem(cli, model))}
             </CommandGroup>
           );
         })}

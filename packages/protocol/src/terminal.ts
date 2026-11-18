@@ -33,6 +33,7 @@ export interface TerminalSummary {
   /** The CLI was lost at Host restart; only an explicit resume launches it. */
   cliResumePending?: boolean;
   teamConversation?: string;
+  teamName?: string;
   /** Stable child identity, also after closing the parent or restarting Host. */
   teamChild?: string;
   cliResumeReason?: "exit";

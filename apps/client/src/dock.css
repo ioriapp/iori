@@ -62,6 +62,8 @@
   font-size: 0.93rem;
   white-space: nowrap;
   min-width: 0;
+  max-width: 100%;
+  flex: 0 1 auto;
 }
 .dock-tab [data-slot="tabs-list"] {
   height: 34px;
@@ -69,6 +71,7 @@
   gap: 0;
   width: auto;
   min-width: 0;
+  max-width: 100%;
 }
 .dock-tab [data-slot="tabs-trigger"] {
   position: relative;
@@ -157,6 +160,7 @@
   align-items: center;
   height: 34px;
   min-width: 0;
+  max-width: 100%;
   gap: 4px;
   padding-right: 4px;
   border-right: 1px solid var(--border);
@@ -263,6 +267,7 @@
 /* Tabs keep their label; tabs that do not fit scroll and stay in the right-end list. */
 .iori-dock .dv-tab {
   flex-shrink: 0;
+  max-width: 100%;
 }
 
 .dv-tab:has(.dock-empty-tab) {

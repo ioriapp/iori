@@ -87,7 +87,7 @@ export async function openPath(
   });
   await expect(input).toHaveValue(/.+/);
   await input.fill(path);
-  await picker.getByRole("button", { name: /^Open this folder/ }).click();
+  await picker.getByRole("button", { name: /^Add/ }).click();
   await expect(
     page.locator("[data-iori-current-worktree-path]"),
   ).toHaveAttribute("data-iori-current-worktree-path", path);

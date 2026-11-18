@@ -3,7 +3,7 @@
 }
 /* A parent status mark adds its own column before the CLI icon. */
 .nav-session-list
-  > [data-slot="sidebar-menu-item"]:has(> .nav-session > .state-dot)
+  > [data-slot="sidebar-menu-item"]:has(> .nav-session .state-dot)
   > .nav-children {
   padding-left: calc(
     var(--nav-state-dot-size) + var(--nav-icon-size) + 2 *

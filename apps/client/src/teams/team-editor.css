@@ -947,6 +947,9 @@
   --team-execution-columns: minmax(0, 1.6fr) minmax(0, 0.7fr) minmax(0, 1.2fr);
   margin-bottom: var(--space-6);
 }
+.team-parent-execution:not(:has(.team-candidate-effort)) {
+  --team-execution-columns: minmax(0, 1.6fr) minmax(0, 1.2fr);
+}
 .team-parent-execution .team-candidate-row {
   padding: 0;
   border: 0;
@@ -1066,6 +1069,10 @@
   }
   .team-parent-execution .team-execution-options {
     grid-template-columns: 90px minmax(0, 1fr);
+  }
+  .team-parent-execution:not(:has(.team-candidate-effort))
+    .team-execution-options {
+    grid-template-columns: minmax(0, 1fr);
   }
   .team-parent-execution .team-candidate-help {
     padding-left: 0;

@@ -133,6 +133,7 @@ import { connection } from "../connection.ts";
 import { native } from "../native.ts";
 import type {
   CliDefinitionFailure,
+  CliModels,
   CliSummary,
   TeamDefinition,
   TeamList,
@@ -512,7 +513,26 @@ function Permissions({
     </Popover>
   );
 }
-function ExecutionHeading({ parent = false }: { parent?: boolean }) {
+function hasEffortOption(
+  item: Candidate,
+  catalogs: Record<string, CliModels>,
+  clis: CliSummary[],
+) {
+  const usageCli = clis.find((cli) => cli.id === item.cli);
+  const model = catalogs[item.cli]?.models.find(
+    (entry) => entry.name === item.model,
+  );
+  return (
+    usageCli?.launchEffort !== false && (!model || model.efforts.length > 0)
+  );
+}
+function ExecutionHeading({
+  parent = false,
+  showEffort = true,
+}: {
+  parent?: boolean;
+  showEffort?: boolean;
+}) {
   const { t } = useI18n();
   return (
     <div
@@ -520,7 +540,7 @@ function ExecutionHeading({ parent = false }: { parent?: boolean }) {
     >
       {!parent && <span>#</span>}
       <span>{t("CLI and model")}</span>
-      <span>Effort</span>
+      {showEffort && <span>Effort</span>}
       <span>{t("Permissions")}</span>
       {!parent && <span>{t("Minimum remaining")}</span>}
       {!parent && <span aria-hidden="true" />}
@@ -600,6 +620,7 @@ function ExecutionRow({
       ].filter(Boolean),
     ),
   ];
+  const showEffort = hasEffortOption(item, catalogs, usageClis);
   return (
     <div
       ref={setNodeRef}
@@ -635,9 +656,9 @@ function ExecutionRow({
           onChange={onChange}
         />
         <div className="team-execution-options">
-          <div className="team-candidate-effort">
-            {usageCli?.launchEffort !== false &&
-              (!model || model.efforts.length > 0) && (
+          {(!parent || showEffort) && (
+            <div className="team-candidate-effort">
+              {showEffort && (
                 <>
                   <span className="team-mobile-cell-label">Effort</span>
                   <ShortSelect
@@ -649,7 +670,8 @@ function ExecutionRow({
                   />
                 </>
               )}
-          </div>
+            </div>
+          )}
           <div className="team-candidate-permissions">
             <span className="team-mobile-cell-label">{t("Permissions")}</span>
             <Permissions item={item} onChange={onChange} />
@@ -2092,7 +2114,10 @@ export function TeamEditor({
               <PageBody width="editor" className="team-content">
                 <SettingsSection title={t("Execution settings")}>
                   <div className="team-execution-list team-parent-execution">
-                    <ExecutionHeading parent />
+                    <ExecutionHeading
+                      parent
+                      showEffort={hasEffortOption(team.parent, catalogs, clis)}
+                    />
                     <DndContext sensors={sensors}>
                       {renderExecution(team.parent, undefined, true)}
                     </DndContext>
@@ -2433,7 +2458,10 @@ export function TeamEditor({
             }
             renderCandidate={(item, onChange) => (
               <>
-                <ExecutionHeading parent />
+                <ExecutionHeading
+                  parent
+                  showEffort={hasEffortOption(item, catalogs, clis)}
+                />
                 <DndContext sensors={sensors}>
                   <ExecutionRow
                     item={item}
@@ -2940,7 +2968,10 @@ export function TeamEditor({
                 {t("Roles without candidates also run with these settings.")}
               </p>
               <div className="team-execution-list team-parent-execution">
-                <ExecutionHeading parent />
+                <ExecutionHeading
+                  parent
+                  showEffort={hasEffortOption(newParent, catalogs, clis)}
+                />
                 <DndContext sensors={sensors}>
                   <ExecutionRow
                     item={newParent}

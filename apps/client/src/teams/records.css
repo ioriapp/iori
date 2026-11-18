@@ -129,6 +129,13 @@
   font-size: 0.75rem;
   color: var(--muted-foreground);
 }
+.record-task-metrics .agent-diff {
+  display: inline-flex;
+  cursor: inherit;
+}
+.record-task-metrics .agent-diff:hover {
+  background: transparent;
+}
 .record-task-open span {
   line-height: 1.6;
 }

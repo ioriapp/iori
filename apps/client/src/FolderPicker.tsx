@@ -413,7 +413,7 @@ export function FolderPicker({
             data-iori-action="folder-open"
             onClick={() => void open()}
           >
-            {t(purpose === "select" ? "Use this folder" : "Open this folder")}{" "}
+            {t(purpose === "select" ? "Use this folder" : "Add")}{" "}
             <Kbd className="folder-dialog-shortcut">Ctrl+Enter</Kbd>
           </Button>
         </div>

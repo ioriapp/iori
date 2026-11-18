@@ -5,7 +5,7 @@ import {
   FieldRow,
   LoadRecovery,
 } from "../components/page-layout.tsx";
-import { useEffect, useId, useMemo, useState } from "react";
+import { Fragment, useEffect, useId, useMemo, useState } from "react";
 import { ArrowLeft, ArrowDown, ArrowUp } from "lucide-react";
 import {
   summarizeRecords,
@@ -981,6 +981,24 @@ function HostRecords({
             .sort((a, b) => b.createdAt - a.createdAt)
             .map((task) => {
               const tokens = task.agents.filter((agent) => agent.tokens);
+              const workTime = taskWorkTime(task);
+              const metrics = [
+                ...(workTime !== undefined ? [elapsedTime(workTime)] : []),
+                ...(task.changes
+                  ? [
+                      <ChangeAmount
+                        key="changes"
+                        changes={task.changes}
+                        language={language}
+                      />,
+                    ]
+                  : []),
+                ...(tokens.length > 0
+                  ? [
+                      `${compactNumber(tokens.reduce((sum, agent) => sum + agent.tokens!.input + agent.tokens!.output, 0))} tokens${tokens.length < task.agents.length ? (language.toLowerCase().startsWith("ja") ? `（${tokens.length}人分）` : ` (${tokens.length} agents)`) : ""}`,
+                    ]
+                  : []),
+              ];
               const handoff =
                 task.agents[0]?.candidate &&
                 candidateKey(task.agents[0].role, task.agents[0].candidate) !==
@@ -1027,18 +1045,16 @@ function HostRecords({
                             : "Pending"}
                           {task.reason && ` · ${task.reason}`}
                         </span>
-                        <small>
-                          {taskWorkTime(task) !== undefined &&
-                            `${elapsedTime(taskWorkTime(task)!)} · `}
-                          {task.changes && (
-                            <ChangeAmount
-                              changes={task.changes}
-                              language={language}
-                            />
-                          )}{" "}
-                          {tokens.length > 0 &&
-                            `${compactNumber(tokens.reduce((sum, agent) => sum + agent.tokens!.input + agent.tokens!.output, 0))} tokens${tokens.length < task.agents.length ? (language.toLowerCase().startsWith("ja") ? `（${tokens.length}人分）` : ` (${tokens.length} agents)`) : ""}`}
-                        </small>
+                        {metrics.length > 0 && (
+                          <small className="record-task-metrics">
+                            {metrics.map((metric, index) => (
+                              <Fragment key={index}>
+                                {index > 0 && " · "}
+                                {metric}
+                              </Fragment>
+                            ))}
+                          </small>
+                        )}
                       </button>
                     </CollapsibleTrigger>
                     <CollapsibleContent>

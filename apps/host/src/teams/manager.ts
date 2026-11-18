@@ -1766,6 +1766,7 @@ export class TeamManager {
               return `Read ${parentFile} and follow its instructions. Then read ${request} and follow its instructions.`;
             },
       );
+      options.teamId = teamId;
       const response = await this.terminals.createTerminal(
         context,
         cwd,

@@ -185,13 +185,37 @@
   font-size: 0.875rem;
   color: var(--muted-foreground);
 }
+.nav-sidebar .nav-session.is-team-parent {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+}
+.nav-session-line {
+  display: flex;
+  align-items: center;
+  gap: var(--nav-session-gap);
+  width: 100%;
+  min-width: 0;
+  line-height: 1.5;
+}
 .nav-session .state-dot {
   width: var(--nav-state-dot-size);
   height: var(--nav-state-dot-size);
   flex-basis: var(--nav-state-dot-size);
 }
-.nav-session > svg:not(.state-dot svg) {
+.nav-session > svg:not(.state-dot svg),
+.nav-session-line > svg:not(.state-dot svg) {
   flex: 0 0 auto;
+}
+.nav-session-team-name {
+  font-weight: 600;
+  color: var(--foreground);
+}
+.nav-session-detail {
+  font-weight: 400;
+}
+.nav-session.is-team-parent:not(:has(.state-dot)) .nav-session-detail {
+  padding-left: 0;
 }
 /* Brand images and fallback SVGs occupy the same parent icon column. CliIcon
    writes its requested size inline, so the column is set by the flex basis. */
@@ -538,7 +562,8 @@
 .nav-sidebar .nav-worktree[data-sidebar-sort-id] {
   margin-top: 12px;
 }
-.nav-session.is-current > svg {
+.nav-session.is-current > svg:not(.state-dot svg),
+.nav-session.is-current .nav-session-line > svg:not(.state-dot svg) {
   color: var(--primary);
 }
 

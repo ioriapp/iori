@@ -818,7 +818,6 @@ const japanese: Record<string, string> = {
     "このデバイスの登録をリセットできませんでした。もう一度リセットしてください。",
   "Cannot read iori's key from the system keyring.":
     "OSのキーリングからioriの鍵を読み込めません。",
-  "Retry download": "ダウンロードを再試行",
   "Download and install": "ダウンロードしてインストール",
   "Downloading update": "ダウンロード中",
   "Installing update": "インストール中",
@@ -1188,7 +1187,6 @@ const japanese: Record<string, string> = {
     "このHostで使えるシェルはありません。",
   "Open sidebar": "サイドバーを開く",
   "Open tabs": "開いているタブ",
-  "Open this folder": "このフォルダーを開く",
   "Opened folder": "開いたフォルダー",
   "Could not reorder folders. Retry.":
     "フォルダーを並べ替えられませんでした。もう一度お試しください。",

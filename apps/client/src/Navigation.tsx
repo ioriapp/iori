@@ -21,6 +21,7 @@ import { hostNeedsUpdate } from "./updates/host-controller.ts";
 import { UpdateMark, SettingsUpdateMark } from "./updates/UpdateSettings.tsx";
 import { hasWindowChrome } from "./native.ts";
 import { ChildRows, type ChildRowProps } from "./teams/ChildRows.tsx";
+import { elapsedTime } from "./teams/board-i18n.ts";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { DragEvent as ReactDragEvent } from "react";
 import {
@@ -37,6 +38,7 @@ import {
   Settings,
   Terminal,
   Trash2,
+  Users,
   X,
 } from "lucide-react";
 import type {
@@ -306,6 +308,26 @@ function WorktreeActivity({
       </span>
     </span>
   );
+}
+
+function parentStateLabel(
+  terminal: import("@iori/protocol").TerminalSummary,
+  t: (key: string) => string,
+  now: number,
+) {
+  if (terminal.state === "exited" || terminal.state === "error")
+    return t("Exited");
+  if (terminal.cliResumePending) return "Stopped";
+  const status = terminal.cliStatus;
+  if (!status) return undefined;
+  if (isStalledCliStatus(status))
+    return `${t("Not responding")} · ${elapsedTime(now - status.stalledSince)}`;
+  if (status.state === "waiting")
+    return status.attention?.kind === "question" ? "Question" : "Approval";
+  if (status.state === "active") return "Running";
+  if (status.state === "done")
+    return status.outcome === "failure" ? "Failed" : "Done";
+  return "Idle";
 }
 
 export function Navigation({
@@ -729,85 +751,157 @@ ${item.path}`
             )}
             {hasRows && (
               <SidebarMenu className="nav-session-list">
-                {terminals.map((terminal) => (
-                  <SidebarMenuItem key={terminal.id}>
-                    <ContextMenu>
-                      <ContextMenuTrigger asChild disabled={removing}>
-                        <SidebarMenuButton
-                          className={`nav-session ${terminal.id === activeTerminalId ? "is-current" : ""} ${removing ? "removal-disabled" : ""}`}
-                          aria-current={
-                            terminal.id === activeTerminalId
-                              ? "page"
-                              : undefined
-                          }
-                          title={withStalledDescription(
-                            terminalTitle(terminal.title),
-                            terminal.cliStatus,
-                            t,
-                            now,
-                          )}
-                          disabled={removing}
-                          draggable={!removing && dragViews}
-                          onDragStart={onDragView("terminal", terminal.id, {
-                            hostKey: host.publicKey,
-                            workspacePath: folder.workspacePath,
-                            worktreePath: item.path,
-                          })}
-                          data-iori-terminal-row={terminal.id}
-                          data-iori-row-cli={terminal.cli?.id}
-                          onClick={() => {
-                            onOpenTerminal(terminal.id, host.publicKey);
-                            setOpenMobile(false);
-                          }}
-                        >
-                          <CliStateDot status={terminal.cliStatus} t={t} />
-                          {terminal.cli ? (
-                            <CliIcon
-                              hostKey={host.publicKey}
-                              cli={terminal.cli}
-                              size={14}
-                            />
-                          ) : (
-                            <Terminal size={14} />
-                          )}
-                          <span className="nav-session-copy">
-                            <span className="nav-session-title">
-                              {terminalTitle(terminal.title)}
-                            </span>
-                          </span>
-                          <CliElapsed status={terminal.cliStatus} />
-                          {(terminal.state === "exited" ||
-                            terminal.state === "error") && (
-                            <span className="nav-session-exited">
-                              {t("Exited")}
-                            </span>
-                          )}
-                        </SidebarMenuButton>
-                      </ContextMenuTrigger>
-                      <ContextMenuContent>
-                        <ContextMenuItem
-                          data-iori-action="terminal-close"
-                          onSelect={() => onCloseTerminal(terminal.id)}
-                        >
-                          <X aria-hidden="true" />
-                          {t("Close terminal")}
-                        </ContextMenuItem>
-                      </ContextMenuContent>
-                    </ContextMenu>
-                    <ChildRows
-                      {...childRows}
-                      isRemoving={(path) =>
-                        removing || isRemoving(host.publicKey, path)
-                      }
-                      children={childrenByParent.get(terminal.id) ?? []}
-                    />
-                    {terminalErrors[terminal.id] && (
-                      <p className="nav-inline-error" role="alert">
-                        {terminalErrors[terminal.id]}
-                      </p>
-                    )}
-                  </SidebarMenuItem>
-                ))}
+                {terminals.map((terminal) => {
+                  const teamName =
+                    terminal.teamConversation && !terminal.teamChild
+                      ? terminal.teamName
+                      : undefined;
+                  const stateLabel = teamName
+                    ? parentStateLabel(terminal, t, now)
+                    : undefined;
+                  return (
+                    <SidebarMenuItem key={terminal.id}>
+                      <ContextMenu>
+                        <ContextMenuTrigger asChild disabled={removing}>
+                          <SidebarMenuButton
+                            className={`nav-session ${teamName ? "is-team-parent" : ""} ${terminal.id === activeTerminalId ? "is-current" : ""} ${removing ? "removal-disabled" : ""}`}
+                            aria-current={
+                              terminal.id === activeTerminalId
+                                ? "page"
+                                : undefined
+                            }
+                            title={
+                              teamName
+                                ? [
+                                    teamName,
+                                    terminalTitle(terminal.title),
+                                    stateLabel,
+                                  ]
+                                    .filter(Boolean)
+                                    .join(" · ")
+                                : withStalledDescription(
+                                    terminalTitle(terminal.title),
+                                    terminal.cliStatus,
+                                    t,
+                                    now,
+                                  )
+                            }
+                            disabled={removing}
+                            draggable={!removing && dragViews}
+                            onDragStart={onDragView("terminal", terminal.id, {
+                              hostKey: host.publicKey,
+                              workspacePath: folder.workspacePath,
+                              worktreePath: item.path,
+                            })}
+                            data-iori-terminal-row={terminal.id}
+                            data-iori-row-cli={terminal.cli?.id}
+                            onClick={() => {
+                              onOpenTerminal(terminal.id, host.publicKey);
+                              setOpenMobile(false);
+                            }}
+                          >
+                            {teamName ? (
+                              <>
+                                <span className="nav-session-line">
+                                  <CliStateDot
+                                    status={terminal.cliStatus}
+                                    t={t}
+                                  />
+                                  <Users
+                                    size={14}
+                                    className="nav-session-team-icon"
+                                    aria-hidden="true"
+                                  />
+                                  <span className="nav-session-copy">
+                                    <span className="nav-session-title nav-session-team-name">
+                                      {teamName}
+                                    </span>
+                                  </span>
+                                  <CliElapsed status={terminal.cliStatus} />
+                                </span>
+                                <span className="nav-child-detail nav-session-detail">
+                                  {terminal.cli ? (
+                                    <CliIcon
+                                      hostKey={host.publicKey}
+                                      cli={terminal.cli}
+                                      size={10}
+                                    />
+                                  ) : (
+                                    <Terminal
+                                      size={10}
+                                      className="cli-icon"
+                                      aria-hidden="true"
+                                    />
+                                  )}
+                                  <span className="nav-child-model">
+                                    {terminalTitle(terminal.title)}
+                                  </span>
+                                  {stateLabel && (
+                                    <>
+                                      <span aria-hidden="true">·</span>
+                                      <span className="nav-child-state">
+                                        {stateLabel}
+                                      </span>
+                                    </>
+                                  )}
+                                </span>
+                              </>
+                            ) : (
+                              <>
+                                <CliStateDot
+                                  status={terminal.cliStatus}
+                                  t={t}
+                                />
+                                {terminal.cli ? (
+                                  <CliIcon
+                                    hostKey={host.publicKey}
+                                    cli={terminal.cli}
+                                    size={14}
+                                  />
+                                ) : (
+                                  <Terminal size={14} />
+                                )}
+                                <span className="nav-session-copy">
+                                  <span className="nav-session-title">
+                                    {terminalTitle(terminal.title)}
+                                  </span>
+                                </span>
+                                <CliElapsed status={terminal.cliStatus} />
+                                {(terminal.state === "exited" ||
+                                  terminal.state === "error") && (
+                                  <span className="nav-session-exited">
+                                    {t("Exited")}
+                                  </span>
+                                )}
+                              </>
+                            )}
+                          </SidebarMenuButton>
+                        </ContextMenuTrigger>
+                        <ContextMenuContent>
+                          <ContextMenuItem
+                            data-iori-action="terminal-close"
+                            onSelect={() => onCloseTerminal(terminal.id)}
+                          >
+                            <X aria-hidden="true" />
+                            {t("Close terminal")}
+                          </ContextMenuItem>
+                        </ContextMenuContent>
+                      </ContextMenu>
+                      <ChildRows
+                        {...childRows}
+                        isRemoving={(path) =>
+                          removing || isRemoving(host.publicKey, path)
+                        }
+                        children={childrenByParent.get(terminal.id) ?? []}
+                      />
+                      {terminalErrors[terminal.id] && (
+                        <p className="nav-inline-error" role="alert">
+                          {terminalErrors[terminal.id]}
+                        </p>
+                      )}
+                    </SidebarMenuItem>
+                  );
+                })}
               </SidebarMenu>
             )}
           </CollapsibleContent>

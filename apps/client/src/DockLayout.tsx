@@ -185,10 +185,6 @@ function useDock() {
   return value;
 }
 
-// Tab titles keep the first 12 characters; the full title is in the tooltip.
-const shortTitle = (title: string) =>
-  title.length > 12 ? `${title.slice(0, 12)}…` : title;
-
 function useMaximizedOverlay(panel: IDockviewPanelProps) {
   const { maximizedGroup } = useDock();
   const content = useRef<HTMLDivElement>(null);
@@ -412,7 +408,7 @@ function DockTabHeader(panel: IDockviewPanelHeaderProps<{ tabId: string }>) {
                       <Icon size={14} aria-hidden="true" />
                     )}
                   </span>
-                  <span className="data-tab-label">{shortTitle(title)}</span>
+                  <span className="data-tab-label">{title}</span>
                   {!tab.childId && <CliElapsed status={tab.cliStatus} />}
                 </button>
               </TabsTrigger>

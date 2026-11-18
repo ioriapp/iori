@@ -108,20 +108,17 @@ try {
   result.phases.push("team draft saved before update");
   distribution.publish();
   const action = (name) => `[data-iori-action="${name}"]`;
-  stage("download new version");
+  stage("check for new version");
   await client.screen.click(action("update-check"));
   await client.screen.wait('[data-iori-state="update-version"]');
   assert.equal(
     await client.screen.text('[data-iori-state="update-version"]'),
     state.updateVersions.next,
   );
-  await waitForOperation(
-    "update downloaded",
-    () => client.screen.text(action("update-install")),
-    (text) => /再起動して更新|Restart to update/u.test(text),
-    async () =>
-      (await client.screen.text('[data-iori-state="update-error"]')) ||
-      undefined,
+  await client.screen.wait(action("update-install"));
+  assert.match(
+    await client.screen.text(action("update-install")),
+    /再起動して更新|Restart to update/u,
   );
   // This scenario checks the Client replacement; leave the source Host running.
   const connected = '[data-iori-field="update-connected-hosts"]';
@@ -129,9 +126,7 @@ try {
     await client.screen.click(connected);
   await client.screenshot("before");
   const before = await client.processes();
-  result.phases.push(
-    "new version downloaded with format-specific updater manifest",
-  );
+  result.phases.push("new version found with format-specific updater manifest");
   stage("restart to update");
   try {
     await client.screen.click(action("update-install"));
