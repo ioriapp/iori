@@ -9,6 +9,35 @@ import {
 } from "./fixtures/test.ts";
 
 test(
+  "CLI一覧の取得を待たずに選択肢の表示を切り替える",
+  { tag: "@desktop" },
+  async ({ page, registeredApp: app }) => {
+    await app.open(page);
+    await page
+      .getByRole("button", { name: "AI Agents/Teams", exact: true })
+      .click();
+    const row = page.locator(`[data-iori-cli-row="${app.cliId}"]`);
+    await expect(row).toBeVisible();
+    await app.faults.hold("cli.list");
+    await row.getByRole("button", { name: "CLI actions", exact: true }).click();
+    await page
+      .getByRole("menuitem", { name: "Hide from pickers", exact: true })
+      .click();
+    await expect(row).toBeHidden();
+    await page.getByRole("button", { name: "Hidden", exact: true }).click();
+    await expect(row).toBeVisible();
+    await row.getByRole("button", { name: "CLI actions", exact: true }).click();
+    await page
+      .getByRole("menuitem", { name: "Show in pickers", exact: true })
+      .click();
+    await expect(
+      row.getByRole("button", { name: `Drag to reorder ${app.cliId}` }),
+    ).toBeVisible();
+    await app.faults.clear();
+  },
+);
+
+test(
   "CLIを並べ替え、選択肢から隠して戻す",
   { tag: "@desktop" },
   async ({ page, registeredApp: app }) => {

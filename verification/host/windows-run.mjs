@@ -30,6 +30,7 @@ import {
 } from "../native/source.mjs";
 
 export const WINDOWS_HOST_E2E_TESTS = [
+  "e2e/host/cli-path-refresh.test.mjs",
   "e2e/host/terminal-size.test.mjs",
   "e2e/host/terminal-submit.test.mjs",
   "e2e/host/terminal-shells.test.mjs",

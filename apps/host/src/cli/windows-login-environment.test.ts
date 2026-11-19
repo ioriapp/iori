@@ -1,6 +1,20 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { windowsLoginEnvironment } from "./windows-login-environment.ts";
+import {
+  appendMissingPathEntries,
+  windowsLoginEnvironment,
+} from "./windows-login-environment.ts";
+
+test("appends new Windows PATH entries without changing the existing order", () => {
+  assert.equal(
+    appendMissingPathEntries(
+      'C:\\Tools\\; "C:\\Program Files\\CLI" ;D:\\First',
+      'c:\\tools;C:\\PROGRAM FILES\\CLI\\; ;"";D:\\Second\\;d:\\second;D:\\Third',
+    ),
+    'C:\\Tools\\; "C:\\Program Files\\CLI" ;D:\\First;D:\\Second\\;D:\\Third',
+  );
+  assert.equal(appendMissingPathEntries("", "; C:\\New ;"), " C:\\New ");
+});
 
 test("builds the Windows login environment from registry JSON", () => {
   // Captured from the registry API on the Windows verification machine; the Japanese value and the

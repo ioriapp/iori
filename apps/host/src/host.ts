@@ -1291,12 +1291,7 @@ export async function startHost(
           response = { ok: true, result: previous };
           break;
         }
-        const list = await terminalManager.listClis();
-        if (!list.ok) {
-          response = list;
-          break;
-        }
-        const known = new Set(list.result.clis.map((cli) => cli.id));
+        const known = await terminalManager.cliDefinitionIds();
         const order = [
           ...new Set(request.params.order.filter((id) => known.has(id))),
         ];
@@ -1307,6 +1302,12 @@ export async function startHost(
         response = { ok: true, result };
         break;
       }
+      case "cli.definition.file.read":
+        response = await terminalManager.readCliDefinitionFile(
+          request.params.cliId,
+          request.params.name,
+        );
+        break;
       case "cli.definition.file.write":
         response = {
           ok: true,
@@ -1387,16 +1388,14 @@ export async function startHost(
           response = { ok: true, result: previous };
           break;
         }
-        const list = await terminalManager.listClis();
-        if (
-          !list.ok ||
-          !list.result.clis.some((cli) => cli.id === request.params.cliId)
-        ) {
+        const known = await terminalManager.cliDefinitionIds();
+        if (!known.has(request.params.cliId)) {
           response = { ok: false, error: { code: "invalid_request" } };
           break;
         }
         store.saveCliHidden(request.params.cliId, request.params.hidden);
         store.saveTerminalOperationResult(context, request.params);
+        events.publish({ type: "cli.hidden.changed", ...request.params });
         response = { ok: true, result: request.params };
         break;
       }

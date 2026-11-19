@@ -1,7 +1,19 @@
 import { constants, readFileSync } from "node:fs";
-import { copyFile, mkdir, readdir, readFile, rm, stat } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import {
+  copyFile,
+  lstat,
+  mkdir,
+  readdir,
+  readFile,
+  readlink,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   parse as parseJsonc,
@@ -16,7 +28,7 @@ import type {
   CliSummary,
   CliSupport,
 } from "@iori/protocol";
-import { writeFileAtomic } from "../fs/atomic-write.ts";
+import { commitAtomicFile } from "../fs/atomic-write.ts";
 import type { CliHooks } from "./hooks.ts";
 import { code as claude } from "./claude/definition.ts";
 import { code as codex } from "./codex/definition.ts";
@@ -821,30 +833,6 @@ export function failedDefinitions(): CliDefinitionFailure[] {
 /** Folders of the user's definitions, read or not. */
 export const userDefinitionFolders = () => [...users.keys()];
 
-/** A user's definition that overrides a bundled one refers to the files that
- * the bundled definition brought. A missing bridge or script would leave the
- * override unable to place or read anything, so a missing file is copied from
- * the bundled folder. A file of the same name that the user has stays. */
-async function copyBundledFiles(id: string, folder: string): Promise<void> {
-  const source = bundled.find((definition) => definition.id === id);
-  const info = source && infos.get(source);
-  if (!info) return;
-  for (const file of attachedFiles(info.file)) {
-    try {
-      const destination = await definitionFilePath(folder, file, true);
-      await copyFile(
-        join(info.folder, file),
-        destination,
-        constants.COPYFILE_EXCL,
-      );
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      // The user's file stays; a bundled definition without the file copies
-      // nothing.
-      if (code !== "EEXIST" && code !== "ENOENT") throw error;
-    }
-  }
-}
 let loading = Promise.resolve();
 /** Write the user's definition of `id` and read the definitions again. */
 export async function saveUserDefinition(
@@ -856,38 +844,131 @@ export async function saveUserDefinition(
 ): Promise<void> {
   const folder = join(root, "cli-definitions", id);
   await mkdir(folder, { recursive: true });
-  await copyBundledFiles(id, folder);
-  for (const file of files)
-    await writeFileAtomic(
-      await definitionFilePath(folder, file.name, true),
-      file.bytes,
-    );
-  await writeFileAtomic(join(folder, "definition.json"), text);
-  if (retainedFiles) {
-    const keep = new Set(
-      [
-        "definition.json",
-        ...retainedFiles,
-        ...files.map((file) => file.name),
-      ].map((name) => name.replaceAll("\\", "/")),
-    );
-    const prune = async (directory: string, prefix = "") => {
-      for (const entry of await readdir(directory, { withFileTypes: true })) {
-        const name = prefix + entry.name;
-        if (keep.has(name)) continue;
-        if (
-          entry.isDirectory() &&
-          [...keep].some((file) => file.startsWith(name + "/"))
-        )
-          await prune(join(directory, entry.name), name + "/");
-        else
-          await rm(join(directory, entry.name), {
-            recursive: true,
-            force: true,
-          });
+  const pending = new Map<string, Buffer | string>();
+  const source = bundled.find((definition) => definition.id === id);
+  const info = source && infos.get(source);
+  if (info) {
+    for (const name of attachedFiles(info.file)) {
+      const destination = await definitionFilePath(folder, name, true);
+      try {
+        await lstat(destination);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        try {
+          pending.set(destination, await readFile(join(info.folder, name)));
+        } catch (readError) {
+          if ((readError as NodeJS.ErrnoException).code !== "ENOENT")
+            throw readError;
+        }
       }
-    };
-    await prune(folder);
+    }
+  }
+  for (const file of files)
+    pending.set(await definitionFilePath(folder, file.name, true), file.bytes);
+  pending.set(join(folder, "definition.json"), text);
+
+  const staged: {
+    destination: string;
+    next: string;
+    backup?: string;
+    published: boolean;
+  }[] = [];
+  let preserveBackups = false;
+  try {
+    for (const [destination, content] of pending) {
+      const next = join(dirname(destination), `.iori-${randomUUID()}.tmp`);
+      const entry: (typeof staged)[number] = {
+        destination,
+        next,
+        published: false,
+      };
+      try {
+        await writeFile(next, content, { mode: 0o600, flag: "wx" });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST")
+          await rm(next, { force: true }).catch(() => {});
+        throw error;
+      }
+      staged.push(entry);
+      let previous;
+      try {
+        previous = await lstat(destination);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+      if (previous) {
+        const backup = join(dirname(destination), `.iori-${randomUUID()}.tmp`);
+        try {
+          if (previous.isSymbolicLink())
+            await symlink(await readlink(destination), backup, "file");
+          else await copyFile(destination, backup, constants.COPYFILE_EXCL);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "EEXIST")
+            await rm(backup, { force: true }).catch(() => {});
+          throw error;
+        }
+        entry.backup = backup;
+      }
+    }
+    try {
+      for (const entry of staged) {
+        await commitAtomicFile(entry.next, entry.destination);
+        entry.published = true;
+      }
+    } catch (error) {
+      for (const entry of [...staged].reverse()) {
+        if (!entry.published) continue;
+        try {
+          if (entry.backup) {
+            await commitAtomicFile(entry.backup, entry.destination);
+            entry.backup = undefined;
+          } else await rm(entry.destination, { force: true });
+        } catch {
+          preserveBackups = true;
+        }
+      }
+      throw error;
+    }
+    if (retainedFiles) {
+      const keep = new Set(
+        [
+          "definition.json",
+          ...retainedFiles,
+          ...files.map((file) => file.name),
+          ...staged.flatMap((entry) =>
+            [entry.next, ...(entry.backup ? [entry.backup] : [])].map((path) =>
+              relative(folder, path),
+            ),
+          ),
+        ].map((name) => name.replaceAll("\\", "/")),
+      );
+      const prune = async (directory: string, prefix = "") => {
+        for (const entry of await readdir(directory, { withFileTypes: true })) {
+          const name = prefix + entry.name;
+          if (keep.has(name)) continue;
+          if (
+            entry.isDirectory() &&
+            [...keep].some((file) => file.startsWith(name + "/"))
+          )
+            await prune(join(directory, entry.name), name + "/");
+          else
+            await rm(join(directory, entry.name), {
+              recursive: true,
+              force: true,
+            });
+        }
+      };
+      await prune(folder);
+    }
+  } finally {
+    await Promise.all(
+      staged.flatMap((entry) => [
+        rm(entry.next, { force: true }).catch(() => {}),
+        ...(!preserveBackups && entry.backup
+          ? [rm(entry.backup, { force: true }).catch(() => {})]
+          : []),
+      ]),
+    );
   }
   await loadCliDefinitions(root);
 }

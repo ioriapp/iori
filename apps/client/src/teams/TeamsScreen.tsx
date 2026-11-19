@@ -47,7 +47,13 @@ export function TeamsScreen({
     all,
     error: cliListError,
     reload,
-  } = useCliList(host.publicKey, `${active}:${entry}`);
+    reloadAfterChange,
+    loading: loadingClis,
+    applyHidden,
+  } = useCliList(host.publicKey);
+  useEffect(() => {
+    if (active) void reload();
+  }, [active, entry, reload]);
   const names = useRef<Record<string, string>>({});
   for (const cli of list.clis) names.current[cli.id] = cli.name;
   const [initial, setInitial] = useState<TeamList>();
@@ -134,8 +140,12 @@ export function TeamsScreen({
   const refreshUsage = useCallback(() => {
     void reload(true);
   }, [reload]);
-  const changed = async () => {
+  const reloadClis = async () => {
     await reload();
+    onClisChanged(host.publicKey);
+  };
+  const changed = async () => {
+    await reloadAfterChange();
     for (const cli of list.clis) void loadModels(cli.id);
     onClisChanged(host.publicKey);
   };
@@ -188,10 +198,12 @@ export function TeamsScreen({
               registerGuard={registerGuard}
               registerBack={registerBack}
               onClisChanged={changed}
+              onCliHiddenChanged={applyHidden}
               onAgentsOpened={refreshUsage}
               onRetryModels={loadModels}
               cliListError={cliListError}
-              onRetryClis={() => void reload()}
+              onRetryClis={reloadClis}
+              loadingClis={loadingClis}
               allClis={all.clis}
               orderable={all.orderable}
               failedDefinitions={all.failed ?? []}

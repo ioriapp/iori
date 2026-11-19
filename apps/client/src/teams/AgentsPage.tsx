@@ -22,6 +22,7 @@ import {
   ExternalLink,
   GripVertical,
   Plus,
+  RotateCw,
   MoreHorizontal,
   Upload,
   X,
@@ -109,6 +110,17 @@ import {
 } from "../settings-save.ts";
 import { useI18n } from "./context.tsx";
 import { Usage } from "./Usage.tsx";
+import {
+  DefinitionFileDisclosure,
+  DefinitionFileStatus,
+  DefinitionFileTabs,
+  DefinitionTextField,
+  definitionFileKey,
+  definitionFiles,
+  definitionJsonKey,
+  useDefinitionFileReads,
+  type DefinitionFile,
+} from "./DefinitionFilesSection.tsx";
 import "./cli-definitions.css";
 
 const repositoryUrl = source.trim().replace(/\/releases\/?$/u, "");
@@ -182,10 +194,13 @@ type Editing = {
   simple?: SimpleFieldsValue;
   json?: string;
   initial: string;
+  selectedFile?: string;
+  drafts?: ReadonlyMap<string, string>;
   files?: File[];
   message?: string;
   reason?: CliDefinitionReason;
 };
+type FileDisclosures = { open: string[]; lastOpened?: string };
 type Confirm = {
   kind: "add" | "replace" | "save";
   text: string;
@@ -487,15 +502,17 @@ function DefinitionFiles({
   missing,
   onChange,
   upload = false,
+  showPicker = false,
 }: {
   files?: File[];
   missing: string[];
   onChange: (files: File[]) => void;
   upload?: boolean;
+  showPicker?: boolean;
 }) {
   const { t } = useI18n();
   const picker = useRef<HTMLInputElement>(null);
-  if (!upload && !missing.length && !files.length) return null;
+  if (!upload && !showPicker && !missing.length && !files.length) return null;
   return (
     <div className="cli-def-file-row">
       <div className="cli-def-file">
@@ -774,9 +791,11 @@ export function AgentsPage({
   orderable,
   failed,
   listError,
+  loading,
   onRetryList,
   onChanged,
   expanded,
+  onHiddenChanged,
   onExpandedChange,
   registerEditor,
   renderSettings,
@@ -788,9 +807,11 @@ export function AgentsPage({
   orderable?: true;
   failed: CliDefinitionFailure[];
   listError: boolean;
+  loading?: boolean;
   onRetryList: () => void;
   /** Read the CLIs again after a definition changed. */
   onChanged: () => Promise<void>;
+  onHiddenChanged: (cliId: string, hidden: boolean) => void;
   expanded: Record<string, boolean>;
   onExpandedChange: (id: string, open: boolean) => void;
   registerEditor?: RegisterSettingsEditor;
@@ -800,6 +821,12 @@ export function AgentsPage({
   const { t } = useI18n();
   const [adding, setAdding] = useState<Adding | null>(null);
   const [editing, setEditing] = useState<Editing | null>(null);
+  const fileReads = useDefinitionFileReads(host);
+  const editFileReads = useDefinitionFileReads(host);
+  const [disclosures, setDisclosures] = useState(
+    () => new Map<string, FileDisclosures>(),
+  );
+  const disclosureKey = (id: string) => JSON.stringify([host, id]);
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   const [removal, setRemoval] = useState<Removal | null>(null);
   const [listMessage, setListMessage] = useState("");
@@ -914,7 +941,7 @@ export function AgentsPage({
     editing?.json ?? "",
     editing?.files,
     editing?.id,
-  );
+  ).filter((name) => !editing?.drafts?.has(name));
   useSettingsEditor(
     () =>
       (!!adding &&
@@ -925,6 +952,7 @@ export function AgentsPage({
             : !!adding.files?.length)) ||
       (!!editing &&
         (!!editing.files?.length ||
+          !!editing.drafts?.size ||
           (editing.simple
             ? JSON.stringify(editing.simple) !== editing.initial
             : editing.json !== editing.initial))),
@@ -959,6 +987,18 @@ export function AgentsPage({
         .getElementById(`team-agent-${id}`)
         ?.scrollIntoView({ block: "nearest" }),
     );
+  };
+
+  const resetDefinitionFiles = (id: string, keepLastOpened = false) => {
+    fileReads.clear(id);
+    setDisclosures((current) => {
+      const key = disclosureKey(id);
+      const lastOpened = current.get(key)?.lastOpened;
+      const next = new Map(current);
+      if (keepLastOpened && lastOpened) next.set(key, { open: [], lastOpened });
+      else next.delete(key);
+      return next;
+    });
   };
 
   /** Ask before a definition received as JSON is saved. */
@@ -1038,6 +1078,7 @@ export function AgentsPage({
     setConfirm(null);
     setAdding(null);
     setEditing(null);
+    resetDefinitionFiles(saved.result.cliId, true);
     await opened(saved.result.cliId);
   };
 
@@ -1111,12 +1152,35 @@ export function AgentsPage({
     }
     setBusy(undefined);
   };
-  const startEdit = (id: string, simple?: CliSimpleDefinition, json = "") => {
+  const readForEdit = (id: string, file: DefinitionFile) => {
+    if (file.kind !== "json" && !editFileReads.get(id, file.name))
+      void editFileReads.load(id, file.name);
+  };
+  const startEdit = (
+    id: string,
+    simple?: CliSimpleDefinition,
+    json = "",
+    files: DefinitionFile[] = [],
+  ) => {
     const value = simple && fieldsOf(simple);
+    const lastOpened = disclosures.get(disclosureKey(id))?.lastOpened;
+    const selected = files.find(
+      (file) => definitionFileKey(file) === lastOpened,
+    );
+    editFileReads.clear(id);
+    if (selected && selected.kind !== "json")
+      void editFileReads.load(id, selected.name, true);
     setEditing(
       value
         ? { id, simple: value, initial: JSON.stringify(value) }
-        : { id, json, initial: json },
+        : {
+            id,
+            json,
+            initial: json,
+            selectedFile: selected
+              ? definitionFileKey(selected)
+              : definitionJsonKey,
+          },
     );
   };
   const saveEdit = async (kind: Confirm["kind"]) => {
@@ -1145,7 +1209,11 @@ export function AgentsPage({
     }
     const text = editing.json ?? "";
     // Saving the definition as it was changes nothing.
-    if (text === editing.initial && !editing.files?.length)
+    if (
+      text === editing.initial &&
+      !editing.files?.length &&
+      !editing.drafts?.size
+    )
       return setEditing(null);
     if (!text.trim())
       return setEditing({ ...editing, message: t("Enter the JSON.") });
@@ -1153,16 +1221,21 @@ export function AgentsPage({
     setBusy("save");
     discardUploads();
     try {
-      const reason = await definitionImageReason(text, editing.files);
+      const selectedFiles = [
+        ...(editing.files ?? []),
+        ...Array.from(
+          editing.drafts ?? [],
+          ([name, content]) => new File([content], name),
+        ),
+      ];
+      const reason = await definitionImageReason(text, selectedFiles);
       if (reason) {
         setEditing({ ...editing, reason });
         setBusy(undefined);
         return;
       }
-      const files = await uploadDefinitionFiles(
-        host,
-        editing.files ?? [],
-        (id) => uploads.current.push(id),
+      const files = await uploadDefinitionFiles(host, selectedFiles, (id) =>
+        uploads.current.push(id),
       );
       await check(
         text,
@@ -1187,74 +1260,154 @@ export function AgentsPage({
     setBusy(undefined);
     if ("error" in removed) return setDialogMessage(removed.error);
     if (editing?.id === removal.id) setEditing(null);
+    resetDefinitionFiles(removal.id);
     setRemoval(null);
     await onChanged();
   };
 
-  const jsonEditor = (kind: Confirm["kind"]) => (
-    <div
-      className="cli-def-editor"
-      data-iori-view="cli-definition-editor"
-      onKeyDown={(event) => saveOnEnter(event, () => void saveEdit(kind))}
-    >
-      <FieldRow stacked label={t("Definition JSON")} className="field-code">
-        <Textarea
-          className="cli-def-json"
-          aria-label={t("Definition JSON")}
-          aria-invalid={!!editing?.reason}
-          data-iori-field="cli-definition-json"
-          spellCheck={false}
-          rows={14}
-          value={editing?.json ?? ""}
-          onChange={(event) =>
-            setEditing(
-              (current) =>
-                current && {
-                  ...current,
-                  json: event.target.value,
-                  message: undefined,
-                  reason: undefined,
-                },
-            )
+  const jsonEditor = (
+    edit: Editing,
+    kind: Confirm["kind"],
+    files: DefinitionFile[] = [],
+  ) => {
+    const selected =
+      edit.selectedFile &&
+      files.some((file) => definitionFileKey(file) === edit.selectedFile)
+        ? edit.selectedFile
+        : definitionJsonKey;
+    const updateFiles = (picked: File[]) =>
+      setEditing((current) => {
+        if (!current) return current;
+        const drafts = new Map(current.drafts);
+        for (const file of picked) drafts.delete(file.name);
+        return {
+          ...current,
+          files: picked,
+          drafts,
+          message: undefined,
+          reason: undefined,
+        };
+      });
+    const picker = (
+      <DefinitionFiles
+        showPicker={!!files.length}
+        files={edit.files}
+        missing={editingMissing}
+        onChange={updateFiles}
+      />
+    );
+    const jsonField = (children?: ReactNode) => (
+      <DefinitionTextField
+        kind="json"
+        value={edit.json ?? ""}
+        invalid={!!edit.reason}
+        onChange={(json) =>
+          setEditing(
+            (current) =>
+              current && {
+                ...current,
+                json,
+                message: undefined,
+                reason: undefined,
+              },
+          )
+        }
+      >
+        {edit.reason && <Reason reason={edit.reason} />}
+        {children}
+      </DefinitionTextField>
+    );
+    const fileField = (file: DefinitionFile) => {
+      if (file.kind === "json") return jsonField();
+      const read = editFileReads.get(edit.id, file.name);
+      if (!read || !("text" in read))
+        return (
+          <DefinitionFileStatus
+            read={read}
+            onRetry={() => void editFileReads.load(edit.id, file.name)}
+          />
+        );
+      const original = read.text;
+      return (
+        <DefinitionTextField
+          kind={file.kind}
+          value={edit.drafts?.get(file.name) ?? original}
+          onChange={(text) =>
+            setEditing((current) => {
+              if (!current) return current;
+              const drafts = new Map(current.drafts);
+              if (text === original) drafts.delete(file.name);
+              else drafts.set(file.name, text);
+              return {
+                ...current,
+                drafts,
+                files: current.files?.filter(
+                  (picked) => picked.name !== file.name,
+                ),
+                message: undefined,
+                reason: undefined,
+              };
+            })
           }
         />
-        {editing?.reason && <Reason reason={editing.reason} />}
-        <DefinitionFiles
-          files={editing?.files}
-          missing={editingMissing}
-          onChange={(files) =>
-            setEditing(
-              (current) =>
-                current && {
-                  ...current,
-                  files,
-                  message: undefined,
-                  reason: undefined,
-                },
-            )
-          }
-        />
-      </FieldRow>
-      <Foot message={editing?.message}>
-        <Button
-          variant="outline"
-          size="lg"
-          data-iori-action="cli-definition-cancel"
-          onClick={() => setEditing(null)}
-        >
-          {t("Cancel")}
-        </Button>
-        <Button
-          size="lg"
-          pending={busy === "save"}
-          data-iori-action="cli-definition-save"
-          onClick={() => void saveEdit(kind)}
-        >
-          {t("Save")}
-        </Button>
-      </Foot>
-    </div>
-  );
+      );
+    };
+    return (
+      <div
+        className="cli-def-editor"
+        data-iori-view="cli-definition-editor"
+        onKeyDown={(event) => saveOnEnter(event, () => void saveEdit(kind))}
+      >
+        {files.length ? (
+          <DefinitionFileTabs
+            files={files}
+            selected={selected}
+            onSelect={(file) => {
+              readForEdit(edit.id, file);
+              setEditing(
+                (current) =>
+                  current && {
+                    ...current,
+                    selectedFile: definitionFileKey(file),
+                  },
+              );
+            }}
+            changed={(file) =>
+              file.kind === "json"
+                ? edit.json !== edit.initial
+                : !!edit.drafts?.has(file.name)
+            }
+            renderFile={fileField}
+          >
+            {picker}
+            {edit.reason && selected !== definitionJsonKey && (
+              <Reason reason={edit.reason} />
+            )}
+          </DefinitionFileTabs>
+        ) : (
+          jsonField(picker)
+        )}
+        <Foot message={edit.message}>
+          <Button
+            variant="outline"
+            size="lg"
+            data-iori-action="cli-definition-cancel"
+            onClick={() => setEditing(null)}
+          >
+            {t("Cancel")}
+          </Button>
+          <Button
+            size="lg"
+            pending={busy === "save"}
+            data-iori-action="cli-definition-save"
+            onClick={() => void saveEdit(kind)}
+          >
+            {t("Save")}
+          </Button>
+        </Foot>
+      </div>
+    );
+  };
 
   const setHidden = async (cli: CliSummary) => {
     const response = await request(() =>
@@ -1268,12 +1421,15 @@ export function AgentsPage({
       return;
     }
     setListMessage("");
-    await onChanged();
+    onHiddenChanged(response.result.cliId, response.result.hidden);
   };
   const cliRow = (cli: CliSummary) => {
     const open = !!expanded[cli.id];
     const edit = editing?.id === cli.id ? editing : null;
     const user = cli.source === "user" || cli.source === "override";
+    const files = definitionFiles(cli);
+    const key = disclosureKey(cli.id);
+    const expandedFiles = disclosures.get(key)?.open ?? [];
     return (
       <SortableAgentRow
         key={cli.id}
@@ -1392,16 +1548,58 @@ export function AgentsPage({
             <SupportTable cli={cli} />
             <IconField cli={cli} host={host} onChanged={onChanged} />
             {!edit && (
-              <FieldRow label={t("Definition")} className="cli-def-actions">
+              <FieldRow
+                label={t("Definition")}
+                className="cli-def-actions definition-actions"
+              >
                 <Button
                   variant="outline"
                   data-iori-action="cli-definition-edit"
                   onClick={() =>
-                    startEdit(cli.id, cli.simple, cli.definition ?? "")
+                    startEdit(cli.id, cli.simple, cli.definition, files)
                   }
                 >
                   {t("Edit definition")}
                 </Button>
+                {!!files.length && (
+                  <div className="definition-file-list">
+                    {files.map((file) => {
+                      const fileKey = definitionFileKey(file);
+                      const load = () => void fileReads.load(cli.id, file.name);
+                      return (
+                        <DefinitionFileDisclosure
+                          key={fileKey}
+                          file={file}
+                          read={
+                            file.kind === "json"
+                              ? { text: cli.definition ?? "" }
+                              : fileReads.get(cli.id, file.name)
+                          }
+                          open={expandedFiles.includes(fileKey)}
+                          onOpenChange={(open) => {
+                            setDisclosures((current) => {
+                              const entry = current.get(key);
+                              const others = (entry?.open ?? []).filter(
+                                (name) => name !== fileKey,
+                              );
+                              return new Map(current).set(
+                                key,
+                                open
+                                  ? {
+                                      open: [...others, fileKey],
+                                      lastOpened: fileKey,
+                                    }
+                                  : { ...entry, open: others },
+                              );
+                            });
+                            if (open && file.kind !== "json") load();
+                          }}
+                          onRetry={load}
+                        />
+                      );
+                    })}
+                  </div>
+                )}
               </FieldRow>
             )}
             {edit?.simple ? (
@@ -1438,7 +1636,7 @@ export function AgentsPage({
                 </Foot>
               </div>
             ) : (
-              edit && jsonEditor(user ? "save" : "replace")
+              edit && jsonEditor(edit, user ? "save" : "replace", files)
             )}
           </div>
         </CollapsibleContent>
@@ -1493,7 +1691,7 @@ export function AgentsPage({
         )}
       </div>
       {editing?.id === item.folder && (
-        <div className="cli-def-detail">{jsonEditor("save")}</div>
+        <div className="cli-def-detail">{jsonEditor(editing, "save")}</div>
       )}
     </div>
   );
@@ -1621,7 +1819,21 @@ export function AgentsPage({
         </div>
       )}
       {listMessage && <p role="alert">{listMessage}</p>}
-      <SettingsSection className="team-agent-list" title="CLI">
+      <SettingsSection
+        className="team-agent-list"
+        title="CLI"
+        actions={
+          <Button
+            variant="outline"
+            size="sm"
+            pending={loading}
+            onClick={onRetryList}
+          >
+            <RotateCw />
+            {t("Reload")}
+          </Button>
+        }
+      >
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}

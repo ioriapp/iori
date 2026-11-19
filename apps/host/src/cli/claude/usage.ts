@@ -3,6 +3,61 @@ import { object } from "../hooks.ts";
 import { runInShell } from "../shell-command.ts";
 import { monitorUsageCommand } from "../usage.ts";
 
+function datePartsAsUtc(parts: Intl.DateTimeFormatPart[]) {
+  const field = (type: Intl.DateTimeFormatPartTypes) =>
+    Number(parts.find((part) => part.type === type)?.value);
+  return Date.UTC(
+    field("year"),
+    field("month") - 1,
+    field("day"),
+    field("hour"),
+    field("minute"),
+    field("second"),
+  );
+}
+
+function timeInUtc(
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+  timeZone: string,
+): number | undefined {
+  const localTime = new Date(Date.UTC(year, month, day, hour, minute));
+  if (localTime.getUTCMonth() !== month) return undefined;
+  let formatter: Intl.DateTimeFormat;
+  try {
+    formatter = new Intl.DateTimeFormat("en-US-u-nu-latn", {
+      timeZone,
+      year: "numeric",
+      month: "numeric",
+      day: "numeric",
+      hour: "numeric",
+      minute: "numeric",
+      second: "numeric",
+      hourCycle: "h23",
+    });
+  } catch {
+    return undefined;
+  }
+  let utcTime = localTime.getTime();
+  const candidates = new Set<number>();
+  while (!candidates.has(utcTime)) {
+    candidates.add(utcTime);
+    const formattedTime = datePartsAsUtc(
+      formatter.formatToParts(new Date(utcTime)),
+    );
+    const nextUtcTime = utcTime + localTime.getTime() - formattedTime;
+    if (nextUtcTime === utcTime) break;
+    utcTime = nextUtcTime;
+  }
+  return datePartsAsUtc(formatter.formatToParts(new Date(utcTime))) ===
+    localTime.getTime()
+    ? utcTime
+    : undefined;
+}
+
 /** /usage is returned as text in the CLI's JSON result, with TZ=UTC. */
 export function readUsage(
   value: unknown,
@@ -13,7 +68,7 @@ export function readUsage(
   const windows: CliUsage["windows"] = [];
   for (const line of text.split(/\r?\n/u)) {
     const match =
-      /^Current (session|week \(([^)]+)\)): (\d+(?:\.\d+)?)% used · resets ([A-Z][a-z]{2}) (\d{1,2}), (?:(\d{4}), )?(\d{1,2})(?::(\d{2}))?(am|pm) \(UTC\)$/u.exec(
+      /^Current (session|week \(([^)]+)\)): (\d+(?:\.\d+)?)% used · resets ([A-Z][a-z]{2}) (\d{1,2}), (?:(\d{4}), )?(\d{1,2})(?::(\d{2}))?(am|pm) \(([^()]+)\)$/u.exec(
         line,
       );
     if (!match) continue;
@@ -46,9 +101,9 @@ export function readUsage(
     )
       continue;
     const year = match[6] ? Number(match[6]) : new Date(now).getUTCFullYear();
-    const utcHour = (hour % 12) + (match[9] === "pm" ? 12 : 0);
-    const resetsAt = Date.UTC(year, month, day, utcHour, minute);
-    if (new Date(resetsAt).getUTCMonth() !== month) continue;
+    const localHour = (hour % 12) + (match[9] === "pm" ? 12 : 0);
+    const resetsAt = timeInUtc(year, month, day, localHour, minute, match[10]!);
+    if (resetsAt === undefined) continue;
     const name = match[2] && match[2] !== "all models" ? match[2] : undefined;
     windows.push({
       remaining: 100 - used,

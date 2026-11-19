@@ -75,6 +75,7 @@ export function saveOnEnter(
 
 export function SettingsSection({
   title,
+  actions,
   description,
   children,
   className = "",
@@ -83,6 +84,7 @@ export function SettingsSection({
   ...props
 }: Omit<ComponentProps<"section">, "title"> & {
   title?: ReactNode;
+  actions?: ReactNode;
   description?: ReactNode;
   onSave?: () => void;
 }) {
@@ -95,9 +97,10 @@ export function SettingsSection({
         saveOnEnter(event, onSave);
       }}
     >
-      {(title || description) && (
+      {(title || description || actions) && (
         <div className="section-heading">
           {title && <h2>{title}</h2>}
+          {actions && <div className="page-actions">{actions}</div>}
           {description && <p className="page-description">{description}</p>}
         </div>
       )}

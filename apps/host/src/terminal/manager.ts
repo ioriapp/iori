@@ -311,6 +311,9 @@ export class TerminalManager {
   listClis(refreshUsage = false) {
     return this.#clis.list(this.#shell(), refreshUsage);
   }
+  cliDefinitionIds() {
+    return this.#clis.definitionIds();
+  }
   checkCliDefinition(
     definition: string,
     id?: string,
@@ -354,6 +357,9 @@ export class TerminalManager {
     params: import("@iori/protocol").CliDefinitionParams["cli.definition.file.write"],
   ) {
     return this.#clis.writeDefinitionFile(owner, params);
+  }
+  readCliDefinitionFile(id: string, name: string) {
+    return this.#clis.readDefinitionFile(id, name);
   }
   discardDefinitionFiles(owner: string, ids: string[]) {
     return this.#clis.discardDefinitionFiles(owner, ids);

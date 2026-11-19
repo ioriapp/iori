@@ -31,6 +31,15 @@ export function teamChanges(
     changed("Check on working children", "Parent");
   if (before.backgroundWakeMinutes !== after.backgroundWakeMinutes)
     changed("Remind children waiting on background commands", "Parent");
+  const oldIds = new Set(before.roles.map((role) => role.id));
+  const newIds = new Set(after.roles.map((role) => role.id));
+  if (
+    !same(
+      [...oldIds].filter((id) => newIds.has(id)),
+      [...newIds].filter((id) => oldIds.has(id)),
+    )
+  )
+    changes.push({ item: "Role order", action: "changed" });
   for (const current of after.roles) {
     const previous = before.roles.find((role) => role.id === current.id);
     if (!previous) {

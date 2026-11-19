@@ -3078,6 +3078,7 @@ function WorkspaceFrameInner({
     addCli: (cli, groupId) =>
       void createTerminal(undefined, groupId, undefined, cli),
     launcherActive: !teamsHost,
+    reloadClis,
     launching: launchingItem,
     openTeams: (teamId) => {
       const host = hosts.find((h) => h.publicKey === currentHostKey);
@@ -3161,6 +3162,7 @@ function WorkspaceFrameInner({
   const launcher = (large: boolean, startTabId?: string) => (
     <CliLauncher
       pending={launchingItem}
+      onOpen={reloadClis}
       hostKey={currentHostKey}
       active={!teamsHost}
       onOpenTeams={(teamId) => {

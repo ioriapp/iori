@@ -4,6 +4,7 @@ import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 import { runHostTest } from "../../verification/host/process.mjs";
+import { connectClient } from "../../verification/host/client.mjs";
 
 const definition = (id) => ({
   schema: 1,
@@ -11,6 +12,291 @@ const definition = (id) => ({
   name: "Example CLI",
   command: "node",
 });
+
+async function uploadDefinitionFile(client, name, content) {
+  const uploadId = crypto.randomUUID();
+  await client.request("cli.definition.file.write", {
+    uploadId,
+    first: true,
+    data: Buffer.from(content).toString("base64"),
+  });
+  return { name, uploadId };
+}
+
+const withFiles = (id) => ({
+  ...definition(id),
+  usage: { script: "usage.mjs" },
+  tokens: { script: "tokens.mjs" },
+  hooks: {
+    format: "plugin-file",
+    install: { copy: "plugin.mjs", to: "~/.plugin.mjs" },
+  },
+});
+
+test("定義に付属するスクリプトと部品の一覧と中身を読める", (t) =>
+  runHostTest(t, async ({ client }) => {
+    const value = { ...withFiles("files-cli"), command: { shell: "node" } };
+    const contents = {
+      "usage.mjs": "usage",
+      "tokens.mjs": "tokens",
+      "plugin.mjs": "plugin",
+    };
+    const files = await Promise.all(
+      Object.entries(contents).map(([name, content]) =>
+        uploadDefinitionFile(client, name, content),
+      ),
+    );
+    await client.request("cli.definition.save", {
+      definition: JSON.stringify(value),
+      files,
+    });
+    const { clis } = await client.request("cli.list");
+    assert.equal(clis.find((cli) => cli.id === value.id).simple, undefined);
+    assert.deepEqual(clis.find((cli) => cli.id === value.id).files, [
+      { name: "usage.mjs", kind: "usage" },
+      { name: "tokens.mjs", kind: "tokens" },
+      { name: "plugin.mjs", kind: "plugin" },
+    ]);
+    for (const [name, text] of Object.entries(contents))
+      assert.deepEqual(
+        await client.request("cli.definition.file.read", {
+          cliId: value.id,
+          name,
+        }),
+        { text },
+      );
+    const bundled = await readFile(
+      new URL("../../apps/host/src/cli/muse-code/usage.mjs", import.meta.url),
+      "utf8",
+    );
+    assert.deepEqual(
+      await client.request("cli.definition.file.read", {
+        cliId: "muse-code",
+        name: "usage.mjs",
+      }),
+      { text: bundled },
+    );
+    await client.request("cli.definition.simple", {
+      simple: { name: "Simple Example", command: "node", modelArgument: "" },
+    });
+    const list = await client.request("cli.list");
+    const simple = list.clis.find((cli) => cli.name === "Simple Example");
+    assert.deepEqual(simple.simple, {
+      name: "Simple Example",
+      command: "node",
+      modelArgument: "",
+    });
+    assert.equal(simple.files, undefined);
+  }));
+
+test("定義に含まれないファイルは読み取れない", (t) =>
+  runHostTest(t, async ({ client }) => {
+    const value = {
+      ...definition("restricted-cli"),
+      usage: { script: "only.mjs" },
+      icon: { light: "icon.svg" },
+    };
+    const files = [
+      await uploadDefinitionFile(client, "only.mjs", "ok"),
+      await uploadDefinitionFile(
+        client,
+        "icon.svg",
+        '<svg xmlns="http://www.w3.org/2000/svg"/>',
+      ),
+    ];
+    await client.request("cli.definition.save", {
+      definition: JSON.stringify(value),
+      files,
+    });
+    await client.request("cli.definition.save", {
+      definition: JSON.stringify({
+        ...definition("other-cli"),
+        usage: { script: "other.mjs" },
+      }),
+      files: [await uploadDefinitionFile(client, "other.mjs", "other")],
+    });
+    for (const name of [
+      "definition.json",
+      "../definition.json",
+      "icon.svg",
+      "other.mjs",
+    ])
+      await assert.rejects(
+        client.request("cli.definition.file.read", { cliId: value.id, name }),
+        /invalid_request/u,
+      );
+  }));
+
+test("文字でないファイルと大きすぎるファイルを編集対象にしない", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    const value = withFiles("unsupported-cli");
+    const files = await Promise.all(
+      ["usage.mjs", "tokens.mjs", "plugin.mjs"].map((name) =>
+        uploadDefinitionFile(client, name, "initial"),
+      ),
+    );
+    await client.request("cli.definition.save", {
+      definition: JSON.stringify(value),
+      files,
+    });
+    const folder = join(dataRoot, "iori-host", "cli-definitions", value.id);
+    await writeFile(join(folder, "usage.mjs"), Buffer.from([65, 0, 66]));
+    await writeFile(join(folder, "tokens.mjs"), Buffer.alloc(1_048_577, 65));
+    await writeFile(join(folder, "plugin.mjs"), Buffer.from([0xff]));
+    for (const name of ["usage.mjs", "tokens.mjs", "plugin.mjs"])
+      assert.deepEqual(
+        await client.request("cli.definition.file.read", {
+          cliId: value.id,
+          name,
+        }),
+        { unsupported: true },
+      );
+  }));
+
+test("既存と同梱の定義を添付ファイルで編集でき、未変更の同梱ファイルを引き継ぐ", (t) =>
+  runHostTest(t, async ({ client }) => {
+    const value = withFiles("edit-files-cli");
+    const definitionText = JSON.stringify(value);
+    const files = await Promise.all(
+      ["usage.mjs", "tokens.mjs", "plugin.mjs"].map((name) =>
+        uploadDefinitionFile(client, name, "before"),
+      ),
+    );
+    await client.request("cli.definition.save", {
+      definition: definitionText,
+      files,
+    });
+    const changed = [
+      await uploadDefinitionFile(client, "usage.mjs", "after"),
+      await uploadDefinitionFile(client, "plugin.mjs", "new plugin"),
+    ];
+    const checked = await client.request("cli.definition.check", {
+      cliId: value.id,
+      definition: definitionText,
+      files: changed,
+    });
+    assert.ok(
+      checked.summary.commands.some((command) => command.kind === "usage"),
+    );
+    assert.ok(checked.summary.files.length > 0);
+    assert.equal(checked.summary.requiresConfirmation, true);
+    await client.request("cli.definition.save", {
+      cliId: value.id,
+      definition: definitionText,
+      files: changed,
+    });
+    assert.deepEqual(
+      await client.request("cli.definition.file.read", {
+        cliId: value.id,
+        name: "usage.mjs",
+      }),
+      { text: "after" },
+    );
+    assert.deepEqual(
+      await client.request("cli.definition.file.read", {
+        cliId: value.id,
+        name: "plugin.mjs",
+      }),
+      { text: "new plugin" },
+    );
+    const bundledText = await readFile(
+      new URL(
+        "../../apps/host/src/cli/muse-code/definition.json",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    const bundledTokens = await readFile(
+      new URL("../../apps/host/src/cli/muse-code/tokens.mjs", import.meta.url),
+      "utf8",
+    );
+    await client.request("cli.definition.save", {
+      cliId: "muse-code",
+      definition: bundledText,
+      files: [await uploadDefinitionFile(client, "usage.mjs", "override")],
+    });
+    assert.deepEqual(
+      await client.request("cli.definition.file.read", {
+        cliId: "muse-code",
+        name: "usage.mjs",
+      }),
+      { text: "override" },
+    );
+    assert.deepEqual(
+      await client.request("cli.definition.file.read", {
+        cliId: "muse-code",
+        name: "tokens.mjs",
+      }),
+      { text: bundledTokens },
+    );
+  }));
+
+test("添付ファイルの保存に失敗した時は定義と他のファイルを変更しない", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    const value = {
+      ...definition("atomic-cli"),
+      usage: { script: "usage.mjs" },
+    };
+    const text = JSON.stringify(value);
+    const upload = async (name, content) => {
+      const uploadId = crypto.randomUUID();
+      await client.request("cli.definition.file.write", {
+        uploadId,
+        first: true,
+        data: Buffer.from(content).toString("base64"),
+      });
+      return { name, uploadId };
+    };
+    await client.request("cli.definition.save", {
+      definition: text,
+      files: [await upload("usage.mjs", "before")],
+    });
+    const folder = join(dataRoot, "iori-host", "cli-definitions", value.id);
+    await writeFile(join(folder, "blocked"), "keep");
+    await assert.rejects(
+      client.request("cli.definition.save", {
+        cliId: value.id,
+        definition: JSON.stringify({ ...value, name: "Changed" }),
+        files: [
+          await upload("usage.mjs", "after"),
+          await upload("blocked/file.mjs", "cannot save"),
+        ],
+      }),
+    );
+    assert.equal(await readFile(join(folder, "usage.mjs"), "utf8"), "before");
+    assert.equal(await readFile(join(folder, "definition.json"), "utf8"), text);
+    assert.equal(await readFile(join(folder, "blocked"), "utf8"), "keep");
+    assert.deepEqual(
+      (await readdir(join(dataRoot, "iori-host", "cli-definitions"))).sort(),
+      [value.id],
+    );
+    assert.deepEqual((await client.request("cli.list")).failed ?? [], []);
+  }));
+
+test("CLIの表示変更は別の接続に届き一覧にも保存される", (t) =>
+  runHostTest(t, async ({ client, dataRoot, stage }) => {
+    const cliId = "visibility-event";
+    await client.request("cli.definition.save", {
+      definition: JSON.stringify(definition(cliId)),
+    });
+    const other = await connectClient(dataRoot);
+    try {
+      const events = await other.events();
+      await events.waitFor((event) => event.type === "snapshot");
+      stage("別の接続で表示を変更する");
+      await client.request("cli.hidden.set", { cliId, hidden: true });
+      await events.waitFor(
+        (event) =>
+          event.type === "cli.hidden.changed" &&
+          event.cliId === cliId &&
+          event.hidden === true,
+      );
+      const list = await other.request("cli.list", {});
+      assert.equal(list.clis.find((cli) => cli.id === cliId).hidden, true);
+    } finally {
+      await other.close();
+    }
+  }));
 
 test("アイコンの変更と復元で以前の画像を片付け、他のファイルを残す", (t) =>
   runHostTest(t, async ({ client, dataRoot, stage }) => {

@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { templates } from "./team-templates.ts";
 import { teamChanges } from "./team-changes.ts";
 import { parseTeamDefinition, type TeamDefinition } from "@iori/protocol";
 
@@ -139,5 +140,19 @@ test("summaries distinguish fields, additions, removals and priority moves acros
   renamed.roles[0]!.name = "Builder";
   assert.deepEqual(teamChanges(before, renamed), [
     { item: "Name", name: "Builder", action: "changed" },
+  ]);
+});
+
+test("role order changes only when retained roles move relative to one another", () => {
+  const before = templates.development!;
+  const [first, second, removed, ...rest] = before.roles;
+  const added = { ...removed!, id: "writer", name: "Writer" };
+  const orderChanges = (roles: TeamDefinition["roles"]) =>
+    teamChanges(before, { ...before, roles }).filter(
+      (change) => change.item === "Role order",
+    );
+  assert.deepEqual(orderChanges([added, first!, second!, ...rest]), []);
+  assert.deepEqual(orderChanges([added, second!, first!, ...rest]), [
+    { item: "Role order", action: "changed" },
   ]);
 });

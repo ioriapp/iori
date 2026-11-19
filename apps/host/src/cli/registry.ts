@@ -25,11 +25,13 @@ import {
   type CliListResult,
   type CliSimpleDefinition,
   type CliSummary,
+  type CliDefinitionFile,
   type Response,
   type Event,
 } from "@iori/protocol";
 import type { HostStore, StoreContext } from "../store.ts";
-import type { ShellDefinition } from "../terminal/platform.ts";
+import { isWindowsHost, type ShellDefinition } from "../terminal/platform.ts";
+import { refreshWindowsPath } from "./windows-login-environment.ts";
 import {
   cliDefinitions,
   bundledDefinition,
@@ -68,6 +70,22 @@ const isUserDefinition = (id: string) => {
   const source = definition && definitionInfo(definition)?.source;
   return source === "user" || source === "override";
 };
+
+function definitionFiles(
+  file: import("./definition-file.ts").DefinitionFile,
+): CliDefinitionFile[] {
+  return [
+    ...(file.usage && "script" in file.usage
+      ? [{ name: file.usage.script, kind: "usage" as const }]
+      : []),
+    ...(file.tokens && "script" in file.tokens
+      ? [{ name: file.tokens.script, kind: "tokens" as const }]
+      : []),
+    ...(file.hooks?.format === "plugin-file"
+      ? [{ name: file.hooks.install.copy, kind: "plugin" as const }]
+      : []),
+  ];
+}
 
 export class CliRegistry {
   readonly #store: HostStore;
@@ -170,10 +188,16 @@ export class CliRegistry {
     for (const controller of this.#usageMonitors.values()) controller.abort();
   }
 
+  async definitionIds(): Promise<Set<string>> {
+    if (this.#definitionsRoot) await loadCliDefinitions(this.#definitionsRoot);
+    return new Set(cliDefinitions.map((definition) => definition.id));
+  }
+
   async list(
     shell: ShellDefinition,
     refreshUsage = false,
   ): Promise<Response<CliListResult>> {
+    if (isWindowsHost()) await refreshWindowsPath();
     if (this.#definitionsRoot) await loadCliDefinitions(this.#definitionsRoot);
     const definitions = [...cliDefinitions];
     const names = definitions.map((definition) =>
@@ -216,13 +240,15 @@ export class CliRegistry {
         // The AI agents screen edits the definition in use. Only a user's
         // definition is made from the name and command fields; a bundled
         // one with a command line (Kiro CLI) is edited as JSON.
-        const simple = info?.source === "user" && simpleFields(info.file);
+        const simple =
+          info?.source === "user" && simpleFields(info.file, info.text);
         const edit = info && {
           ...(definition.icon ? { icon: definition.icon } : {}),
           ...(definition.customIcon ? { customIcon: true } : {}),
           source: info.source,
           definition: info.text,
           ...(simple ? { simple } : {}),
+          ...(!simple ? { files: definitionFiles(info.file) } : {}),
         };
         if (!command)
           // Only a user's definition is listed before its CLI is installed.
@@ -606,6 +632,37 @@ export class CliRegistry {
       params.data,
       params.first,
     );
+  }
+  async readDefinitionFile(
+    id: string,
+    name: string,
+  ): Promise<Response<CliDefinitionResults["cli.definition.file.read"]>> {
+    if (this.#definitionsRoot) await loadCliDefinitions(this.#definitionsRoot);
+    const definition = cliDefinitions.find((entry) => entry.id === id);
+    const info = definition && definitionInfo(definition);
+    if (
+      !info ||
+      (info.source === "user" && simpleFields(info.file, info.text)) ||
+      !definitionFiles(info.file).some((file) => file.name === name)
+    )
+      return { ok: false, error: { code: "invalid_request" } };
+    try {
+      const bytes = await readFile(await definitionFilePath(info.folder, name));
+      if (bytes.length > 1_048_576 || bytes.includes(0))
+        return { ok: true, result: { unsupported: true } };
+      try {
+        return {
+          ok: true,
+          result: {
+            text: new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+          },
+        };
+      } catch {
+        return { ok: true, result: { unsupported: true } };
+      }
+    } catch {
+      return { ok: false, error: { code: "internal_error" } };
+    }
   }
   discardDefinitionFiles(owner: string, ids: string[]) {
     return this.#uploads!.discard(owner, ids);

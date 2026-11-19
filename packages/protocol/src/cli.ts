@@ -138,6 +138,12 @@ export function belowUsageMinimum(
     )
   );
 }
+export type CliDefinitionFileKind = "usage" | "tokens" | "plugin";
+export interface CliDefinitionFile {
+  name: string;
+  kind: CliDefinitionFileKind;
+}
+
 /** CLI identity and its icon are supplied by the Host's CLI definition. */
 export interface CliSummary {
   /** Only the CLI list carries picker visibility. */
@@ -165,6 +171,7 @@ export interface CliSummary {
   >;
   /** The JSON of the definition in use, for editing it. */
   definition?: string;
+  files?: CliDefinitionFile[];
   /** Present when the definition was made from the name and command. */
   simple?: import("./cli-definitions.ts").CliSimpleDefinition;
 }

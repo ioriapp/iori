@@ -6,6 +6,47 @@ const query = promisify(execFile);
 type RegistryValue = { name: string; type: string; value: string };
 type RegistryEnvironment = { system: RegistryValue[]; user: RegistryValue[] };
 
+export function appendMissingPathEntries(
+  current: string,
+  fresh: string,
+): string {
+  const normalize = (entry: string) =>
+    entry
+      .trim()
+      .replace(/^"|"$/gu, "")
+      .trim()
+      .replace(/\\+$/u, "")
+      .toUpperCase();
+  const seen = new Set(current.split(";").map(normalize));
+  const entries = fresh.split(";").filter((entry) => {
+    const key = normalize(entry);
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  return [current, ...entries].filter((entry) => entry !== "").join(";");
+}
+
+export async function refreshWindowsPath(): Promise<void> {
+  const base = Object.fromEntries(
+    Object.entries(process.env).filter(
+      (entry): entry is [string, string] => entry[1] !== undefined,
+    ),
+  );
+  const fresh = await readWindowsLoginEnvironment(base);
+  const freshPath = Object.entries(fresh).find(
+    ([name]) => name.toUpperCase() === "PATH",
+  )?.[1];
+  if (freshPath === undefined) return;
+  const name =
+    Object.keys(process.env).find((key) => key.toUpperCase() === "PATH") ??
+    "PATH";
+  process.env[name] = appendMissingPathEntries(
+    process.env[name] ?? "",
+    freshPath,
+  );
+}
+
 // Use the Windows registry API without expanding values, and emit UTF-8 even
 // when the machine's console code page is not UTF-8.
 const registryQuery = String.raw`

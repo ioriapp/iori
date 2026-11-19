@@ -59,8 +59,51 @@ export function simpleDefinition(
 /** The name and command fields of a definition made from them. */
 export function simpleFields(
   file: DefinitionFile,
+  text: string,
 ): CliSimpleDefinition | undefined {
   if (!file.shell) return undefined;
+  const input: unknown = JSON.parse(text);
+  const object = (value: unknown): value is Record<string, unknown> =>
+    !!value && typeof value === "object" && !Array.isArray(value);
+  const only = (value: unknown, keys: string[]) =>
+    object(value) && Object.keys(value).every((key) => keys.includes(key));
+  if (
+    !object(input) ||
+    !only(input, [
+      "schema",
+      "id",
+      "name",
+      "command",
+      "launch",
+      "models",
+      "icon",
+    ]) ||
+    !only(input.command, ["shell"]) ||
+    (input.launch !== undefined && !only(input.launch, ["model"])) ||
+    (input.icon !== undefined && !only(input.icon, ["light", "dark"]))
+  )
+    return undefined;
+  if (input.models !== undefined) {
+    const models = input.models;
+    if (!object(models)) return undefined;
+    if ("candidates" in models) {
+      if (
+        !only(models, ["candidates"]) ||
+        !Array.isArray(models.candidates) ||
+        !models.candidates.every(
+          (candidate: unknown) => typeof candidate === "string",
+        )
+      )
+        return undefined;
+    } else if (
+      !only(models, ["list"]) ||
+      !object(models.list) ||
+      !only(models.list, ["shell", "format"]) ||
+      typeof models.list.shell !== "string" ||
+      models.list.format !== "lines"
+    )
+      return undefined;
+  }
   const models = file.models;
   return {
     name: file.name,

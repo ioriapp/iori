@@ -7,6 +7,55 @@ import { readUsage } from "./usage.ts";
 const output = JSON.parse(
   readFileSync(new URL("./usage.fixture.json", import.meta.url), "utf8"),
 );
+test("OSのタイムゾーンで出たClaude Codeの利用枠を読む", () => {
+  const usage = readUsage(
+    {
+      result:
+        "You are currently using your subscription to power your Claude Code usage\n\nCurrent session: 5% used · resets Nov 20, 12:09am (Asia/Tokyo)\nCurrent week (all models): 20% used · resets Nov 23, 11:59am (Asia/Tokyo)\nCurrent week (Fable): 5% used · resets Nov 23, 11:59am (Asia/Tokyo)",
+    },
+    Date.parse("2026-11-19T00:00:00Z"),
+  );
+  assert.deepEqual(
+    usage?.windows.map(({ name, remaining, minutes, resetsAt }) => ({
+      name,
+      remaining,
+      minutes,
+      resetsAt,
+    })),
+    [
+      {
+        name: undefined,
+        remaining: 95,
+        minutes: 300,
+        resetsAt: Date.parse("2026-11-19T15:09:00Z"),
+      },
+      {
+        name: undefined,
+        remaining: 80,
+        minutes: 10080,
+        resetsAt: Date.parse("2026-11-23T02:59:00Z"),
+      },
+      {
+        name: "Fable",
+        remaining: 95,
+        minutes: 10080,
+        resetsAt: Date.parse("2026-11-23T02:59:00Z"),
+      },
+    ],
+  );
+});
+test("夏時間のある地域の利用枠を夏時間でUTCへ変換する", () => {
+  assert.equal(
+    readUsage(
+      {
+        result:
+          "Current session: 5% used · resets Jul 15, 12pm (America/New_York)",
+      },
+      Date.parse("2026-07-01T00:00:00Z"),
+    )?.windows[0]?.resetsAt,
+    Date.parse("2026-07-15T16:00:00Z"),
+  );
+});
 test("Claude usage text becomes session, all-model and named weekly windows", () => {
   const usage = readUsage(output, Date.parse("2026-10-25T05:20:00Z"))!;
   assert.deepEqual(

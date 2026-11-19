@@ -173,6 +173,79 @@ function isDirty(record?: TeamRecord) {
     !!record && JSON.stringify(record.saved) !== JSON.stringify(record.draft)
   );
 }
+function TeamRoleRow({
+  role,
+  sortable,
+  selected,
+  onOpen,
+  onStep,
+  children,
+}: {
+  role: Role;
+  sortable: boolean;
+  selected: boolean;
+  onOpen: () => void;
+  onStep: (direction: number) => void;
+  children: ReactNode;
+}) {
+  const { t } = useI18n();
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    setActivatorNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: role.id, disabled: !sortable });
+  return (
+    <div
+      ref={setNodeRef}
+      className={`team-tree-role ${isDragging ? "team-candidate-dragging" : ""}`}
+      style={{
+        transform: transform
+          ? `translate3d(${transform.x}px,${transform.y}px,0)`
+          : undefined,
+        transition,
+      }}
+    >
+      {sortable && (
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="team-candidate-grip"
+          ref={setActivatorNodeRef}
+          {...attributes}
+          {...listeners}
+          aria-label={`${t("Drag to reorder")} ${role.name}`}
+          onKeyDown={(event) => {
+            if (
+              !isDragging &&
+              (event.key === "ArrowUp" || event.key === "ArrowDown")
+            ) {
+              event.preventDefault();
+              onStep(event.key === "ArrowUp" ? -1 : 1);
+            } else listeners?.onKeyDown?.(event);
+          }}
+        >
+          <GripVertical size={14} />
+        </Button>
+      )}
+      <Button
+        variant="ghost"
+        className={`team-tree-row ${selected ? "selected" : ""}`}
+        data-iori-action="team-role"
+        data-iori-role-id={role.id}
+        onClick={onOpen}
+      >
+        <span>{role.name}</span>
+        {role.limit && <small>{role.limit}</small>}
+      </Button>
+      {children}
+    </div>
+  );
+}
+
 function ShortSelect({
   label,
   value,
@@ -838,6 +911,7 @@ export function TeamEditor({
   onOpenIntegrations,
   onOpenWorkspaceSettings,
   onClisChanged,
+  onCliHiddenChanged,
   onAgentsOpened,
   onRetryModels,
   initialPage,
@@ -848,6 +922,7 @@ export function TeamEditor({
   registerBack,
   cliListError,
   onRetryClis,
+  loadingClis,
   allClis,
   orderable,
   failedDefinitions,
@@ -860,6 +935,7 @@ export function TeamEditor({
   onOpenIntegrations?: (hostKey: string) => void;
   onOpenWorkspaceSettings?: (hostKey: string, workspacePath: string) => void;
   onClisChanged: () => Promise<void>;
+  onCliHiddenChanged: (cliId: string, hidden: boolean) => void;
   onAgentsOpened: () => void;
   onRetryModels: (id: string) => void;
   initialPage?: "teams" | "agents";
@@ -870,6 +946,7 @@ export function TeamEditor({
   registerBack: (back: () => boolean) => void;
   cliListError: boolean;
   onRetryClis: () => void;
+  loadingClis?: boolean;
   /** The CLIs with the user's definitions that this Host does not find. */
   allClis: CliSummary[];
   orderable?: true;
@@ -1178,19 +1255,21 @@ export function TeamEditor({
         r.id === selectedRole?.id ? { ...r, ...changes } : r,
       ),
     }));
-  const undo = () => {
+  const undo = (record = selectedRecord) => {
     if (
-      selectedRecord &&
+      record &&
       selection.page === "team" &&
+      selection.teamId === record.saved.id &&
       !["overview", "parent"].includes(selection.detail) &&
-      !selectedRecord.saved.roles.some((r) => r.id === selection.detail)
+      !record.saved.roles.some((r) => r.id === selection.detail)
     )
       setSelection({
         page: "team",
-        teamId: selectedRecord.saved.id,
+        teamId: record.saved.id,
         detail: "overview",
       });
-    if (team) updateTeamDraft(team.id, (_draft, saved) => clone(saved));
+    if (record)
+      updateTeamDraft(record.saved.id, (_draft, saved) => clone(saved));
     setSaveMessage("");
   };
   const editors = useRef(new Set<SettingsEditor>());
@@ -1250,8 +1329,13 @@ export function TeamEditor({
     action?.();
   };
   // A restored draft retains the version it was edited from, even after reconnecting.
-  const save = async (baseVersion = team?.version, editedFrom?: number) => {
-    if (!team || !dirty) return false;
+  const save = async (
+    record = selectedRecord,
+    baseVersion = record?.draft.version,
+    editedFrom?: number,
+  ) => {
+    const team = record?.draft;
+    if (!team || !isDirty(record)) return false;
     const submitted = clone(team);
     if (!team.name.trim()) {
       setSaveMessage("Could not save: enter a team name.");
@@ -1684,6 +1768,73 @@ export function TeamEditor({
       onRequestedTeamOpened();
     }
   }, [active, requestedTeam]);
+  const withTreeTeam = (
+    record: TeamRecord,
+    detail: string,
+    action: () => void,
+  ) => {
+    if (selectedRecord?.draft.id === record.draft.id) action();
+    else
+      guard(() => {
+        setSelection({ page: "team", teamId: record.draft.id, detail });
+        setMessage("");
+        setSaveMessage("");
+        action();
+      });
+  };
+  const moveRole = (record: TeamRecord, id: string, targetId: string) => {
+    if (id === targetId) return;
+    withTreeTeam(record, id, () => {
+      updateTeamDraft(record.draft.id, (draft) => {
+        const from = draft.roles.findIndex((role) => role.id === id);
+        const to = draft.roles.findIndex((role) => role.id === targetId);
+        if (from < 0 || to < 0) return draft;
+        return { ...draft, roles: arrayMove(draft.roles, from, to) };
+      });
+      setSaveMessage("");
+    });
+  };
+  const saveResult = (record: TeamRecord, unsaved: boolean) => {
+    const message = record === selectedRecord ? saveMessage : "";
+    const error = message.startsWith("Could");
+    return (
+      <SaveResult
+        inline
+        error={error}
+        message={
+          error
+            ? t(message)
+            : unsaved
+              ? t("Unsaved changes")
+              : `${t("Version {version}").replace("{version}", String(record.saved.version))} · ${t(message ? "Settings saved" : "Saved")}`
+        }
+      />
+    );
+  };
+  const saveButtons = (record: TeamRecord, unsaved: boolean) => (
+    <>
+      <Button
+        variant="outline"
+        className="team-undo-button"
+        disabled={!unsaved || working}
+        onClick={() => undo(record)}
+      >
+        {t("Undo")}
+      </Button>
+      <Button
+        type="button"
+        disabled={!unsaved || working}
+        pending={workingOn === "save" && record === selectedRecord}
+        className="team-save-button"
+        data-iori-action="team-save"
+        onClick={() =>
+          withTreeTeam(record, "overview", () => void save(record))
+        }
+      >
+        {t("Save")}
+      </Button>
+    </>
+  );
   const teamTreeRow = (record: TeamRecord) => (
     <Collapsible
       className="team-tree-item"
@@ -1746,21 +1897,38 @@ export function TeamEditor({
         >
           {t("Parent")}
         </Button>
-        {record.draft.roles.map((r) => (
-          <div className="team-tree-role" key={r.id}>
-            <Button
-              variant="ghost"
-              className={`team-tree-row ${selection.page === "team" && selection.teamId === record.draft.id && selection.detail === r.id ? "selected" : ""}`}
-              data-iori-action="team-role"
-              data-iori-role-id={r.id}
-              onClick={() => openTeam(record.draft.id, r.id)}
-            >
-              <span>{r.name}</span>
-              {r.limit && <small>{r.limit}</small>}
-            </Button>
-            {roleMenu(r, record.draft.id)}
-          </div>
-        ))}
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={({ active, over }) => {
+            if (over) moveRole(record, String(active.id), String(over.id));
+          }}
+        >
+          <SortableContext
+            items={record.draft.roles.map((role) => role.id)}
+            strategy={verticalListSortingStrategy}
+          >
+            {record.draft.roles.map((role, index, roles) => (
+              <TeamRoleRow
+                key={role.id}
+                role={role}
+                sortable={roles.length > 1}
+                selected={
+                  selection.page === "team" &&
+                  selection.teamId === record.draft.id &&
+                  selection.detail === role.id
+                }
+                onOpen={() => openTeam(record.draft.id, role.id)}
+                onStep={(direction) => {
+                  const target = roles[index + direction];
+                  if (target) moveRole(record, role.id, target.id);
+                }}
+              >
+                {roleMenu(role, record.draft.id)}
+              </TeamRoleRow>
+            ))}
+          </SortableContext>
+        </DndContext>
         <Button
           variant="outline"
           className="team-tree-row team-tree-add"
@@ -1776,6 +1944,12 @@ export function TeamEditor({
           <Plus size={13} />
           {t("Add role")}
         </Button>
+        {isMobile && !mobileDetail && isDirty(record) && (
+          <div className="team-tree-save">
+            {saveResult(record, true)}
+            {saveButtons(record, true)}
+          </div>
+        )}
       </CollapsibleContent>
     </Collapsible>
   );
@@ -1930,19 +2104,7 @@ export function TeamEditor({
                   <span className="page-link-label">{team.name}</span>
                 </Button>
               }
-              description={
-                <SaveResult
-                  inline
-                  error={saveMessage.startsWith("Could")}
-                  message={
-                    saveMessage.startsWith("Could")
-                      ? t(saveMessage)
-                      : dirty
-                        ? t("Unsaved changes")
-                        : `${t("Version {version}").replace("{version}", String(team.version))} · ${t(saveMessage ? "Settings saved" : "Saved")}`
-                  }
-                />
-              }
+              description={saveResult(selectedRecord!, dirty)}
               actions={
                 <>
                   <Button
@@ -1957,24 +2119,7 @@ export function TeamEditor({
                     <History size={14} />
                     <span>{t("History")}</span>
                   </Button>
-                  <Button
-                    variant="outline"
-                    className="team-undo-button"
-                    disabled={!dirty || working}
-                    onClick={undo}
-                  >
-                    {t("Undo")}
-                  </Button>
-                  <Button
-                    type="button"
-                    disabled={!dirty || working}
-                    pending={workingOn === "save"}
-                    className="team-save-button"
-                    data-iori-action="team-save"
-                    onClick={() => void save()}
-                  >
-                    {t("Save")}
-                  </Button>
+                  {saveButtons(selectedRecord!, dirty)}
                   <Actions label="Team actions">
                     {teamMenu(selectedRecord!.saved, false, false)}
                   </Actions>
@@ -2504,7 +2649,9 @@ export function TeamEditor({
               failed={failedDefinitions}
               listError={cliListError}
               onRetryList={onRetryClis}
+              loading={loadingClis}
               onChanged={onClisChanged}
+              onHiddenChanged={onCliHiddenChanged}
               expanded={agentExpanded}
               onExpandedChange={(id, yes) =>
                 setAgentExpanded((e) => ({ ...e, [id]: yes }))
@@ -2674,6 +2821,7 @@ export function TeamEditor({
                   pending={workingOn === "save"}
                   onClick={async () => {
                     const saved = await save(
+                      selectedRecord,
                       saveConflict.current!.saved.version,
                       saveConflict.editedFrom,
                     );

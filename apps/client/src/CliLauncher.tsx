@@ -30,6 +30,7 @@ type Props = {
   status: ShellStatus;
   large?: boolean;
   active?: boolean;
+  onOpen?: () => void;
   onRetry: () => void;
   onShell: (shell: TerminalShell) => void;
   readingViews?: ("files" | "git" | "board")[];
@@ -53,12 +54,16 @@ export function CliLauncher({
   status,
   large = false,
   active = true,
+  onOpen,
   onRetry,
   onShell,
   readingViews,
   onView,
   pending,
 }: Props) {
+  useEffect(() => {
+    if (active) onOpen?.();
+  }, [active, onOpen]);
   const [teamList, setTeamList] = useState<{ host: string; value: TeamList }>();
   const [teamError, setTeamError] = useState(false);
   const [teamReload, setTeamReload] = useState(0);

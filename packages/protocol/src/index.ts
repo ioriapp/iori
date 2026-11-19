@@ -115,6 +115,8 @@ export type {
   CliNotificationTarget,
   CliSession,
   CliSummary,
+  CliDefinitionFile,
+  CliDefinitionFileKind,
   CliListResult,
 } from "./cli.ts";
 import {
@@ -639,6 +641,7 @@ export type Event =
   | { type: "teams.children"; children: import("./teams.ts").ChildSummary[] }
   | { type: "teams.child.updated"; child: import("./teams.ts").ChildSummary }
   | { type: "cli.order.changed"; order: string[] }
+  | { type: "cli.hidden.changed"; cliId: string; hidden: boolean }
   | { type: "cli.usage"; cliId: string; usage?: import("./cli.ts").CliUsage }
   | {
       type: "cli.version";
@@ -1040,6 +1043,18 @@ function parseCliSummary(value: unknown): CliSummary {
   const icon = readable(record, input.icon);
   const support = parseCliSupport(input.support);
   const simple = readable(parseCliSimpleDefinition, input.simple);
+  const files = Array.isArray(input.files)
+    ? input.files.flatMap((value): import("./cli.ts").CliDefinitionFile[] => {
+        const item = readable(record, value);
+        return typeof item?.name === "string" &&
+          item.name.length > 0 &&
+          (item.kind === "usage" ||
+            item.kind === "tokens" ||
+            item.kind === "plugin")
+          ? [{ name: item.name, kind: item.kind }]
+          : [];
+      })
+    : undefined;
   return {
     id: nonEmptyString(input.id, "cli.id"),
     name: nonEmptyString(input.name, "cli.name"),
@@ -1079,6 +1094,7 @@ function parseCliSummary(value: unknown): CliSummary {
       ? { definition: input.definition }
       : {}),
     ...(simple ? { simple } : {}),
+    ...(files ? { files } : {}),
   };
 }
 const supportValues: CliSupport[] = ["available", "unavailable", "undefined"];
@@ -2657,6 +2673,12 @@ function parseEvent(value: unknown): Event | undefined {
       return {
         type: "cli.order.changed",
         order: input.order.map((id) => string(id, "id")),
+      };
+    case "cli.hidden.changed":
+      return {
+        type: "cli.hidden.changed",
+        cliId: nonEmptyString(input.cliId, "cliId"),
+        hidden: boolean(input.hidden, "hidden"),
       };
     case "cli.usage": {
       const usage = parseCliUsage(input.usage);

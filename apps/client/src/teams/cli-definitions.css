@@ -81,6 +81,166 @@
 .cli-def-actions .field-control {
   flex-wrap: wrap;
 }
+.definition-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.definition-actions .field-control {
+  display: contents;
+}
+
+.definition-actions .field-control > button {
+  grid-column: 2;
+}
+
+.definition-file-list {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+.definition-file-list > * + * {
+  border-top: 1px solid var(--border);
+}
+
+.definition-file-trigger[data-slot="collapsible-trigger"] {
+  display: grid;
+  width: 100%;
+  grid-template-columns: minmax(0, 1fr) auto;
+  justify-items: start;
+  column-gap: var(--space-2);
+  height: auto;
+  min-height: 36px;
+  padding: var(--space-2);
+  text-align: start;
+  font-size: var(--text-xs);
+  font-weight: 400;
+  white-space: normal;
+}
+
+.definition-file-trigger code {
+  overflow-wrap: anywhere;
+}
+
+.definition-file-kind {
+  color: var(--muted-foreground);
+  font-size: var(--text-xs);
+}
+
+.definition-read-panel {
+  min-width: 0;
+  padding: calc(var(--space-2) / 2) calc(var(--space-2) + 1px) var(--space-2);
+}
+
+:is(.definition-read-panel, .definition-tabs) .settings-recovery {
+  justify-content: space-between;
+  gap: var(--space-2);
+  color: var(--foreground);
+  padding-block: var(--space-2);
+}
+
+.definition-file-message {
+  color: var(--muted-foreground);
+  padding-block: var(--space-2);
+}
+
+.definition-read-code {
+  max-height: 16lh;
+}
+
+.definition-tabs {
+  min-width: 0;
+}
+
+.definition-tabs-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  padding: calc(var(--space-2) / 2) calc(var(--space-2) / 2) var(--space-2);
+  margin-inline: calc(-1 * calc(var(--space-2) / 2));
+}
+
+.definition-tabs-scroll [data-slot="tabs-list"] {
+  justify-content: flex-start;
+}
+
+.definition-tabs-scroll [data-slot="tabs-trigger"] {
+  flex: none;
+  padding-inline: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.definition-tabs [data-slot="tabs-content"] > .field-row {
+  padding: 0;
+}
+
+.definition-tabs [data-slot="tabs-content"] .field-control {
+  margin: 0;
+}
+
+@media (pointer: coarse) {
+  .definition-file-trigger[data-slot="collapsible-trigger"],
+  .definition-tabs-scroll [data-slot="tabs-list"] {
+    min-height: 44px;
+  }
+}
+
+/* Scroll affordances from components/flow/flow.css, composed when both axes overflow. */
+:is(.definition-read-code, .definition-tabs-scroll)[data-overflow="true"] {
+  --scroll-mask-block: linear-gradient(
+    to bottom,
+    var(--foreground) calc(100% - var(--space-8)),
+    transparent
+  );
+}
+
+:is(.definition-read-code, .definition-tabs-scroll)[data-right="true"] {
+  --scroll-mask-inline: linear-gradient(
+    to right,
+    var(--foreground) calc(100% - var(--space-2) * 3.5),
+    transparent
+  );
+}
+
+:is(.definition-read-code, .definition-tabs-scroll)[data-left="true"] {
+  --scroll-mask-inline: linear-gradient(
+    to right,
+    transparent,
+    var(--foreground) calc(var(--space-2) * 3.5)
+  );
+}
+
+:is(
+    .definition-read-code,
+    .definition-tabs-scroll
+  )[data-left="true"][data-right="true"] {
+  --scroll-mask-inline: linear-gradient(
+    to right,
+    transparent,
+    var(--foreground) calc(var(--space-2) * 3.5),
+    var(--foreground) calc(100% - var(--space-2) * 3.5),
+    transparent
+  );
+}
+
+:is(.definition-read-code, .definition-tabs-scroll):is(
+  [data-overflow="true"],
+  [data-right="true"],
+  [data-left="true"]
+) {
+  mask-image:
+    var(
+      --scroll-mask-inline,
+      linear-gradient(var(--foreground), var(--foreground))
+    ),
+    var(
+      --scroll-mask-block,
+      linear-gradient(var(--foreground), var(--foreground))
+    );
+  mask-composite: intersect;
+}
+
 @media (max-width: 767px) {
   .team-agents-page .team-agent-settings > *,
   .cli-def-detail > *,
@@ -196,6 +356,13 @@
   field-sizing: fixed;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+.definition-read-code,
+.cli-def-editor .field-stacked .field-control > textarea.cli-def-json {
+  font-variant-ligatures: none;
+  white-space: pre;
+  overflow-wrap: normal;
+  overflow: auto;
 }
 .cli-def-models {
   display: flex;

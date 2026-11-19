@@ -153,6 +153,7 @@ export type DockContextValue = {
   launching?: string;
   defaultShellId?: string;
   shellStatus: ShellStatus;
+  reloadClis: () => void;
   retryShells: () => void;
   doubleClickMaximize: boolean;
   maximizedGroup?: string;
@@ -555,6 +556,7 @@ function DockActions(group: IDockviewHeaderActionsProps) {
               dock.openTeams(teamId);
             }}
             active={dock.launcherActive}
+            onOpen={dock.reloadClis}
             hostKey={dock.hostKey}
             onTeam={(team) => {
               chosenShell.current = true;
@@ -747,6 +749,7 @@ function EmptyPane(panel: IDockviewPanelProps) {
         onAddCli={dock.openCliSettings}
         onOpenTeams={dock.openTeams}
         active={dock.launcherActive}
+        onOpen={dock.reloadClis}
         pending={dock.launching}
         onClosePane={canClose ? () => panel.api.close() : undefined}
       />

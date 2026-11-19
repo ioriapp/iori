@@ -55,6 +55,8 @@
 | 一定の間隔で繰り返す（Every 15 minutes）             | 15分ごと・1時間ごと                                  | 15分おき・毎時                                           | macOS（`Every 15 minutes`→15分ごと、`Every hour`→1時間ごと）                                 |
 | 入力を送る（Send input）                             | 入力を送信                                           | 入力を送る・打ち込む                                     | VS Code（`Send input to a shell session`→入力をシェル セッションに送信する）                 |
 | バックグラウンド（background）                       | バックグラウンド                                     | —                                                        | VS Code・Microsoft（「コマンドはバックグラウンドで実行されています」）                       |
+| script（実行するファイル）                           | スクリプト                                           | —                                                        | VS Code・Microsoft（`script`→スクリプト）                                                    |
+| plugin（CLI に読み込ませる部品）                     | プラグイン                                           | —                                                        | VS Code・Microsoft（`plugin`→プラグイン）                                                    |
 
 ## 表記
 

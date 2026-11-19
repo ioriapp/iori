@@ -70,6 +70,7 @@ export interface CliDefinitionAttachment {
   uploadId: string;
 }
 export interface CliDefinitionParams {
+  "cli.definition.file.read": { cliId: string; name: string };
   "cli.definition.file.write": {
     uploadId: string;
     data: string;
@@ -97,6 +98,7 @@ export interface CliDefinitionParams {
   "cli.definition.remove": { cliId: string };
 }
 export interface CliDefinitionResults {
+  "cli.definition.file.read": { text: string } | { unsupported: true };
   "cli.definition.file.write": { uploadId: string };
   "cli.definition.files.discard": Record<string, never>;
   "cli.icon.read": {
@@ -118,6 +120,7 @@ export interface CliDefinitionResults {
 }
 export type CliDefinitionMethod = keyof CliDefinitionParams;
 const methods: CliDefinitionMethod[] = [
+  "cli.definition.file.read",
   "cli.definition.file.write",
   "cli.definition.files.discard",
   "cli.icon.read",
@@ -209,6 +212,11 @@ export function parseCliDefinitionParams<M extends CliDefinitionMethod>(
     return { hash: v.hash, offset: v.offset } as CliDefinitionParams[M];
   }
   const id = cliId(v.cliId);
+  if (method === "cli.definition.file.read")
+    return {
+      cliId: line(v.cliId),
+      name: text(v.name),
+    } as CliDefinitionParams[M];
   if (method === "cli.icon.set") {
     return {
       cliId: line(v.cliId),
