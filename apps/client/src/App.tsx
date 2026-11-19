@@ -719,9 +719,50 @@ function AppContent({
   );
   const [notificationDialog, setNotificationDialog] = useState(false);
   const [notificationError, setNotificationError] = useState(false);
+  const [notificationPermissionGranted, setNotificationPermissionGranted] =
+    useState(false);
+  const notificationPermissionRevision = useRef(0);
+  const refreshNotificationPermission = useCallback(() => {
+    if (!state.initial?.mobile) return;
+    const revision = ++notificationPermissionRevision.current;
+    void native
+      .notificationPermission()
+      .then((permission) => {
+        if (revision === notificationPermissionRevision.current)
+          setNotificationPermissionGranted(permission === "granted");
+      })
+      .catch(() => {
+        if (revision === notificationPermissionRevision.current)
+          setNotificationPermissionGranted(false);
+      });
+  }, [state.initial?.mobile]);
+  useEffect(() => {
+    if (!state.initial?.mobile) return;
+    refreshNotificationPermission();
+    let active = true;
+    let stop: (() => void) | undefined;
+    void native
+      .onForeground((foreground) => {
+        if (foreground) refreshNotificationPermission();
+      })
+      .then((unlisten) => {
+        if (active) stop = unlisten;
+        else unlisten();
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+      stop?.();
+    };
+  }, [state.initial?.mobile, refreshNotificationPermission]);
+  useEffect(() => {
+    if (settingsOpen && settingsSection === "notifications")
+      refreshNotificationPermission();
+  }, [settingsOpen, settingsSection, refreshNotificationPermission]);
   const requestNotificationPermission = async () => {
     try {
       const permission = await native.notificationPermission();
+      setNotificationPermissionGranted(permission === "granted");
       if (permission === "granted") return;
       if (state.initial?.mobile) setNotificationDialog(true);
       else await native.requestNotificationPermission();
@@ -798,6 +839,7 @@ function AppContent({
   const allowNotifications = async (background: boolean) => {
     try {
       const permission = await native.requestNotificationPermission();
+      setNotificationPermissionGranted(permission === "granted");
       if (background)
         unifiedPush.choose(permission === "granted" ? "background" : "none");
       changePreferences({
@@ -1497,6 +1539,7 @@ function AppContent({
         onOpenChange={setSettingsOpen}
         onCloseHandler={setSettingsClose}
         notificationError={notificationError}
+        notificationPermissionGranted={notificationPermissionGranted}
         unifiedPush={unifiedPush}
         onNotificationPermission={() => {
           setNotificationError(false);

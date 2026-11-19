@@ -42,6 +42,7 @@ auth:
     vibe: [
       ".vibe/config.toml",
       `active_model = "gpt-6-luna"
+enable_update_checks = false
 [[providers]]
 name = "verification"
 api_base = "${baseURL}/v1"

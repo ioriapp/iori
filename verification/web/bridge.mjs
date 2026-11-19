@@ -373,6 +373,7 @@ function session(
       throw new Error("QR scanning is available on Android only");
     },
     native_back_default: () => {},
+    native_notification_permission: () => "granted",
     native_connect: async ({ publicKey, addresses }) => {
       if (isOffline()) throw new Error("verification connection offline");
       const key = string(publicKey).toLowerCase();

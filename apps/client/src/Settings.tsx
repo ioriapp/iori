@@ -1146,6 +1146,7 @@ export function SettingsDialog({
   onDefaultShellChange,
   onNotificationPermission,
   notificationError,
+  notificationPermissionGranted = false,
   unifiedPush,
 }: {
   uninstallActions: UninstallActions;
@@ -1176,6 +1177,7 @@ export function SettingsDialog({
   onDefaultShellChange: (hostKey: string) => void;
   onNotificationPermission: () => void;
   notificationError?: boolean;
+  notificationPermissionGranted?: boolean;
   unifiedPush?: UnifiedPushSettingsState;
 }) {
   const [preferenceField, setPreferenceField] = useState<string>();
@@ -1755,7 +1757,7 @@ export function SettingsDialog({
                       )}
                     />
                   )}
-                  {state.initial?.mobile && (
+                  {state.initial?.mobile && !notificationPermissionGranted && (
                     <Button
                       variant="outline"
                       size="sm"

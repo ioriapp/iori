@@ -148,10 +148,7 @@ export async function invoke<T>(
     window.open(url.href, "_blank", "noopener,noreferrer");
     return undefined as T;
   }
-  if (
-    command === "native_notification_permission" ||
-    command === "native_notification_request_permission"
-  )
+  if (command === "native_notification_request_permission")
     return "granted" as T;
   if (command === "native_notify") {
     // E2E observes the request at the same boundary as OS delivery. No browser
