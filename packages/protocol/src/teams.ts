@@ -5,7 +5,7 @@ import type {
   RecordsFilter,
   TaskHistoryData,
 } from "./board.ts";
-import type { CliSummary, CliStatus } from "./cli.ts";
+import type { CliSummary, CliStatus, UsageWindowSelection } from "./cli.ts";
 export type ChildSummary = {
   id: string;
   createdAt: number;
@@ -94,6 +94,7 @@ export type Candidate = {
   sandbox?: string;
   tools: string[];
   minimum: string;
+  minimumWindow?: UsageWindowSelection;
 };
 export type Role = {
   id: string;
@@ -291,6 +292,20 @@ function parseTeamCandidate(value: unknown, allowEmptyCli: boolean): Candidate {
     (!/^\d+(?:\.\d+)?$/u.test(minimum) || Number(minimum) > 100)
   )
     throw new Error("Expected a percentage");
+  let minimumWindow: UsageWindowSelection | undefined;
+  if (v.minimumWindow !== undefined) {
+    const { minutes, name } = object(v.minimumWindow);
+    if (
+      typeof minutes !== "number" ||
+      !Number.isFinite(minutes) ||
+      minutes <= 0 ||
+      (name !== undefined && (typeof name !== "string" || name.length === 0))
+    )
+      throw new Error(
+        "Expected a usage window with a positive duration and an optional non-empty name",
+      );
+    minimumWindow = name === undefined ? { minutes } : { minutes, name };
+  }
   return {
     id: id(v.id),
     cli: allowEmptyCli ? text(v.cli) : id(v.cli),
@@ -301,6 +316,7 @@ function parseTeamCandidate(value: unknown, allowEmptyCli: boolean): Candidate {
     ...(v.sandbox === undefined ? {} : { sandbox: text(v.sandbox) }),
     tools: list(v.tools, text),
     minimum,
+    ...(minimumWindow === undefined ? {} : { minimumWindow }),
   };
 }
 function role(value: unknown): Role {

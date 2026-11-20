@@ -19,7 +19,12 @@ import { Automations } from "./Automations.tsx";
 import type { OpenTeamTerminal } from "./TaskHistory.tsx";
 import { Records } from "./Records.tsx";
 import { Usage } from "./Usage.tsx";
-import { belowUsageMinimum } from "@iori/protocol";
+import {
+  belowUsageMinimum,
+  orderUsageWindows,
+  usageAppliesToModel,
+} from "@iori/protocol";
+import { formatUsageLength } from "../usage-format.ts";
 import "./children.css";
 import { parentTeamText, childTeamText, limitKey } from "@iori/protocol";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -92,6 +97,8 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
@@ -139,6 +146,7 @@ import type {
   TeamList,
   TeamRecord as SavedRecord,
   TeamSettings,
+  UsageWindowSelection,
 } from "@iori/protocol";
 import { SettingsRow, LimitInput } from "./SettingsRow.tsx";
 import { CliIcon, useCliName, useModelLabel } from "./context.tsx";
@@ -429,7 +437,7 @@ function CliModelSearch({
   recent: { cli: string; model: string }[];
   onChange: (changes: Partial<Candidate>) => void;
 }) {
-  const { t, catalogs } = useI18n();
+  const { t, catalogs, clis } = useI18n();
   const [open, setOpen] = useState(false);
   const cliName = useCliName();
   const modelLabel = useModelLabel();
@@ -481,27 +489,41 @@ function CliModelSearch({
           recent={recent}
           selected={item}
           onSelect={({ cli, name: model }) => {
-            onChange(
-              cli === item.cli
-                ? {
-                    model,
-                    effort: catalogs[cli]?.models
-                      .find((entry) => entry.name === model)
-                      ?.efforts.includes(item.effort ?? "")
-                      ? item.effort
-                      : undefined,
-                  }
-                : {
-                    cli,
-                    cliName: cliName(cli),
-                    model,
-                    effort: undefined,
-                    permission: undefined,
-                    sandbox: undefined,
-                    minimum: "",
-                    tools: [],
-                  },
-            );
+            if (cli === item.cli) {
+              const usage = clis.find((entry) => entry.id === cli)?.usage;
+              const keepMinimumWindow =
+                item.minimumWindow !== undefined &&
+                (!usage ||
+                  usage.windows.some(
+                    (window) =>
+                      usageAppliesToModel(window, model) &&
+                      window.minutes === item.minimumWindow!.minutes &&
+                      (window.name ?? "") === (item.minimumWindow!.name ?? ""),
+                  ));
+              onChange({
+                model,
+                effort: catalogs[cli]?.models
+                  .find((entry) => entry.name === model)
+                  ?.efforts.includes(item.effort ?? "")
+                  ? item.effort
+                  : undefined,
+                minimumWindow: keepMinimumWindow
+                  ? item.minimumWindow
+                  : undefined,
+              });
+            } else {
+              onChange({
+                cli,
+                cliName: cliName(cli),
+                model,
+                effort: undefined,
+                permission: undefined,
+                sandbox: undefined,
+                minimum: "",
+                minimumWindow: undefined,
+                tools: [],
+              });
+            }
             setOpen(false);
           }}
         />
@@ -666,7 +688,67 @@ function ExecutionRow({
   const lowUsage =
     !parent &&
     usageCli?.supportsUsage &&
-    belowUsageMinimum(item.minimum, usageCli?.usage, item.model);
+    belowUsageMinimum(
+      item.minimum,
+      usageCli?.usage,
+      item.model,
+      item.minimumWindow,
+    );
+  const applicableWindows = orderUsageWindows(
+    (usageCli?.usage?.windows ?? []).filter((window) =>
+      usageAppliesToModel(window, item.model),
+    ),
+  );
+  const showWindowSelector =
+    !parent &&
+    supportsUsage &&
+    (applicableWindows.length >= 2 || item.minimumWindow !== undefined);
+  const distinctWindowNames = new Set(
+    applicableWindows.map((window) => window.name ?? ""),
+  );
+  const showWindowName = distinctWindowNames.size > 1;
+  const usageWindowKey = (window: UsageWindowSelection) =>
+    `${window.minutes}:${window.name ?? ""}`;
+  const windowOptions: {
+    key: string;
+    label: string;
+    selection: UsageWindowSelection;
+  }[] = applicableWindows.map((window) => {
+    const selection: UsageWindowSelection = window.name
+      ? { minutes: window.minutes, name: window.name }
+      : { minutes: window.minutes };
+    return {
+      key: usageWindowKey(selection),
+      label:
+        showWindowName && window.name
+          ? `${window.name} ${formatUsageLength(window.minutes)}`
+          : formatUsageLength(window.minutes),
+      selection,
+    };
+  });
+  if (
+    item.minimumWindow &&
+    !windowOptions.some(
+      (option) => option.key === usageWindowKey(item.minimumWindow!),
+    )
+  ) {
+    const saved = item.minimumWindow;
+    windowOptions.push({
+      key: usageWindowKey(saved),
+      label: `${saved.name ? `${saved.name} ` : ""}${formatUsageLength(saved.minutes)}`,
+      selection: saved.name
+        ? { minutes: saved.minutes, name: saved.name }
+        : { minutes: saved.minutes },
+    });
+  }
+  const selectedWindowKey = item.minimumWindow
+    ? usageWindowKey(item.minimumWindow)
+    : "";
+  const selectedWindowLabel = item.minimumWindow
+    ? (windowOptions.find((option) => option.key === selectedWindowKey)
+        ?.label ??
+      `${item.minimumWindow.name ? `${item.minimumWindow.name} ` : ""}${formatUsageLength(item.minimumWindow.minutes)}`)
+    : t("Auto");
   const relevantLimits = [
     { key: limitKey(item.cli, "cli"), label: cliName(item.cli) },
     ...(item.model.includes("/")
@@ -751,30 +833,78 @@ function ExecutionRow({
           </div>
           {!parent &&
             (supportsUsage ? (
-              <label className="team-candidate-minimum">
+              <div className="team-candidate-minimum">
                 <span className="team-mobile-cell-label">
                   {t("Minimum remaining")}
                 </span>
-                <Input
-                  aria-label={`${t("Minimum remaining")} ${index! + 1}`}
-                  data-iori-field="candidate-minimum"
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="any"
-                  placeholder={t("None")}
-                  value={item.minimum}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    if (
-                      value === "" ||
-                      (/^\d+(?:\.\d+)?$/u.test(value) && Number(value) <= 100)
-                    )
-                      onChange({ minimum: value });
-                  }}
-                />
-                <span>%</span>
-              </label>
+                <div className="team-candidate-minimum-controls">
+                  <Input
+                    aria-label={`${t("Minimum remaining")} ${index! + 1}`}
+                    data-iori-field="candidate-minimum"
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="any"
+                    placeholder={t("None")}
+                    value={item.minimum}
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      if (
+                        value === "" ||
+                        (/^\d+(?:\.\d+)?$/u.test(value) && Number(value) <= 100)
+                      )
+                        onChange({ minimum: value });
+                    }}
+                  />
+                  <span>%</span>
+                  {showWindowSelector && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="outline"
+                          className="team-candidate-minimum-window"
+                          data-iori-field="candidate-minimum-window"
+                          aria-label={`${t("Usage window")} ${index! + 1}`}
+                          title={selectedWindowLabel}
+                        >
+                          <span>{selectedWindowLabel}</span>
+                          <ChevronDown size={12} />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuRadioGroup
+                          value={selectedWindowKey}
+                          onValueChange={(next) => {
+                            if (next === "") {
+                              onChange({ minimumWindow: undefined });
+                              return;
+                            }
+                            const picked = windowOptions.find(
+                              (option) => option.key === next,
+                            );
+                            if (picked) {
+                              onChange({ minimumWindow: picked.selection });
+                            }
+                          }}
+                        >
+                          <DropdownMenuRadioItem value="">
+                            {t("Auto (lowest remaining)")}
+                          </DropdownMenuRadioItem>
+                          <DropdownMenuSeparator />
+                          {windowOptions.map((option) => (
+                            <DropdownMenuRadioItem
+                              key={option.key}
+                              value={option.key}
+                            >
+                              {option.label}
+                            </DropdownMenuRadioItem>
+                          ))}
+                        </DropdownMenuRadioGroup>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
+                </div>
+              </div>
             ) : (
               <span className="team-candidate-minimum-empty" />
             ))}
@@ -1578,7 +1708,9 @@ export function TeamEditor({
     const fresh = role(
       t("New role"),
       t("Purpose\nScope\nCompletion criteria\nConstraints"),
-      t("Changes\nVerification results\nRemaining issues\nQuestions to parent"),
+      t(
+        "Changes\nVerification results\nRemaining issues\nQuestions to orchestrator",
+      ),
     );
     updateTeamDraft(teamId, (draft) => ({
       ...draft,
@@ -1895,7 +2027,7 @@ export function TeamEditor({
           data-iori-team-id={record.draft.id}
           onClick={() => openTeam(record.draft.id, "parent")}
         >
-          {t("Parent")}
+          {t("Orchestrator")}
         </Button>
         <DndContext
           sensors={sensors}
@@ -2062,7 +2194,7 @@ export function TeamEditor({
           />
           <span title={team?.name}>
             {team
-              ? `${team.name} › ${selection.page === "team" ? (selection.detail === "parent" ? t("Parent") : selection.detail === "overview" ? t("Team overview") : selectedRole?.name) : ""}`
+              ? `${team.name} › ${selection.page === "team" ? (selection.detail === "parent" ? t("Orchestrator") : selection.detail === "overview" ? t("Team overview") : selectedRole?.name) : ""}`
               : t(
                   selection.page === "agents"
                     ? "AI Agents"
@@ -2084,7 +2216,7 @@ export function TeamEditor({
                 <strong data-iori-team-version={team.version}>
                   {selection.page === "team"
                     ? selection.detail === "parent"
-                      ? t("Parent")
+                      ? t("Orchestrator")
                       : selection.detail === "overview"
                         ? t("Team overview")
                         : selectedRole?.name
@@ -2270,12 +2402,12 @@ export function TeamEditor({
                 </SettingsSection>
                 <SettingsSection>
                   <SettingsRow
-                    label="Allow parent input to children"
-                    hint="The parent can send input to a child's Terminal, including answers to approval prompts. When off, the parent can still read the child's screen and stop it."
+                    label="Allow orchestrator input to children"
+                    hint="The orchestrator can send input to a child's Terminal, including answers to approval prompts. When off, the orchestrator can still read the child's screen and stop it."
                   >
                     <Switch
                       checked={team.parentInput === true}
-                      aria-label={t("Allow parent input to children")}
+                      aria-label={t("Allow orchestrator input to children")}
                       onCheckedChange={(checked) =>
                         editTeam((value) => {
                           const next = { ...value };
@@ -2291,7 +2423,7 @@ export function TeamEditor({
                       {
                         field: "checkMinutes",
                         label: "Check on working children",
-                        hint: "While a child keeps working, the parent reads its screen at this interval. Each check uses the parent's tokens.",
+                        hint: "While a child keeps working, the orchestrator reads its screen at this interval. Each check uses the orchestrator's tokens.",
                         minutes: team.checkMinutes,
                       },
                       {
@@ -2347,14 +2479,14 @@ export function TeamEditor({
                     </SettingsRow>
                   ))}
                 </SettingsSection>
-                <SettingsSection title={t("Parent instructions")}>
+                <SettingsSection title={t("Orchestrator instructions")}>
                   <Field
                     hideLabel
-                    label="Parent instructions"
+                    label="Orchestrator instructions"
                     hint="Describe how to run the team. iori separately provides the delegation, revision and acceptance commands."
                   >
                     <GrowingText
-                      label="Parent instructions"
+                      label="Orchestrator instructions"
                       rows={8}
                       value={team.instruction}
                       onChange={(instruction) =>
@@ -2364,7 +2496,7 @@ export function TeamEditor({
                   </Field>
                 </SettingsSection>
                 <SettingsSection>
-                  <TextPreview title="Text sent to parent">
+                  <TextPreview title="Text sent to orchestrator">
                     <p style={{ whiteSpace: "pre-wrap" }}>
                       {parentTeamText(team)}
                     </p>
@@ -2389,7 +2521,7 @@ export function TeamEditor({
                 </Field>
                 <Field
                   label="When to call"
-                  hint="The parent reads this to choose where to delegate."
+                  hint="The orchestrator reads this to choose where to delegate."
                 >
                   <GrowingText
                     label="When to call"
@@ -2471,7 +2603,7 @@ export function TeamEditor({
                     <p className="team-hint">
                       {team?.parent.cli
                         ? t(
-                            "No candidates. Runs with the parent's settings ({model}).",
+                            "No candidates. Runs with the orchestrator's settings ({model}).",
                           ).replace(
                             "{model}",
                             `${cliName(team.parent.cli)} › ${team.parent.model ? modelLabel(team.parent.cli, team.parent.model) : t("Default")}`,
@@ -3111,7 +3243,7 @@ export function TeamEditor({
               aria-hidden={teamSource.startsWith("existing:") || undefined}
               inert={teamSource.startsWith("existing:") || undefined}
             >
-              <Label id="new-team-parent-label">{t("Parent")}</Label>
+              <Label id="new-team-parent-label">{t("Orchestrator")}</Label>
               <p className="team-hint" id="new-team-parent-description">
                 {t("Roles without candidates also run with these settings.")}
               </p>
@@ -3252,7 +3384,7 @@ export function TeamEditor({
                 </h2>
                 <h3>{currentHistory.team.name}</h3>
                 <p>{currentHistory.team.description}</p>
-                <h3>{t("Parent")}</h3>
+                <h3>{t("Orchestrator")}</h3>
                 <p>
                   {!currentHistory.team.parent.cli ? (
                     t("Not set")

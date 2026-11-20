@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createTeam } from "./fixtures/journeys.ts";
@@ -119,13 +120,15 @@ test(
       await page
         .getByRole("button", { name: /Watch settings team Version/ })
         .click();
-      await page.getByRole("button", { name: "Parent", exact: true }).click();
+      await page
+        .getByRole("button", { name: "Orchestrator", exact: true })
+        .click();
     };
     await app.open(page);
     await openParentSettings();
 
     const parentInput = page.getByRole("switch", {
-      name: "Allow parent input to children",
+      name: "Allow orchestrator input to children",
       exact: true,
     });
     const checkInterval = page.getByRole("switch", {
@@ -207,7 +210,9 @@ test(
     ).toBeVisible();
     await dialog.getByRole("button", { name: "Create", exact: true }).click();
     await expect(dialog).toHaveCount(0);
-    await page.getByRole("button", { name: "Parent", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Orchestrator", exact: true })
+      .click();
     await expect(
       page.getByRole("combobox", {
         name: `CLI and model: ${app.cliId} › Default`,
@@ -217,7 +222,7 @@ test(
     await page.getByRole("button", { name: "Worker", exact: true }).click();
     await expect(
       page.getByText(
-        `No candidates. Runs with the parent's settings (${app.cliId} › Default).`,
+        `No candidates. Runs with the orchestrator's settings (${app.cliId} › Default).`,
         { exact: true },
       ),
     ).toBeVisible();
@@ -235,5 +240,94 @@ test(
     const terminal = visibleTerminal(page);
     await expect(terminal).toBeVisible();
     await app.terminalText(await terminalId(terminal), "ACTOR_READY");
+  },
+);
+
+test(
+  "ロール候補の残量の下限で対象の利用枠を選択して保存し再読み込み後も保持される",
+  { tag: "@desktop" },
+  async ({ page, registeredApp: app }) => {
+    const uploadId = randomUUID();
+    const script = `console.log(JSON.stringify({
+      windows: [
+        { remaining: 20, minutes: 300 },
+        { remaining: 80, minutes: 10080 }
+      ]
+    }));`;
+    await app.request("cli.definition.file.write", {
+      uploadId,
+      first: true,
+      data: Buffer.from(script).toString("base64"),
+    });
+    await app.request("cli.definition.save", {
+      definition: JSON.stringify({
+        schema: 1,
+        id: "usage-window-cli",
+        name: "Usage window CLI",
+        command: { shell: "node --version" },
+        usage: { script: "usage.mjs" },
+      }),
+      files: [{ name: "usage.mjs", uploadId }],
+    });
+    await createTeam(app, {
+      name: "Window minimum team",
+      roles: [{ name: "Worker" }],
+      makeDefault: false,
+    });
+    const openWorker = async () => {
+      await page
+        .getByRole("button", { name: "AI Agents/Teams", exact: true })
+        .click();
+      await page.getByRole("button", { name: "Teams", exact: true }).click();
+      await page
+        .getByRole("button", { name: /Window minimum team Version/ })
+        .click();
+      await page.getByRole("button", { name: "Worker", exact: true }).click();
+    };
+    await app.open(page);
+    await openWorker();
+
+    await page
+      .getByRole("button", { name: "Add candidate", exact: true })
+      .click();
+    await page
+      .getByRole("option", { name: "Usage window CLI › Default", exact: true })
+      .click();
+
+    const minimumInput = page.getByRole("spinbutton", {
+      name: "Minimum remaining 2",
+      exact: true,
+    });
+    const windowPicker = page.getByRole("button", {
+      name: "Usage window 2",
+      exact: true,
+    });
+    const warning = page.getByText(
+      "This candidate is currently below the minimum remaining usage and will not be assigned.",
+      { exact: true },
+    );
+
+    await expect(windowPicker).toBeVisible();
+    await expect(windowPicker).toHaveText("Auto");
+
+    await minimumInput.fill("50");
+    await expect(warning).toBeVisible();
+
+    await windowPicker.click();
+    await page.getByRole("menuitemradio", { name: "7d", exact: true }).click();
+    await expect(windowPicker).toHaveText("7d");
+    await expect(warning).toHaveCount(0);
+
+    const save = page.getByRole("button", { name: "Save", exact: true });
+    await save.click();
+    await expect(save).toBeDisabled();
+
+    await page.reload();
+    await openWorker();
+    await expect(windowPicker).toHaveText("7d");
+    await expect(warning).toHaveCount(0);
+
+    await minimumInput.fill("90");
+    await expect(warning).toBeVisible();
   },
 );

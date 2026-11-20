@@ -4,6 +4,7 @@ import {
   limitKey,
   teamNotice,
   type Candidate,
+  type CliUsage,
   type Role,
 } from "@iori/protocol";
 import { chooseCandidate } from "./assignment.ts";
@@ -158,4 +159,42 @@ test("usage minimum preserves priority at the boundary, skips depleted candidate
     ).waiting,
     "candidates",
   );
+});
+
+test("candidate assignment uses the selected usage window and falls back when it is missing", () => {
+  const codex = {
+    ...candidate("codex", "codex", "gpt-6-luna"),
+    minimum: "50",
+    minimumWindow: { minutes: 10080 },
+  };
+  const choice = {
+    ...role,
+    candidates: { high: [], medium: [codex, third], low: [] },
+  };
+  const choose = (windows: CliUsage["windows"]) =>
+    chooseCandidate(
+      choice,
+      "medium",
+      new Set(["codex", "claude"]),
+      [],
+      { defaultTeam: "", limits: {} },
+      "conversation",
+      new Map([["codex", { windows }]]),
+    ).candidate;
+
+  assert.equal(
+    choose([
+      { remaining: 20, minutes: 300 },
+      { remaining: 80, minutes: 10080 },
+    ]),
+    codex,
+  );
+  assert.equal(
+    choose([
+      { remaining: 80, minutes: 300 },
+      { remaining: 20, minutes: 10080 },
+    ]),
+    third,
+  );
+  assert.equal(choose([{ remaining: 20, minutes: 300 }]), third);
 });

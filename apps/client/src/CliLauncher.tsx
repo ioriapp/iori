@@ -190,7 +190,7 @@ export function CliLauncher({
                     <span className="cli-launcher-team-name">{team.name}</span>
                     {!team.parent.cli && (
                       <span className="cli-launcher-team-hint">
-                        {t("Choose a parent CLI")}
+                        {t("Choose an orchestrator CLI")}
                       </span>
                     )}
                   </span>

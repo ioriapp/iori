@@ -117,7 +117,7 @@ export function TaskHistory({
             variant="outline"
             onClick={() => onOpenTerminal(data.parentTerminalId!)}
           >
-            {t("Open parent conversation")}
+            {t("Open orchestrator conversation")}
           </Button>
         )}
       </div>

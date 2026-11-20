@@ -88,6 +88,7 @@ const japanese: Record<string, string> = {
     "ジョブが完了するまで、ログは表示されません。",
   "There is no log yet.": "ログはまだありません。",
   "Job log": "ジョブのログ",
+  Parent: "親",
   "Root commit (no parent)": "最初のcommit（親なし）",
   "Compare with parent": "親と比較",
   "Parent to compare": "比較する親",
@@ -170,8 +171,10 @@ const japanese: Record<string, string> = {
 
   "Could not check the iori Host version. Try updating from Version in settings.":
     "iori Hostのバージョンを確認できませんでした。設定の「バージョン」から更新をお試しください。",
+  "This team has no orchestrator CLI. Edit the team and choose one.":
+    "このTeamにはOrchestratorのCLIが設定されていません。Teamを編集してOrchestratorのCLIを選んでください。",
   "This team has no parent CLI. Edit the team and choose one.":
-    "チームの親のCLIが設定されていません。チームを編集して親のCLIを選んでください。",
+    "このTeamにはOrchestratorのCLIが設定されていません。Teamを編集してOrchestratorのCLIを選んでください。",
   "New worktree layout": "新しいworktreeの配置",
   "Opens with the default layout.": "既定の配置で開きます。",
   "Opens with your saved layout.": "保存した配置で開きます。",
@@ -846,8 +849,8 @@ const japanese: Record<string, string> = {
   "The CLI was interrupted": "CLIが中断されました",
   "Could not load teams. Retry.":
     "Teamを読み込めませんでした。もう一度お試しください。",
-  "Could not start the team. Check its parent CLI settings and try again.":
-    "Teamを開始できませんでした。親のCLI設定を確認して、もう一度お試しください。",
+  "Could not start the team. Check its orchestrator CLI settings and try again.":
+    "Teamを開始できませんでした。OrchestratorのCLI設定を確認して、もう一度お試しください。",
   "Could not configure notifications. Retry in notification settings.":
     "通知を設定できませんでした。設定の「通知」でもう一度お試しください。",
   "iori receives notifications from connected Hosts.":

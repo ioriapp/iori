@@ -164,15 +164,23 @@ export function belowUsageMinimum(
   minimum: string,
   usage?: CliUsage,
   model = "",
+  selected?: UsageWindowSelection,
 ): boolean {
-  return (
-    minimum !== "" &&
-    !!usage?.windows.some(
-      (window) =>
-        usageAppliesToModel(window, model) &&
-        window.remaining < Number(minimum),
-    )
+  if (minimum === "" || !usage?.windows.length) return false;
+  const applicable = usage.windows.filter((window) =>
+    usageAppliesToModel(window, model),
   );
+  if (applicable.length === 0) return false;
+  const threshold = Number(minimum);
+  if (selected) {
+    const matched = applicable.find(
+      (window) =>
+        window.minutes === selected.minutes &&
+        (window.name ?? "") === (selected.name ?? ""),
+    );
+    if (matched) return matched.remaining < threshold;
+  }
+  return applicable.some((window) => window.remaining < threshold);
 }
 export type CliDefinitionFileKind = "usage" | "tokens" | "plugin";
 export interface CliDefinitionFile {

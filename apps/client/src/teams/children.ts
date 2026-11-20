@@ -175,9 +175,9 @@ export function childStatus(
         ? (
             {
               user: "User action",
-              parent: "Parent action",
+              parent: "Orchestrator action",
               host_restart: "Host restart",
-              parent_exit: "Parent exited",
+              parent_exit: "Orchestrator exited",
             } as const
           )[child.stoppedBy]
         : undefined,

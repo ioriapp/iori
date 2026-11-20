@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  belowUsageMinimum,
   orderUsageWindows,
   selectUsageWindow,
   statusBarUsageWindows,
 } from "./cli.ts";
+import { parseCandidate } from "./teams.ts";
 
 const w = (
   minutes: number,
@@ -101,6 +103,102 @@ test("selectUsageWindow returns matched selection or falls back to lowest remain
     selectUsageWindow(windows, { minutes: 300, name: "Missing" }),
     windows[0],
   );
+});
+
+test("belowUsageMinimum checks only the selected window while it is available", () => {
+  const selected = { minutes: 10080 };
+  assert.equal(
+    belowUsageMinimum(
+      "50",
+      { windows: [w(300, 20), w(10080, 50)] },
+      "",
+      selected,
+    ),
+    false,
+  );
+  assert.equal(
+    belowUsageMinimum(
+      "50",
+      { windows: [w(300, 80), w(10080, 49)] },
+      "",
+      selected,
+    ),
+    true,
+  );
+  assert.equal(
+    belowUsageMinimum("50", { windows: [w(300, 20)] }, "", selected),
+    true,
+  );
+});
+
+test("belowUsageMinimum matches named windows only when they apply to the model", () => {
+  const claudeAndGpt = "Claude and GPT models";
+  const gemini = "Gemini models";
+  const usage = {
+    windows: [
+      { ...w(300, 20, gemini), modelPatterns: ["gemini-*"] },
+      { ...w(10080, 10, gemini), modelPatterns: ["gemini-*"] },
+      { ...w(300, 30, claudeAndGpt), modelPatterns: ["claude-*", "gpt-*"] },
+      { ...w(10080, 80, claudeAndGpt), modelPatterns: ["claude-*", "gpt-*"] },
+    ],
+  };
+  assert.equal(
+    belowUsageMinimum("50", usage, "claude-sonnet", {
+      minutes: 10080,
+      name: claudeAndGpt,
+    }),
+    false,
+  );
+  assert.equal(
+    belowUsageMinimum("25", usage, "claude-sonnet", {
+      minutes: 10080,
+      name: gemini,
+    }),
+    false,
+  );
+  assert.equal(
+    belowUsageMinimum("50", usage, "claude-sonnet", {
+      minutes: 10080,
+      name: gemini,
+    }),
+    true,
+  );
+});
+
+test("parseCandidate preserves an omitted minimum window and normalizes valid selections", () => {
+  const candidate = {
+    id: "worker",
+    cli: "codex",
+    model: "",
+    tools: [],
+    minimum: "50",
+  };
+  assert.deepEqual(parseCandidate(candidate), candidate);
+  for (const minimumWindow of [
+    { minutes: 10080 },
+    { minutes: 10080, name: "Claude and GPT models" },
+  ]) {
+    assert.deepEqual(
+      parseCandidate({
+        ...candidate,
+        minimumWindow: { ...minimumWindow, remaining: 50 },
+      }),
+      { ...candidate, minimumWindow },
+    );
+  }
+  for (const minimumWindow of [
+    null,
+    [],
+    {},
+    { minutes: "10080" },
+    { minutes: 0 },
+    { minutes: -1 },
+    { minutes: NaN },
+    { minutes: Infinity },
+    { minutes: 10080, name: "" },
+    { minutes: 10080, name: 1 },
+  ])
+    assert.throws(() => parseCandidate({ ...candidate, minimumWindow }));
 });
 
 test("statusBarUsageWindows always includes pinned window even at 0% used without duplicates", () => {

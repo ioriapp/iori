@@ -10,7 +10,17 @@ const execution = ({
   sandbox,
   tools,
   minimum,
-}: Candidate) => ({ cli, model, effort, permission, sandbox, tools, minimum });
+  minimumWindow,
+}: Candidate) => ({
+  cli,
+  model,
+  effort,
+  permission,
+  sandbox,
+  tools,
+  minimum,
+  minimumWindow,
+});
 
 export function teamChanges(
   before: TeamDefinition,

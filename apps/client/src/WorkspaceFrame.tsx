@@ -1881,7 +1881,7 @@ function WorkspaceFrameInner({
         if (!result?.ok) {
           setTerminalError(
             team
-              ? "Could not start the team. Check its parent CLI settings and try again."
+              ? "Could not start the team. Check its orchestrator CLI settings and try again."
               : "Could not create a terminal. Check the folder and try again.",
           );
           return;
@@ -1894,7 +1894,7 @@ function WorkspaceFrameInner({
       } catch {
         setTerminalError(
           team
-            ? "Could not start the team. Check its parent CLI settings and try again."
+            ? "Could not start the team. Check its orchestrator CLI settings and try again."
             : "Could not create a terminal. Check the folder and try again.",
         );
       } finally {

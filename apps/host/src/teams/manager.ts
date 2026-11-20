@@ -2397,29 +2397,28 @@ export class TeamManager {
         continue;
       }
       const team = this.store.readTeam(conversation.teamId)?.saved;
-      const currentRole = team?.roles.find((r) => r.id === child.roleId);
-      const role =
-        child.resumeFile && child.role && child.candidate
-          ? {
-              ...child.role,
-              split: false,
-              candidates: {
-                high: [],
-                medium: [
-                  {
-                    ...launchCandidate(child.candidate),
-                    minimum:
-                      Object.values(child.role.candidates)
-                        .flat()
-                        .find(
-                          (candidate) => candidate.id === child.candidate!.id,
-                        )?.minimum ?? "",
-                  },
-                ],
-                low: [],
+      let role = team?.roles.find((r) => r.id === child.roleId);
+      if (child.resumeFile && child.role && child.candidate) {
+        const assigned = child.candidate;
+        const original = Object.values(child.role.candidates)
+          .flat()
+          .find((candidate) => candidate.id === assigned.id);
+        role = {
+          ...child.role,
+          split: false,
+          candidates: {
+            high: [],
+            medium: [
+              {
+                ...launchCandidate(assigned),
+                minimum: original?.minimum ?? "",
+                minimumWindow: original?.minimumWindow,
               },
-            }
-          : currentRole;
+            ],
+            low: [],
+          },
+        };
+      }
       // Reserve slots as soon as assignment succeeds, before worktree/CLI IO.
       // Once the PTY exists runningClis already counts it.
       const running = this.terminals.runningClis();
@@ -2489,6 +2488,7 @@ export class TeamManager {
                         candidate.minimum,
                         this.terminals.cliUsage().get(candidate.cli),
                         candidate.model,
+                        candidate.minimumWindow,
                       )
                     ? [
                         {

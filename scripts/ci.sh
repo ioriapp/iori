@@ -289,31 +289,14 @@ fi
 if ! cleanup_cargo_targets; then
   printf 'CI Cargo target cleanup: warning: cleanup failed\n'
 fi
-cat >"$stage/clean-copied-cargo.mjs" <<'EOF'
-import { execFileSync } from "node:child_process";
-import { unlinkSync } from "node:fs";
-import { join } from "node:path";
-
-for (const manifest of ["Cargo.toml", "apps/client/src-tauri/Cargo.toml"]) {
-  const metadata = JSON.parse(execFileSync("cargo", ["metadata", "--format-version", "1", "--locked", "--manifest-path", manifest], { maxBuffer: Infinity }));
-  const packages = metadata.packages.filter((pkg) => pkg.source === null);
-  const selection = packages.flatMap((pkg) => ["-p", pkg.name]);
-  if (selection.length === 0) throw new Error(`No local Cargo packages found in ${manifest}`);
-  for (const profile of [[], ["--release"]]) {
-    execFileSync("cargo", ["clean", "--manifest-path", manifest, ...profile, ...selection], { stdio: "inherit" });
-  }
-}
-unlinkSync(join(process.env.CARGO_TARGET_DIR, ".iori-needs-clean"));
-EOF
 cid=$(docker create --label org.iori.ci.workspace=bounded-check --memory 8g --memory-swap 8g \
   -w /work -e CI=true -e npm_config_store_dir=/pnpm/store -e pnpm_config_store_dir=/pnpm/store \
   -e CARGO_TARGET_DIR="/cargo-target/$workspace_cache_key" -e CARGO_BUILD_JOBS=2 \
   -v iori-ci-pnpm-store:/pnpm/store \
   -v iori-ci-cargo-registry:/opt/cargo/registry \
   -v iori-ci-cargo-target:/cargo-target \
-  "$tag" bash -Eeuo pipefail -c "git config --global --add safe.directory /work; if [[ -z '$check_args' && -f \"\$CARGO_TARGET_DIR/.iori-needs-clean\" ]]; then node /tmp/clean-copied-cargo.mjs; fi; timeout --kill-after=20s 900 bash scripts/ci-check.sh$check_args")
+  "$tag" bash -Eeuo pipefail -c "git config --global --add safe.directory /work; if [[ -z '$check_args' ]]; then node scripts/clean-copied-cargo.mjs; fi; timeout --kill-after=20s 900 bash scripts/ci-check.sh$check_args")
 docker cp "$stage/src/." "$cid:/work/"
-docker cp "$stage/clean-copied-cargo.mjs" "$cid:/tmp/clean-copied-cargo.mjs"
 copy_seconds=$(( $(date +%s) - copy_started ))
 run_started=$(date +%s)
 docker start "$cid" >/dev/null

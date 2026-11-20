@@ -1,8 +1,9 @@
-/** Remove the screen margin shared by all nonblank selected lines. */
+/** Remove trailing spaces and the screen margin shared by nonblank selected lines. */
 export function trimTerminalCopyMargin(
   selection: string,
   startColumn: number | undefined,
 ): string {
+  selection = selection.replace(/ +(?=\r?\n|$)/g, "");
   if (startColumn !== 0) return selection;
   const lines = selection.split("\n");
   let margin = Infinity;

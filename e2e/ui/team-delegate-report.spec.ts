@@ -77,7 +77,7 @@ test(
     await page.locator('[data-iori-action="workspace-open-board"]').click();
     const result = page.locator(`[data-iori-board-agent="${childId}"]`);
     await expect(result).toContainText("Reported");
-    await expect(result).toContainText("Parent: Pending");
+    await expect(result).toContainText("Orchestrator: Pending");
     await page
       .getByRole("button", { name: "Worker · UI result Close", exact: true })
       .click();
@@ -86,7 +86,7 @@ test(
     await expect(
       page.getByRole("tab", { name: "Worker · UI result", exact: true }),
     ).toHaveCount(0);
-    await expect(result).toContainText("Parent: Pending");
+    await expect(result).toContainText("Orchestrator: Pending");
     await childRow.click();
     await expect(visibleTerminal(page)).toHaveAttribute(
       "data-iori-terminal-id",

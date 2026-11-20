@@ -143,6 +143,25 @@ test("summaries distinguish fields, additions, removals and priority moves acros
   ]);
 });
 
+test("selecting a minimum usage window is recorded as a candidate change", () => {
+  const before = parseTeamDefinition(templates.development);
+  before.roles[0]!.candidates.medium = [
+    {
+      id: "worker-candidate",
+      cli: "codex",
+      model: "",
+      tools: [],
+      minimum: "50",
+    },
+  ];
+  const after = structuredClone(before);
+  const role = after.roles[0]!;
+  role.candidates.medium[0]!.minimumWindow = { minutes: 10080 };
+  assert.deepEqual(teamChanges(before, after), [
+    { item: "Candidates", name: role.name, action: "changed" },
+  ]);
+});
+
 test("role order changes only when retained roles move relative to one another", () => {
   const before = templates.development!;
   const [first, second, removed, ...rest] = before.roles;

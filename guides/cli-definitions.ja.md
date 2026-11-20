@@ -72,7 +72,7 @@ Host の保存先にファイルを直接置く方法でも追加できます。
 | `launch.effort`           | 選んだ Effort を渡す引数。例: `["--effort", "{effort}"]`。                                                                                                                                                                                                                                                                                             | Effort の引数を足しません。                                                                                                 |
 | `launch.permissions`      | CLI 自身の許可モードの名前と引数の対応。例: `{ "plan": ["--permission-mode", "plan"] }`。                                                                                                                                                                                                                                                              | 定義から許可の選択肢を出しません。                                                                                          |
 | `launch.initialPrompt`    | 最初の指示を渡す方法。CLI の対話画面を開いたまま引数で渡す `{ "mode": "argument", "args": ["-i", "{prompt}"] }` か、起動後に貼る `{ "mode": "paste" }`。`paste` は入力欄で bracketed paste を有効にする CLI だと確認できた時だけ使います。                                                                                                             | CLI が bracketed paste を有効にした時に最初の指示を貼ります。                                                               |
-| `launch.instructionFile`  | Team の指示のファイルを渡す引数。例: `["--append-system-prompt-file", "{instructionFile}"]`。                                                                                                                                                                                                                                                          | ファイルを読み込んで従う指示を最初の入力として渡します。                                                                    |
+| `launch.instructionFile`  | Team の指示のファイルを渡す引数。例: `["--append-system-prompt-file", "{instructionFile}"]`。                                                                                                                                                                                                                                                          | `hooks.instruction` や組み込みの対応もないときだけ、ファイルを読み込んで従う指示を最初の入力として渡します。                |
 | `launch.directories`      | Team の通信や配送に使うフォルダーを CLI に許す引数。例: `["--add-dir", "{directory}"]`。別々のフォルダーには繰り返し付けます。                                                                                                                                                                                                                         | CLI 自身のフォルダーの許可に任せます。                                                                                      |
 | `launch.managedArguments` | Team の役割から指定する設定と重なる、ユーザーの起動引数を削除する指定。各項目の `names` に引数名を書きます。既定では後ろの値を1つ取り、`arity: "none"` なら値なし、`"many"` なら続く値をすべて取ります。`keys` は `-c` などの設定名（`.*` はその名前で始まる設定）、`alsoRemove` は一緒に削除する関連引数です。                                        | 定義による重複引数の除去をしません。                                                                                        |
 | `resume`                  | 再開の引数。例: `{ "args": ["--resume", "{sessionId}"] }`。会話 ID は hook かプラグインの知らせから受け取ります。                                                                                                                                                                                                                                      | 定義から再開の引数を出しません。                                                                                            |
@@ -199,6 +199,8 @@ Qoder のように、`hooks` の下で出来事ごとにコマンドの hooks �
 
 会話 ID・会話ファイルのパス・道具の呼び出し ID が入る項目名は、`hooks` の `sessionId`・`transcript`・`toolId` に書きます。規則の `tool`・`response` には道具の名前・応答の本文が入る項目名を書きます。`toolFinished: true` は道具の実行の終了です。失敗を知らせる時は `outcome: "failure"` と、理由が入る項目名か項目名の配列の `failure` を書きます。配列では、先に値がある項目を使います。
 
+Team の新規起動時に hook から指示ファイルの内容を渡すときは、`hooks` に `instruction` を追加します。`event`（`rules` に含めた出来事名）と `format`（`stdout`・`additional-context`・`inject-steps`・`message`・`context`・`additional-context-snake-case`）を指定し、ターンごとに呼ばれる hook には `once: true` を付けます。
+
 ### `plugin-file`: CLI の中で動くプラグイン
 
 コマンドを呼ぶ hooks の代わりに、プラグイン API を持つ CLI に使います。CLI の出来事を iori への知らせへ変える、小さい橋渡しのプラグインが必要です。この omp の例は、同梱の [iori-bridge.js](../apps/host/src/cli/omp/iori-bridge.js) を定義と一緒に置いて使います。
@@ -219,7 +221,7 @@ Qoder のように、`hooks` の下で出来事ごとにコマンドの hooks �
 
 `copy` は定義のフォルダー内のファイル名です。CLI が起動引数でプラグインを読み込める場合は `install.args` を使います。`{plugin}` を必ず含め、iori が `~/.iori/hooks/<id>/` へコピーしたプラグインの場所で埋めます。それ以外では `install.args` の代わりに `install.to` を使います。たとえば Amp なら `"to": "~/.config/amp/plugins/"` とすると、そのフォルダーへコピーします。読み込み方はどちらか1つだけ選び、プラグインは各 CLI のプラグイン API に合わせて書きます。omp のプラグインを Amp でそのまま使うことはできません。
 
-プラグインは応答の状態を送ります。`sends` には、さらに送る機能だけを書きます。`attention` は質問待ち・承認待ち、`tokens` は会話の累計の Tokens です。プラグインが送らない機能の名前は書きません。
+プラグインは応答の状態を送ります。`sends` には、さらに送る機能だけを書きます。`attention` は質問待ち・承認待ち、`tokens` は会話の累計の Tokens です。プラグインが送らない機能の名前は書きません。Team の指示をプラグインから渡すときは、`hooks` に `"instruction": true` を書き、プラグイン内で環境変数 `IORI_CLI_HOOK_INSTRUCTION_FILE` のパスを読み込みます。
 
 ### iori に知らせる共通の形
 

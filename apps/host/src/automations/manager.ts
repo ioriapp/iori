@@ -679,7 +679,7 @@ export class AutomationManager {
               : undefined;
           run.launchError =
             team && !team.parent.cli
-              ? "This team has no parent CLI. Edit the team and choose one."
+              ? "This team has no orchestrator CLI. Edit the team and choose one."
               : run.issue
                 ? "Could not start the agent for this issue. Remove the label and add it again."
                 : "Could not start the agent. Edit the automation and run again.";

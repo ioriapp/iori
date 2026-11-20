@@ -152,9 +152,9 @@ function CurrentOperation({
         ? `${t("Capacity")} (${agent.role})`
         : waitingDescription(agent, language)
       : agent.state === "reported"
-        ? t("Awaiting parent decision")
+        ? t("Awaiting orchestrator decision")
         : agent.state === "question"
-          ? t("Awaiting the parent's answer")
+          ? t("Awaiting the orchestrator's answer")
           : agent.state === "failed"
             ? agent.failure
             : agent.state === "stopped"
@@ -332,7 +332,7 @@ export function Board({
             ? "Started when delegated"
             : event.request
               ? "Plan updated after your request"
-              : "Parent updated the plan",
+              : "Orchestrator updated the plan",
         )}
         {event.task !== undefined && ` · Task ${event.task}`} · {event.text}
       </span>
@@ -488,7 +488,7 @@ export function Board({
             )}
           </div>
           <small className="parent-verdict">
-            Parent:{" "}
+            Orchestrator:{" "}
             {agent.decision
               ? agent.decision === "accept"
                 ? "Accepted"
@@ -764,7 +764,7 @@ export function Board({
                                 .join(" · "),
                             )
                             .join(" / ")
-                        : "Parent"}
+                        : "Orchestrator"}
                       {` · Task ${task.number}`}
                     </span>
                     {task.checkpoint && (

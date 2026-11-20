@@ -23,7 +23,7 @@ export function roleCandidates(
   const candidates = role.candidates[role.split ? difficulty : "medium"];
   return candidates.length || !parent?.cli
     ? candidates
-    : [{ ...parent, minimum: "" }];
+    : [{ ...parent, minimum: "", minimumWindow: undefined }];
 }
 export function chooseCandidate(
   role: Role,
@@ -44,7 +44,12 @@ export function chooseCandidate(
     (c) =>
       available.has(c.cli) &&
       !(c.minimum !== "" && initialUsagePending.has(c.cli)) &&
-      !belowUsageMinimum(c.minimum, usage.get(c.cli), c.model) &&
+      !belowUsageMinimum(
+        c.minimum,
+        usage.get(c.cli),
+        c.model,
+        c.minimumWindow,
+      ) &&
       !failed.has(c.id),
   );
   if (!candidates.length) return { waiting: "candidates" };

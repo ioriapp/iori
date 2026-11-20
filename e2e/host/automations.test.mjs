@@ -172,7 +172,7 @@ test("親CLIが未設定のチームを実行すると設定の案内を履歴�
     });
     assert.equal(
       run.launchError,
-      "This team has no parent CLI. Edit the team and choose one.",
+      "This team has no orchestrator CLI. Edit the team and choose one.",
     );
     assert.equal(run.terminalId, undefined);
     const history = await client.request("automation.history", {

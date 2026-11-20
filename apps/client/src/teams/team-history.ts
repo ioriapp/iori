@@ -12,14 +12,18 @@ function changeSummary(
     );
   if (!entry.changes) return t(entry.summary);
   const parts = entry.changes.map((change) => {
+    const itemLabel =
+      change.item === "Allow parent input to children"
+        ? t("Allow orchestrator input to children")
+        : t(change.item);
     const item = change.name
       ? t("{name}’s {item}")
           .replace(
             "{name}",
-            change.name === "Parent" ? t("Parent") : change.name,
+            change.name === "Parent" ? t("Orchestrator") : change.name,
           )
-          .replace("{item}", t(change.item))
-      : t(change.item);
+          .replace("{item}", itemLabel)
+      : itemLabel;
     return t(
       {
         added: "Added {item}",

@@ -31,11 +31,11 @@ export const teamJapanese: Record<string, string> = {
     "このデバイスに下書きを保存できませんでした。Automationを保存するか、指示をコピーしてください。",
   "Roles without candidates also run with these settings.":
     "候補のない役割も、この設定で動きます。",
-  "No candidates. Runs with the parent's settings ({model}).":
-    "候補がないため、親と同じ設定（{model}）で動きます。",
+  "No candidates. Runs with the orchestrator's settings ({model}).":
+    "候補がないため、Orchestratorと同じ設定（{model}）で動きます。",
   "No candidates configured.": "候補が設定されていません。",
   "Not set": "未設定",
-  "Choose a parent CLI": "親のCLIを選択してください",
+  "Choose an orchestrator CLI": "OrchestratorのCLIを選択してください",
   "New automation": "新しいAutomation",
   "Host time zone": "Hostのタイムゾーン",
   "Next run": "次回の実行",
@@ -107,13 +107,16 @@ export const teamJapanese: Record<string, string> = {
   "Stop child": "子を停止",
   "No free slot": "同時実行の上限で待機中",
   "User action": "ユーザーの操作",
-  "Parent action": "親の操作",
+  "Orchestrator action": "Orchestratorの操作",
   "Host restart": "Hostの再起動",
-  "Parent exited": "親の終了",
+  "Orchestrator exited": "Orchestratorの終了",
   "No available candidate": "使える候補がありません",
   "Could not stop child. Reconnect and retry.":
     "子を停止できませんでした。再接続して、もう一度お試しください。",
   "Minimum remaining": "残量の下限",
+  Auto: "自動",
+  "Auto (lowest remaining)": "自動（残量が最少）",
+  "Usage window": "利用枠",
   "This candidate is currently below the minimum remaining usage and will not be assigned.":
     "今は残量が下限を下回るため使われません。",
   m: "分",
@@ -153,8 +156,8 @@ export const teamJapanese: Record<string, string> = {
     "モデル一覧を取得できませんでした。HostのCLIを確認して、もう一度お試しください。",
   "Purpose\nScope\nCompletion criteria\nConstraints":
     "目的\n対象の範囲\n完了条件\n制約",
-  "Changes\nVerification results\nRemaining issues\nQuestions to parent":
-    "変更したこと\n確認結果\n残る問題\n親への質問",
+  "Changes\nVerification results\nRemaining issues\nQuestions to orchestrator":
+    "変更したこと\n確認結果\n残る問題\nOrchestratorへの質問",
   "Select Host": "Hostを選択",
   "Increase limit": "上限を増やす",
   "Decrease limit": "上限を減らす",
@@ -187,7 +190,7 @@ export const teamJapanese: Record<string, string> = {
   Default: "既定",
   "New team": "新しいTeam",
   "Team overview": "Team全体",
-  Parent: "親",
+  Orchestrator: "Orchestrator",
   "Add role": "役割を追加",
   "Unsaved changes": "未保存の変更",
   Saved: "保存済み",
@@ -207,8 +210,8 @@ export const teamJapanese: Record<string, string> = {
   Research: "Research",
   Minimal: "Minimal",
   "When to call": "使う場面",
-  "The parent reads this to choose where to delegate.":
-    "親はこの内容をもとに委譲先を選びます。",
+  "The orchestrator reads this to choose where to delegate.":
+    "Orchestratorはこの内容をもとに委譲先を選びます。",
   "Concurrency limit": "同時実行の上限",
   Unlimited: "上限なし",
   "How many children in this role can run at once in a conversation using this team.":
@@ -245,15 +248,15 @@ export const teamJapanese: Record<string, string> = {
   "Child instructions": "子への指示",
   "Request fields": "依頼の項目",
   "Report fields": "報告の項目",
-  "Parent instructions": "親への指示",
-  "Text sent to parent": "親に送る文章",
+  "Orchestrator instructions": "Orchestratorへの指示",
+  "Text sent to orchestrator": "Orchestratorに送る文章",
   "Describe how to run the team. iori separately provides the delegation, revision and acceptance commands.":
     "Teamの進め方を入力してください。委譲・差し戻し・受け入れのコマンドの使い方は書く必要はありません。",
   Roles: "役割の一覧",
-  "Follow the project rules. Use iori commands to delegate, request revisions and accept reports. The parent decides whether to accept.":
-    "プロジェクトの規則に従ってください。ioriのコマンドで委譲・差し戻し・受け入れを行ってください。受け入れるかどうかは親が決めます。",
-  "Work within the request. Report results to the parent using iori. Ask the parent when a decision is needed.":
-    "依頼の範囲で作業してください。ioriで結果を親へ報告してください。判断が必要なときは親へ質問してください。",
+  "Follow the project rules. Use iori commands to delegate, request revisions and accept reports. The orchestrator decides whether to accept.":
+    "プロジェクトの規則に従ってください。ioriのコマンドで委譲・差し戻し・受け入れを行ってください。受け入れるかどうかはOrchestratorが決めます。",
+  "Work within the request. Report results to the orchestrator using iori. Ask the orchestrator when a decision is needed.":
+    "依頼の範囲で作業してください。ioriで結果をOrchestratorへ報告してください。判断が必要なときはOrchestratorへ質問してください。",
   "Discard changes?": "変更を破棄しますか？",
   "Save changes?": "変更を保存しますか？",
   "Don't save": "保存しない",
@@ -364,12 +367,13 @@ export const teamJapanese: Record<string, string> = {
   "{field} must start with ~ or be an absolute path":
     "{field}は~で始まるパスか絶対パスにしてください。",
   "definition.json cannot be read": "definition.jsonを読み込めませんでした。",
-  "Allow parent input to children": "親から子への入力を許可",
-  "The parent can send input to a child's Terminal, including answers to approval prompts. When off, the parent can still read the child's screen and stop it.":
-    "親が子のTerminalに入力を送信できます。承認への回答も含みます。オフのときも、親は子の画面の確認と停止ができます。",
+  "Allow orchestrator input to children": "Orchestratorから子への入力を許可",
+  "Allow parent input to children": "Orchestratorから子への入力を許可",
+  "The orchestrator can send input to a child's Terminal, including answers to approval prompts. When off, the orchestrator can still read the child's screen and stop it.":
+    "Orchestratorが子のTerminalに入力を送信できます。承認への回答も含みます。オフのときも、Orchestratorは子の画面の確認と停止ができます。",
   "Check on working children": "作業中の子を確認",
-  "While a child keeps working, the parent reads its screen at this interval. Each check uses the parent's tokens.":
-    "子の作業が続いている間、この間隔で親が子の画面を確認します。確認のたびに親のトークンを使用します。",
+  "While a child keeps working, the orchestrator reads its screen at this interval. Each check uses the orchestrator's tokens.":
+    "子の作業が続いている間、この間隔でOrchestratorが子の画面を確認します。確認のたびにOrchestratorのトークンを使用します。",
   "Remind children waiting on background commands":
     "バックグラウンドのコマンドを待つ子に確認を促す",
   "When a child ends its response while a background command keeps running, iori asks the child to check that command at this interval. Each reminder uses the child's tokens.":

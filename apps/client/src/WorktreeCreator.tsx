@@ -444,7 +444,7 @@ export function WorktreeCreator({
                               ? (clis?.clis.find(
                                   (cli) => cli.id === team.parent.cli,
                                 )?.name ?? team.parent.cli)
-                              : t("Choose a parent CLI")}
+                              : t("Choose an orchestrator CLI")}
                           </SelectItem>
                         ))}
                       </SelectGroup>

@@ -91,7 +91,7 @@ test("Issueから親CLIが未設定のチームを実行すると設定の案内
       if (runs[0]?.launchError) {
         assert.equal(
           runs[0].launchError,
-          "This team has no parent CLI. Edit the team and choose one.",
+          "This team has no orchestrator CLI. Edit the team and choose one.",
         );
         assert.equal(runs[0].terminalId, undefined);
         break;
