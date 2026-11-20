@@ -18,6 +18,10 @@
       "dangerously-skip-permissions": ["--dangerously-skip-permissions"]
     },
     "directories": ["--add-dir", "{directory}"],
+    "instructionFile": [
+      "--append-system-prompt",
+      "Read {instructionFile} and follow its instructions."
+    ],
     "initialPrompt": { "mode": "argument", "args": ["-i", "{prompt}"] },
     "managedArguments": [
       { "names": ["--model", "-m"] },

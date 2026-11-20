@@ -227,6 +227,64 @@ for (const periodic of [false, true]) {
   );
 }
 
+test("作業中の子の端末でマウスをクリックしても、応答後に未報告の入力待ちを親へ知らせる", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    const cli = await registerWatchCli(client, dataRoot);
+    const team = await client.request("teams.create", {
+      definition: {
+        name: "Mouse Input",
+        description: "",
+        instruction: "",
+        parent: { id: "parent", cli, model: "", tools: [], minimum: "" },
+        roles: [teamRole("worker", "Worker", cli)],
+      },
+    });
+    await client.request("teams.settings", {
+      defaultTeam: team.saved.id,
+      limits: {},
+    });
+    const events = await client.events();
+    await events.waitFor((event) => event.type === "snapshot");
+    const { terminal: launched } = await client.request("team.launch", {
+      teamId: team.saved.id,
+      cwd: dataRoot,
+    });
+    const parent = await client.terminal(launched.id);
+    await parent.output("WATCH_READY:startup");
+    const child = await delegateChild(parent, client, events, "delegate", {
+      title: "Mouse",
+      body: "BEHAVIOR_STAY_ACTIVE CAPTURE_RAW",
+    });
+    await child.terminal.output("WATCH_ACTIVE");
+
+    const click = "\x1b[<0;10;5M\x1b[<0;10;5m";
+    await child.terminal.input(click);
+    await waitForRawHex(
+      child.terminal,
+      "WATCH_ACTIVE",
+      Buffer.from(click).toString("hex"),
+    );
+    const beforeStop = await parentCommand(parent, "tasks-active", ["tasks"]);
+    assert.equal(
+      beforeStop.data.children.find((entry) => entry.child === child.childId)
+        .userInput,
+      undefined,
+    );
+
+    const controlFile = await extractControlFile(child.terminal);
+    await appendFile(controlFile, "HOOK_STOP\n");
+    await parent.output(
+      'NOTICE_RECEIVED:[iori] Worker "Mouse" is idle without a report or question',
+    );
+    const tasks = await parentCommand(parent, "tasks-unreported", ["tasks"]);
+    const entry = tasks.data.children.find(
+      (item) => item.child === child.childId,
+    );
+    assert.equal(entry.userInput, undefined);
+    assert.equal(entry.waiting, "report");
+    assert.deepEqual(entry.waitingReasons, [{ reason: "no_report" }]);
+  }));
+
 test("作業中の子の止まりを親へ1回だけ知らせ、同時停止は1行にまとめ、hook後は再び知らせる", (t) =>
   runHostTest(
     t,

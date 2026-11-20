@@ -3,7 +3,7 @@ import { UsagePreferences } from "./usage/preferences.tsx";
 import { ClientInitialization } from "./ClientInitialization.tsx";
 import { ConnectedHostUpdates } from "./updates/ConnectedHostUpdates.tsx";
 import { MaintenanceClisContext } from "./updates/HostMaintenanceDetails.tsx";
-import type { CliSummary } from "@iori/protocol";
+import type { CliSummary, UsageWindowSelection } from "@iori/protocol";
 import { NoticeStack } from "./components/flow/Toast.tsx";
 import { notices } from "./notices.ts";
 import {
@@ -77,6 +77,7 @@ const defaultPreferences: Preferences = {
   fontSize: 16,
   usageDisplay: "used",
   usageGraph: "bar",
+  usageWindows: {},
   terminalFontSize: 14,
   terminalFontFamily: "",
   terminalRightClick: "menu",
@@ -95,6 +96,28 @@ function entries<T>(value: unknown, keep: (item: unknown) => item is T) {
   return isObject(value)
     ? Object.fromEntries(Object.entries(value).filter(([, item]) => keep(item)))
     : {};
+}
+
+function readUsageWindows(
+  value: unknown,
+): Record<string, UsageWindowSelection> {
+  if (!isObject(value)) return {};
+  const result: Record<string, UsageWindowSelection> = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (!isObject(item)) continue;
+    if (
+      typeof item.minutes === "number" &&
+      Number.isFinite(item.minutes) &&
+      item.minutes > 0 &&
+      (item.name === undefined || typeof item.name === "string")
+    ) {
+      result[key] = {
+        minutes: item.minutes,
+        ...(item.name ? { name: item.name } : {}),
+      };
+    }
+  }
+  return result;
 }
 
 // Saved settings are read leniently: a value of an unknown shape falls back to
@@ -143,6 +166,7 @@ function readPreferences(value: unknown): Preferences {
       : defaultPreferences.theme,
     usageDisplay: value.usageDisplay === "remaining" ? "remaining" : "used",
     usageGraph: value.usageGraph === "circle" ? "circle" : "bar",
+    usageWindows: readUsageWindows(value.usageWindows),
     fontSize: isNumber(value.fontSize)
       ? value.fontSize
       : defaultPreferences.fontSize,
@@ -871,16 +895,36 @@ function AppContent({
     },
     [changePreferences],
   );
+  const setUsageWindow = useCallback(
+    (cliId: string, selected?: UsageWindowSelection) => {
+      const next = { ...preferencesRef.current.usageWindows };
+      if (selected === undefined) delete next[cliId];
+      else next[cliId] = selected;
+      changePreferences({ usageWindows: next });
+    },
+    [changePreferences],
+  );
+  const usagePreferences = useMemo(
+    () => ({
+      display: preferences.usageDisplay ?? "used",
+      graph: preferences.usageGraph ?? "bar",
+      windows: preferences.usageWindows ?? {},
+      setWindow: setUsageWindow,
+    }),
+    [
+      preferences.usageDisplay,
+      preferences.usageGraph,
+      preferences.usageWindows,
+      setUsageWindow,
+    ],
+  );
   const firstRun = !state.host || (state.revoked && adding);
   const canSetupHost = state.initial?.canSetupHost === true;
 
   return createElement(
     UsagePreferences.Provider,
     {
-      value: {
-        display: preferences.usageDisplay ?? "used",
-        graph: preferences.usageGraph ?? "bar",
-      },
+      value: usagePreferences,
     },
     <div className={`app-root${hasWindowChrome ? " has-window-chrome" : ""}`}>
       <WindowChrome t={t} />

@@ -118,7 +118,7 @@ SIGUSR2はNodeの診断レポートをHost保存先の `diagnostics/` へ出す�
 
 どのCLIも、CLI自身の画面（PTY）で使え、チームを含む主な機能を使える。
 
-- **起動と認証**: Hostは本人のユーザー・環境・PATHで、本人が入れた未改造のCLIを起動する。CLIの認証・設定・Skill・hooks・MCP・sandboxをそのまま使い、認証情報をioriへコピーしない。独自のlogin、認証トークンの収集、APIへの暗黙の切替をしない。CLIの画面は、Hostの既定シェルを開いたTerminalでCLIの起動コマンドを実行する（Orcaと同じ）。シェルの設定・alias・PATHがそのまま適用され、CLIを抜けるとシェルに戻る。CLIの検出は本人のログインシェルの環境（PATHなど）で行う。解決したコマンドのファイルが変わった時はバージョンを取り直し、次の起動の引数とhooksの可否に反映する。
+- **起動と認証**: Hostは本人のユーザー・環境・PATHで、本人が入れた未改造のCLIを起動する。CLIの認証・設定・Skill・hooks・MCP・sandboxをそのまま使い、認証情報をioriへコピーしない。独自のlogin、認証トークンの収集、APIへの暗黙の切替をしない。CLIの画面は、Hostの既定シェルを開いたTerminalでCLIの起動コマンドを実行する（Orcaと同じ）。シェルの設定・alias・PATHがそのまま適用され、CLIを抜けるとシェルに戻る。CLIの検出は本人のログインシェルの環境（PATHなど）で行う。WindowsのHostは、CLIの一覧を作るたびにレジストリの今のPATH（システム;ユーザー）を読み、Hostの環境のPATHに無い項目を末尾に足す（Hostの起動後に入れたCLIを、Hostを起動し直さずに見つけるため。Hostが起動した時の項目は消さない・並べ替えない）。解決したコマンドのファイルが変わった時はバージョンを取り直し、次の起動の引数とhooksの可否に反映する。
 
   Windows以外の対話シェルでは、bash・zsh・fishは初期化ファイルを読み込んだ後にioriコマンドの場所をPATHへ足し（bashはVS Codeと同じく非login シェルの初期化でlogin用ファイルの読み込みを代行するため、`.bash_logout`は実行せず、`shopt login_shell`はoffになり、`logout`ではなく`exit`で抜ける）、それ以外のシェルでは起動・再開の行にPATH設定の前置きが出る。
 
@@ -254,6 +254,6 @@ ioriが起動するCLIのPTY（チームの親・子、チームでない会話�
 利用枠の残量は、CLIの起動定義が持つ監視アダプタで取得する。既存のログインシェル・CLIの認証と設定を使い、モデルを呼ばない。CLIの応答終了、利用枠のリセット、AIエージェントの画面を開いた時、Clientからの再取得の依頼（画面を表示している間の5分ごとと、ポップオーバーの「利用枠を更新」。[利用枠の表示](design/usage-display.md#再取得する契機)）で再取得し、まだ値の無いCLIは一覧の取得でも読む。同じCLIの再取得は60秒に1回までにまとめ、画面の移動ごとには再取得しない。値には読んだ時刻を付けて送る。取得できない値は表示・割り当ての根拠にせず、契約から返った枠だけを扱う。CLIが枠をモデルやグループごとに返す時は、その名前と対象のモデルを枠に持たせる。監視はHostの終了と一緒に閉じる。
 
 - Codex: [公式app-server](https://learn.chatgpt.com/docs/app-server#6-rate-limits-chatgpt)の `account/rateLimits/read` と `account/rateLimits/updated`。
-- Claude Code: CLI自身の `claude -p "/usage"`（セッションを保存しない指定付き）。モデルを呼ばず利用枠も使わない。結果は文で返るので、読み取れない形なら値を出さない。Claude.aiの資格情報をioriが読んで使用量のAPIを呼ぶ方法は、[Anthropicの規約](https://code.claude.com/docs/en/legal-and-compliance)が資格情報の収集・仲介を禁じるため採らない。
+- Claude Code: CLI自身の `claude -p "/usage"`（セッションを保存しない指定付き）。モデルを呼ばず利用枠も使わない。結果は文で返るので、読み取れない形なら値を出さない。Claude.aiの資格情報をioriが読んで使用量のAPIを呼ぶ方法は、[Anthropicの規約](https://code.claude.com/docs/en/legal-and-compliance)が資格情報の収集・仲介を禁じるため採らない。 Windowsの Claude Code は `TZ=UTC` を無視してOSのタイムゾーンでリセットの時刻を出すので、時刻の後の括弧のIANAのタイムゾーンの名前で UTC に換算する。
 - Antigravity CLI: 取得しない。`agy -p "/usage"` はヘッドレスモードで、[Antigravityの案内](https://antigravity.google/docs/faq/)は個人向けプランでサードパーティのアプリの中から `agy` を包んで使うことを認めていないため。ユーザーが自分の判断で[定義ファイルの利用枠のスクリプト](design/cli-definitions.md#利用枠usage)を書くことは止めない。
 - Cursor CLI: 取得しない。公式の手段が無く、保存されたトークンで非公開のAPIを読み込む方法は[Cursorの利用規約](https://cursor.com/terms-of-service)の1.5（サービスからのデータの抜き出しの禁止）に近いため。ioriが同梱するのは各CLIの公式の手段だけで、それ以外はユーザーが自分の判断で[定義ファイルの利用枠のスクリプト](design/cli-definitions.md#利用枠usage)に書く。

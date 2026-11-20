@@ -15,6 +15,7 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { writeFakeCli } from "../../verification/host/environment.mjs";
 import { runHostTest } from "../../verification/host/process.mjs";
 import {
   actorCommand,
@@ -239,6 +240,64 @@ test("準備コマンドが終わってからworktreeでCLIを起動する", (t)
       "最初の指示です",
     );
   }));
+
+for (const setupWorktree of [false, true])
+  test(`${setupWorktree ? "worktree 作成時" : "通常起動時"}、依頼のないチームは親の最初の入力を待ち、SessionStart でチームの指示を渡す`, (t) =>
+    runHostTest(t, async ({ client, dataRoot, stage }) => {
+      const { path } = await repository(dataRoot);
+      await writeFakeCli(
+        join(dataRoot, "bin"),
+        "agy",
+        `
+      if (process.argv.includes("--version")) {
+        console.log("agy 1.0.0");
+      } else {
+        const { readFileSync } = process.getBuiltinModule("node:fs");
+        const { execSync } = process.getBuiltinModule("node:child_process");
+        const { join } = process.getBuiltinModule("node:path");
+        const settings = JSON.parse(readFileSync(join(process.getBuiltinModule("node:os").homedir(), ".gemini/config/hooks.json"), "utf8"));
+        const command = settings["iori-status"].SessionStart[0].command;
+        const context = JSON.parse(execSync(command, { input: "{}", encoding: "utf8" }));
+        console.log("FIRST_TURN:" + JSON.stringify({
+          started: process.argv.includes("-i"),
+          received: context.injectSteps?.some(step => step.systemMessage.systemMessage.includes("TEAM_CONTEXT"))
+        }));
+        process.stdin.resume();
+      }`,
+      );
+      const team = await client.request("teams.create", {
+        definition: {
+          name: "SessionStart",
+          description: "",
+          instruction: "TEAM_CONTEXT",
+          parent: {
+            id: "parent",
+            cli: "antigravity",
+            model: "",
+            tools: [],
+            minimum: "",
+          },
+          roles: [],
+        },
+      });
+      stage(setupWorktree ? "worktree を作成して親を起動する" : "親を起動する");
+      const cwd = setupWorktree
+        ? (await create(client, path, "task", "main", "echo setup")).path
+        : path;
+      const { terminal } = await client.request("team.launch", {
+        teamId: team.saved.id,
+        cwd,
+        setupWorktree,
+      });
+      const pty = await client.terminal(terminal.id);
+      const { output } = await pty.waitFor(({ output }) =>
+        /FIRST_TURN:(\{[^\r\n]*\})/u.test(output),
+      );
+      assert.deepEqual(
+        JSON.parse(output.match(/FIRST_TURN:(\{[^\r\n]*\})/u)[1]),
+        { started: false, received: true },
+      );
+    }));
 
 test("準備コマンドが終わってからworktreeでチームの親を起動する", (t) =>
   runHostTest(t, async ({ client, dataRoot, stage }) => {

@@ -1,5 +1,6 @@
 // Lifecycle delivery follows Orca's managed hook scripts, without spool/retry.
 // Copyright (c) 2026 Lovecast Inc.; MIT license: ./ORCA-LICENSE.txt.
+import { open, readFile, unlink } from "node:fs/promises";
 import { request } from "node:http";
 import { approvalRequest } from "./approval-client.mjs";
 
@@ -12,18 +13,84 @@ import { approvalRequest } from "./approval-client.mjs";
 const [eventArgument, replyArgument, cli] = process.argv.slice(2);
 const event = eventArgument === "-" ? undefined : eventArgument;
 const reply = replyArgument === "-" ? undefined : replyArgument;
-// CLI-owned neutral replies must also work outside iori, before reading stdin.
-if (reply)
-  process.stdout.write(Buffer.from(reply, "base64url").toString("utf8") + "\n");
+const {
+  IORI_CLI_HOOK_URL: url,
+  IORI_CLI_HOOK_INSTRUCTION_FILE: instructionFile,
+  IORI_CLI_HOOK_INSTRUCTION_EVENT: instructionEvent,
+  IORI_CLI_HOOK_INSTRUCTION_FORMAT: format,
+  IORI_CLI_HOOK_INSTRUCTION_ONCE: oncePath,
+  IORI_CLI_HOOK_INSTRUCTION_CLI: instructionCli,
+} = process.env;
+const mayDeliver =
+  url &&
+  instructionFile &&
+  instructionEvent &&
+  (!event || event === instructionEvent) &&
+  (!cli || cli === instructionCli);
+const defaultReply = reply && Buffer.from(reply, "base64url").toString("utf8");
+
+const responses = {
+  "inject-steps": (text) => ({
+    injectSteps: [{ systemMessage: { systemMessage: text } }],
+  }),
+  "additional-context": (text) => ({
+    hookSpecificOutput: {
+      hookEventName: "SessionStart",
+      additionalContext: text,
+    },
+  }),
+  message: (text) => ({ message: text }),
+  context: (text) => ({ context: text }),
+  "additional-context-snake-case": (text) => ({
+    hook_specific_output: { additional_context: text },
+  }),
+  stdout: (text) => text,
+};
+async function instructionReply() {
+  const formatter = responses[format];
+  if (!formatter) return;
+  let claimed = false;
+  let content;
+  try {
+    if (oncePath) {
+      await (await open(oncePath, "wx")).close();
+      claimed = true;
+    }
+    content = await readFile(instructionFile, "utf8");
+    if (!content) return;
+    const result = formatter(content);
+    return typeof result === "string" ? result : JSON.stringify(result);
+  } catch {
+    // A concurrent or later hook finds the marker. File errors also leave
+    // the CLI's normal reply and status delivery intact.
+  } finally {
+    if (claimed && !content) await unlink(oncePath).catch(() => {});
+  }
+}
+// Outside team instruction delivery some CLIs need a reply before closing stdin.
+if (!mayDeliver && defaultReply) process.stdout.write(defaultReply + "\n");
 // Windows callers can leave stdin open outside iori. POSIX callers close it;
 // consume the whole pipe there so a large payload cannot fail with EPIPE.
-if (process.platform === "win32" && !process.env.IORI_CLI_HOOK_URL)
-  process.exit(0);
+if (process.platform === "win32" && !url) process.exit(0);
 let input = "";
 for await (const chunk of process.stdin) input += chunk;
-if (!process.env.IORI_CLI_HOOK_URL) process.exit(0);
+if (!url) process.exit(0);
+let payload;
 try {
-  const payload = JSON.parse(input || "{}");
+  payload = JSON.parse(input || "{}");
+} catch {
+  if (mayDeliver && defaultReply) process.stdout.write(defaultReply + "\n");
+  process.exit(0);
+}
+try {
+  if (mayDeliver) {
+    const instruction =
+      payload && (event ?? payload.hook_event_name) === instructionEvent
+        ? await instructionReply()
+        : undefined;
+    const output = instruction ?? defaultReply;
+    if (output) process.stdout.write(output + "\n");
+  }
   if (event) payload.hook_event_name = event;
   // A Terminal takes only its own CLI's hooks: a CLI can also run the hooks
   // that iori wrote for another CLI (Grok reads Claude Code's settings).
@@ -53,7 +120,7 @@ try {
   await new Promise((resolve) => {
     const body = JSON.stringify(payload);
     const req = request(
-      process.env.IORI_CLI_HOOK_URL,
+      url,
       {
         method: "POST",
         headers: {

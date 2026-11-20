@@ -112,7 +112,10 @@ export const hooks: CliHooks = {
         payload.tool_use_id,
       );
     }
-    if (event === "SessionStart") return { state: "idle" };
+    if (event === "SessionStart") {
+      if (payload.source === "compact") return undefined;
+      return { state: "idle" };
+    }
     if (event === "Stop")
       return { state: "done", response: text(payload.last_assistant_message) };
     if (event === "Interrupt") return { state: "stopped" };

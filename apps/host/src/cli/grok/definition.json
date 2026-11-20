@@ -16,6 +16,10 @@
       "bypassPermissions": ["--permission-mode", "bypassPermissions"],
       "plan": ["--permission-mode", "plan"]
     },
+    "instructionFile": [
+      "--rules",
+      "Read {instructionFile} and follow its instructions."
+    ],
     "initialPrompt": { "mode": "argument", "args": ["{prompt}"] },
     "managedArguments": [
       { "names": ["--model", "-m"] },

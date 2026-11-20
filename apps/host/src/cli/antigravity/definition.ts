@@ -12,7 +12,18 @@ export const code: CliCode = {
   id: "antigravity",
   // Later team input is pasted once the prompt enables bracketed paste.
   waitForBracketedPaste: true,
-  launchEnvironment: () => ({ AGY_CLI_OSC7501: "on" }),
+  deliversInstructions: true,
+  launchEnvironment: (launch): Record<string, string> => ({
+    AGY_CLI_OSC7501: "on",
+    ...(!launch?.resume && launch?.instructionFile
+      ? {
+          IORI_CLI_HOOK_INSTRUCTION_FILE: launch.instructionFile,
+          IORI_CLI_HOOK_INSTRUCTION_CLI: "antigravity",
+          IORI_CLI_HOOK_INSTRUCTION_EVENT: "SessionStart",
+          IORI_CLI_HOOK_INSTRUCTION_FORMAT: "inject-steps",
+        }
+      : {}),
+  }),
   modelCatalog: models,
   session: (payload) =>
     typeof payload.conversationId === "string" && payload.conversationId.trim()

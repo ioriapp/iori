@@ -42,6 +42,11 @@
   },
   "resume": { "args": ["--session", "{sessionId}"] },
   "hooks": {
+    "instruction": {
+      "event": "UserPromptSubmit",
+      "format": "message",
+      "once": true
+    },
     "file": {
       "env": "KIMI_CODE_HOME",
       "default": "~/.kimi-code",

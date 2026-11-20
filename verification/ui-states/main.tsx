@@ -453,7 +453,9 @@ function UsagePreview() {
   const agents = stateId.includes("-agents-");
   const list = usageSnapshot(stateId);
   return (
-    <UsagePreferences.Provider value={{ graph, display }}>
+    <UsagePreferences.Provider
+      value={{ graph, display, windows: {}, setWindow: () => {} }}
+    >
       <TooltipProvider>
         <div className="workspace-app" style={{ height: "100dvh" }}>
           <div className="mobile-location">

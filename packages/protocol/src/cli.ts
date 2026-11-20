@@ -28,13 +28,49 @@ export function orderUsageWindows<T extends CliUsage["windows"][number]>(
     (a, b) => groupOf(a) - groupOf(b) || a.minutes - b.minutes,
   );
 }
+export type UsageWindowSelection = {
+  minutes: number;
+  name?: string;
+};
+/**
+ * Picks the user-selected window when present in `windows`, otherwise the
+ * window with the lowest remaining percentage (first on ties).
+ */
+export function selectUsageWindow<T extends CliUsage["windows"][number]>(
+  windows: readonly T[],
+  selected?: UsageWindowSelection,
+): T | undefined {
+  if (windows.length === 0) return undefined;
+  if (selected) {
+    const matched = windows.find(
+      (window) =>
+        window.minutes === selected.minutes &&
+        (window.name ?? "") === (selected.name ?? ""),
+    );
+    if (matched) return matched;
+  }
+  return windows.reduce((worst, window) =>
+    window.remaining < worst.remaining ? window : worst,
+  );
+}
 /**
  * Picks up to 3 used windows (remaining < 100) with lowest remaining, or the
- * single strictest window when all are unused, preserving the received order.
+ * single lowest-remaining window when all are unused, preserving the received
+ * order. When `pinned` is present in `windows`, it is always included (even at
+ * 0% used) alongside up to 2 other used windows with lowest remaining.
  */
 export function statusBarUsageWindows<T extends CliUsage["windows"][number]>(
   windows: readonly T[],
+  pinned?: T,
 ): T[] {
+  if (pinned && windows.includes(pinned)) {
+    const others = windows
+      .filter((window) => window !== pinned && window.remaining < 100)
+      .sort((a, b) => a.remaining - b.remaining)
+      .slice(0, 2);
+    const selected = new Set<T>([pinned, ...others]);
+    return windows.filter((window) => selected.has(window));
+  }
   const used = windows.filter((window) => window.remaining < 100);
   if (used.length === 0) {
     return windows.length === 0

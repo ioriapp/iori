@@ -223,6 +223,7 @@ test("OpenCode 2の候補のEffortを子の起動設定へ渡す", (t) =>
       output.match(/OPENCODE_CONFIG:(\{[^\r\n]+\})/u)[1],
     );
     assert.equal(config.model, "openai/gpt-5.2#low");
+    assert.equal(config.instructions.length, 1);
   }));
 
 test("候補が空なら親のCLIとモデルで子を起動し記録する", (t) =>

@@ -1,10 +1,12 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import { RefreshCw } from "lucide-react";
+import { Pin, RefreshCw } from "lucide-react";
 import {
+  selectUsageWindow,
   statusBarUsageWindows,
   type CliSummary,
   type CliUsage,
+  type UsageWindowSelection,
 } from "@iori/protocol";
 import { CliIcon } from "../CliIcon.tsx";
 import { Button } from "../components/ui/button.tsx";
@@ -14,6 +16,15 @@ import {
   PopoverTrigger,
   PopoverContent,
 } from "../components/ui/popover.tsx";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+} from "../components/ui/dropdown-menu.tsx";
 import { useCliList } from "../cli-list.ts";
 import {
   formatUsageLength,
@@ -23,18 +34,45 @@ import {
 import { useUsagePreferences } from "./preferences.tsx";
 import { refreshUsage, useUsageRefresh } from "./refresh.ts";
 import "./usage-status.css";
+
 type Shape = "circle" | "bar";
 type Display = "remaining" | "used";
 type Language = string;
 type UsageWindow = CliUsage["windows"][number];
 type Cli = CliSummary & { windows: UsageWindow[]; hostKey: string };
+
 const hoverDelay = /Mac/.test(navigator.platform) ? 1500 : 500;
+
 const allUsage = (language: string) =>
   language.toLowerCase().startsWith("ja") ? "利用枠" : "Usage";
+
 const percentage = (window: UsageWindow, display: Display) =>
   Math.round(
     display === "remaining" ? window.remaining : 100 - window.remaining,
   );
+
+function windowKey(window: UsageWindowSelection) {
+  return JSON.stringify([window.minutes, window.name ?? ""]);
+}
+
+function windowLabel(window: UsageWindow) {
+  return (
+    (window.name ? window.name + " " : "") + formatUsageLength(window.minutes)
+  );
+}
+
+function findSelectedWindow(
+  windows: readonly UsageWindow[],
+  selected?: UsageWindowSelection,
+) {
+  if (!selected) return undefined;
+  return windows.find(
+    (window) =>
+      window.minutes === selected.minutes &&
+      (window.name ?? "") === (selected.name ?? ""),
+  );
+}
+
 function resetLabel(at: number, language: string) {
   const minutes = Math.max(0, Math.ceil((at - Date.now()) / 60000));
   const date = new Intl.DateTimeFormat(
@@ -55,16 +93,16 @@ function resetLabel(at: number, language: string) {
   ).format(at);
   return `resets ${formatUsageDuration(minutes)} · ${date}`;
 }
-function strictest(cli: Cli) {
-  return cli.windows.reduce((worst, window) =>
-    window.remaining < worst.remaining ? window : worst,
-  );
-}
-function usageLabel(cli: Cli, language: Language, display: Display) {
-  const window = strictest(cli);
+
+function usageLabel(
+  cli: Cli,
+  language: Language,
+  display: Display,
+  selected?: UsageWindowSelection,
+) {
+  const window = selectUsageWindow(cli.windows, selected)!;
   const label =
-    (window.name ? window.name + " " : "") +
-    formatUsageLength(window.minutes) +
+    windowLabel(window) +
     " " +
     percentage(window, display) +
     "% " +
@@ -75,6 +113,7 @@ function usageLabel(cli: Cli, language: Language, display: Display) {
       : `${cli.name} usage `) + label
   );
 }
+
 function tone(window: UsageWindow) {
   return window.remaining === 0
     ? "var(--status-failed)"
@@ -82,6 +121,7 @@ function tone(window: UsageWindow) {
       ? "var(--status-waiting)"
       : "var(--muted-foreground)";
 }
+
 function numberTone(window: UsageWindow) {
   return window.remaining === 0
     ? "var(--status-failed-text)"
@@ -89,6 +129,7 @@ function numberTone(window: UsageWindow) {
       ? "var(--status-waiting-text)"
       : undefined;
 }
+
 function Graph({
   window,
   shape,
@@ -137,6 +178,7 @@ function Graph({
     </span>
   );
 }
+
 function RefreshUsage({
   language,
   busy,
@@ -151,6 +193,7 @@ function RefreshUsage({
     : "Refresh usage";
   return (
     <Button
+      className="usage-heading-action usage-refresh-button"
       variant="ghost"
       size="icon"
       disabled={busy}
@@ -166,12 +209,95 @@ function RefreshUsage({
     </Button>
   );
 }
+
+function WindowPicker({
+  cli,
+  language,
+  selected,
+  open,
+  onOpenChange,
+  onSelectWindow,
+}: {
+  cli: Cli;
+  language: Language;
+  selected?: UsageWindowSelection;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSelectWindow: (cliId: string, selected?: UsageWindowSelection) => void;
+}) {
+  const ja = language.toLowerCase().startsWith("ja");
+  const triggerLabel = ja
+    ? "ステータスバーに表示する枠"
+    : "Window in status bar";
+  const menuHeading = ja ? "ステータスバーに表示" : "Show in status bar";
+  const autoLabel = ja ? "自動（残量が最少）" : "Auto (lowest remaining)";
+  const matched = findSelectedWindow(cli.windows, selected);
+  const hasMatch = matched !== undefined;
+  const value = matched ? windowKey(matched) : "";
+
+  return (
+    <DropdownMenu modal={false} open={open} onOpenChange={onOpenChange}>
+      <DropdownMenuTrigger asChild>
+        <Button
+          className="usage-heading-action usage-pin-button"
+          variant="ghost"
+          size="icon"
+          data-pinned={hasMatch || undefined}
+          aria-label={triggerLabel}
+          title={triggerLabel}
+        >
+          <Pin size={14} />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        className="usage-pin-menu-content"
+        align="end"
+        sideOffset={4}
+      >
+        <DropdownMenuLabel>{menuHeading}</DropdownMenuLabel>
+        <DropdownMenuRadioGroup
+          value={value}
+          onValueChange={(next) => {
+            if (next === "") {
+              onSelectWindow(cli.id, undefined);
+              return;
+            }
+            const picked = cli.windows.find(
+              (window) => windowKey(window) === next,
+            );
+            if (!picked) return;
+            onSelectWindow(cli.id, {
+              minutes: picked.minutes,
+              ...(picked.name ? { name: picked.name } : {}),
+            });
+          }}
+        >
+          <DropdownMenuRadioItem value="">{autoLabel}</DropdownMenuRadioItem>
+          <DropdownMenuSeparator />
+          {cli.windows.map((window, index) => {
+            const key = windowKey(window);
+            return (
+              <DropdownMenuRadioItem key={`${key}-${index}`} value={key}>
+                {windowLabel(window)}
+              </DropdownMenuRadioItem>
+            );
+          })}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 function UsageDetail({
   cli,
   shape,
   display,
   language,
   updatedAt,
+  selected,
+  menuOpen,
+  onMenuOpenChange,
+  onSelectWindow,
   refresh,
 }: {
   cli: Cli;
@@ -179,49 +305,94 @@ function UsageDetail({
   display: Display;
   language: Language;
   updatedAt?: number;
+  selected?: UsageWindowSelection;
+  menuOpen: boolean;
+  onMenuOpenChange: (open: boolean) => void;
+  onSelectWindow: (cliId: string, selected?: UsageWindowSelection) => void;
   refresh?: { busy: boolean; onRefresh: () => void };
 }) {
+  const baseId = useId();
+  const headingId = `${baseId}-heading`;
+  const selectable = cli.windows.length >= 2;
+  const pinnedWindow = selectable
+    ? findSelectedWindow(cli.windows, selected)
+    : undefined;
+
   return (
-    <section className="usage-detail">
+    <section className="usage-detail" aria-labelledby={headingId}>
       <div className="usage-detail-heading">
-        <h2>
+        <h2 id={headingId}>
           <CliIcon cli={cli} hostKey={cli.hostKey} size={16} />
           {cli.name}
         </h2>
-        {refresh && (
-          <RefreshUsage
-            language={language}
-            busy={refresh.busy}
-            onRefresh={refresh.onRefresh}
-          />
+        {(selectable || refresh) && (
+          <div className="usage-detail-actions">
+            {selectable && (
+              <WindowPicker
+                cli={cli}
+                language={language}
+                selected={selected}
+                open={menuOpen}
+                onOpenChange={onMenuOpenChange}
+                onSelectWindow={onSelectWindow}
+              />
+            )}
+            {refresh && (
+              <RefreshUsage
+                language={language}
+                busy={refresh.busy}
+                onRefresh={refresh.onRefresh}
+              />
+            )}
+          </div>
         )}
       </div>
       {updatedAt !== undefined && (
         <p className="usage-updated">{formatUpdatedAt(updatedAt, language)}</p>
       )}
-      {cli.windows.map((window, index) => (
-        <div className={"usage-window " + shape} key={index}>
-          <div className="usage-window-line">
-            <span className="usage-window-name">
-              {window.name ? window.name + " " : ""}
-              {formatUsageLength(window.minutes)}
-            </span>
-            <Graph window={window} shape={shape} display={display} detail />
-            <span
-              className="usage-window-percentage"
-              style={{ color: numberTone(window) }}
-            >
-              {percentage(window, display)}%{" "}
-              {display === "remaining" ? "left" : "used"}
-            </span>
+      {cli.windows.map((window, index) => {
+        const isPinned = window === pinnedWindow;
+        const label = windowLabel(window);
+        const lastSpace = label.lastIndexOf(" ");
+        const labelHead = lastSpace === -1 ? "" : label.slice(0, lastSpace + 1);
+        const labelTail = lastSpace === -1 ? label : label.slice(lastSpace + 1);
+        return (
+          <div className={"usage-window " + shape} key={index}>
+            <div className="usage-window-line">
+              <span className="usage-window-name">
+                {isPinned ? (
+                  <>
+                    {labelHead}
+                    <span className="usage-window-name-tail">
+                      {labelTail}
+                      <Pin
+                        size={11}
+                        className="usage-window-pin"
+                        aria-hidden="true"
+                      />
+                    </span>
+                  </>
+                ) : (
+                  label
+                )}
+              </span>
+              <Graph window={window} shape={shape} display={display} detail />
+              <span
+                className="usage-window-percentage"
+                style={{ color: numberTone(window) }}
+              >
+                {percentage(window, display)}%{" "}
+                {display === "remaining" ? "left" : "used"}
+              </span>
+            </div>
+            {window.resetsAt !== undefined && (
+              <p className="usage-reset">
+                {resetLabel(window.resetsAt, language)}
+              </p>
+            )}
           </div>
-          {window.resetsAt !== undefined && (
-            <p className="usage-reset">
-              {resetLabel(window.resetsAt, language)}
-            </p>
-          )}
-        </div>
-      ))}
+        );
+      })}
     </section>
   );
 }
@@ -236,6 +407,10 @@ function UsagePopup({
   all = false,
   takeFocus = false,
   updatedAt,
+  selectedWindows,
+  openMenuCli,
+  onMenuOpenChange,
+  onSelectWindow,
   refreshing,
   onRefresh,
   onEnter,
@@ -250,6 +425,10 @@ function UsagePopup({
   all?: boolean;
   takeFocus?: boolean;
   updatedAt: Record<string, number | undefined>;
+  selectedWindows: Record<string, UsageWindowSelection>;
+  openMenuCli: string | null;
+  onMenuOpenChange: (cliId: string, open: boolean) => void;
+  onSelectWindow: (cliId: string, selected?: UsageWindowSelection) => void;
   refreshing: string[];
   onRefresh: (names: string[]) => Promise<void>;
   onEnter?: () => void;
@@ -260,11 +439,13 @@ function UsagePopup({
   const [body, setBody] = useState<HTMLDivElement | null>(null);
   const restoreFocus = useRef(false);
   const [, redrawTime] = useState(0);
+
   useEffect(() => {
     if (!body) return;
     const timer = setInterval(() => redrawTime((value) => value + 1), 60000);
     return () => clearInterval(timer);
   }, [body]);
+
   useLayoutEffect(() => {
     if (!body || !takeFocus) return;
     restoreFocus.current = true;
@@ -273,41 +454,37 @@ function UsagePopup({
       root.querySelector<HTMLButtonElement>("button:not(:disabled)") ?? root
     ).focus();
   }, [body, takeFocus]);
-  const [height, setHeight] = useState<number>();
+
   const [more, setMore] = useState(false);
+
   useLayoutEffect(() => {
     const element = body;
     if (!element) return;
-    const fit = () => {
-      const rows = [...element.querySelectorAll<HTMLElement>(".usage-detail")];
-      const style = getComputedStyle(element);
-      const padding =
-        parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
-      const rowHeight = (row: HTMLElement) =>
-        row.getBoundingClientRect().height +
-        parseFloat(getComputedStyle(row).marginTop);
-      const natural =
-        rows.reduce((sum, row) => sum + rowHeight(row), 0) + padding;
-      let used = padding;
-      if (natural > bodyLimit) {
-        for (const row of rows) {
-          const next = used + rowHeight(row);
-          if (next > bodyLimit) break;
-          used = next;
-        }
-        setHeight(used > padding ? used : undefined);
-      } else setHeight(undefined);
+    const updateMore = () =>
       setMore(
         element.scrollTop + element.clientHeight < element.scrollHeight - 1,
       );
-    };
-    fit();
-    const observer = new ResizeObserver(fit);
+    updateMore();
+    const observer = new ResizeObserver(updateMore);
     observer.observe(element);
     for (const row of element.querySelectorAll<HTMLElement>(".usage-detail"))
       observer.observe(row);
     return () => observer.disconnect();
   }, [body, bodyLimit, clis, shape, display, language]);
+
+  const keepOpenForMenu = (event: {
+    target: EventTarget | null;
+    preventDefault: () => void;
+  }) => {
+    if (
+      openMenuCli !== null ||
+      (event.target instanceof Element &&
+        event.target.closest('[data-slot="dropdown-menu-content"]'))
+    ) {
+      event.preventDefault();
+    }
+  };
+
   return (
     <PopoverContent
       className="usage-status-popover"
@@ -319,6 +496,9 @@ function UsagePopup({
       style={{ maxHeight }}
       onPointerEnter={onEnter}
       onPointerLeave={(event) => onLeave?.(event.relatedTarget)}
+      onPointerDownOutside={keepOpenForMenu}
+      onInteractOutside={keepOpenForMenu}
+      onFocusOutside={keepOpenForMenu}
       onOpenAutoFocus={(event) => {
         restoreFocus.current = takeFocus;
         event.preventDefault();
@@ -327,7 +507,9 @@ function UsagePopup({
         if (!restoreFocus.current) event.preventDefault();
       }}
       aria-label={
-        isAll ? allUsage(language) : usageLabel(clis[0], language, display)
+        isAll
+          ? allUsage(language)
+          : usageLabel(clis[0], language, display, selectedWindows[clis[0].id])
       }
     >
       {isAll && (
@@ -343,7 +525,7 @@ function UsagePopup({
       <div
         className="usage-popup-scroll"
         ref={setBody}
-        style={{ maxHeight: bodyLimit, height }}
+        style={{ maxHeight: bodyLimit }}
         data-more={more || undefined}
         onScroll={(event) => {
           const element = event.currentTarget;
@@ -360,6 +542,10 @@ function UsagePopup({
             display={display}
             language={language}
             updatedAt={updatedAt[cli.id]}
+            selected={selectedWindows[cli.id]}
+            menuOpen={openMenuCli === cli.id}
+            onMenuOpenChange={(next) => onMenuOpenChange(cli.id, next)}
+            onSelectWindow={onSelectWindow}
             refresh={
               isAll
                 ? undefined
@@ -386,7 +572,12 @@ export function UsageStatus({
   revision?: unknown;
   language: string;
 }) {
-  const { display, graph: shape } = useUsagePreferences();
+  const {
+    display,
+    graph: shape,
+    windows: selectedWindows,
+    setWindow,
+  } = useUsagePreferences();
   const { all } = useCliList(hostKey, revision);
   const clis = all.clis
     .filter((cli) => !cli.hidden && cli.usage?.windows.length)
@@ -401,6 +592,7 @@ export function UsageStatus({
   }, []);
   const [opened, setOpened] = useState<string | null>(null);
   const [pinned, setPinned] = useState(false);
+  const [openMenuCli, setOpenMenuCli] = useState<string | null>(null);
   const [takeFocus, setTakeFocus] = useState(false);
   const [refreshing, setRefreshing] = useState<string[]>([]);
   const refresh = async (ids: string[], all = false) => {
@@ -464,11 +656,12 @@ export function UsageStatus({
     observer.observe(measure);
     void document.fonts.ready.then(fit);
     return () => observer.disconnect();
-  }, [all, shape, display, mobile]);
+  }, [all, shape, display, mobile, selectedWindows]);
   const cancelHover = () => clearTimeout(hoverTimer.current);
   const close = () => {
     cancelHover();
     if (pinned && opened) suppressedHover.current = opened;
+    setOpenMenuCli(null);
     setOpened(null);
     setPinned(false);
     setTakeFocus(false);
@@ -495,16 +688,34 @@ export function UsageStatus({
     cancelHover();
     if (
       !pinned &&
-      !(related instanceof Element && related.closest(".usage-status-popover"))
+      openMenuCli === null &&
+      !(
+        related instanceof Element &&
+        related.closest(
+          '.usage-status-popover, [data-slot="dropdown-menu-content"]',
+        )
+      )
     )
       setOpened(null);
+  };
+  const handleMenuOpenChange = (cliId: string, nextOpen: boolean) => {
+    if (nextOpen) {
+      cancelHover();
+      setPinned(true);
+      setOpenMenuCli(cliId);
+    } else {
+      setOpenMenuCli((current) => (current === cliId ? null : current));
+    }
   };
   const moreLabel = (count: number) =>
     language.toLowerCase().startsWith("ja")
       ? `ほかの利用枠 ${count}件`
       : `${count} more usage limits`;
   const content = (cli: Cli) => {
-    const windows = statusBarUsageWindows(cli.windows);
+    const saved = selectedWindows[cli.id];
+    const pinnedMatch = findSelectedWindow(cli.windows, saved);
+    const windows = statusBarUsageWindows(cli.windows, pinnedMatch);
+    const active = selectUsageWindow(cli.windows, saved)!;
     return (
       <>
         <CliIcon cli={cli} hostKey={hostKey} size={14} />
@@ -526,11 +737,8 @@ export function UsageStatus({
             />
           ))}
         </span>
-        <span
-          className="usage-number"
-          style={{ color: numberTone(strictest(cli)) }}
-        >
-          {percentage(strictest(cli), display)}%
+        <span className="usage-number" style={{ color: numberTone(active) }}>
+          {percentage(active, display)}%
         </span>
       </>
     );
@@ -545,6 +753,10 @@ export function UsageStatus({
       mobile={mobile}
       takeFocus={takeFocus}
       updatedAt={updatedAt}
+      selectedWindows={selectedWindows}
+      openMenuCli={openMenuCli}
+      onMenuOpenChange={handleMenuOpenChange}
+      onSelectWindow={setWindow}
       refreshing={refreshing}
       onRefresh={(ids) => refresh(ids, isAll || mobile)}
       maxHeight={popupHeight}
@@ -552,9 +764,12 @@ export function UsageStatus({
       onLeave={(related) => {
         if (
           !pinned &&
+          openMenuCli === null &&
           !(
             related instanceof Element &&
-            related.closest(".usage-item, .usage-more")
+            related.closest(
+              '.usage-item, .usage-more, [data-slot="dropdown-menu-content"]',
+            )
           )
         )
           close();
@@ -585,7 +800,12 @@ export function UsageStatus({
             className="usage-item"
             variant="ghost"
             size="sm"
-            aria-label={usageLabel(cli, language, display)}
+            aria-label={usageLabel(
+              cli,
+              language,
+              display,
+              selectedWindows[cli.id],
+            )}
             onPointerEnter={(event) => {
               if (event.pointerType === "mouse") hover(cli.id);
             }}
@@ -618,7 +838,9 @@ export function UsageStatus({
                 className="usage-mobile-trigger"
                 aria-label={clis
                   .slice(0, visible)
-                  .map((cli) => usageLabel(cli, language, display))
+                  .map((cli) =>
+                    usageLabel(cli, language, display, selectedWindows[cli.id]),
+                  )
                   .concat(
                     visible < clis.length
                       ? [moreLabel(clis.length - visible)]

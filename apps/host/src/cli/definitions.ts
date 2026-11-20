@@ -100,12 +100,9 @@ export interface CliDefinition extends CliSummary {
   /** The CLI shows its input cursor only after mounting the prompt. */
   waitForInputCursor?: boolean;
   teamEnvironment?: (launch: TeamLaunch) => Record<string, string>;
-  /** Per-process configuration for CLIs whose launch options depend on version. */
-  launchEnvironment?: (
-    version?: string,
-    model?: string,
-    effort?: string,
-  ) => Record<string, string>;
+  /** Configuration for this launch, including its version and resume state.
+   * teamEnvironment is also applied when spawning a shell outside this launch. */
+  launchEnvironment?: (launch?: TeamLaunch) => Record<string, string>;
   launchEffortForVersion?: (version?: string) => boolean;
   managedTeamArguments?: readonly import("./team-startup-arguments.ts").ManagedTeamArgument[];
   teamArguments?: (launch: TeamLaunch) => readonly string[];
@@ -170,7 +167,7 @@ export type CliCode = Omit<Partial<CliDefinition>, "teamArguments"> & {
   unavailable?: readonly CliFeature[];
 };
 
-/** Without an instruction file argument, the first instruction reads it. */
+/** When the CLI has no separate instruction channel, the first prompt reads the file. */
 function firstInstruction(
   { launch: items }: DefinitionFile,
   { initial, instructionFile, resume }: TeamLaunch,
@@ -344,7 +341,32 @@ function cliDefinition(
   folder: string,
   code?: CliCode,
 ): CliDefinition {
-  const definition = codedDefinition(file, code, folder);
+  const instruction = code?.hooks ? undefined : file.hooks?.instruction;
+  const definition = codedDefinition(
+    file,
+    code,
+    folder,
+    !!(instruction || code?.deliversInstructions),
+  );
+  if (instruction) {
+    const environment = definition.launchEnvironment;
+    definition.launchEnvironment = (launch) => {
+      const env = { ...environment?.(launch) };
+      if (!launch?.instructionFile || launch.resume) return env;
+      env.IORI_CLI_HOOK_INSTRUCTION_FILE = launch.instructionFile;
+      if (instruction !== true) {
+        env.IORI_CLI_HOOK_INSTRUCTION_CLI = file.id;
+        env.IORI_CLI_HOOK_INSTRUCTION_EVENT = instruction.event;
+        env.IORI_CLI_HOOK_INSTRUCTION_FORMAT = instruction.format;
+        if (instruction.once)
+          env.IORI_CLI_HOOK_INSTRUCTION_ONCE = join(
+            launch.teamFilesDirectory,
+            "instruction-delivered.flag",
+          );
+      }
+      return env;
+    };
+  }
   infos.set(definition, {
     file,
     source,
@@ -358,6 +380,7 @@ function codedDefinition(
   file: DefinitionFile,
   code: CliCode | undefined,
   folder: string,
+  deliversInstructions: boolean,
 ): CliDefinition {
   const mode = file.launch.initialPrompt?.mode;
   const built: CliDefinition = {
@@ -375,7 +398,7 @@ function codedDefinition(
       ? {}
       : {
           teamInput: (launch) =>
-            firstInstruction(file, launch, code?.deliversInstructions),
+            firstInstruction(file, launch, deliversInstructions),
         }),
     ...(mode === "paste" ? { waitForBracketedPaste: true } : {}),
     managedTeamArguments: file.launch.managedArguments,
@@ -390,7 +413,7 @@ function codedDefinition(
     teamArguments: (launch) =>
       inDefinitionOrder(
         file,
-        definitionArguments(file, launch, code?.deliversInstructions),
+        definitionArguments(file, launch, deliversInstructions),
       ),
     modelCatalog: definitionModels(file),
     ...(file.resume
@@ -453,7 +476,7 @@ function codedDefinition(
           teamArguments: (launch) =>
             teamArguments(
               launch,
-              definitionArguments(file, launch, code.deliversInstructions),
+              definitionArguments(file, launch, deliversInstructions),
             ),
         }
       : {}),

@@ -22,6 +22,7 @@
   },
   "resume": { "args": ["--resume-id", "{sessionId}"] },
   "hooks": {
+    "instruction": { "event": "SessionStart", "format": "stdout" },
     "file": "~/.kiro/hooks/iori.json",
     "own": true,
     "base": { "version": "v1" },

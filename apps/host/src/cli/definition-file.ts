@@ -26,12 +26,26 @@ export interface DefinitionRule {
   failure?: string[];
   toolFinished?: boolean;
 }
+const instructionFormats = [
+  "inject-steps",
+  "additional-context",
+  "stdout",
+  "message",
+  "context",
+  "additional-context-snake-case",
+] as const;
+interface InstructionHook {
+  event: string;
+  format: (typeof instructionFormats)[number];
+  once?: boolean;
+}
 /** The hooks that this Host writes into a CLI's settings
  * (cli-definitions.md「hooks」). */
 export interface DefinitionFileHooks {
   /** `claude-settings` is `events` at `hooks` with Claude Code's item. */
   format: "events" | "list" | "claude-settings";
   file: DefinitionPath;
+  instruction?: InstructionHook;
   /** Read from the extension of `file`. */
   syntax: HookSyntax;
   /** iori's own file: what it holds besides iori's items (`base`). */
@@ -57,6 +71,7 @@ export type PluginSend = "attention" | "tokens";
  * through a folder or arguments (cli-definitions.md「プラグインだけを持つ CLI」). */
 export interface DefinitionPluginHooks {
   format: "plugin-file";
+  instruction?: true;
   install: { copy: string } & ({ to: DefinitionPath } | { args: string[] });
   /** The features that the bridge sends in the common shape. */
   sends: PluginSend[];
@@ -349,6 +364,24 @@ const holdsCommand = (value: unknown): boolean =>
     : !!value &&
       typeof value === "object" &&
       Object.values(value).some(holdsCommand);
+function instructionHook(value: unknown): InstructionHook {
+  const input = fields(value, "hooks.instruction");
+  const event = name(input.event, "hooks.instruction.event");
+  const format = instructionFormats.find((format) => format === input.format);
+  if (!format)
+    fail({
+      kind: "values",
+      field: "hooks.instruction.format",
+      values: [...instructionFormats],
+    });
+  return {
+    event,
+    format,
+    ...(input.once === undefined
+      ? {}
+      : { once: flag(input.once, "hooks.instruction.once") }),
+  };
+}
 function hooks(value: unknown): DefinitionHooks | undefined {
   const input = available(value, "hooks");
   if (!input) return undefined;
@@ -386,8 +419,11 @@ function hooks(value: unknown): DefinitionHooks | undefined {
         });
       sends.push(item);
     }
+    if (input.instruction !== undefined && input.instruction !== true)
+      fail({ kind: "values", field: "hooks.instruction", values: ["true"] });
     return {
       format: "plugin-file",
+      ...(input.instruction === true ? { instruction: true } : {}),
       install: {
         copy,
         ...(args ? { args } : { to: path(install.to, "hooks.install.to") }),
@@ -431,6 +467,9 @@ function hooks(value: unknown): DefinitionHooks | undefined {
     ...optionalName("sessionId"),
     ...optionalName("transcript"),
     ...optionalName("toolId"),
+    ...(input.instruction === undefined
+      ? {}
+      : { instruction: instructionHook(input.instruction) }),
     rules: list(input.rules, "hooks.rules").map((item, index) =>
       rule(item, `hooks.rules[${index}]`),
     ),

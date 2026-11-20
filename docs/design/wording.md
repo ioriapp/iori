@@ -57,6 +57,7 @@
 | バックグラウンド（background）                       | バックグラウンド                                     | —                                                        | VS Code・Microsoft（「コマンドはバックグラウンドで実行されています」）                       |
 | script（実行するファイル）                           | スクリプト                                           | —                                                        | VS Code・Microsoft（`script`→スクリプト）                                                    |
 | plugin（CLI に読み込ませる部品）                     | プラグイン                                           | —                                                        | VS Code・Microsoft（`plugin`→プラグイン）                                                    |
+| 自動（Auto）                                         | 自動                                                 | —                                                        | VS Code・Apple・Microsoft                                                                    |
 
 ## 表記
 

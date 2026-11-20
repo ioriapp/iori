@@ -3,6 +3,7 @@ import { terminalSubmitPaste } from "./terminal-submit.ts";
 import { commitAtomicFile } from "../fs/atomic-write.ts";
 import { copyDeliveryFile } from "../fs/delivery-file.ts";
 import { filterKittyKeyReleases } from "./kitty-key-release.ts";
+import { isNonKeyTerminalInput } from "./non-key-input.ts";
 import { stoppedDescendantPidsByRoot } from "./stopped-descendants.ts";
 import { visibleScreenLinesFromSnapshot } from "./visible-screen.ts";
 import type { TeamInputKey } from "../teams/commands.ts";
@@ -3192,7 +3193,7 @@ export class TerminalRuntime {
             });
           return;
         }
-        if (message.origin !== "scroll") {
+        if (message.origin !== "scroll" && !isNonKeyTerminalInput(data)) {
           runtime.userInputSinceActivity = true;
           this.#noteCliInput(runtime);
           this.onCliInput?.(runtime.record.id);

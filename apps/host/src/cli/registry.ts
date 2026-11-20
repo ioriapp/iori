@@ -1029,9 +1029,7 @@ export class CliRegistry {
             env: {
               ...(execution ? teamEnvironment?.(execution) : {}),
               ...launchEnvironment?.(
-                version,
-                execution?.candidate.model,
-                execution?.candidate.effort,
+                execution ? { ...execution, version } : undefined,
               ),
             },
           }

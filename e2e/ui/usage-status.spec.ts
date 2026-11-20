@@ -136,3 +136,88 @@ test(
     await expect(page.getByText(/Argon 7d/)).toBeVisible();
   },
 );
+
+test(
+  "ポップオーバーからステータスバーに表示する利用枠を選び再読み込み後も維持する",
+  { tag: "@desktop" },
+  async ({ page, registeredApp: app }) => {
+    await app.open(page);
+    await openFolder(page, app, false);
+    const uploadId = randomUUID();
+    const script = `console.log(JSON.stringify({
+      windows: [
+        { remaining: 25, minutes: 300 },
+        { remaining: 80, minutes: 10080 },
+        { name: "Sonnet", remaining: 100, minutes: 10080 }
+      ]
+    }));`;
+    await app.request("cli.definition.file.write", {
+      uploadId,
+      first: true,
+      data: Buffer.from(script).toString("base64"),
+    });
+    await app.request("cli.definition.save", {
+      definition: JSON.stringify({
+        schema: 1,
+        id: "usage-select-test",
+        name: "Usage select",
+        command: { shell: "node --version" },
+        usage: { script: "usage.mjs" },
+      }),
+      files: [{ name: "usage.mjs", uploadId }],
+    });
+    await page.reload();
+
+    const usage = page.getByRole("button", { name: /Usage select usage/ });
+    await expect(usage).toBeVisible();
+    await expect(usage).toHaveAccessibleName(/75%/);
+    await expect(usage.locator(".usage-mini-graphs > *")).toHaveCount(2);
+
+    await usage.click();
+    const heading = page.getByRole("heading", {
+      name: "Usage select",
+      exact: true,
+    });
+    await expect(heading).toBeVisible();
+
+    const picker = page.getByRole("button", {
+      name: "Window in status bar",
+      exact: true,
+    });
+    await picker.click();
+    await page.getByRole("menuitemradio", { name: "7d", exact: true }).click();
+
+    await expect(page.getByRole("menu")).toBeHidden();
+    await expect(heading).toBeVisible();
+    await expect(usage).toHaveAccessibleName(/20%/);
+
+    await page.reload();
+    await expect(usage).toBeVisible();
+    await expect(usage).toHaveAccessibleName(/20%/);
+
+    await usage.click();
+    await expect(heading).toBeVisible();
+    await picker.click();
+    await page
+      .getByRole("menuitemradio", { name: "Sonnet 7d", exact: true })
+      .click();
+
+    await expect(page.getByRole("menu")).toBeHidden();
+    await expect(heading).toBeVisible();
+    await expect(usage).toHaveAccessibleName(/0%/);
+    await expect(usage.locator(".usage-mini-graphs > *")).toHaveCount(3);
+
+    await picker.click();
+    await page
+      .getByRole("menuitemradio", {
+        name: "Auto (lowest remaining)",
+        exact: true,
+      })
+      .click();
+
+    await expect(page.getByRole("menu")).toBeHidden();
+    await expect(heading).toBeVisible();
+    await expect(usage).toHaveAccessibleName(/75%/);
+    await expect(usage.locator(".usage-mini-graphs > *")).toHaveCount(2);
+  },
+);

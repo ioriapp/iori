@@ -69,9 +69,11 @@ export {
   usageAppliesToModel,
   belowUsageMinimum,
   orderUsageWindows,
+  selectUsageWindow,
   statusBarUsageWindows,
   parseCliUsage,
   type CliUsage,
+  type UsageWindowSelection,
 } from "./cli.ts";
 import {
   isTeamMethod,

@@ -69,6 +69,7 @@
   },
   "resume": { "args": ["--resume", "{sessionId}"] },
   "hooks": {
+    "instruction": { "event": "session_start", "format": "additional-context" },
     "file": {
       "env": "VTCODE_HOME",
       "default": "~/.vtcode",

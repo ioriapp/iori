@@ -22,6 +22,11 @@
   },
   "resume": { "args": ["--resume", "{sessionId}"] },
   "hooks": {
+    "instruction": {
+      "event": "pre_llm_call",
+      "format": "context",
+      "once": true
+    },
     "file": {
       "env": "HERMES_HOME",
       "default": "~/.hermes",

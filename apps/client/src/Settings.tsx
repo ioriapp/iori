@@ -66,6 +66,7 @@ import {
   type FolderHistoryItem,
   type Invite,
   type TerminalShell,
+  type UsageWindowSelection,
 } from "@iori/protocol";
 import { connection } from "./connection.ts";
 import { registeredDateMessage, registeredMessage } from "./i18n.ts";
@@ -119,6 +120,7 @@ export type Preferences = {
   fontSize: number;
   usageDisplay?: "remaining" | "used";
   usageGraph?: "bar" | "circle";
+  usageWindows?: Record<string, UsageWindowSelection>;
   terminalFontSize: number;
   terminalFontFamily: string;
   showForgeStatus?: boolean;

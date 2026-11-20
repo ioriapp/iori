@@ -12,7 +12,8 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { spawn } from "node:child_process";
+import { execFile, execFileSync, spawn } from "node:child_process";
+import { promisify } from "node:util";
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
 import { hookInstallContext, removeCliHooks } from "./hook-install.ts";
@@ -236,4 +237,160 @@ test("symlinkの設定と利用者のコメントを保ち、Codexの設定が�
     });
     await rm(home, { recursive: true, force: true });
   }
+});
+
+test("チームの hook が対応するイベントで指示を返し、すべてのイベントを Host に届ける", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "iori-instructions-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const file = join(dir, "instructions.md");
+  const content = "チームの指示\nsecond line";
+  await writeFile(file, content);
+  const events: string[] = [];
+  const server = createServer(async (req, res) => {
+    let body = "";
+    for await (const chunk of req) body += chunk;
+    events.push(JSON.parse(body).hook_event_name);
+    res.end();
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise<void>((resolve) => server.close(() => resolve())));
+  const address = server.address();
+  assert.ok(address && typeof address !== "string");
+  const url = `http://127.0.0.1:${address.port}/`;
+  const expectedEvents: string[] = [];
+  for (const [id, event, expected, once] of [
+    [
+      "antigravity",
+      "SessionStart",
+      { injectSteps: [{ systemMessage: { systemMessage: content } }] },
+    ],
+    ["kiro", "SessionStart", content],
+    [
+      "vtcode",
+      "session_start",
+      {
+        hookSpecificOutput: {
+          hookEventName: "SessionStart",
+          additionalContext: content,
+        },
+      },
+    ],
+    ["kimi-code", "UserPromptSubmit", { message: content }, true],
+    ["hermes", "pre_llm_call", { context: content }, true],
+    [
+      "vibe",
+      "session_start",
+      { hook_specific_output: { additional_context: content } },
+    ],
+  ] as const) {
+    const launch = {
+      candidate: { cli: id, id: "parent", model: "", tools: [], minimum: "" },
+      trustWorkspace: false,
+      instructions: content,
+      instructionFile: file,
+      commandDirectory: dir,
+      teamFilesDirectory: dir,
+    };
+    const definition = cliDefinitions.find((cli) => cli.id === id)!;
+    const environment = definition.launchEnvironment?.(launch);
+    assert.equal(
+      {
+        ...definition.launchEnvironment?.({ ...launch, resume: true }),
+        ...definition.teamEnvironment?.(launch),
+      }.IORI_CLI_HOOK_INSTRUCTION_FILE,
+      undefined,
+    );
+    const call = async (
+      name: string,
+      registeredId = id as string,
+      hookUrl = url,
+      instructionFile = environment?.IORI_CLI_HOOK_INSTRUCTION_FILE,
+    ) => {
+      const reply =
+        id === "antigravity"
+          ? Buffer.from(
+              name === "PreToolUse" ? '{"decision":"ask"}' : "{}",
+            ).toString("base64url")
+          : "-";
+      if (hookUrl) expectedEvents.push(name);
+      const result = promisify(execFile)(
+        process.execPath,
+        [
+          fileURLToPath(new URL("./hook-script.mjs", import.meta.url)),
+          id === "kiro" ? "-" : name,
+          reply,
+          registeredId,
+        ],
+        {
+          env: {
+            ...process.env,
+            ...environment,
+            IORI_CLI_HOOK_URL: hookUrl,
+            IORI_CLI_HOOK_INSTRUCTION_FILE: instructionFile,
+          },
+        },
+      );
+      result.child.stdin!.end(JSON.stringify({ hook_event_name: name }));
+      return (await result).stdout;
+    };
+    assert.equal(
+      await call(event),
+      (typeof expected === "string" ? expected : JSON.stringify(expected)) +
+        "\n",
+      id,
+    );
+    if (once) {
+      assert.equal(await call(event), "");
+      await rm(environment!.IORI_CLI_HOOK_INSTRUCTION_ONCE!);
+    }
+    if (id === "antigravity") {
+      assert.equal(await call(event, "another"), "{}\n");
+      assert.equal(await call(event, id, ""), "{}\n");
+      assert.equal(await call(event, id, url, join(dir, "missing")), "{}\n");
+      assert.equal(await call("PreToolUse"), '{"decision":"ask"}\n');
+    }
+  }
+  assert.deepEqual(events, expectedEvents);
+});
+
+test("Amp は最初の agent.start だけに非表示のチームの指示を返す", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "iori-amp-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const file = join(dir, "instructions.md");
+  await writeFile(file, "Team context");
+  const definition = cliDefinitions.find((cli) => cli.id === "amp")!;
+  const environment = definition.launchEnvironment?.({
+    candidate: { cli: "amp", id: "parent", model: "", tools: [], minimum: "" },
+    trustWorkspace: false,
+    instructions: "Team context",
+    instructionFile: file,
+    commandDirectory: dir,
+    teamFilesDirectory: dir,
+  });
+  const output = execFileSync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "-e",
+      `
+    import bridge from ${JSON.stringify(new URL("./amp/iori-bridge.js", import.meta.url).href)};
+    const callbacks = new Map();
+    bridge({on: (name, callback) => callbacks.set(name,callback)});
+    const start = callbacks.get("agent.start");
+    console.log(JSON.stringify([await start({}),await start({})]));
+  `,
+    ],
+    {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        ...environment,
+        IORI_CLI_HOOK_URL: "http://127.0.0.1:1/",
+      },
+    },
+  );
+  assert.deepEqual(JSON.parse(output), [
+    { message: { content: "Team context", display: false } },
+    null,
+  ]);
 });

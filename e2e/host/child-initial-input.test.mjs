@@ -130,11 +130,10 @@ for (const childDefinition of [undefined, "kimi-code", "vtcode"])
         const child = await client.terminal(changed.child.terminalId);
         await child.output("NO_READY_SCREEN");
         stage("子のPTYに最初の依頼が届く");
-        await child.waitFor(({ output }) =>
-          /INITIAL_REQUEST_RECEIVED:Read .+ and follow its instructions\. Then open the file .+ with your file-reading tool/u.test(
-            output,
-          ),
-        );
+        const firstRequest = childDefinition
+          ? /INITIAL_REQUEST_RECEIVED:Open the file .+ with your file-reading tool/u
+          : /INITIAL_REQUEST_RECEIVED:Read .+ and follow its instructions\. Then open the file .+ with your file-reading tool/u;
+        await child.waitFor(({ output }) => firstRequest.test(output));
         stage("親のPTYから子へ後続の依頼を送る");
         await actorCommand(parentPty, "barrier", [
           "send",
@@ -283,7 +282,7 @@ test("Antigravity CLIの子は追加したリポジトリとそのworktreeで信
     assert.ok(prompt >= 0, JSON.stringify(created.args));
     assert.match(
       created.args[prompt + 1],
-      /^Read .+ and follow its instructions\. Then open the file .+ and follow the delegated request\.$/u,
+      /^Open the file .+ and follow the delegated request\.$/u,
     );
     stage("親のフォルダーで動く子も、そのフォルダーだけを信頼する指定を受ける");
     const shared = await launched("parent");
