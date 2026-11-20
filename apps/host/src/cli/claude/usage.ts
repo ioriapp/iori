@@ -68,47 +68,81 @@ export function readUsage(
   const windows: CliUsage["windows"] = [];
   for (const line of text.split(/\r?\n/u)) {
     const match =
-      /^Current (session|week \(([^)]+)\)): (\d+(?:\.\d+)?)% used · resets ([A-Z][a-z]{2}) (\d{1,2}), (?:(\d{4}), )?(\d{1,2})(?::(\d{2}))?(am|pm) \(([^()]+)\)$/u.exec(
+      /^Current (session|week \(([^)]+)\)): (\d+(?:\.\d+)?)% used(?: · resets (?:([A-Z][a-z]{2}) (\d{1,2}), (?:(\d{4}), )?)?(\d{1,2})(?::(\d{2}))?(am|pm) \(([^()]+)\))?$/u.exec(
         line,
       );
     if (!match) continue;
     const used = Number(match[3]);
-    const month = [
-      "Jan",
-      "Feb",
-      "Mar",
-      "Apr",
-      "May",
-      "Jun",
-      "Jul",
-      "Aug",
-      "Sep",
-      "Oct",
-      "Nov",
-      "Dec",
-    ].indexOf(match[4]!);
-    const day = Number(match[5]),
-      hour = Number(match[7]),
-      minute = Number(match[8] ?? 0);
-    if (
-      used > 100 ||
-      month < 0 ||
-      day < 1 ||
-      day > 31 ||
-      hour < 1 ||
-      hour > 12 ||
-      minute > 59
-    )
-      continue;
-    const year = match[6] ? Number(match[6]) : new Date(now).getUTCFullYear();
-    const localHour = (hour % 12) + (match[9] === "pm" ? 12 : 0);
-    const resetsAt = timeInUtc(year, month, day, localHour, minute, match[10]!);
-    if (resetsAt === undefined) continue;
+    if (used > 100) continue;
+    let resetsAt: number | undefined;
+    if (match[7]) {
+      const hour = Number(match[7]),
+        minute = Number(match[8] ?? 0);
+      if (hour < 1 || hour > 12 || minute > 59) continue;
+      const localHour = (hour % 12) + (match[9] === "pm" ? 12 : 0);
+      const timeZone = match[10]!;
+      if (match[4]) {
+        const month = [
+          "Jan",
+          "Feb",
+          "Mar",
+          "Apr",
+          "May",
+          "Jun",
+          "Jul",
+          "Aug",
+          "Sep",
+          "Oct",
+          "Nov",
+          "Dec",
+        ].indexOf(match[4]);
+        const day = Number(match[5]);
+        if (month < 0 || day < 1 || day > 31) continue;
+        const year = match[6]
+          ? Number(match[6])
+          : new Date(now).getUTCFullYear();
+        resetsAt = timeInUtc(year, month, day, localHour, minute, timeZone);
+      } else {
+        let parts: Intl.DateTimeFormatPart[];
+        try {
+          parts = new Intl.DateTimeFormat("en-US-u-nu-latn", {
+            timeZone,
+            year: "numeric",
+            month: "numeric",
+            day: "numeric",
+          }).formatToParts(new Date(now));
+        } catch {
+          continue;
+        }
+        const field = (type: Intl.DateTimeFormatPartTypes) =>
+          Number(parts.find((part) => part.type === type)?.value);
+        for (const delta of [-1, 0, 1]) {
+          const date = new Date(
+            Date.UTC(field("year"), field("month") - 1, field("day") + delta),
+          );
+          const candidate = timeInUtc(
+            date.getUTCFullYear(),
+            date.getUTCMonth(),
+            date.getUTCDate(),
+            localHour,
+            minute,
+            timeZone,
+          );
+          if (
+            candidate !== undefined &&
+            (resetsAt === undefined ||
+              Math.abs(candidate - now) < Math.abs(resetsAt - now))
+          )
+            resetsAt = candidate;
+        }
+      }
+      if (resetsAt === undefined) continue;
+    }
     const name = match[2] && match[2] !== "all models" ? match[2] : undefined;
     windows.push({
       remaining: 100 - used,
       minutes: match[1] === "session" ? 300 : 10080,
-      resetsAt,
+      ...(resetsAt !== undefined ? { resetsAt } : {}),
       ...(name
         ? {
             name,

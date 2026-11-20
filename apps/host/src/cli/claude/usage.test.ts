@@ -107,3 +107,41 @@ test("Claude's explicit UTC reset year is retained", () => {
     Date.parse("2027-01-02T03:00:00Z"),
   );
 });
+test("日付のないリセット時刻を現在時刻に最も近い現地日時として読む", () => {
+  for (const [now, reset, expected] of [
+    ["2026-11-20T12:00:00Z", "11:30pm", "2026-11-20T14:30:00Z"],
+    ["2026-11-20T14:55:00Z", "12:30am", "2026-11-20T15:30:00Z"],
+    ["2026-11-20T15:00:10Z", "11:59pm", "2026-11-20T14:59:00Z"],
+  ]) {
+    assert.deepEqual(
+      readUsage(
+        { result: `Current session: 15% used · resets ${reset} (Asia/Tokyo)` },
+        Date.parse(now!),
+      ),
+      {
+        windows: [
+          { remaining: 85, minutes: 300, resetsAt: Date.parse(expected!) },
+        ],
+      },
+    );
+  }
+});
+test("リセット時刻のない利用枠を読み、不正なリセット文字列は無視する", () => {
+  assert.deepEqual(
+    readUsage({
+      result:
+        "Current session: 0% used\nCurrent week (Fable): 0% used\nCurrent session: 5% used · resets invalid",
+    }),
+    {
+      windows: [
+        { remaining: 100, minutes: 300 },
+        {
+          remaining: 100,
+          minutes: 10080,
+          name: "Fable",
+          modelPatterns: ["fable", "fable-*", "claude-fable-*", "claude-fable"],
+        },
+      ],
+    },
+  );
+});
