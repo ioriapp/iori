@@ -6,6 +6,7 @@ import type {
   WorktreeRemovalWorking,
 } from "@iori/protocol";
 import { CircleAlert, TriangleAlert } from "lucide-react";
+import { cn } from "cn";
 import { connection } from "./connection.ts";
 import { Button } from "./components/ui/button.tsx";
 import { Checkbox } from "./components/ui/checkbox.tsx";
@@ -28,7 +29,6 @@ import {
 import { FieldRow, SettingsSection } from "./components/page-layout.tsx";
 import { worktreeLabel } from "./workspace-panel.tsx";
 import { MiddleEllipsis } from "./MiddleEllipsis.tsx";
-import "./worktree-creator.css";
 
 const workStates: Record<WorktreeRemovalWorking["state"], string> = {
   running: "Running",
@@ -50,12 +50,9 @@ function Name({
   "data-iori-removal-name"?: string;
 }) {
   return (
-    <span className="worktree-removal-name" title={children} {...rest}>
+    <span className="block min-w-0 flex-1 truncate" title={children} {...rest}>
       {middle ? (
-        <MiddleEllipsis
-          text={children}
-          className="worktree-removal-fitted-name"
-        />
+        <MiddleEllipsis text={children} className="block w-full" />
       ) : (
         children
       )}
@@ -65,14 +62,13 @@ function Name({
 
 function heading(title: string, warning = false) {
   return (
-    <span
-      className={
-        warning
-          ? "worktree-removal-warning-heading"
-          : "worktree-removal-heading"
-      }
-    >
-      {warning && <TriangleAlert aria-hidden="true" />}
+    <span className="inline-flex max-w-full min-w-0 items-center gap-1.5">
+      {warning && (
+        <TriangleAlert
+          className="size-3.5 shrink-0 text-destructive"
+          aria-hidden="true"
+        />
+      )}
       {title}
     </span>
   );
@@ -274,7 +270,7 @@ export function WorktreeRemoval({
       }}
     >
       <DialogContent
-        className="folder-dialog worktree-create-dialog removal-dialog"
+        className="max-h-[calc(100dvh-1.5rem)] w-[min(35rem,calc(100vw-1.5rem))] max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-lg border border-border bg-popover shadow-md sm:max-w-[35rem] [&>*]:min-w-0 [&_[data-slot=dialog-body]]:flex-[0_1_auto] [&_[data-slot=dialog-description]]:[overflow-wrap:anywhere] [&_[data-slot=dialog-footer]]:flex-none [&_[data-slot=dialog-footer]]:flex-wrap [&_[data-slot=dialog-header]]:min-w-0 [&_[data-slot=dialog-header]]:flex-none [&_[data-slot=dialog-header]]:pr-7"
         onOpenAutoFocus={(event) => {
           event.preventDefault();
           cancel.current?.focus();
@@ -299,12 +295,12 @@ export function WorktreeRemoval({
           {multiple ? (
             !loading &&
             items.length > 0 && (
-              <DialogDescription className="worktree-removal-summary">
+              <DialogDescription className="text-popover-foreground">
                 {countText(t, "{count} worktrees will be deleted.", count)}
               </DialogDescription>
             )
           ) : (
-            <DialogDescription className="worktree-removal-summary">
+            <DialogDescription className="text-popover-foreground">
               {t("{name} will be deleted.").replace(
                 "{name}",
                 () =>
@@ -324,14 +320,18 @@ export function WorktreeRemoval({
                 <PreviousFailure key={failure.path} failure={failure} t={t} />
               ))}
             {previews.some((entry) => entry.fetchFailed) && (
-              <p role="status" data-iori-fetch-warning="true">
+              <p
+                className="m-0 text-xs leading-relaxed text-muted-foreground"
+                role="status"
+                data-iori-fetch-warning="true"
+              >
                 {t(
                   "Fetch failed. Merged worktrees are checked against local references, which may be out of date.",
                 )}
               </p>
             )}
             {loading ? (
-              <p>
+              <p className="m-0 text-sm text-muted-foreground">
                 {t(
                   cleanup && !failures
                     ? "Fetching and checking worktrees…"
@@ -339,89 +339,97 @@ export function WorktreeRemoval({
                 )}
               </p>
             ) : items.length === 0 && !error && failedPreviews.length === 0 ? (
-              <p>{t("No merged worktrees to delete.")}</p>
+              <p className="m-0 text-sm text-muted-foreground">
+                {t("No merged worktrees to delete.")}
+              </p>
             ) : multiple ? (
-              <div className="section-body">
-                <div className="section-rows">
-                  {items.map((item) => (
-                    <div
-                      key={item.path}
-                      className="field-row removal-merged-item"
+              <div className="flex min-w-0 flex-col divide-y divide-border-subtle border-y border-border">
+                {items.map((item) => (
+                  <div
+                    key={item.path}
+                    className="grid min-w-0 grid-cols-1 gap-1 py-2.5"
+                  >
+                    <label
+                      className="flex min-w-0 cursor-default items-center gap-3 text-sm font-medium text-foreground [@media(pointer:coarse)]:min-h-11"
+                      data-iori-removal-candidate={item.path}
                     >
-                      <label
-                        className="worktree-removal-select"
-                        data-iori-removal-candidate={item.path}
-                      >
-                        <Checkbox
-                          checked={selected.includes(item.path)}
-                          disabled={selectedRoots.some(
-                            (parent) =>
-                              parent.path !== item.path &&
-                              removalTree(parent.worktrees).some(
-                                (child) => child.path === item.path,
-                              ),
-                          )}
-                          data-iori-removal-select={item.path}
-                          onCheckedChange={(checked) =>
-                            setSelected((current) =>
-                              checked
-                                ? [
-                                    ...new Set([
-                                      ...current,
-                                      ...items
-                                        .filter((candidate) =>
-                                          removalTree([item]).some(
-                                            (child) =>
-                                              child.path === candidate.path,
-                                          ),
-                                        )
-                                        .map((candidate) => candidate.path),
-                                    ]),
-                                  ]
-                                : current.filter((path) => path !== item.path),
-                            )
-                          }
+                      <Checkbox
+                        checked={selected.includes(item.path)}
+                        disabled={selectedRoots.some(
+                          (parent) =>
+                            parent.path !== item.path &&
+                            removalTree(parent.worktrees).some(
+                              (child) => child.path === item.path,
+                            ),
+                        )}
+                        data-iori-removal-select={item.path}
+                        onCheckedChange={(checked) =>
+                          setSelected((current) =>
+                            checked
+                              ? [
+                                  ...new Set([
+                                    ...current,
+                                    ...items
+                                      .filter((candidate) =>
+                                        removalTree([item]).some(
+                                          (child) =>
+                                            child.path === candidate.path,
+                                        ),
+                                      )
+                                      .map((candidate) => candidate.path),
+                                  ]),
+                                ]
+                              : current.filter((path) => path !== item.path),
+                          )
+                        }
+                      />
+                      <Name middle data-iori-removal-name={item.path}>
+                        {name(item)}
+                      </Name>
+                    </label>
+                    {failures
+                      ?.filter((failure) => failure.path === item.path)
+                      .map((failure) => (
+                        <PreviousFailure
+                          key={failure.path}
+                          failure={failure}
+                          t={t}
                         />
-                        <Name middle data-iori-removal-name={item.path}>
-                          {name(item)}
-                        </Name>
-                      </label>
-                      {failures
-                        ?.filter((failure) => failure.path === item.path)
-                        .map((failure) => (
-                          <PreviousFailure
-                            key={failure.path}
-                            failure={failure}
-                            t={t}
-                          />
-                        ))}
-                    </div>
-                  ))}
-                </div>
+                      ))}
+                  </div>
+                ))}
               </div>
             ) : null}
             {!loading && failedPreviews.length > 0 && (
-              <div className="section-body">
-                {failedPreviews.map((failure) => (
-                  <div
-                    key={failure.path}
-                    className="field-row removal-merged-item"
-                  >
-                    <Name middle>
-                      {worktreeLabel(undefined, failure.path, path)}
-                    </Name>
-                    <PreviousFailure failure={failure} t={t} />
-                  </div>
-                ))}
-                <p role="alert">
+              <div className="flex min-w-0 flex-col gap-3 border-y border-border py-3">
+                <div className="flex min-w-0 flex-col divide-y divide-border-subtle">
+                  {failedPreviews.map((failure) => (
+                    <div
+                      key={failure.path}
+                      className="grid min-w-0 grid-cols-1 gap-1 py-2 first:pt-0 last:pb-0"
+                    >
+                      <Name middle>
+                        {worktreeLabel(undefined, failure.path, path)}
+                      </Name>
+                      <PreviousFailure failure={failure} t={t} />
+                    </div>
+                  ))}
+                </div>
+                <p
+                  className="m-0 text-xs leading-relaxed text-status-failed-text"
+                  role="alert"
+                >
                   {t("Could not load worktrees. Check Git and retry.")}
                 </p>
-                <Button
-                  variant="outline"
-                  onClick={() => setReload((value) => value + 1)}
-                >
-                  {t("Retry")}
-                </Button>
+                <div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setReload((value) => value + 1)}
+                  >
+                    {t("Retry")}
+                  </Button>
+                </div>
               </div>
             )}
             {(!cleanup || failures) && !loading && (
@@ -537,19 +545,20 @@ export function WorktreeRemoval({
                         return (
                           <div
                             key={item.path}
-                            className="field-row worktree-removal-branch"
+                            className="flex min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 py-3.5"
                             data-iori-removal-branch={branch}
                           >
-                            <div className="field-copy">
+                            <div className="min-w-0 max-w-full flex-1 text-sm font-medium text-foreground">
                               <Name middle>{branch}</Name>
                               {/* Marking the branch replaces the count with
                                   what disappears, in the body's own color. */}
                               <p
-                                className={
+                                className={cn(
+                                  "mt-0.5 mb-0 text-xs leading-relaxed font-normal",
                                   checked
-                                    ? "page-description worktree-removal-loss"
-                                    : "page-description"
-                                }
+                                    ? "text-popover-foreground"
+                                    : "text-muted-foreground",
+                                )}
                                 data-iori-removal-branch-loss={
                                   checked ? "true" : undefined
                                 }
@@ -567,7 +576,7 @@ export function WorktreeRemoval({
                                 )}
                               </p>
                             </div>
-                            <label className="field-control worktree-removal-branch-toggle">
+                            <label className="ml-auto flex shrink-0 cursor-default items-center gap-2 text-xs font-normal text-foreground [@media(pointer:coarse)]:min-h-11">
                               <Checkbox
                                 checked={checked}
                                 data-iori-removal-branch-select={branch}
@@ -613,7 +622,14 @@ export function WorktreeRemoval({
                 )}
               </>
             )}
-            {error && <p role="alert">{t(error)}</p>}
+            {error && (
+              <p
+                className="m-0 text-xs leading-relaxed text-status-failed-text [overflow-wrap:anywhere]"
+                role="alert"
+              >
+                {t(error)}
+              </p>
+            )}
           </DialogBody>
         )}
         <DialogFooter>
@@ -657,17 +673,20 @@ function PreviousFailure({
   t: (key: string) => string;
 }) {
   return (
-    <div className="removal-previous" role="alert">
-      <CircleAlert aria-hidden="true" />
-      <div>
-        <p>
+    <div className="flex items-start gap-2 text-foreground" role="alert">
+      <CircleAlert
+        className="mt-1 size-4 shrink-0 text-status-failed"
+        aria-hidden="true"
+      />
+      <div className="grid min-w-0 flex-1 gap-1">
+        <p className="m-0 leading-relaxed [overflow-wrap:anywhere]">
           {t("Could not delete it last time. {reason}").replace(
             "{reason}",
             () => removalReason(failure, t),
           )}
         </p>
         {failure.stopped && (
-          <p className="removal-stopped">
+          <p className="m-0 text-xs leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
             {t("The CLI and Terminal in this worktree were stopped.")}
           </p>
         )}

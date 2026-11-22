@@ -2,7 +2,6 @@ import type { AttentionItem } from "../../apps/client/src/attention.ts";
 import { MobileHome } from "../../apps/client/src/MobileHome.tsx";
 import { SidebarProvider } from "../../apps/client/src/components/ui/sidebar.tsx";
 import { translator } from "../../apps/client/src/i18n.ts";
-import "../../apps/client/src/mobile-workspace.css";
 
 const host = {
   publicKey: "approval-preview",

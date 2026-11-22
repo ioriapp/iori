@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { cn } from "cn";
 import { Check, ChevronDown, Info, TriangleAlert } from "lucide-react";
 import { Button } from "../ui/button.tsx";
 import {
@@ -8,14 +9,13 @@ import {
 } from "../ui/collapsible.tsx";
 import { Spinner } from "../ui/spinner.tsx";
 import { native } from "../../native.ts";
-import "./flow.css";
 
 /** Host・端末・ユーザー・接続先などの名前を改行で割らない。 */
 export function Name({ children }: { children: ReactNode }) {
-  return <span className="host-flow-name">{children}</span>;
+  return <span className="whitespace-nowrap">{children}</span>;
 }
 
-/** 文中の可変の名前を、見本の nm と同じ span にする。 */
+/** 文中の可変の名前を、改行で割らない span にする。 */
 export function rich(
   node: ReactNode,
   names: readonly string[] = [],
@@ -51,6 +51,7 @@ export function P({
 }) {
   return <p className={className}>{rich(children, names)}</p>;
 }
+
 export function Text({
   children,
   muted = false,
@@ -61,27 +62,40 @@ export function Text({
   names?: readonly string[];
 }) {
   return (
-    <P className={muted ? "host-setup-note" : "host-setup-text"} names={names}>
+    <P
+      className={
+        muted
+          ? "m-0 text-xs text-muted-foreground [overflow-wrap:anywhere]"
+          : "m-0 text-sm text-foreground [overflow-wrap:anywhere]"
+      }
+      names={names}
+    >
       {children}
     </P>
   );
 }
+
 export function Status({ children }: { children: ReactNode }) {
   return (
-    <p className="host-setup-status" role="status">
-      <Spinner aria-hidden="true" />
+    <p
+      className="m-0 flex items-center gap-2 text-sm text-foreground"
+      role="status"
+    >
+      <Spinner aria-hidden="true" className="shrink-0 text-muted-foreground" />
       {children}
     </p>
   );
 }
+
 export function Connecting({ t }: { t: (key: string) => string }) {
   return (
-    <span className="host-connecting" role="status">
-      <Spinner aria-hidden="true" />
+    <span className="inline-flex items-center gap-1.5" role="status">
+      <Spinner aria-hidden="true" className="size-3.5 shrink-0" />
       {t("Connecting")}
     </span>
   );
 }
+
 export function Notice({
   tone,
   heading,
@@ -94,19 +108,52 @@ export function Notice({
   names?: readonly string[];
 }) {
   const Icon = tone === "info" ? Info : TriangleAlert;
+  const surfaceClass =
+    tone === "error"
+      ? "border-status-failed-border bg-status-failed-bg/35"
+      : tone === "warning"
+        ? "border-status-waiting-border bg-status-waiting-bg/35"
+        : "border-border-subtle bg-muted/40";
+  const iconClass =
+    tone === "error"
+      ? "text-status-failed"
+      : tone === "warning"
+        ? "text-status-waiting"
+        : "text-muted-foreground";
+  const headingClass =
+    tone === "error"
+      ? "font-semibold text-status-failed-text"
+      : tone === "warning"
+        ? "font-semibold text-status-waiting-text"
+        : "font-semibold text-foreground";
   return (
     <div
-      className={`host-notice is-${tone}`}
+      className={cn(
+        "grid grid-cols-[1rem_minmax(0,1fr)] items-start gap-2 rounded-md border px-3 py-2.5 text-sm text-foreground",
+        surfaceClass,
+      )}
       role={tone === "info" ? undefined : "alert"}
     >
-      <Icon aria-hidden="true" />
-      <div className="body">
-        {heading && <div className="heading">{rich(heading, names)}</div>}
+      <Icon
+        aria-hidden="true"
+        className={cn("mt-0.5 size-4 shrink-0", iconClass)}
+      />
+      <div
+        className={cn(
+          "grid min-w-0 justify-items-stretch gap-2",
+          "[&_p]:m-0 [&_p]:[overflow-wrap:anywhere]",
+          "[&>[data-slot=button]]:justify-self-start",
+          "[&_.lines]:grid [&_.lines]:min-w-0 [&_.lines]:gap-0.5 [&_.lines]:font-mono [&_.lines]:text-xs [&_.lines]:[overflow-wrap:anywhere]",
+          "[&_.lines.is-plain]:font-sans [&_.lines.is-plain]:text-sm",
+        )}
+      >
+        {heading && <div className={headingClass}>{rich(heading, names)}</div>}
         {rich(children, names)}
       </div>
     </div>
   );
 }
+
 export function Failure({
   heading,
   children,
@@ -120,12 +167,19 @@ export function Failure({
     </Notice>
   );
 }
+
 export function Warning({ children }: { children: ReactNode }) {
   return <Notice tone="warning">{children}</Notice>;
 }
+
 export function Original({ children }: { children: string }) {
-  return <pre className="host-setup-original">{children}</pre>;
+  return (
+    <pre className="m-0 rounded-md border border-border-subtle bg-muted/40 px-2.5 py-2 font-mono text-xs leading-normal whitespace-pre-wrap [overflow-wrap:anywhere] text-muted-foreground [font-variant-ligatures:none]">
+      {children}
+    </pre>
+  );
 }
+
 export function SshOriginal({
   children,
   initialOpen = false,
@@ -137,20 +191,22 @@ export function SshOriginal({
 }) {
   const [open, setOpen] = useState(initialOpen);
   return (
-    <Collapsible
-      open={open}
-      onOpenChange={setOpen}
-      className="host-ssh-original"
-    >
+    <Collapsible open={open} onOpenChange={setOpen} className="grid gap-1.5">
       <CollapsibleTrigger asChild>
         <Button
           variant="outline"
           size="sm"
-          className="host-ssh-original-trigger"
+          className="justify-self-start text-muted-foreground"
           aria-expanded={open}
         >
           {t("SSH output")}
-          <ChevronDown className={open ? "is-open" : ""} />
+          <ChevronDown
+            className={cn(
+              "size-3.5 transition-transform",
+              open && "rotate-180",
+            )}
+            aria-hidden="true"
+          />
         </Button>
       </CollapsibleTrigger>
       <CollapsibleContent>
@@ -159,9 +215,15 @@ export function SshOriginal({
     </Collapsible>
   );
 }
+
 export function Mono({ children }: { children: string }) {
-  return <code className="host-mono">{children}</code>;
+  return (
+    <code className="font-mono text-[0.92em] [font-variant-ligatures:none]">
+      {children}
+    </code>
+  );
 }
+
 export function Command({
   children,
   t,
@@ -204,8 +266,16 @@ export function Command({
     setCopyError(false);
   }, [children]);
   return (
-    <div className="host-command">
-      <code className="host-command-frame" ref={measure}>
+    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
+      <code
+        className={cn(
+          "min-w-0 overflow-x-auto rounded-md border border-border-subtle bg-muted px-3 py-1.5 font-mono text-xs leading-relaxed whitespace-pre [font-variant-ligatures:none] [scrollbar-width:none]",
+          "data-[right=true]:[mask-image:linear-gradient(to_right,var(--foreground)_calc(100%-1.75rem),transparent)]",
+          "data-[left=true]:[mask-image:linear-gradient(to_right,transparent,var(--foreground)_1.75rem)]",
+          "data-[left=true]:data-[right=true]:[mask-image:linear-gradient(to_right,transparent,var(--foreground)_1.75rem,var(--foreground)_calc(100%-1.75rem),transparent)]",
+        )}
+        ref={measure}
+      >
         {children}
       </code>
       <Button
@@ -228,13 +298,17 @@ export function Command({
         {t("Copy")}
       </Button>
       {copyError && (
-        <p role="alert" style={{ gridColumn: "1 / -1" }}>
+        <p
+          role="alert"
+          className="col-span-full m-0 text-xs text-status-failed-text"
+        >
           {t("Could not copy. Select the text and copy it.")}
         </p>
       )}
     </div>
   );
 }
+
 export function Summary({
   children,
   names,
@@ -243,7 +317,10 @@ export function Summary({
   names?: readonly string[];
 }) {
   return (
-    <p className="host-setup-summary" title={children}>
+    <p
+      className="m-0 truncate text-sm font-medium text-foreground"
+      title={children}
+    >
       {rich(children, names)}
     </p>
   );

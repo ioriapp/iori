@@ -207,7 +207,7 @@ function UninstallPrompt({
         : t("SSH response");
   return (
     <form
-      className="ssh-setup-prompt"
+      className="grid gap-2.5 rounded-md border border-border bg-card p-3"
       onSubmit={(event) => {
         event.preventDefault();
         answer(prompt.kind === "hostKeyNew" ? "yes" : value);
@@ -230,7 +230,10 @@ function UninstallPrompt({
                 )}
             </Text>
           ) : (
-            <label className="label" htmlFor={id}>
+            <label
+              className="text-sm font-medium text-foreground [overflow-wrap:anywhere]"
+              htmlFor={id}
+            >
               {label}
             </label>
           )}
@@ -245,7 +248,7 @@ function UninstallPrompt({
               data-iori-field="ssh-answer"
             />
           )}
-          <div className="actions">
+          <div className="flex flex-wrap justify-end gap-2">
             <Button type="submit" size="lg" data-iori-action="ssh-answer">
               {t(prompt.kind === "hostKeyNew" ? "Connect" : "Send")}
             </Button>
@@ -292,8 +295,9 @@ export function HostUninstallDialog({
   };
   let description: ReactNode = hostName;
   const connecting = (
-    <span className="host-desc-line">
-      <span className="host-flow-name">{hostName}</span> · <Connecting t={t} />
+    <span className="inline-flex items-center gap-1">
+      <span className="whitespace-nowrap">{hostName}</span> ·{" "}
+      <Connecting t={t} />
     </span>
   );
   let panel: ReactNode;
@@ -332,7 +336,7 @@ export function HostUninstallDialog({
     case "confirming":
       if (!connected) description = connecting;
       panel = (
-        <div className="host-panel-stack">
+        <div className="grid content-start gap-3">
           <Text names={names}>
             {onHost(t, "Uninstall iori Host on {host}?", hostName)}
           </Text>
@@ -346,8 +350,8 @@ export function HostUninstallDialog({
               "The iori Host program and automatic startup registration will be removed, along with entries added by iori to CLI settings. Development files and CLI conversations, settings, and sign-ins will remain.",
             )}
           </Text>
-          <div className="host-data-option">
-            <label className="host-setup-check">
+          <div className="grid gap-1.5 [&>p]:pl-[1.625rem]">
+            <label className="flex items-center gap-2.5 text-sm [@media(pointer:coarse)]:min-h-11">
               <Checkbox
                 checked={deleteData}
                 onCheckedChange={(checked) => setDeleteData(checked === true)}
@@ -410,7 +414,7 @@ export function HostUninstallDialog({
       break;
     case "sshPrompt":
       panel = (
-        <div className="host-panel-stack">
+        <div className="grid content-start gap-3">
           {phase.prompt.attempt > 1 && (
             <Failure>
               <P>
@@ -559,7 +563,7 @@ export function HostUninstallDialog({
     case "done": {
       const outcome = phase.outcome;
       panel = (
-        <div className="host-panel-stack host-uninstall-result">
+        <div className="grid content-start gap-3 [&_p]:text-pretty [&_p]:[word-break:auto-phrase]">
           <Text names={names}>
             {onHost(
               t,
@@ -583,7 +587,7 @@ export function HostUninstallDialog({
                       : "Could not delete the tokens for these sites. Revoke each token on its site, then delete it from Credential Manager or the keyring.",
                 )}
               </P>
-              <div className="lines is-plain">
+              <div className="grid min-w-0 gap-0.5 text-sm [overflow-wrap:anywhere]">
                 {outcome.sites.map((site) => (
                   <span key={site}>{site}</span>
                 ))}
@@ -596,7 +600,7 @@ export function HostUninstallDialog({
               {outcome.processes.length > 0 && (
                 <>
                   <P>{t("Could not stop these processes:")}</P>
-                  <div className="lines is-plain">
+                  <div className="grid min-w-0 gap-0.5 text-sm [overflow-wrap:anywhere]">
                     {outcome.processes.map((process) => (
                       <span key={process}>{process}</span>
                     ))}

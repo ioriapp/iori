@@ -1,28 +1,18 @@
-import { definitionOrder } from "@iori/protocol";
+import { useEffect, useMemo, useState } from "react";
+import { ArrowDown, ArrowUp, History } from "lucide-react";
 import {
-  PageHeader,
-  PageBody,
-  FieldRow,
-  LoadRecovery,
-} from "../components/page-layout.tsx";
-import { Fragment, useEffect, useId, useMemo, useState } from "react";
-import { ArrowLeft, ArrowDown, ArrowUp } from "lucide-react";
-import {
+  definitionOrder,
   summarizeRecords,
-  taskWorkTime,
-  candidateKey,
   type CandidateSummary,
   type RecordsData,
   type RecordsFilter,
 } from "@iori/protocol";
+import { cn } from "cn";
 import { connection } from "../connection.ts";
+import { AsyncState, type AsyncViewMode } from "../components/AsyncState.tsx";
+import { FlatPageHeader } from "../components/SectionLayout.tsx";
 import { Input } from "../components/ui/input.tsx";
 import { Button } from "../components/ui/button.tsx";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "../components/ui/collapsible.tsx";
 import {
   Select,
   SelectContent,
@@ -30,49 +20,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../components/ui/select.tsx";
-import { TaskHistory, type OpenTeamTerminal } from "./TaskHistory.tsx";
-import { ChangeAmount } from "./Board.tsx";
+import type { OpenTeamTerminal } from "./TaskHistory.tsx";
 import {
   boardTranslator,
   compactNumber,
   elapsedTime,
   recordMeasurement,
 } from "./board-i18n.ts";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "../components/ui/tooltip.tsx";
 import { CliIcon } from "./context.tsx";
-import "./records.css";
-type ComparisonAxis = "time" | "tokens";
-function comparisonTicks(values: number[], axis: ComparisonAxis) {
-  const minimum = Math.min(...values);
-  const maximum = Math.max(...values);
-  const ticks: number[] = [];
-  const units = axis === "time" ? [1000, 60_000, 3_600_000] : [1];
-  for (const [index, unit] of units.entries()) {
-    const lower = index === 0 ? minimum / 10 : unit;
-    const upper = units[index + 1] ?? maximum * 10;
-    for (
-      let exponent = Math.floor(Math.log10(lower / unit));
-      exponent <= Math.ceil(Math.log10(upper / unit));
-      exponent++
-    ) {
-      for (const multiple of [1, 2, 5]) {
-        const value = multiple * 10 ** exponent * unit;
-        if (
-          (index === 0 || value >= unit) &&
-          (index === units.length - 1 || value < upper)
-        )
-          ticks.push(value);
-      }
-    }
-  }
-  const first = ticks.findIndex((value) => value > minimum) - 1;
-  const last = ticks.findIndex((value) => value >= maximum);
-  return ticks.slice(first, Math.max(first + 2, last + 1));
-}
+import {
+  ComparisonChart,
+  type ComparisonAxis,
+} from "./records/ComparisonChart.tsx";
+import { RecordDetail } from "./records/RecordDetail.tsx";
+
 function candidateLabel(row: CandidateSummary) {
   return [
     row.candidate.cliName ?? row.candidate.cli,
@@ -82,282 +43,7 @@ function candidateLabel(row: CandidateSummary) {
     .filter(Boolean)
     .join(" · ");
 }
-function Comparison({
-  rows,
-  axis,
-  numbers,
-  onSelect,
-  t,
-}: {
-  rows: CandidateSummary[];
-  axis: ComparisonAxis;
-  numbers: Map<string, number>;
-  onSelect: (key: string) => void;
-  t: (key: string) => string;
-}) {
-  const chartId = useId();
-  const [plot, setPlot] = useState<HTMLDivElement | null>(null);
-  const [width, setWidth] = useState(0);
-  useEffect(() => {
-    if (!plot) return;
-    const observer = new ResizeObserver(([entry]) => {
-      setWidth(entry!.contentRect.width);
-    });
-    observer.observe(plot);
-    return () => observer.disconnect();
-  }, [plot]);
-  const points = rows.filter(
-    (row) => row.decided > 0 && row[axis] !== undefined && row[axis]! > 0,
-  );
-  if (!points.length) return null;
-  const ticks = comparisonTicks(
-    points.map((row) => row[axis]!),
-    axis,
-  );
-  const minimum = ticks[0]!;
-  const maximum = ticks.at(-1)!;
-  const largest = Math.max(...points.map((row) => row.tasks));
-  const radius = (row: CandidateSummary) =>
-    4 + 10 * Math.sqrt(row.tasks / largest);
-  const horizontalPadding = 16 + Math.max(...points.map(radius));
-  const xPosition = (value: number) =>
-    horizontalPadding +
-    (Math.log(value / minimum) / Math.log(maximum / minimum)) *
-      (width - horizontalPadding * 2);
-  const format = axis === "time" ? elapsedTime : compactNumber;
-  const tickLabel = (value: number) =>
-    axis === "time" ? format(value).replace(/ 0m$/, "") : format(value);
-  const measure = plot?.ownerDocument.createElement("canvas").getContext("2d");
-  if (measure && plot) measure.font = getComputedStyle(plot).font;
-  const labelWidth = (value: number) =>
-    measure?.measureText(tickLabel(value)).width ?? 0;
-  const primaryTick = (value: number) => {
-    const unit =
-      axis === "time"
-        ? value >= 3_600_000
-          ? 3_600_000
-          : value >= 60_000
-            ? 60_000
-            : 1000
-        : 1;
-    return Number.isInteger(Math.log10(value / unit));
-  };
-  const labelledTicks = new Set(ticks.filter(primaryTick));
-  // Narrow ranges still need two labels, even when they contain no decade.
-  if (labelledTicks.size < 2) {
-    labelledTicks.add(minimum);
-    labelledTicks.add(maximum);
-  }
-  const fits = (value: number) =>
-    [...labelledTicks].every(
-      (other) =>
-        Math.abs(xPosition(value) - xPosition(other)) >=
-        (labelWidth(value) + labelWidth(other)) / 2 + 8,
-    );
-  // At phone widths use the regular major intervals, rather than an uneven
-  // selection of whichever minor labels happen to fit from left to right.
-  if (
-    ticks.reduce((total, value) => total + labelWidth(value) + 8, 0) <=
-    width - horizontalPadding * 2
-  ) {
-    for (const value of ticks)
-      if (!labelledTicks.has(value) && fits(value)) labelledTicks.add(value);
-  }
-  const candidateName = (row: CandidateSummary) =>
-    [
-      row.candidate.cliName ?? row.candidate.cli,
-      [row.candidate.model, row.candidate.effort].filter(Boolean).join(" · "),
-    ]
-      .filter(Boolean)
-      .join(" › ");
-  const height = points.length === 1 ? 96 : 160;
-  const position = (row: CandidateSummary) => ({
-    x: xPosition(row[axis]!),
-    y: 16 + (row.firstAccepted / row.decided) * height,
-  });
-  const groups: CandidateSummary[][] = [];
-  for (const row of points) {
-    const group = groups.find(
-      ([first]) =>
-        Math.hypot(
-          position(first!).x - position(row).x,
-          position(first!).y - position(row).y,
-        ) <
-        radius(first!) + radius(row),
-    );
-    if (group) group.push(row);
-    else groups.push([row]);
-  }
-  const groupNumber = (group: CandidateSummary[]) =>
-    group
-      .map((candidate) => numbers.get(candidate.key)!)
-      .sort((a, b) => a - b)
-      .join("·");
-  // Labels can combine without moving or removing their underlying circles.
-  const numberGroups = groups.map((group) => [group]);
-  const numberWidth = (group: CandidateSummary[][]) =>
-    measure?.measureText(groupNumber(group.flat())).width ?? 0;
-  const numberPosition = (group: CandidateSummary[][]) => {
-    const positions = group.map(([row]) => position(row!));
-    return {
-      x: Math.max(
-        numberWidth(group) / 2,
-        Math.min(
-          width - numberWidth(group) / 2,
-          (Math.min(...positions.map((p) => p.x)) +
-            Math.max(...positions.map((p) => p.x))) /
-            2,
-        ),
-      ),
-      y: Math.max(...positions.map((p) => p.y)),
-    };
-  };
-  for (let index = 0; index < numberGroups.length; index++) {
-    const group = numberGroups[index]!;
-    const other = numberGroups.findIndex(
-      (candidate, at) =>
-        at > index &&
-        Math.abs(numberPosition(candidate).y - numberPosition(group).y) < 18 &&
-        Math.abs(numberPosition(candidate).x - numberPosition(group).x) <
-          (numberWidth(candidate) + numberWidth(group)) / 2 + 4,
-    );
-    if (other >= 0) {
-      group.push(...numberGroups.splice(other, 1)[0]!);
-      index = -1;
-    }
-  }
-  return (
-    <div
-      className="record-comparison"
-      aria-label={`${t("First acceptance")} / ${axis === "time" ? "Time" : "Tokens"}`}
-    >
-      <div className="record-chart-caption">{t("First acceptance")}</div>
-      <div
-        className="record-plot"
-        ref={setPlot}
-        style={{ height: height + 32 }}
-      >
-        <svg
-          className="record-chart-grid"
-          width="100%"
-          height="100%"
-          aria-hidden="true"
-        >
-          {ticks.map((value) => (
-            <line
-              key={`x-${value}`}
-              x1={xPosition(value)}
-              x2={xPosition(value)}
-              y1={height + 28}
-              y2={height + 32}
-            />
-          ))}
-          {[0, 50, 100].map((value) => (
-            <line
-              key={value}
-              x1="16"
-              x2={Math.max(16, width - 16)}
-              y1={16 + (value / 100) * height}
-              y2={16 + (value / 100) * height}
-            />
-          ))}
-        </svg>
-        {[0, 50, 100].map((value) => (
-          <span
-            key={value}
-            className="record-chart-y"
-            style={{ bottom: 16 + (value / 100) * height }}
-          >
-            {value}%
-          </span>
-        ))}
-        {ticks
-          .filter((value) => labelledTicks.has(value))
-          .map((value) => (
-            <span
-              key={value}
-              className="record-chart-x"
-              style={{
-                left: xPosition(value),
-              }}
-            >
-              {tickLabel(value)}
-            </span>
-          ))}
-        {groups.map((group) => {
-          const row = group[0]!;
-          const { x, y } = position(row);
-          const labelIndex = numberGroups.findIndex((label) =>
-            label.includes(group),
-          );
-          return (
-            <Tooltip key={row.key}>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  className="record-chart-point"
-                  data-iori-record-point={row.candidate.cli}
-                  aria-label={group.map(candidateName).join(", ")}
-                  aria-describedby={`${chartId}-number-${labelIndex}`}
-                  style={{ left: x, bottom: y }}
-                  onClick={() => onSelect(row.key)}
-                >
-                  <svg width="32" height="32" aria-hidden="true">
-                    <circle cx="16" cy="16" r={radius(row)} />
-                  </svg>
-                </button>
-              </TooltipTrigger>
-              <TooltipContent
-                className="record-chart-tooltip"
-                side={y >= (height + 32) / 2 ? "bottom" : "top"}
-                sideOffset={Math.max(y + 8, height + 32 - y + 24)}
-                collisionBoundary={plot?.closest(".records-main")}
-                collisionPadding={8}
-              >
-                <div className="record-chart-tooltip-candidates">
-                  {group.map((candidate) => (
-                    <div key={candidate.key}>
-                      <span className="record-chart-tooltip-name">
-                        <span className="record-chart-tooltip-number">
-                          {numbers.get(candidate.key)} ·
-                        </span>
-                        <CliIcon name={candidate.candidate.cli} size={14} />
-                        <span>{candidateName(candidate)}</span>
-                      </span>
-                      <br />
-                      {t("First acceptance")}:{" "}
-                      {Math.round(
-                        (candidate.firstAccepted / candidate.decided) * 100,
-                      )}
-                      % · {axis === "time" ? "Time" : "Tokens"}:{" "}
-                      {format(candidate[axis]!)} · Tasks: {candidate.tasks}
-                    </div>
-                  ))}
-                </div>
-              </TooltipContent>
-            </Tooltip>
-          );
-        })}
-        {numberGroups.map((group, index) => (
-          <span
-            key={group[0]![0]!.key}
-            id={`${chartId}-number-${index}`}
-            className="record-chart-number"
-            style={{
-              left: numberPosition(group).x,
-              bottom: numberPosition(group).y + 16,
-            }}
-          >
-            {groupNumber(group.flat())}
-          </span>
-        ))}
-      </div>
-      <div className="record-chart-axis">
-        {axis === "time" ? "Time" : "Tokens"}
-      </div>
-    </div>
-  );
-}
+
 function Filter({
   label,
   value,
@@ -370,10 +56,13 @@ function Filter({
   onChange: (value: string) => void;
 }) {
   return (
-    <FieldRow className="record-filter">
-      <span>{label}</span>
+    <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground max-md:flex-col max-md:items-start max-md:gap-1">
+      <span className="shrink-0">{label}</span>
       <Select value={value} onValueChange={onChange}>
-        <SelectTrigger aria-label={label}>
+        <SelectTrigger
+          aria-label={label}
+          className="h-8 w-auto min-w-22 text-xs max-md:min-w-25"
+        >
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -384,9 +73,10 @@ function Filter({
           ))}
         </SelectContent>
       </Select>
-    </FieldRow>
+    </div>
   );
 }
+
 type RecordsPreferences = {
   filter: RecordsFilter;
   axis: ComparisonAxis;
@@ -394,6 +84,7 @@ type RecordsPreferences = {
   startDate: string;
   endDate: string;
 };
+
 function readPreferences(host: string): RecordsPreferences {
   const defaults: RecordsPreferences = {
     filter: { days: 30 },
@@ -411,9 +102,11 @@ function readPreferences(host: string): RecordsPreferences {
     return defaults;
   }
 }
+
 export function Records(props: Parameters<typeof HostRecords>[0]) {
   return <HostRecords key={props.host} {...props} />;
 }
+
 function HostRecords({
   host,
   active,
@@ -449,6 +142,7 @@ function HostRecords({
     }),
     [preferences],
   );
+
   useEffect(() => {
     try {
       localStorage.setItem(`iori-records-${host}`, JSON.stringify(preferences));
@@ -456,53 +150,63 @@ function HostRecords({
       // Filtering still works for this session when local storage is unavailable.
     }
   }, [host, preferences]);
+
   const [data, setData] = useState<RecordsData>();
-  const [failed, setFailed] = useState(false),
-    [retry, setRetry] = useState(0);
-  const [candidateId, setCandidateId] = useState<string>(),
-    [expanded, setExpanded] = useState<string>();
+  const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
+  const [retry, setRetry] = useState(0);
+  const [candidateId, setCandidateId] = useState<string>();
+  const [expanded, setExpanded] = useState<string>();
+
   useEffect(() => {
     if (!active) return;
     let current = true;
+    setLoading(true);
     void connection
       .requestHost(host, "teams.records", filter)
       .then((result) => {
-        if (current) {
-          if (result?.ok) {
-            const savedTeam = result.result.teams.find(
-              (team) => team.id === filter.teamId,
-            );
-            if (filter.teamId && !savedTeam) {
-              setPreferences((value) => ({
-                ...value,
-                filter: {
-                  ...value.filter,
-                  teamId: undefined,
-                  version: undefined,
-                },
-              }));
-            } else if (
-              filter.version !== undefined &&
-              !savedTeam?.versions.includes(filter.version)
-            ) {
-              setPreferences((value) => ({
-                ...value,
-                filter: { ...value.filter, version: undefined },
-              }));
-            } else {
-              setData(result.result);
-            }
-            setFailed(false);
-          } else setFailed(true);
+        if (!current) return;
+        if (result?.ok) {
+          const savedTeam = result.result.teams.find(
+            (team) => team.id === filter.teamId,
+          );
+          if (filter.teamId && !savedTeam) {
+            setPreferences((value) => ({
+              ...value,
+              filter: {
+                ...value.filter,
+                teamId: undefined,
+                version: undefined,
+              },
+            }));
+          } else if (
+            filter.version !== undefined &&
+            !savedTeam?.versions.includes(filter.version)
+          ) {
+            setPreferences((value) => ({
+              ...value,
+              filter: { ...value.filter, version: undefined },
+            }));
+          } else {
+            setData(result.result);
+          }
+          setFailed(false);
+        } else {
+          setFailed(true);
         }
+        setLoading(false);
       })
       .catch(() => {
-        if (current) setFailed(true);
+        if (current) {
+          setFailed(true);
+          setLoading(false);
+        }
       });
     return () => {
       current = false;
     };
   }, [host, filter, active, retry]);
+
   useEffect(() => {
     if (!active || !registerBack) return;
     registerBack(() => {
@@ -518,10 +222,12 @@ function HostRecords({
     });
     return () => registerBack(() => false);
   }, [active, registerBack, candidateId, expanded]);
+
   const [sort, setSort] = useState<{ column: number; descending: boolean }>({
     column: 0,
     descending: false,
   });
+
   const records = summarizeRecords(data?.tasks ?? []);
   const definedRoles = definitionOrder(data?.roleNames ?? [], language);
   const compareRoles = (a: string | undefined, b: string | undefined) =>
@@ -563,10 +269,7 @@ function HostRecords({
         : Number(x) - Number(y);
     return sort.descending ? -order : order;
   });
-  const label = (column: string) =>
-    ["Time", "Input", "Output", "Cache hit"].includes(column)
-      ? column
-      : t(column);
+
   const measured = (value: string | undefined, count: number, total: number) =>
     recordMeasurement(value, count, total, language);
   const selectCandidate = (key: string) => {
@@ -574,18 +277,19 @@ function HostRecords({
     setExpanded(undefined);
   };
   const selected = rows.find((row) => row.key === candidateId);
-  const team = data?.teams.find((team) => team.id === filter.teamId);
+  const team = data?.teams.find((entry) => entry.id === filter.teamId);
   const columns = [
     "Tasks",
     "Agents",
     "First acceptance",
     "Revisions",
     "Rejected",
-    "Time",
+    "record.time",
     "Input",
     "Output",
     "Cache hit",
   ];
+
   const change = (next: RecordsFilter) => {
     setPreferences((value) => ({
       ...value,
@@ -598,481 +302,444 @@ function HostRecords({
     }));
     setExpanded(undefined);
   };
+
+  const hasFilters =
+    custom || Object.values(filter).some((value) => value !== undefined);
+
+  const clearFilters = () => {
+    setPreferences((value) => ({
+      ...value,
+      filter: {},
+      custom: false,
+      startDate: "",
+      endDate: "",
+    }));
+    setExpanded(undefined);
+  };
+
+  const viewMode: AsyncViewMode =
+    data === undefined
+      ? failed
+        ? "error"
+        : loading
+          ? "loading"
+          : "empty"
+      : rows.length === 0
+        ? "empty"
+        : "ready";
+
   return (
     <section
-      className={`records-page ${selected ? "records-with-detail" : ""}`}
+      className="flex min-h-full w-full flex-col bg-background text-foreground md:h-full md:min-h-0 md:flex-row"
       data-iori-view="records"
     >
-      <PageBody width="full" className="records-main">
-        <PageHeader title="Records" />
-        <div className="record-filters">
-          <div className="record-period">
+      <div
+        data-iori-records-main
+        className={cn(
+          "min-w-0 flex-1 px-4 py-5 pb-8 md:overflow-auto md:px-6",
+          selected && "max-md:hidden",
+        )}
+      >
+        <div className="flex w-full min-w-0 flex-col gap-5">
+          <FlatPageHeader title="Records" />
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-3 border-b border-border pb-4">
+            <div
+              className={cn(
+                "flex flex-wrap items-center gap-2",
+                custom && "max-md:w-full",
+              )}
+            >
+              <Filter
+                label={t("Period")}
+                value={custom ? "custom" : String(filter.days ?? "all")}
+                options={[
+                  ...(["7", "30", "90", "all"] as const).map(
+                    (value): [string, string] => [
+                      value,
+                      t(value === "all" ? "All time" : `${value} days`),
+                    ],
+                  ),
+                  ["custom", t("Choose dates")],
+                ]}
+                onChange={(value) => {
+                  setPreferences((previous) => ({
+                    ...previous,
+                    custom: value === "custom",
+                    filter: {
+                      ...previous.filter,
+                      days:
+                        value === "all" || value === "custom"
+                          ? undefined
+                          : (Number(value) as 7 | 30 | 90),
+                    },
+                  }));
+                  setExpanded(undefined);
+                }}
+              />
+              {custom && (
+                <div className="flex flex-wrap items-center gap-2 max-md:w-full max-md:items-start">
+                  <label className="flex items-center justify-between gap-2 text-xs text-muted-foreground max-md:min-w-0 max-md:flex-1 max-md:flex-col max-md:items-start max-md:gap-1">
+                    <span>{t("Start date")}</span>
+                    <Input
+                      type="date"
+                      className="h-8 w-auto min-w-0 text-xs [color-scheme:light] dark:[color-scheme:dark] max-md:w-full"
+                      value={startDate}
+                      onChange={(event) =>
+                        setPreferences((value) => ({
+                          ...value,
+                          startDate: event.target.value,
+                          endDate:
+                            value.endDate && event.target.value > value.endDate
+                              ? ""
+                              : value.endDate,
+                        }))
+                      }
+                    />
+                  </label>
+                  <label className="flex items-center justify-between gap-2 text-xs text-muted-foreground max-md:min-w-0 max-md:flex-1 max-md:flex-col max-md:items-start max-md:gap-1">
+                    <span>{t("End date (optional)")}</span>
+                    <Input
+                      type="date"
+                      className="h-8 w-auto min-w-0 text-xs [color-scheme:light] dark:[color-scheme:dark] max-md:w-full"
+                      value={endDate}
+                      min={startDate || undefined}
+                      onChange={(event) =>
+                        setPreferences((value) => ({
+                          ...value,
+                          endDate: event.target.validity.valid
+                            ? event.target.value
+                            : "",
+                        }))
+                      }
+                    />
+                  </label>
+                </div>
+              )}
+            </div>
             <Filter
-              label={t("Period")}
-              value={custom ? "custom" : String(filter.days ?? "all")}
-              options={[
-                ...(["7", "30", "90", "all"] as const).map(
-                  (value): [string, string] => [
-                    value,
-                    t(value === "all" ? "All time" : `${value} days`),
-                  ],
-                ),
-                ["custom", t("Choose dates")],
-              ]}
-              onChange={(value) => {
-                setPreferences((previous) => ({
-                  ...previous,
-                  custom: value === "custom",
-                  filter: {
-                    ...previous.filter,
-                    days:
-                      value === "all" || value === "custom"
-                        ? undefined
-                        : (Number(value) as 7 | 30 | 90),
-                  },
-                }));
-                setExpanded(undefined);
-              }}
-            />
-            {custom && (
-              <div className="record-date-fields">
-                <label className="record-filter">
-                  <span>{t("Start date")}</span>
-                  <Input
-                    type="date"
-                    value={startDate}
-                    onChange={(event) =>
-                      setPreferences((value) => ({
-                        ...value,
-                        startDate: event.target.value,
-                        endDate:
-                          value.endDate && event.target.value > value.endDate
-                            ? ""
-                            : value.endDate,
-                      }))
-                    }
-                  />
-                </label>
-                <label className="record-filter">
-                  <span>{t("End date (optional)")}</span>
-                  <Input
-                    type="date"
-                    value={endDate}
-                    min={startDate || undefined}
-                    onChange={(event) =>
-                      setPreferences((value) => ({
-                        ...value,
-                        endDate: event.target.validity.valid
-                          ? event.target.value
-                          : "",
-                      }))
-                    }
-                  />
-                </label>
-              </div>
-            )}
-          </div>
-          <Filter
-            label="Team"
-            value={filter.teamId ?? "all"}
-            options={[
-              ["all", t("All")],
-              ...(data?.teams ?? []).flatMap((team) =>
-                team.name ? [[team.id, team.name] as [string, string]] : [],
-              ),
-            ]}
-            onChange={(value) =>
-              change({
-                ...filter,
-                teamId: value === "all" ? undefined : value,
-                version: undefined,
-              })
-            }
-          />
-          {filter.teamId && (
-            <Filter
-              label="Version"
-              value={String(filter.version ?? "all")}
+              label="Team"
+              value={filter.teamId ?? "all"}
               options={[
                 ["all", t("All")],
-                ...(team?.versions ?? []).map(
-                  (version) =>
-                    [String(version), String(version)] as [string, string],
+                ...(data?.teams ?? []).flatMap((entry) =>
+                  entry.name
+                    ? [[entry.id, entry.name] as [string, string]]
+                    : [],
                 ),
               ]}
               onChange={(value) =>
                 change({
                   ...filter,
-                  version: value === "all" ? undefined : Number(value),
+                  teamId: value === "all" ? undefined : value,
+                  version: undefined,
                 })
               }
             />
-          )}
-          <Filter
-            label="Difficulty"
-            value={filter.difficulty ?? "all"}
-            options={[
-              ["all", t("All")],
-              ["high", "High"],
-              ["medium", "Medium"],
-              ["low", "Low"],
-            ]}
-            onChange={(value) =>
-              change({
-                ...filter,
-                difficulty:
-                  value === "all"
-                    ? undefined
-                    : (value as "high" | "medium" | "low"),
-              })
-            }
-          />
-          <Filter
-            label={t("X axis")}
-            value={axis}
-            options={[
-              ["time", "Time"],
-              ["tokens", "Tokens"],
-            ]}
-            onChange={(value) =>
-              setPreferences((previous) => ({
-                ...previous,
-                axis: value as ComparisonAxis,
-              }))
-            }
-          />
-        </div>
-        {failed && (
-          <LoadRecovery
-            message={t("Could not load records. Retry.")}
-            retryLabel={t("Retry")}
-            buttonSize="lg"
-            onRetry={() => setRetry((value) => value + 1)}
-          />
-        )}
-        <div className="record-roles">
-          {roles.map((role) => (
-            <section className="record-role" key={role ?? ""}>
-              {role && <h2>{role}</h2>}
-              <Comparison
-                rows={defaultRows.filter((row) => row.role === role)}
-                numbers={numbers}
-                axis={axis}
-                onSelect={selectCandidate}
-                t={t}
+            {filter.teamId && (
+              <Filter
+                label={t("Version")}
+                value={String(filter.version ?? "all")}
+                options={[
+                  ["all", t("All")],
+                  ...(team?.versions ?? []).map(
+                    (version) =>
+                      [String(version), String(version)] as [string, string],
+                  ),
+                ]}
+                onChange={(value) =>
+                  change({
+                    ...filter,
+                    version: value === "all" ? undefined : Number(value),
+                  })
+                }
               />
-              <div className="record-table">
-                <div
-                  className="record-table-grid"
-                  role="table"
-                  aria-label={role ?? "Records"}
-                >
-                  <div className="record-table-head" role="row">
-                    {["Candidate", ...columns].map((column, index) => (
+            )}
+            <Filter
+              label={t("Difficulty")}
+              value={filter.difficulty ?? "all"}
+              options={[
+                ["all", t("All")],
+                ["high", t("High")],
+                ["medium", t("Medium")],
+                ["low", t("Low")],
+              ]}
+              onChange={(value) =>
+                change({
+                  ...filter,
+                  difficulty:
+                    value === "all"
+                      ? undefined
+                      : (value as "high" | "medium" | "low"),
+                })
+              }
+            />
+            <Filter
+              label={t("X axis")}
+              value={axis}
+              options={[
+                ["time", t("record.time")],
+                ["tokens", t("Tokens")],
+              ]}
+              onChange={(value) =>
+                setPreferences((previous) => ({
+                  ...previous,
+                  axis: value as ComparisonAxis,
+                }))
+              }
+            />
+          </div>
+
+          {failed && data !== undefined && (
+            <div
+              role="alert"
+              className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-status-failed-border bg-status-failed-bg/35 px-3.5 py-2.5 text-xs text-foreground"
+            >
+              <p>{t("Could not load records. Retry.")}</p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setRetry((value) => value + 1)}
+              >
+                {t("Retry")}
+              </Button>
+            </div>
+          )}
+
+          <AsyncState
+            mode={viewMode}
+            t={t}
+            emptyIcon={<History className="size-4" aria-hidden="true" />}
+            emptyTitle={
+              hasFilters
+                ? t("No matching records")
+                : t("Delegating work in a team will leave records here.")
+            }
+            emptyActionLabel={hasFilters ? t("Clear filters") : undefined}
+            onEmptyAction={hasFilters ? clearFilters : undefined}
+            errorTitle={t("Could not load records. Retry.")}
+            onRetry={() => setRetry((value) => value + 1)}
+          >
+            <div className="flex flex-col gap-8">
+              {roles.map((role) => (
+                <section className="min-w-0" key={role ?? ""}>
+                  {role && (
+                    <h2 className="mb-2 font-heading text-sm font-semibold text-foreground">
+                      {role}
+                    </h2>
+                  )}
+                  <ComparisonChart
+                    rows={defaultRows.filter((row) => row.role === role)}
+                    numbers={numbers}
+                    axis={axis}
+                    onSelect={selectCandidate}
+                    t={t}
+                  />
+                  <div className="min-w-0 md:overflow-x-auto">
+                    <div
+                      className="flex flex-col divide-y divide-border-subtle border-y border-border md:grid md:grid-cols-[minmax(12.5rem,2fr)_repeat(9,minmax(max-content,1fr))] md:gap-x-2 md:divide-y-0 md:border-t-0 md:border-b-0"
+                      role="table"
+                      aria-label={role ?? "Records"}
+                    >
                       <div
-                        key={column}
-                        role="columnheader"
-                        aria-sort={
-                          sort.column === index
-                            ? sort.descending
-                              ? "descending"
-                              : "ascending"
-                            : undefined
-                        }
+                        className="hidden items-center border-b border-border pb-2.5 text-2xs font-medium text-muted-foreground md:col-span-full md:grid md:grid-cols-subgrid"
+                        role="row"
                       >
-                        <button
-                          type="button"
-                          className="record-sort"
-                          aria-label={`${label(column)}: ${t(sort.column === index && !sort.descending ? "Sort descending" : "Sort ascending")}`}
-                          onClick={() =>
-                            setSort({
-                              column: index,
-                              descending:
-                                sort.column === index
-                                  ? !sort.descending
-                                  : false,
-                            })
-                          }
-                        >
-                          <span className="record-sort-label">
-                            {label(column)}
-                            <span
-                              className="record-sort-direction"
-                              aria-hidden="true"
-                            >
-                              {sort.column === index &&
-                                (sort.descending ? (
-                                  <ArrowDown size={12} />
-                                ) : (
-                                  <ArrowUp size={12} />
-                                ))}
-                            </span>
-                          </span>
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                  {rows
-                    .filter((row) => row.role === role)
-                    .map((row) => {
-                      const values = [
-                        String(row.tasks),
-                        String(row.agents),
-                        row.decided
-                          ? `${row.firstAccepted}/${row.decided} · ${Math.round((row.firstAccepted / row.decided) * 100)}%`
-                          : undefined,
-                        (row.revisions / row.agents).toFixed(1),
-                        String(row.rejected),
-                        row.time === undefined
-                          ? undefined
-                          : elapsedTime(row.time),
-                        measured(
-                          row.input === undefined
-                            ? undefined
-                            : compactNumber(row.input),
-                          row.measuredTokens,
-                          row.agents,
-                        ),
-                        measured(
-                          row.output === undefined
-                            ? undefined
-                            : compactNumber(row.output),
-                          row.measuredTokens,
-                          row.agents,
-                        ),
-                        measured(
-                          row.cacheHit === undefined
-                            ? undefined
-                            : `${Math.round(row.cacheHit * 100)}%`,
-                          row.measuredCache,
-                          row.agents,
-                        ),
-                      ];
-                      return (
-                        <div
-                          role="row"
-                          className={`record-row ${selected?.key === row.key ? "selected" : ""}`}
-                          key={row.key}
-                          data-iori-record-candidate={row.candidate.cli}
-                          onClick={() => {
-                            setCandidateId(row.key);
-                            setExpanded(undefined);
-                          }}
-                        >
-                          <span className="record-candidate" role="cell">
+                        {["Candidate", ...columns].map((column, index) => (
+                          <div
+                            key={column}
+                            role="columnheader"
+                            className={cn(
+                              "min-w-0 [overflow-wrap:anywhere]",
+                              index > 0 && "text-right whitespace-nowrap",
+                            )}
+                            aria-sort={
+                              sort.column === index
+                                ? sort.descending
+                                  ? "descending"
+                                  : "ascending"
+                                : undefined
+                            }
+                          >
                             <button
                               type="button"
-                              className="record-candidate text-left"
+                              className={cn(
+                                "flex w-full min-w-0 cursor-pointer items-center gap-0.5 rounded-xs text-left transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+                                index > 0 &&
+                                  "justify-end text-right whitespace-nowrap",
+                              )}
+                              aria-label={`${t(column)}: ${t(sort.column === index && !sort.descending ? "Sort descending" : "Sort ascending")}`}
+                              onClick={() =>
+                                setSort({
+                                  column: index,
+                                  descending:
+                                    sort.column === index
+                                      ? !sort.descending
+                                      : false,
+                                })
+                              }
                             >
-                              <strong className="record-candidate-name">
-                                <span className="record-candidate-number">
-                                  {numbers.get(row.key)}
+                              <span className="relative min-w-0">
+                                {t(column)}
+                                <span
+                                  className={cn(
+                                    "absolute top-1/2 inline-flex w-3 -translate-y-1/2",
+                                    index > 0 ? "-left-3.5" : "-right-3.5",
+                                  )}
+                                  aria-hidden="true"
+                                >
+                                  {sort.column === index &&
+                                    (sort.descending ? (
+                                      <ArrowDown className="size-3" />
+                                    ) : (
+                                      <ArrowUp className="size-3" />
+                                    ))}
                                 </span>
-                                <CliIcon name={row.candidate.cli} size={14} />
-                                {row.candidate.cliName ?? row.candidate.cli}
-                              </strong>
-                              <span>
-                                {[row.candidate.model, row.candidate.effort]
-                                  .filter(Boolean)
-                                  .join(" · ")}
                               </span>
                             </button>
-                          </span>
-                          {values.map((value, index) => (
-                            <span
-                              className="record-cell"
-                              role="cell"
-                              key={columns[index]}
+                          </div>
+                        ))}
+                      </div>
+                      {rows
+                        .filter((row) => row.role === role)
+                        .map((row) => {
+                          const values = [
+                            String(row.tasks),
+                            String(row.agents),
+                            row.decided
+                              ? `${row.firstAccepted}/${row.decided} · ${Math.round((row.firstAccepted / row.decided) * 100)}%`
+                              : undefined,
+                            (row.revisions / row.agents).toFixed(1),
+                            String(row.rejected),
+                            row.time === undefined
+                              ? undefined
+                              : elapsedTime(row.time),
+                            measured(
+                              row.input === undefined
+                                ? undefined
+                                : compactNumber(row.input),
+                              row.measuredTokens,
+                              row.agents,
+                            ),
+                            measured(
+                              row.output === undefined
+                                ? undefined
+                                : compactNumber(row.output),
+                              row.measuredTokens,
+                              row.agents,
+                            ),
+                            measured(
+                              row.cacheHit === undefined
+                                ? undefined
+                                : `${Math.round(row.cacheHit * 100)}%`,
+                              row.measuredCache,
+                              row.agents,
+                            ),
+                          ];
+                          const isSelected = selected?.key === row.key;
+                          return (
+                            <div
+                              role="row"
+                              className={cn(
+                                "grid w-full cursor-pointer grid-cols-1 gap-1.5 px-1 py-3 text-left text-xs tabular-nums transition-colors md:col-span-full md:grid-cols-subgrid md:items-center md:gap-y-0 md:border-b md:border-border-subtle md:px-0 md:py-3",
+                                isSelected
+                                  ? "bg-primary/14 font-semibold"
+                                  : "bg-transparent [@media(hover:hover)]:hover:bg-accent/40",
+                              )}
+                              key={row.key}
+                              data-iori-record-candidate={row.candidate.cli}
+                              onClick={() => selectCandidate(row.key)}
                             >
-                              <span className="record-cell-label">
-                                {label(columns[index]!)}
-                              </span>
-                              {value !== undefined && (
-                                <span
-                                  className={
-                                    index === 2
-                                      ? "record-acceptance"
-                                      : undefined
-                                  }
+                              <span
+                                className="flex min-w-0 flex-col gap-1"
+                                role="cell"
+                              >
+                                <button
+                                  type="button"
+                                  className="flex min-w-0 flex-col gap-1 rounded-xs text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
                                 >
-                                  {value}
-                                  {index === 2 && (
-                                    <span
-                                      className="record-acceptance-track"
-                                      aria-hidden="true"
-                                    >
-                                      <span
-                                        style={{
-                                          width: `${(row.firstAccepted / row.decided) * 100}%`,
-                                        }}
+                                  <strong className="inline-flex items-center gap-2 text-xs font-medium text-foreground [overflow-wrap:anywhere]">
+                                    <span className="w-[2ch] shrink-0 text-right whitespace-nowrap tabular-nums text-muted-foreground">
+                                      {numbers.get(row.key)}
+                                    </span>
+                                    <span className="shrink-0">
+                                      <CliIcon
+                                        name={row.candidate.cli}
+                                        size={14}
                                       />
+                                    </span>
+                                    <span>
+                                      {row.candidate.cliName ??
+                                        row.candidate.cli}
+                                    </span>
+                                  </strong>
+                                  <span className="pl-7 text-2xs text-muted-foreground [overflow-wrap:anywhere]">
+                                    {[row.candidate.model, row.candidate.effort]
+                                      .filter(Boolean)
+                                      .join(" · ")}
+                                  </span>
+                                </button>
+                              </span>
+                              {values.map((value, index) => (
+                                <span
+                                  className="flex min-w-0 justify-between gap-3 text-xs tabular-nums md:block md:text-right md:text-2xs md:whitespace-nowrap"
+                                  role="cell"
+                                  key={columns[index]}
+                                >
+                                  <span className="text-muted-foreground md:hidden">
+                                    {t(columns[index]!)}
+                                  </span>
+                                  {value !== undefined && (
+                                    <span
+                                      className={cn(
+                                        index === 2 &&
+                                          "relative inline-block md:items-end",
+                                      )}
+                                    >
+                                      {value}
+                                      {index === 2 && (
+                                        <span
+                                          className="absolute top-[calc(100%+0.25rem)] right-0 hidden h-1 w-full max-w-18 overflow-hidden rounded-sm bg-muted md:block"
+                                          aria-hidden="true"
+                                        >
+                                          <span
+                                            className="block h-full bg-foreground/55"
+                                            style={{
+                                              width: `${(row.firstAccepted / row.decided) * 100}%`,
+                                            }}
+                                          />
+                                        </span>
+                                      )}
                                     </span>
                                   )}
                                 </span>
-                              )}
-                            </span>
-                          ))}
-                        </div>
-                      );
-                    })}
-                </div>
-              </div>
-            </section>
-          ))}
+                              ))}
+                            </div>
+                          );
+                        })}
+                    </div>
+                  </div>
+                </section>
+              ))}
+            </div>
+          </AsyncState>
         </div>
-        {data && !rows.length && !failed && (
-          <div className="record-empty">
-            {custom ||
-            Object.values(filter).some((value) => value !== undefined) ? (
-              <>
-                <p>{t("No matching records")}</p>
-                <Button
-                  variant="outline"
-                  size="lg"
-                  onClick={() => {
-                    setPreferences((value) => ({
-                      ...value,
-                      filter: {},
-                      custom: false,
-                      startDate: "",
-                      endDate: "",
-                    }));
-                    setExpanded(undefined);
-                  }}
-                >
-                  {t("Clear filters")}
-                </Button>
-              </>
-            ) : (
-              <p>{t("Delegating work in a team will leave records here.")}</p>
-            )}
-          </div>
-        )}
-      </PageBody>
+      </div>
       {selected && (
-        <aside className="record-detail" data-iori-view="record-task-list">
-          <PageHeader
-            className="record-detail-heading"
-            back={
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label={t("Back")}
-                onClick={() => {
-                  setCandidateId(undefined);
-                  setExpanded(undefined);
-                }}
-              >
-                <ArrowLeft size={16} />
-              </Button>
-            }
-            title={
-              <>
-                {selected.role} ·{" "}
-                {selected.candidate.cliName ?? selected.candidate.cli}
-              </>
-            }
-            description={[selected.candidate.model, selected.candidate.effort]
-              .filter(Boolean)
-              .join(" · ")}
-          />
-          {data?.tasks
-            .filter((task) => selected.taskIds.includes(task.id))
-            .sort((a, b) => b.createdAt - a.createdAt)
-            .map((task) => {
-              const tokens = task.agents.filter((agent) => agent.tokens);
-              const workTime = taskWorkTime(task);
-              const metrics = [
-                ...(workTime !== undefined ? [elapsedTime(workTime)] : []),
-                ...(task.changes
-                  ? [
-                      <ChangeAmount
-                        key="changes"
-                        changes={task.changes}
-                        language={language}
-                      />,
-                    ]
-                  : []),
-                ...(tokens.length > 0
-                  ? [
-                      `${compactNumber(tokens.reduce((sum, agent) => sum + agent.tokens!.input + agent.tokens!.output, 0))} tokens${tokens.length < task.agents.length ? (language.toLowerCase().startsWith("ja") ? `（${tokens.length}人分）` : ` (${tokens.length} agents)`) : ""}`,
-                    ]
-                  : []),
-              ];
-              const handoff =
-                task.agents[0]?.candidate &&
-                candidateKey(task.agents[0].role, task.agents[0].candidate) !==
-                  selected.key;
-              return (
-                <Collapsible
-                  asChild
-                  key={task.id}
-                  open={expanded === task.id}
-                  onOpenChange={(open) =>
-                    setExpanded(open ? task.id : undefined)
-                  }
-                >
-                  <article className="record-task">
-                    <CollapsibleTrigger asChild>
-                      <button
-                        type="button"
-                        className="record-task-open"
-                        data-iori-record-task={task.id}
-                        aria-expanded={expanded === task.id}
-                      >
-                        <time>
-                          {new Date(task.createdAt).toLocaleDateString(
-                            language,
-                          )}
-                        </time>
-                        <strong>
-                          {task.title}
-                          {handoff && (
-                            <small className="record-handoff">Handoff</small>
-                          )}
-                        </strong>
-                        <small>
-                          {task.team} · Version {task.version} · Difficulty{" "}
-                          {task.difficulty[0]!.toUpperCase() +
-                            task.difficulty.slice(1)}{" "}
-                          · Revisions {task.revisions}
-                        </small>
-                        <span>
-                          {task.decision
-                            ? task.decision === "accept"
-                              ? "Accepted"
-                              : "Rejected"
-                            : "Pending"}
-                          {task.reason && ` · ${task.reason}`}
-                        </span>
-                        {metrics.length > 0 && (
-                          <small className="record-task-metrics">
-                            {metrics.map((metric, index) => (
-                              <Fragment key={index}>
-                                {index > 0 && " · "}
-                                {metric}
-                              </Fragment>
-                            ))}
-                          </small>
-                        )}
-                      </button>
-                    </CollapsibleTrigger>
-                    <CollapsibleContent>
-                      <div className="record-task-history">
-                        <TaskHistory
-                          host={host}
-                          task={task.id}
-                          t={t}
-                          language={language}
-                          onOpenTerminal={onOpenTerminal}
-                        />
-                      </div>
-                    </CollapsibleContent>
-                  </article>
-                </Collapsible>
-              );
-            })}
-        </aside>
+        <RecordDetail
+          host={host}
+          selected={selected}
+          tasks={data?.tasks ?? []}
+          expanded={expanded}
+          onExpandedChange={setExpanded}
+          onClose={() => {
+            setCandidateId(undefined);
+            setExpanded(undefined);
+          }}
+          onOpenTerminal={onOpenTerminal}
+          t={t}
+          language={language}
+        />
       )}
     </section>
   );

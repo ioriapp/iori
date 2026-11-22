@@ -1,1042 +1,91 @@
-import { pickerClis } from "../cli-list.ts";
-import { HiddenItems } from "./HiddenItems.tsx";
-import { pickerTeams } from "./team-data.ts";
-import {
-  nameOrder,
-  defaultBackgroundWakeMinutes,
-  maxTeamIntervalMinutes,
-} from "@iori/protocol";
-import { useIsMobile } from "../hooks/use-mobile.ts";
-import type { SettingsEditor } from "../settings-save.ts";
-import {
-  FieldRow,
-  PageBody,
-  PageHeader,
-  SettingsSection,
-  SaveResult,
-} from "../components/page-layout.tsx";
-import { Automations } from "./Automations.tsx";
-import type { OpenTeamTerminal } from "./TaskHistory.tsx";
-import { Records } from "./Records.tsx";
-import { Usage } from "./Usage.tsx";
-import {
-  belowUsageMinimum,
-  orderUsageWindows,
-  usageAppliesToModel,
-} from "@iori/protocol";
-import { formatUsageLength } from "../usage-format.ts";
-import "./children.css";
-import { parentTeamText, childTeamText, limitKey } from "@iori/protocol";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ReactNode } from "react";
-import {
-  ArrowLeft,
-  Bot,
-  CalendarClock,
-  Check,
-  ChevronDown,
-  ChevronRight,
-  ChevronsUpDown,
-  Copy,
-  GripVertical,
-  History,
-  MoreHorizontal,
-  Plus,
-  Users,
-} from "lucide-react";
 import {
   DndContext,
-  PointerSensor,
   KeyboardSensor,
-  closestCenter,
+  PointerSensor,
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
+import { arrayMove, sortableKeyboardCoordinates } from "@dnd-kit/sortable";
+import { cn } from "cn";
 import {
-  SortableContext,
-  useSortable,
-  arrayMove,
-  sortableKeyboardCoordinates,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
+  nameOrder,
+  type CliDefinitionFailure,
+  type CliSummary,
+  type TeamDefinition,
+  type TeamList,
+  type TeamRecord as SavedRecord,
+  type TeamSettings,
+} from "@iori/protocol";
+import { pickerClis } from "../cli-list.ts";
+import { connection } from "../connection.ts";
+import { useIsMobile } from "../hooks/use-mobile.ts";
+import { native } from "../native.ts";
+import type { SettingsEditor } from "../settings-save.ts";
 import { Button } from "../components/ui/button.tsx";
-import { Input } from "../components/ui/input.tsx";
-import { Textarea } from "../components/ui/textarea.tsx";
-import { Label } from "../components/ui/label.tsx";
-import { Checkbox } from "../components/ui/checkbox.tsx";
-import { Switch } from "../components/ui/switch.tsx";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "../components/ui/select.tsx";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "../components/ui/popover.tsx";
-import {
-  Command,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "../components/ui/command.tsx";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "../components/ui/collapsible.tsx";
-import {
-  ToggleGroup,
-  ToggleGroupItem,
-} from "../components/ui/toggle-group.tsx";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
-} from "../components/ui/dropdown-menu.tsx";
-import {
-  ContextMenu,
-  ContextMenuTrigger,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuSeparator,
-} from "../components/ui/context-menu.tsx";
-import {
-  Dialog,
-  DialogContent,
-  DialogBody,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "../components/ui/dialog.tsx";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "../components/ui/sheet.tsx";
+import { DropdownMenuItem } from "../components/ui/dropdown-menu.tsx";
 import { SidebarTrigger } from "../components/ui/sidebar.tsx";
-import { Badge } from "../components/ui/badge.tsx";
-import { useI18n } from "./context.tsx";
-import { ModelPicker } from "./ModelPicker.tsx";
 import { AgentSettings } from "./AgentSettings.tsx";
 import { AgentsPage } from "./AgentsPage.tsx";
-import { historySummary } from "./team-history.ts";
-import { TeamHistoryEntry } from "./TeamHistoryEntry.tsx";
-import { connection } from "../connection.ts";
-import { native } from "../native.ts";
-import type {
-  CliDefinitionFailure,
-  CliModels,
-  CliSummary,
-  TeamDefinition,
-  TeamList,
-  TeamRecord as SavedRecord,
-  TeamSettings,
-  UsageWindowSelection,
-} from "@iori/protocol";
-import { SettingsRow, LimitInput } from "./SettingsRow.tsx";
-import { CliIcon, useCliName, useModelLabel } from "./context.tsx";
-import { candidate, clone, role } from "./team-data.ts";
-import type {
-  Candidate,
-  Difficulty,
-  HostTeams,
-  Role,
-  Team,
-  TeamRecord,
-} from "./team-data.ts";
-import "./team-editor.css";
-
-type Selection =
-  | { page: "agents" | "teams" | "records" | "automations" }
-  | { page: "team"; teamId: string; detail: "overview" | "parent" | string };
-export function modelError(error?: string) {
-  return error === "unsupported"
-    ? "This CLI does not expose a model list. Team editing can continue."
-    : error === "not_found"
-      ? "CLI not found on this Host. Install it and retry."
-      : error === "invalid_output"
-        ? "Could not read the model list returned by this CLI. Retry."
-        : "The model list command failed. Check this CLI on the Host and retry.";
-}
-export type LeaveGuard = (action: () => void) => void;
-const levels: Difficulty[] = ["high", "medium", "low"];
-const levelLabel = { high: "High", medium: "Medium", low: "Low" };
-function isDirty(record?: TeamRecord) {
-  return (
-    !!record && JSON.stringify(record.saved) !== JSON.stringify(record.draft)
-  );
-}
-function TeamRoleRow({
+import { Automations } from "./Automations.tsx";
+import { Records } from "./Records.tsx";
+import type { OpenTeamTerminal } from "./TaskHistory.tsx";
+import { useCliName, useI18n } from "./context.tsx";
+import {
+  candidate,
+  clone,
   role,
-  sortable,
-  selected,
-  onOpen,
-  onStep,
-  children,
-}: {
-  role: Role;
-  sortable: boolean;
-  selected: boolean;
-  onOpen: () => void;
-  onStep: (direction: number) => void;
-  children: ReactNode;
-}) {
-  const { t } = useI18n();
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    setActivatorNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: role.id, disabled: !sortable });
-  return (
-    <div
-      ref={setNodeRef}
-      className={`team-tree-role ${isDragging ? "team-candidate-dragging" : ""}`}
-      style={{
-        transform: transform
-          ? `translate3d(${transform.x}px,${transform.y}px,0)`
-          : undefined,
-        transition,
-      }}
-    >
-      {sortable && (
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className="team-candidate-grip"
-          ref={setActivatorNodeRef}
-          {...attributes}
-          {...listeners}
-          aria-label={`${t("Drag to reorder")} ${role.name}`}
-          onKeyDown={(event) => {
-            if (
-              !isDragging &&
-              (event.key === "ArrowUp" || event.key === "ArrowDown")
-            ) {
-              event.preventDefault();
-              onStep(event.key === "ArrowUp" ? -1 : 1);
-            } else listeners?.onKeyDown?.(event);
-          }}
-        >
-          <GripVertical size={14} />
-        </Button>
-      )}
-      <Button
-        variant="ghost"
-        className={`team-tree-row ${selected ? "selected" : ""}`}
-        data-iori-action="team-role"
-        data-iori-role-id={role.id}
-        onClick={onOpen}
-      >
-        <span>{role.name}</span>
-        {role.limit && <small>{role.limit}</small>}
-      </Button>
-      {children}
-    </div>
-  );
-}
+  type Candidate,
+  type Difficulty,
+  type Role,
+  type Team,
+} from "./team-data.ts";
+import { AdminSidebar } from "./editor/AdminSidebar.tsx";
+import { ExecutionHeading, ExecutionRow } from "./editor/CandidateControls.tsx";
+import {
+  ActionsMenu,
+  InlineAlertBanner,
+  TeamMenuItems,
+  TextPreview,
+} from "./editor/EditorPrimitives.tsx";
+import { OrchestratorSection } from "./editor/OrchestratorSection.tsx";
+import { RoleEditorSection } from "./editor/RoleEditorSection.tsx";
+import {
+  TeamDetailHeader,
+  TeamSaveStatus,
+} from "./editor/TeamDetailHeader.tsx";
+import {
+  CopyToHostDialog,
+  DeleteConfirmDialog,
+  LeaveConfirmDialog,
+  NewTeamDialog,
+  SaveConflictDialog,
+  TeamHistorySheet,
+} from "./editor/TeamDialogs.tsx";
+import { TeamOverviewSection } from "./editor/TeamOverviewSection.tsx";
+import { TeamsListView } from "./editor/TeamsListView.tsx";
+import {
+  hasEffortOption,
+  isTeamDirty,
+  modelError,
+  modelErrorKey,
+  type ConfirmationState,
+  type EditableHostTeams,
+  type EditableTeamRecord,
+  type LeaveGuard,
+  type SaveConflictState,
+  type Selection,
+  type WorkingAction,
+} from "./editor/types.ts";
 
-function ShortSelect({
-  label,
-  value,
-  options,
-  onChange,
-  disabled,
-}: {
-  disabled?: boolean;
-  label: string;
-  value?: string;
-  options: string[];
-  onChange: (value: string | undefined) => void;
-}) {
-  const { t } = useI18n();
-  return (
-    <Select
-      value={value === undefined ? "unspecified" : `option:${value}`}
-      onValueChange={(next) =>
-        onChange(
-          next === "unspecified" ? undefined : next.slice("option:".length),
-        )
-      }
-    >
-      <SelectTrigger aria-label={t(label)} disabled={disabled}>
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent position="popper">
-        <SelectItem value="unspecified">{t("Not specified")}</SelectItem>
-        {options.map((o) => (
-          <SelectItem value={`option:${o}`} key={o}>
-            {o}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  );
-}
-function Field({
-  label,
-  children,
-  hint,
-  hideLabel = false,
-}: {
-  label: string;
-  children: ReactNode;
-  hint?: string;
-  hideLabel?: boolean;
-}) {
-  const { t } = useI18n();
-  return (
-    <FieldRow
-      stacked
-      className="team-field"
-      hideLabel={hideLabel}
-      label={<Label>{t(label)}</Label>}
-      description={hint ? t(hint) : undefined}
-    >
-      {children}
-    </FieldRow>
-  );
-}
-function GrowingText({
-  value,
-  onChange,
-  label,
-  rows = 4,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  label: string;
-  rows?: number;
-}) {
-  const { t } = useI18n();
-  const ref = useRef<HTMLTextAreaElement>(null);
-  useEffect(() => {
-    const el = ref.current;
-    if (el) {
-      el.style.height = "auto";
-      el.style.height = `${Math.max(el.scrollHeight, rows * 24 + 20)}px`;
-    }
-  }, [value, rows]);
-  return (
-    <Textarea
-      ref={ref}
-      rows={rows}
-      value={value}
-      aria-label={t(label)}
-      onChange={(e) => onChange(e.target.value)}
-    />
-  );
-}
-function NumberLimit({
-  value,
-  onChange,
-  label,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  label: string;
-}) {
-  const { t } = useI18n();
-  return <LimitInput value={value} label={t(label)} onChange={onChange} />;
-}
-function Actions({ label, children }: { label: string; children: ReactNode }) {
-  const { t } = useI18n();
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label={t(label)}
-          data-iori-action={
-            label === "Team actions" ? "team-actions" : undefined
-          }
-        >
-          <MoreHorizontal size={16} />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="team-menu">
-        {children}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-function TeamMenuItems({
-  context = false,
-  onOpen,
-  onDuplicate,
-  onCopy,
-  onDelete,
-  hidden,
-  onHidden,
-}: {
-  context?: boolean;
-  onOpen?: () => void;
-  onDuplicate: () => void;
-  onCopy: () => void;
-  onDelete: () => void;
-  hidden: boolean;
-  onHidden: () => void;
-}) {
-  const { t } = useI18n();
-  const Item = context ? ContextMenuItem : DropdownMenuItem;
-  const Separator = context ? ContextMenuSeparator : DropdownMenuSeparator;
-  return (
-    <>
-      {onOpen && (
-        <Item data-iori-action="team-open" onSelect={onOpen}>
-          {t("Open")}
-        </Item>
-      )}
-      <Item data-iori-action="team-duplicate" onSelect={onDuplicate}>
-        {t("Duplicate")}
-      </Item>
-      <Item data-iori-action="team-copy" onSelect={onCopy}>
-        {t("Copy to another Host")}
-      </Item>
-      <Item data-iori-action="team-hidden-set" onSelect={onHidden}>
-        {t(hidden ? "Show in pickers" : "Hide from pickers")}
-      </Item>
-      <Separator />
-      <Item
-        data-iori-action="team-delete"
-        variant="destructive"
-        onSelect={onDelete}
-      >
-        {t("Delete")}
-      </Item>
-    </>
-  );
-}
-function CliModelSearch({
-  item,
-  availableModels,
-  recent,
-  onChange,
-}: {
-  item: Candidate;
-  availableModels: Record<string, string[]>;
-  recent: { cli: string; model: string }[];
-  onChange: (changes: Partial<Candidate>) => void;
-}) {
-  const { t, catalogs, clis } = useI18n();
-  const [open, setOpen] = useState(false);
-  const cliName = useCliName();
-  const modelLabel = useModelLabel();
-  const choices = {
-    ...availableModels,
-    ...(item.cli
-      ? {
-          [item.cli]: [
-            ...new Set([
-              ...(catalogs[item.cli]?.models.map((model) => model.name) ?? []),
-              item.model,
-            ]),
-          ].filter(Boolean),
-        }
-      : {}),
-  };
-  const selectedLabel = item.cli
-    ? `${cliName(item.cli)} › ${item.model ? modelLabel(item.cli, item.model) : t("Default")}`
-    : t("Not set");
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          variant="outline"
-          className="team-cli-model"
-          data-iori-action="candidate-model"
-          data-iori-cli={item.cli}
-          data-iori-model={item.model}
-          role="combobox"
-          aria-expanded={open}
-          aria-label={`${t("CLI and model")}: ${selectedLabel}`}
-          title={selectedLabel}
-        >
-          {item.cli && <CliIcon name={item.cli} size={14} />}
-          <span>{selectedLabel}</span>
-          <ChevronsUpDown size={12} />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent
-        className="team-search-popover"
-        align="start"
-        collisionPadding={16}
-        onEscapeKeyDown={(event) => {
-          if (event.isComposing) event.preventDefault();
-        }}
-      >
-        <ModelPicker
-          availableModels={choices}
-          recent={recent}
-          selected={item}
-          onSelect={({ cli, name: model }) => {
-            if (cli === item.cli) {
-              const usage = clis.find((entry) => entry.id === cli)?.usage;
-              const keepMinimumWindow =
-                item.minimumWindow !== undefined &&
-                (!usage ||
-                  usage.windows.some(
-                    (window) =>
-                      usageAppliesToModel(window, model) &&
-                      window.minutes === item.minimumWindow!.minutes &&
-                      (window.name ?? "") === (item.minimumWindow!.name ?? ""),
-                  ));
-              onChange({
-                model,
-                effort: catalogs[cli]?.models
-                  .find((entry) => entry.name === model)
-                  ?.efforts.includes(item.effort ?? "")
-                  ? item.effort
-                  : undefined,
-                minimumWindow: keepMinimumWindow
-                  ? item.minimumWindow
-                  : undefined,
-              });
-            } else {
-              onChange({
-                cli,
-                cliName: cliName(cli),
-                model,
-                effort: undefined,
-                permission: undefined,
-                sandbox: undefined,
-                minimum: "",
-                minimumWindow: undefined,
-                tools: [],
-              });
-            }
-            setOpen(false);
-          }}
-        />
-      </PopoverContent>
-    </Popover>
-  );
-}
-function Permissions({
-  item,
-  onChange,
-}: {
-  item: Candidate;
-  onChange: (changes: Partial<Candidate>) => void;
-}) {
-  const { t, catalogs } = useI18n();
-  const capability = catalogs[item.cli];
-  const fields = capability?.permissions ?? [];
-  const values = fields.flatMap((field) =>
-    field.multiple
-      ? item.tools
-      : item[field.key] !== undefined
-        ? [item[field.key]]
-        : [],
-  );
-  const summary = values.length ? values.join(" · ") : t("Not specified");
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button
-          variant="outline"
-          className="team-permission-summary"
-          disabled={!item.cli}
-          aria-label={`${t("Permissions")}: ${summary}`}
-        >
-          <span>{summary}</span>
-          <ChevronDown size={12} />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="team-permissions-popover" align="start">
-        {capability?.permissionNote && <p>{t(capability.permissionNote)}</p>}
-        {fields.map((field) => (
-          <div key={field.key} className="team-permission-field">
-            <Label>{t(field.label)}</Label>
-            {field.multiple ? (
-              <div className="team-pi-tools">
-                {field.options.map((tool) => (
-                  <label key={tool}>
-                    <Checkbox
-                      checked={item.tools.includes(tool)}
-                      onCheckedChange={(checked) =>
-                        onChange({
-                          tools:
-                            checked === true
-                              ? [...item.tools, tool]
-                              : item.tools.filter((v) => v !== tool),
-                        })
-                      }
-                    />
-                    {tool}
-                  </label>
-                ))}
-              </div>
-            ) : (
-              <ShortSelect
-                label={field.label}
-                value={item[field.key] as string | undefined}
-                options={[
-                  ...new Set([
-                    ...field.options,
-                    ...(item[field.key] === undefined
-                      ? []
-                      : [item[field.key] as string]),
-                  ]),
-                ]}
-                onChange={(value) => onChange({ [field.key]: value })}
-              />
-            )}
-          </div>
-        ))}
-        {!fields.length && <p>{t("Not specified")}</p>}
-      </PopoverContent>
-    </Popover>
-  );
-}
-function hasEffortOption(
-  item: Candidate,
-  catalogs: Record<string, CliModels>,
-  clis: CliSummary[],
-) {
-  const usageCli = clis.find((cli) => cli.id === item.cli);
-  const model = catalogs[item.cli]?.models.find(
-    (entry) => entry.name === item.model,
-  );
-  return (
-    usageCli?.launchEffort !== false && (!model || model.efforts.length > 0)
-  );
-}
-function ExecutionHeading({
-  parent = false,
-  showEffort = true,
-}: {
-  parent?: boolean;
-  showEffort?: boolean;
-}) {
-  const { t } = useI18n();
-  return (
-    <div
-      className={`team-execution-heading ${parent ? "parent-execution-heading" : ""}`}
-    >
-      {!parent && <span>#</span>}
-      <span>{t("CLI and model")}</span>
-      {showEffort && <span>Effort</span>}
-      <span>{t("Permissions")}</span>
-      {!parent && <span>{t("Minimum remaining")}</span>}
-      {!parent && <span aria-hidden="true" />}
-    </div>
-  );
-}
-function ExecutionRow({
-  item,
-  index,
-  parent,
-  onChange,
-  onRemove,
-  onCopyLevel,
-  onCopyRole,
-  roles,
-  availableModels,
-  recent,
-  limits,
-  available,
-  onLimits,
-}: {
-  item: Candidate;
-  index?: number;
-  parent?: boolean;
-  onChange: (changes: Partial<Candidate>) => void;
-  onRemove?: () => void;
-  onCopyLevel?: (level: Difficulty) => void;
-  onCopyRole?: (id: string) => void;
-  roles?: Role[];
-  availableModels: Record<string, string[]>;
-  recent: { cli: string; model: string }[];
-  limits: Record<string, string>;
-  available: string[];
-  onLimits: (cli: string) => void;
-}) {
-  const { t } = useI18n();
-  const { attributes, listeners, setNodeRef, transform, isDragging } =
-    useSortable({ id: item.id, disabled: !!parent });
-  const {
-    catalogs,
-    clis: usageClis,
-    usageClis: supportedUsageClis,
-  } = useI18n();
-  const cliName = useCliName();
-  const modelLabel = useModelLabel();
-  const missing = !!item.cli && !available.includes(item.cli);
-  const usageCli = usageClis.find((cli) => cli.id === item.cli);
-  const supportsUsage =
-    usageCli?.supportsUsage ?? supportedUsageClis?.includes(item.cli);
-  const lowUsage =
-    !parent &&
-    usageCli?.supportsUsage &&
-    belowUsageMinimum(
-      item.minimum,
-      usageCli?.usage,
-      item.model,
-      item.minimumWindow,
-    );
-  const applicableWindows = orderUsageWindows(
-    (usageCli?.usage?.windows ?? []).filter((window) =>
-      usageAppliesToModel(window, item.model),
-    ),
-  );
-  const showWindowSelector =
-    !parent &&
-    supportsUsage &&
-    (applicableWindows.length >= 2 || item.minimumWindow !== undefined);
-  const distinctWindowNames = new Set(
-    applicableWindows.map((window) => window.name ?? ""),
-  );
-  const showWindowName = distinctWindowNames.size > 1;
-  const usageWindowKey = (window: UsageWindowSelection) =>
-    `${window.minutes}:${window.name ?? ""}`;
-  const windowOptions: {
-    key: string;
-    label: string;
-    selection: UsageWindowSelection;
-  }[] = applicableWindows.map((window) => {
-    const selection: UsageWindowSelection = window.name
-      ? { minutes: window.minutes, name: window.name }
-      : { minutes: window.minutes };
-    return {
-      key: usageWindowKey(selection),
-      label:
-        showWindowName && window.name
-          ? `${window.name} ${formatUsageLength(window.minutes)}`
-          : formatUsageLength(window.minutes),
-      selection,
-    };
-  });
-  if (
-    item.minimumWindow &&
-    !windowOptions.some(
-      (option) => option.key === usageWindowKey(item.minimumWindow!),
-    )
-  ) {
-    const saved = item.minimumWindow;
-    windowOptions.push({
-      key: usageWindowKey(saved),
-      label: `${saved.name ? `${saved.name} ` : ""}${formatUsageLength(saved.minutes)}`,
-      selection: saved.name
-        ? { minutes: saved.minutes, name: saved.name }
-        : { minutes: saved.minutes },
-    });
-  }
-  const selectedWindowKey = item.minimumWindow
-    ? usageWindowKey(item.minimumWindow)
-    : "";
-  const selectedWindowLabel = item.minimumWindow
-    ? (windowOptions.find((option) => option.key === selectedWindowKey)
-        ?.label ??
-      `${item.minimumWindow.name ? `${item.minimumWindow.name} ` : ""}${formatUsageLength(item.minimumWindow.minutes)}`)
-    : t("Auto");
-  const relevantLimits = [
-    { key: limitKey(item.cli, "cli"), label: cliName(item.cli) },
-    ...(item.model.includes("/")
-      ? [
-          {
-            key: limitKey(item.cli, "provider", item.model.split("/")[0]),
-            label: item.model.split("/")[0],
-          },
-        ]
-      : []),
-    {
-      key: limitKey(item.cli, "model", item.model),
-      label: modelLabel(item.cli, item.model),
-    },
-  ].filter((target) => limits[target.key]);
-  const model = catalogs[item.cli]?.models.find(
-    (model) => model.name === item.model,
-  );
-  const effortOptions = [
-    ...new Set(
-      [
-        ...(model?.efforts ?? []),
-        ...(item.effort === undefined ? [] : [item.effort]),
-      ].filter(Boolean),
-    ),
-  ];
-  const showEffort = hasEffortOption(item, catalogs, usageClis);
-  return (
-    <div
-      ref={setNodeRef}
-      className={`team-candidate-row ${parent ? "parent-execution" : ""} ${missing ? "team-candidate-missing" : ""} ${isDragging ? "team-candidate-dragging" : ""}`}
-      style={{
-        transform: transform
-          ? `translate3d(${transform.x}px,${transform.y}px,0) scaleX(${transform.scaleX}) scaleY(${transform.scaleY})`
-          : undefined,
-      }}
-    >
-      <div className="team-execution-cells">
-        {!parent && (
-          <div className="team-candidate-priority">
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className="team-candidate-grip"
-              data-iori-action="candidate-reorder"
-              data-iori-candidate-priority={index! + 1}
-              {...attributes}
-              {...listeners}
-              aria-label={`${t("Drag to reorder")} ${index! + 1}`}
-            >
-              <GripVertical size={14} />
-            </Button>
-            <span className="team-candidate-number">{index! + 1}</span>
-          </div>
-        )}
-        <CliModelSearch
-          item={item}
-          availableModels={availableModels}
-          recent={recent}
-          onChange={onChange}
-        />
-        <div className="team-execution-options">
-          {(!parent || showEffort) && (
-            <div className="team-candidate-effort">
-              {showEffort && (
-                <>
-                  <span className="team-mobile-cell-label">Effort</span>
-                  <ShortSelect
-                    label="Effort"
-                    disabled={!item.cli}
-                    value={item.effort}
-                    options={effortOptions}
-                    onChange={(effort) => onChange({ effort })}
-                  />
-                </>
-              )}
-            </div>
-          )}
-          <div className="team-candidate-permissions">
-            <span className="team-mobile-cell-label">{t("Permissions")}</span>
-            <Permissions item={item} onChange={onChange} />
-          </div>
-          {!parent &&
-            (supportsUsage ? (
-              <div className="team-candidate-minimum">
-                <span className="team-mobile-cell-label">
-                  {t("Minimum remaining")}
-                </span>
-                <div className="team-candidate-minimum-controls">
-                  <Input
-                    aria-label={`${t("Minimum remaining")} ${index! + 1}`}
-                    data-iori-field="candidate-minimum"
-                    type="number"
-                    min="0"
-                    max="100"
-                    step="any"
-                    placeholder={t("None")}
-                    value={item.minimum}
-                    onChange={(event) => {
-                      const value = event.target.value;
-                      if (
-                        value === "" ||
-                        (/^\d+(?:\.\d+)?$/u.test(value) && Number(value) <= 100)
-                      )
-                        onChange({ minimum: value });
-                    }}
-                  />
-                  <span>%</span>
-                  {showWindowSelector && (
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="outline"
-                          className="team-candidate-minimum-window"
-                          data-iori-field="candidate-minimum-window"
-                          aria-label={`${t("Usage window")} ${index! + 1}`}
-                          title={selectedWindowLabel}
-                        >
-                          <span>{selectedWindowLabel}</span>
-                          <ChevronDown size={12} />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuRadioGroup
-                          value={selectedWindowKey}
-                          onValueChange={(next) => {
-                            if (next === "") {
-                              onChange({ minimumWindow: undefined });
-                              return;
-                            }
-                            const picked = windowOptions.find(
-                              (option) => option.key === next,
-                            );
-                            if (picked) {
-                              onChange({ minimumWindow: picked.selection });
-                            }
-                          }}
-                        >
-                          <DropdownMenuRadioItem value="">
-                            {t("Auto (lowest remaining)")}
-                          </DropdownMenuRadioItem>
-                          <DropdownMenuSeparator />
-                          {windowOptions.map((option) => (
-                            <DropdownMenuRadioItem
-                              key={option.key}
-                              value={option.key}
-                            >
-                              {option.label}
-                            </DropdownMenuRadioItem>
-                          ))}
-                        </DropdownMenuRadioGroup>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <span className="team-candidate-minimum-empty" />
-            ))}
-        </div>
-        {!parent && (
-          <div className="team-candidate-actions">
-            <Actions label="Candidate actions">
-              <DropdownMenuSub>
-                <DropdownMenuSubTrigger>
-                  {t("Copy to difficulty")}
-                </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent className="team-menu">
-                  {levels.map((level) => (
-                    <DropdownMenuItem
-                      key={level}
-                      onSelect={() => onCopyLevel?.(level)}
-                    >
-                      {t(levelLabel[level])}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuSubContent>
-              </DropdownMenuSub>
-              <DropdownMenuSub>
-                <DropdownMenuSubTrigger>
-                  {t("Copy to role")}
-                </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent className="team-menu">
-                  {roles?.map((r) => (
-                    <DropdownMenuItem
-                      key={r.id}
-                      onSelect={() => onCopyRole?.(r.id)}
-                    >
-                      {r.name}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuSubContent>
-              </DropdownMenuSub>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem variant="destructive" onSelect={onRemove}>
-                {t("Delete")}
-              </DropdownMenuItem>
-            </Actions>
-          </div>
-        )}
-      </div>
-      {((!parent &&
-        (usageCli?.usage || lowUsage || relevantLimits.length > 0)) ||
-        missing) && (
-        <div className="team-candidate-help">
-          {!parent && (
-            <Usage
-              cliId={item.cli}
-              usage={usageCli?.usage}
-              model={item.model}
-              name="Usage"
-              compact
-            />
-          )}
-          {lowUsage && (
-            <p className="team-candidate-low-usage">
-              {t(
-                "This candidate is currently below the minimum remaining usage and will not be assigned.",
-              )}
-            </p>
-          )}
-          {!parent && relevantLimits.length > 0 && (
-            <Button
-              variant="ghost"
-              className="team-candidate-host-limit"
-              onClick={() => onLimits(item.cli)}
-              aria-label={t("View Host limits")}
-            >
-              {t("Host limits")}:{" "}
-              {relevantLimits
-                .map((target) => `${target.label} ${limits[target.key]}`)
-                .join(" · ")}
-              <ChevronRight size={12} />
-            </Button>
-          )}
-          {missing && (
-            <p className="team-candidate-notice">
-              {t("Not found on this Host")}
-            </p>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-const modelErrorKeys = new WeakMap<object, number>();
-let nextModelErrorKey = 0;
-function modelErrorKey(catalog: object) {
-  const existing = modelErrorKeys.get(catalog);
-  if (existing !== undefined) return existing;
-  const key = nextModelErrorKey++;
-  modelErrorKeys.set(catalog, key);
-  return key;
-}
-function TextPreview({
-  title,
-  children,
-}: {
-  title: string;
-  children: ReactNode;
-}) {
-  const { t } = useI18n();
-  return (
-    <Collapsible className="team-preview">
-      <CollapsibleTrigger asChild>
-        <Button variant="ghost" className="team-preview-trigger">
-          <ChevronRight size={16} />
-          <span>{t(title)}</span>
-        </Button>
-      </CollapsibleTrigger>
-      <CollapsibleContent>
-        <div className="team-preview-text">{children}</div>
-      </CollapsibleContent>
-    </Collapsible>
-  );
-}
-function ChildText({ value }: { value: Role }) {
-  return (
-    <>
-      <p style={{ whiteSpace: "pre-wrap" }}>{childTeamText(value)}</p>
-    </>
-  );
-}
+export { modelError, type LeaveGuard } from "./editor/types.ts";
+
 export function TeamEditor({
   host,
   active,
   registerGuard,
   initial,
+  onBack,
   onOpenTerminal,
   onOpenIntegrations,
   onOpenWorkspaceSettings,
@@ -1061,6 +110,7 @@ export function TeamEditor({
   active: boolean;
   registerGuard: (guard: LeaveGuard) => void;
   initial: TeamList;
+  onBack?: () => void;
   onOpenTerminal: OpenTeamTerminal;
   onOpenIntegrations?: (hostKey: string) => void;
   onOpenWorkspaceSettings?: (hostKey: string, workspacePath: string) => void;
@@ -1082,11 +132,11 @@ export function TeamEditor({
   orderable?: true;
   failedDefinitions: CliDefinitionFailure[];
 }) {
-  const { t, language, clis, catalogs, loadingModels, hostName } = useI18n();
+  const { t, language, clis, catalogs, loadingModels } = useI18n();
   const cliName = useCliName();
-  const modelLabel = useModelLabel();
   const templates = initial.templates;
-  const [hosts, setHosts] = useState<Record<string, HostTeams>>({
+
+  const [hosts, setHosts] = useState<Record<string, EditableHostTeams>>({
     [host]: {
       ...initial,
       teams: initial.teams.map((record) => ({
@@ -1099,7 +149,7 @@ export function TeamEditor({
   const draftQueue = useRef(Promise.resolve());
   const drafts = Object.fromEntries(
     hosts[host].teams
-      .filter(isDirty)
+      .filter(isTeamDirty)
       .map((record) => [record.saved.id, record.draft]),
   );
   const draftKey = JSON.stringify(drafts);
@@ -1114,10 +164,8 @@ export function TeamEditor({
     });
   };
   useEffect(persistDrafts, [draftKey, host]);
-  // The pressed action while it waits for the Host.
-  const [workingOn, setWorkingOn] = useState<
-    "save" | "create" | "restore" | "copy"
-  >();
+
+  const [workingOn, setWorkingOn] = useState<WorkingAction>();
   const working = workingOn !== undefined;
   const settingsQueue = useRef(Promise.resolve(true));
   const [settingsError, setSettingsError] = useState<
@@ -1129,7 +177,12 @@ export function TeamEditor({
   });
   const settingsRef = useRef(remoteSettings);
   settingsRef.current = remoteSettings;
+  const confirmedSettings = useRef(remoteSettings);
   const [loadError, setLoadError] = useState(false);
+
+  const updateHost = (fn: (value: EditableHostTeams) => EditableHostTeams) =>
+    setHosts((current) => ({ ...current, [host]: fn(current[host]) }));
+
   const reload = async () => {
     try {
       const response = await connection.requestHost(host, "teams.list", {});
@@ -1151,7 +204,7 @@ export function TeamEditor({
             return {
               ...record,
               draft:
-                previous && isDirty(previous)
+                previous && isTeamDirty(previous)
                   ? previous.draft
                   : clone(record.saved),
             };
@@ -1162,6 +215,7 @@ export function TeamEditor({
       setLoadError(true);
     }
   };
+
   useEffect(() => {
     let connected = connection.getSnapshot().connectedHosts.includes(host);
     return connection.subscribe(() => {
@@ -1170,6 +224,7 @@ export function TeamEditor({
       connected = next;
     });
   }, [host, active]);
+
   const putRecord = (record: SavedRecord, preserveDraft = false) =>
     setHosts((current) => ({
       ...current,
@@ -1179,6 +234,7 @@ export function TeamEditor({
           ? current[host].teams.map((r) =>
               r.saved.id === record.saved.id
                 ? {
+                    ...r,
                     ...record,
                     draft: preserveDraft ? r.draft : clone(record.saved),
                   }
@@ -1187,7 +243,7 @@ export function TeamEditor({
           : [...current[host].teams, { ...record, draft: clone(record.saved) }],
       },
     }));
-  const confirmedSettings = useRef(remoteSettings);
+
   const saveSettings = ({ defaultTeam, limits }: TeamSettings) => {
     const next = { defaultTeam, limits };
     const field =
@@ -1225,17 +281,28 @@ export function TeamEditor({
     });
     return settingsQueue.current;
   };
+
   const isMobile = useIsMobile();
+  // State variable names preserved for verification/ui-states preview tooling.
   const [selection, setSelection] = useState<Selection>({
     page: initialPage ?? "agents",
   });
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [mobileDetail, setMobileDetail] = useState(false);
+  const [candidateSearchOpen, setCandidateSearchOpen] = useState(false);
+  const [difficulty, setDifficulty] = useState<Difficulty>("medium");
+  const [newTeamOpen, setNewTeamOpen] = useState(false);
+  const [teamSource, setTeamSource] = useState("template:development");
+  const [newParent, setNewParent] = useState(() =>
+    candidate(pickerClis(clis)[0]?.id ?? "", ""),
+  );
+
   const agentsVisible =
     active && selection.page === "agents" && (!isMobile || mobileDetail);
   useEffect(() => {
     if (agentsVisible) onAgentsOpened();
   }, [agentsVisible, onAgentsOpened]);
+
   useEffect(
     () =>
       registerBack(() => {
@@ -1245,50 +312,26 @@ export function TeamEditor({
       }),
     [mobileDetail, registerBack],
   );
-  const [candidateSearchOpen, setCandidateSearchOpen] = useState(false);
-  const [difficulty, setDifficulty] = useState<Difficulty>("medium");
+
   const [pending, setPending] = useState<(() => void) | null>(null);
   const savingLeave = useRef<(() => void) | null>(null);
   const cancelLeave = () => {
     savingLeave.current = null;
     setPending(null);
   };
-  const [confirmation, setConfirmation] = useState<{
-    title: string;
-    text: string;
-    action: () => void | Promise<boolean>;
-  } | null>(null);
+  const [confirmation, setConfirmation] = useState<ConfirmationState | null>(
+    null,
+  );
   const [confirmationError, setConfirmationError] = useState("");
   const [confirmationWorking, setConfirmationWorking] = useState(false);
   useEffect(() => setConfirmationError(""), [confirmation]);
-  const [newTeamOpen, setNewTeamOpen] = useState(false);
-  const [teamSource, setTeamSource] = useState("template:development");
-  const [newParent, setNewParent] = useState(() =>
-    candidate(pickerClis(clis)[0]?.id ?? "", ""),
-  );
+
   const openNewTeam = () => {
     const cli = pickerClis(clis)[0];
     setNewParent(candidate(cli?.id ?? "", "", cli?.name));
     setNewTeamOpen(true);
   };
-  const sourceListRef = useRef<HTMLDivElement>(null);
-  const [sourceHasMore, setSourceHasMore] = useState(false);
-  const updateSourceShadow = () => {
-    const el = sourceListRef.current;
-    if (el)
-      setSourceHasMore(el.scrollHeight > el.clientHeight + el.scrollTop + 1);
-  };
-  const mountSourceList = useCallback((el: HTMLDivElement | null) => {
-    sourceListRef.current = el;
-    if (!el) return;
-    const update = () =>
-      setSourceHasMore(el.scrollHeight > el.clientHeight + el.scrollTop + 1);
-    const observer = new ResizeObserver(update);
-    observer.observe(el);
-    if (el.firstElementChild) observer.observe(el.firstElementChild);
-    update();
-    return () => observer.disconnect();
-  }, []);
+
   const [copyTeam, setCopyTeam] = useState<Team | null>(null);
   const [copyHost, setCopyHost] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -1296,23 +339,23 @@ export function TeamEditor({
   const [agentExpanded, setAgentExpanded] = useState<Record<string, boolean>>(
     {},
   );
-  const [saveConflict, setSaveConflict] = useState<{
-    current: SavedRecord | null;
-    editedFrom: number;
-  } | null>(null);
+  const [saveConflict, setSaveConflict] = useState<SaveConflictState | null>(
+    null,
+  );
   const [conflictError, setConflictError] = useState(false);
   const [saveMessage, setSaveMessage] = useState("");
   const [message, setMessage] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const lastHost = useRef(host);
-  const dialogReturnFocus = useRef<HTMLElement | null>(null);
+
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,
     }),
   );
-  const data = {
+
+  const data: EditableHostTeams = {
     ...hosts[host],
     teams: [...hosts[host].teams].sort((a, b) => nameOrder(a.saved, b.saved)),
   };
@@ -1338,7 +381,8 @@ export function TeamEditor({
     team && selection.page === "team"
       ? team.roles.find((r) => r.id === selection.detail)
       : undefined;
-  const dirty = isDirty(selectedRecord);
+  const dirty = isTeamDirty(selectedRecord);
+
   const availableModels = Object.fromEntries(
     Object.entries(catalogs).map(([id, catalog]) => [
       id,
@@ -1349,20 +393,20 @@ export function TeamEditor({
     pickerClis(clis).map((cli) => [cli.id, availableModels[cli.id] ?? []]),
   );
   const availableClis = clis.map((c) => c.id);
+
   const locale =
     language.toLowerCase().startsWith("ja") ||
     (language === "system" && navigator.language.startsWith("ja"))
       ? "ja-JP"
       : "en-US";
-  const date = (value: string) =>
+  const formatDate = (value: string) =>
     new Intl.DateTimeFormat(locale, {
       month: "numeric",
       day: "numeric",
       hour: "2-digit",
       minute: "2-digit",
     }).format(new Date(value));
-  const updateHost = (fn: (value: HostTeams) => HostTeams) =>
-    setHosts((current) => ({ ...current, [host]: fn(current[host]) }));
+
   const updateTeamDraft = (
     teamId: string,
     fn: (draft: Team, saved: Team) => Team,
@@ -1373,11 +417,13 @@ export function TeamEditor({
         r.draft.id === teamId ? { ...r, draft: fn(r.draft, r.saved) } : r,
       ),
     }));
+
   const editTeam = (fn: (value: Team) => Team) => {
     if (!team) return;
     updateTeamDraft(team.id, fn);
     setSaveMessage("");
   };
+
   const editRole = (changes: Partial<Role>) =>
     editTeam((value) => ({
       ...value,
@@ -1385,6 +431,7 @@ export function TeamEditor({
         r.id === selectedRole?.id ? { ...r, ...changes } : r,
       ),
     }));
+
   const undo = (record = selectedRecord) => {
     if (
       record &&
@@ -1402,6 +449,7 @@ export function TeamEditor({
       updateTeamDraft(record.saved.id, (_draft, saved) => clone(saved));
     setSaveMessage("");
   };
+
   const editors = useRef(new Set<SettingsEditor>());
   const registerEditor = useCallback((editor: SettingsEditor) => {
     editors.current.add(editor);
@@ -1409,15 +457,17 @@ export function TeamEditor({
       editors.current.delete(editor);
     };
   }, []);
+
   const guard: LeaveGuard = (action) => {
-    if (dirty || [...editors.current].some((isDirty) => isDirty())) {
-      dialogReturnFocus.current = document.activeElement as HTMLElement;
+    if (dirty || [...editors.current].some((checkDirty) => checkDirty())) {
       setPending(() => action);
     } else action();
   };
+
   useEffect(() => {
     registerGuard(guard);
   }, [dirty, selectedRecord, registerGuard]);
+
   useEffect(() => {
     if (host !== lastHost.current) {
       setSelection({ page: "teams" });
@@ -1427,9 +477,11 @@ export function TeamEditor({
       lastHost.current = host;
     }
   }, [host]);
+
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: 0 });
   }, [selection, mobileDetail, active]);
+
   const go = (next: Selection, detail = true) => {
     const change = () => {
       setSelection(next);
@@ -1445,12 +497,14 @@ export function TeamEditor({
       guard(change);
     else change();
   };
+
   const cancelConflict = () => {
     if (working) return;
     setSaveConflict(null);
     setConflictError(false);
     cancelLeave();
   };
+
   const finishConflict = (navigate = true) => {
     const action = navigate ? savingLeave.current : null;
     setSaveConflict(null);
@@ -1458,20 +512,20 @@ export function TeamEditor({
     cancelLeave();
     action?.();
   };
-  // A restored draft retains the version it was edited from, even after reconnecting.
+
   const save = async (
     record = selectedRecord,
     baseVersion = record?.draft.version,
     editedFrom?: number,
   ) => {
-    const team = record?.draft;
-    if (!team || !isDirty(record)) return false;
-    const submitted = clone(team);
-    if (!team.name.trim()) {
+    const currentTeam = record?.draft;
+    if (!currentTeam || !isTeamDirty(record)) return false;
+    const submitted = clone(currentTeam);
+    if (!currentTeam.name.trim()) {
       setSaveMessage("Could not save: enter a team name.");
       return false;
     }
-    if (team.roles.some((r) => !r.name.trim())) {
+    if (currentTeam.roles.some((r) => !r.name.trim())) {
       setSaveMessage("Could not save: enter a name for each role.");
       return false;
     }
@@ -1479,7 +533,7 @@ export function TeamEditor({
     setConflictError(false);
     try {
       const response = await connection.requestHost(host, "teams.save", {
-        teamId: team.id,
+        teamId: currentTeam.id,
         definition: submitted,
         baseVersion,
         ...(editedFrom === undefined ? {} : { editedFrom }),
@@ -1508,20 +562,21 @@ export function TeamEditor({
           ...current,
           [host]: {
             ...current[host],
-            teams: current[host].teams.map((record) =>
-              record.saved.id === submitted.id
+            teams: current[host].teams.map((entry) =>
+              entry.saved.id === submitted.id
                 ? {
+                    ...entry,
                     ...saved,
                     draft:
-                      JSON.stringify(record.draft) === JSON.stringify(submitted)
+                      JSON.stringify(entry.draft) === JSON.stringify(submitted)
                         ? clone(saved.saved)
                         : {
-                            ...record.draft,
+                            ...entry.draft,
                             version: saved.saved.version,
                             updated: saved.saved.updated,
                           },
                   }
-                : record,
+                : entry,
             ),
           },
         }));
@@ -1537,10 +592,12 @@ export function TeamEditor({
     }
     return false;
   };
+
   const openTeam = (id: string, detail = "overview") => {
     setExpanded((e) => ({ ...e, [id]: true }));
     go({ page: "team", teamId: id, detail });
   };
+
   const create = async (source: {
     template?: string;
     parent?: Candidate;
@@ -1569,6 +626,7 @@ export function TeamEditor({
       setWorkingOn(undefined);
     }
   };
+
   const addNewTeam = () => {
     const [kind, id] = teamSource.split(":");
     void create(
@@ -1584,6 +642,7 @@ export function TeamEditor({
           },
     );
   };
+
   const duplicate = (source: Team) =>
     guard(() => {
       void create({
@@ -1591,6 +650,7 @@ export function TeamEditor({
         name: `${source.name} — ${t("Duplicate")}`,
       });
     });
+
   const deleteTeam = async (id: string) => {
     try {
       const response = await connection.requestHost(host, "teams.delete", {
@@ -1613,6 +673,7 @@ export function TeamEditor({
       setMessage(t("Could not delete team. Retry."));
     }
   };
+
   const setTeamHidden = async (teamId: string, hidden: boolean) => {
     try {
       const response = await connection.requestHost(host, "teams.hidden.set", {
@@ -1628,6 +689,7 @@ export function TeamEditor({
       setMessage(t("Could not change picker visibility. Retry."));
     }
   };
+
   const teamMenu = (source: Team, context = false, includeOpen = true) => (
     <TeamMenuItems
       context={context}
@@ -1659,6 +721,11 @@ export function TeamEditor({
       }
     />
   );
+
+  const currentHistory =
+    selectedRecord?.history.find((h) => h.team.version === historyVersion) ??
+    selectedRecord?.history[0];
+
   const restore = async () => {
     if (!currentHistory || !team) return;
     setWorkingOn("restore");
@@ -1679,6 +746,7 @@ export function TeamEditor({
       setWorkingOn(undefined);
     }
   };
+
   const copyToHost = async () => {
     if (!copyTeam || !copyHost) return;
     setWorkingOn("copy");
@@ -1704,6 +772,7 @@ export function TeamEditor({
       setWorkingOn(undefined);
     }
   };
+
   const addRole = (teamId: string) => {
     const fresh = role(
       t("New role"),
@@ -1719,18 +788,24 @@ export function TeamEditor({
     setExpanded((e) => ({ ...e, [teamId]: true }));
     go({ page: "team", teamId, detail: fresh.id });
   };
+
   const selectTeamDetail = (teamId: string, detail: string) => {
     setExpanded((e) => ({ ...e, [teamId]: true }));
     setSelection({ page: "team", teamId, detail });
     setMobileDetail(true);
     setSaveMessage("");
   };
+
   const roleAction = (teamId: string, action: () => void) => {
     if (selection.page === "team" && selection.teamId !== teamId) guard(action);
     else action();
   };
+
   const roleMenu = (r: Role, teamId: string) => (
-    <Actions label="Role actions">
+    <ActionsMenu
+      label="Role actions"
+      size={isMobile ? "icon-touch" : "icon-sm"}
+    >
       <DropdownMenuItem
         onSelect={() =>
           roleAction(teamId, () => {
@@ -1789,8 +864,9 @@ export function TeamEditor({
       >
         {t("Delete")}
       </DropdownMenuItem>
-    </Actions>
+    </ActionsMenu>
   );
+
   const onLimits = (cli: string) =>
     guard(() => {
       setAgentExpanded((e) => ({ ...e, [cli]: true }));
@@ -1802,9 +878,12 @@ export function TeamEditor({
           ?.scrollIntoView({ block: "start" }),
       );
     });
-  const candidateRows =
-    selectedRole?.candidates[selectedRole.split ? difficulty : "medium"] ?? [];
-  const actualDifficulty = selectedRole?.split ? difficulty : "medium";
+
+  const actualDifficulty: Difficulty = selectedRole?.split
+    ? difficulty
+    : "medium";
+  const candidateRows = selectedRole?.candidates[actualDifficulty] ?? [];
+
   const editCandidate = (id: string, changes: Partial<Candidate>) =>
     editRole({
       candidates: {
@@ -1814,6 +893,18 @@ export function TeamEditor({
         ),
       },
     });
+
+  const stepCandidate = (index: number, direction: -1 | 1) => {
+    const target = index + direction;
+    if (!selectedRole || target < 0 || target >= candidateRows.length) return;
+    editRole({
+      candidates: {
+        ...selectedRole.candidates,
+        [actualDifficulty]: arrayMove(candidateRows, index, target),
+      },
+    });
+  };
+
   const addCandidate = (cli: string, model: string) =>
     editRole({
       candidates: {
@@ -1824,11 +915,18 @@ export function TeamEditor({
         ],
       },
     });
-  const renderExecution = (item: Candidate, index?: number, parent = false) => (
+
+  const renderExecution = (
+    item: Candidate,
+    index?: number,
+    parent = false,
+    total?: number,
+  ) => (
     <ExecutionRow
       key={item.id}
       item={item}
       index={index}
+      total={total}
       parent={parent}
       onChange={(changes) =>
         parent
@@ -1837,6 +935,11 @@ export function TeamEditor({
               parent: { ...value.parent, ...changes },
             }))
           : editCandidate(item.id, changes)
+      }
+      onStep={
+        !parent && index !== undefined
+          ? (direction) => stepCandidate(index, direction)
+          : undefined
       }
       onRemove={() =>
         editRole({
@@ -1884,9 +987,7 @@ export function TeamEditor({
       onLimits={onLimits}
     />
   );
-  const currentHistory =
-    selectedRecord?.history.find((h) => h.team.version === historyVersion) ??
-    selectedRecord?.history[0];
+
   useEffect(() => {
     if (active) {
       void reload();
@@ -1894,14 +995,16 @@ export function TeamEditor({
       setMobileDetail(initialPage === "agents");
     }
   }, [active, initialPage, entry]);
+
   useEffect(() => {
     if (active && requestedTeam) {
       openTeam(requestedTeam.teamId, requestedTeam.roleId ?? "overview");
       onRequestedTeamOpened();
     }
   }, [active, requestedTeam]);
+
   const withTreeTeam = (
-    record: TeamRecord,
+    record: EditableTeamRecord,
     detail: string,
     action: () => void,
   ) => {
@@ -1914,807 +1017,236 @@ export function TeamEditor({
         action();
       });
   };
-  const moveRole = (record: TeamRecord, id: string, targetId: string) => {
+
+  const moveRole = (
+    record: EditableTeamRecord,
+    id: string,
+    targetId: string,
+  ) => {
     if (id === targetId) return;
     withTreeTeam(record, id, () => {
       updateTeamDraft(record.draft.id, (draft) => {
-        const from = draft.roles.findIndex((role) => role.id === id);
-        const to = draft.roles.findIndex((role) => role.id === targetId);
+        const from = draft.roles.findIndex((r) => r.id === id);
+        const to = draft.roles.findIndex((r) => r.id === targetId);
         if (from < 0 || to < 0) return draft;
         return { ...draft, roles: arrayMove(draft.roles, from, to) };
       });
       setSaveMessage("");
     });
   };
-  const saveResult = (record: TeamRecord, unsaved: boolean) => {
-    const message = record === selectedRecord ? saveMessage : "";
-    const error = message.startsWith("Could");
-    return (
-      <SaveResult
-        inline
-        error={error}
-        message={
-          error
-            ? t(message)
-            : unsaved
-              ? t("Unsaved changes")
-              : `${t("Version {version}").replace("{version}", String(record.saved.version))} · ${t(message ? "Settings saved" : "Saved")}`
-        }
-      />
-    );
-  };
-  const saveButtons = (record: TeamRecord, unsaved: boolean) => (
-    <>
-      <Button
-        variant="outline"
-        className="team-undo-button"
-        disabled={!unsaved || working}
-        onClick={() => undo(record)}
-      >
-        {t("Undo")}
-      </Button>
-      <Button
-        type="button"
-        disabled={!unsaved || working}
-        pending={workingOn === "save" && record === selectedRecord}
-        className="team-save-button"
-        data-iori-action="team-save"
-        onClick={() =>
-          withTreeTeam(record, "overview", () => void save(record))
-        }
-      >
-        {t("Save")}
-      </Button>
-    </>
-  );
-  const teamTreeRow = (record: TeamRecord) => (
-    <Collapsible
-      className="team-tree-item"
-      key={record.draft.id}
-      open={!!expanded[record.draft.id]}
-      onOpenChange={(yes) =>
-        setExpanded((e) => ({ ...e, [record.draft.id]: yes }))
-      }
-    >
-      <ContextMenu>
-        <ContextMenuTrigger asChild>
-          <CollapsibleTrigger asChild>
-            <Button
-              variant="ghost"
-              className="team-tree-row team-tree-team"
-              data-iori-team-id={record.draft.id}
-            >
-              <span className="team-tree-chevron">
-                {expanded[record.draft.id] ? (
-                  <ChevronDown size={14} />
-                ) : (
-                  <ChevronRight size={14} />
-                )}
-              </span>
-              <span data-iori-team-name={record.draft.id}>
-                {record.draft.name}
-              </span>
-              {isDirty(record) && (
-                <span
-                  className="team-unsaved-dot"
-                  aria-label={t("Unsaved changes")}
-                />
-              )}
-            </Button>
-          </CollapsibleTrigger>
-        </ContextMenuTrigger>
-        <ContextMenuContent className="team-menu">
-          {teamMenu(record.saved, true)}
-        </ContextMenuContent>
-      </ContextMenu>
-      <div className="team-tree-actions">
-        <Actions label="Team actions">{teamMenu(record.saved)}</Actions>
-      </div>
-      <CollapsibleContent className="team-tree-children">
-        <Button
-          variant="ghost"
-          className={`team-tree-row ${selection.page === "team" && selection.teamId === record.draft.id && selection.detail === "overview" ? "selected" : ""}`}
-          data-iori-action="team-overview"
-          data-iori-team-id={record.draft.id}
-          onClick={() => openTeam(record.draft.id)}
-        >
-          {t("Team overview")}
-        </Button>
-        <Button
-          variant="ghost"
-          className={`team-tree-row ${selection.page === "team" && selection.teamId === record.draft.id && selection.detail === "parent" ? "selected" : ""}`}
-          data-iori-action="team-parent"
-          data-iori-team-id={record.draft.id}
-          onClick={() => openTeam(record.draft.id, "parent")}
-        >
-          {t("Orchestrator")}
-        </Button>
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragEnd={({ active, over }) => {
-            if (over) moveRole(record, String(active.id), String(over.id));
-          }}
-        >
-          <SortableContext
-            items={record.draft.roles.map((role) => role.id)}
-            strategy={verticalListSortingStrategy}
-          >
-            {record.draft.roles.map((role, index, roles) => (
-              <TeamRoleRow
-                key={role.id}
-                role={role}
-                sortable={roles.length > 1}
-                selected={
-                  selection.page === "team" &&
-                  selection.teamId === record.draft.id &&
-                  selection.detail === role.id
-                }
-                onOpen={() => openTeam(record.draft.id, role.id)}
-                onStep={(direction) => {
-                  const target = roles[index + direction];
-                  if (target) moveRole(record, role.id, target.id);
-                }}
-              >
-                {roleMenu(role, record.draft.id)}
-              </TeamRoleRow>
-            ))}
-          </SortableContext>
-        </DndContext>
-        <Button
-          variant="outline"
-          className="team-tree-row team-tree-add"
-          onClick={() => {
-            if (
-              selection.page === "team" &&
-              selection.teamId !== record.draft.id
-            )
-              guard(() => addRole(record.draft.id));
-            else addRole(record.draft.id);
-          }}
-        >
-          <Plus size={13} />
-          {t("Add role")}
-        </Button>
-        {isMobile && !mobileDetail && isDirty(record) && (
-          <div className="team-tree-save">
-            {saveResult(record, true)}
-            {saveButtons(record, true)}
-          </div>
-        )}
-      </CollapsibleContent>
-    </Collapsible>
-  );
-  const teamListRow = (record: TeamRecord) => (
-    <div className="team-list-row" key={record.saved.id}>
-      <Button
-        variant="ghost"
-        className="team-list-open"
-        data-iori-team-id={record.saved.id}
-        onClick={() => openTeam(record.saved.id)}
-      >
-        <div className="team-list-name">
-          <strong>{record.saved.name}</strong>
-          {record.saved.id === data.defaultTeam && (
-            <Badge variant="outline">{t("Default")}</Badge>
-          )}
-        </div>
-        <p>{record.saved.description}</p>
-        <div className="team-list-meta">
-          <span>
-            {t("Version {version}").replace(
-              "{version}",
-              String(record.saved.version),
-            )}
-          </span>
-          <time>
-            {t("Updated")} {date(record.saved.updated)}
-          </time>
-        </div>
-      </Button>
-      <div className="team-list-actions">
-        <Actions label="Team actions">{teamMenu(record.saved)}</Actions>
-      </div>
-    </div>
-  );
+
+  const mobileLocationTitle = team
+    ? `${team.name} › ${
+        selection.page === "team"
+          ? selection.detail === "parent"
+            ? t("Orchestrator")
+            : selection.detail === "overview"
+              ? t("Team overview")
+              : selectedRole?.name
+          : ""
+      }`
+    : t(
+        selection.page === "agents"
+          ? "AI Agents"
+          : selection.page === "automations"
+            ? "Automations"
+            : selection.page === "records"
+              ? "Records"
+              : "Teams",
+      );
+
   return (
     <section
-      className={`team-editor ${mobileDetail ? "team-mobile-detail" : ""}`}
+      className="flex h-full min-h-0 min-w-0 flex-1 overflow-hidden bg-background"
       aria-label={t("AI Agents/Teams")}
       data-active={active}
       data-iori-view="teams-editor"
     >
-      <nav className="team-tree" aria-label={t("AI Agents/Teams")}>
-        <div className="team-tree-host">
-          <SidebarTrigger
-            className="team-mobile-sidebar size-12"
-            aria-label={t("Open sidebar")}
-            title={t("Open sidebar")}
-            data-iori-action="sidebar-toggle"
-          />
-          <span>{hostName}</span>
-        </div>
-        <Button
-          variant="ghost"
-          className={`team-tree-row ${selection.page === "agents" ? "selected" : ""}`}
-          data-iori-action="teams-agents"
-          onClick={() => go({ page: "agents" })}
-        >
-          <Bot size={16} />
-          {t("AI Agents")}
-        </Button>
-        <div className="team-tree-heading">
-          <Button
-            variant="ghost"
-            className={`team-tree-row ${selection.page === "teams" ? "selected" : ""}`}
-            data-iori-action="teams-list"
-            onClick={() => go({ page: "teams" })}
-          >
-            <Users size={16} />
-            {t("Teams")}
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label={t("New team")}
-            data-iori-action="team-new"
-            onClick={() => guard(openNewTeam)}
-          >
-            <Plus size={16} />
-          </Button>
-        </div>
-        {pickerTeams(data.teams).map(teamTreeRow)}
+      <AdminSidebar
+        selection={selection}
+        teams={data.teams}
+        expanded={expanded}
+        onExpandedChange={(teamId, yes) =>
+          setExpanded((current) => ({ ...current, [teamId]: yes }))
+        }
+        isMobile={isMobile}
+        mobileDetail={mobileDetail}
+        sensors={sensors}
+        onBack={onBack ? () => guard(onBack) : undefined}
+        onNavigate={(next) => go(next)}
+        onNewTeam={() => guard(openNewTeam)}
+        onOpenTeam={openTeam}
+        onAddRole={(teamId) => {
+          if (selection.page === "team" && selection.teamId !== teamId)
+            guard(() => addRole(teamId));
+          else addRole(teamId);
+        }}
+        onMoveRole={moveRole}
+        renderTeamMenu={(source, context) => teamMenu(source, context)}
+        renderRoleMenu={roleMenu}
+        renderMobileSaveBar={(record) => (
+          <>
+            <div className="mr-auto">
+              <TeamSaveStatus
+                dirty={true}
+                saveMessage={record === selectedRecord ? saveMessage : ""}
+              />
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={working}
+              onClick={() => undo(record)}
+            >
+              {t("Undo")}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              disabled={working}
+              pending={workingOn === "save" && record === selectedRecord}
+              className="team-save-button"
+              data-iori-action="team-save"
+              onClick={() =>
+                withTreeTeam(record, "overview", () => void save(record))
+              }
+            >
+              {t("Save")}
+            </Button>
+          </>
+        )}
+      />
 
-        <Button
-          variant="ghost"
-          className={`team-tree-row ${selection.page === "automations" ? "selected" : ""}`}
-          data-iori-action="teams-automations"
-          onClick={() => go({ page: "automations" })}
-        >
-          <CalendarClock size={16} />
-          Automations
-        </Button>
-        <Button
-          variant="ghost"
-          className={`team-tree-row ${selection.page === "records" ? "selected" : ""}`}
-          data-iori-action="teams-records"
-          onClick={() => go({ page: "records" })}
-        >
-          <History size={16} />
-          Records
-        </Button>
-      </nav>
-      <div className="team-detail">
-        <div className="team-mobile-location">
+      {/* Right Main Surface */}
+      <div
+        className={cn(
+          "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background",
+          !mobileDetail && "max-md:hidden",
+        )}
+      >
+        {/* Mobile top navigation strip (non-team sections, or sidebar opener) */}
+        <div className="hidden min-h-12 shrink-0 items-center gap-1.5 border-b border-border bg-background px-1.5 max-md:flex">
           <SidebarTrigger
-            className="size-12"
+            className="size-11"
             aria-label={t("Open sidebar")}
             title={t("Open sidebar")}
             data-iori-action="sidebar-toggle"
           />
-          <span title={team?.name}>
-            {team
-              ? `${team.name} › ${selection.page === "team" ? (selection.detail === "parent" ? t("Orchestrator") : selection.detail === "overview" ? t("Team overview") : selectedRole?.name) : ""}`
-              : t(
-                  selection.page === "agents"
-                    ? "AI Agents"
-                    : selection.page === "automations"
-                      ? "Automations"
-                      : selection.page === "records"
-                        ? "Records"
-                        : "Teams",
-                )}
+          <span
+            title={team?.name}
+            className="min-w-0 flex-1 truncate font-heading text-sm font-medium text-foreground"
+          >
+            {mobileLocationTitle}
           </span>
         </div>
-        {team && (
-          <PageBody width="editor" className="team-content team-editor-heading">
-            <PageHeader
-              headingClassName="team-save-title"
-              className="team-save-header"
-              data-iori-team-id={team.id}
-              title={
-                <strong data-iori-team-version={team.version}>
-                  {selection.page === "team"
-                    ? selection.detail === "parent"
-                      ? t("Orchestrator")
-                      : selection.detail === "overview"
-                        ? t("Team overview")
-                        : selectedRole?.name
-                    : team.name}
-                </strong>
-              }
-              back={
-                <Button
-                  variant="ghost"
-                  title={team.name}
-                  onClick={() => {
-                    if (isMobile) setMobileDetail(false);
-                    else openTeam(team.id, "overview");
-                  }}
-                >
-                  <ArrowLeft size={14} />
-                  <span className="page-link-label">{team.name}</span>
-                </Button>
-              }
-              description={saveResult(selectedRecord!, dirty)}
-              actions={
-                <>
-                  <Button
-                    variant="outline"
-                    className="team-history-button"
-                    data-iori-action="team-history"
-                    onClick={() => {
-                      setHistoryVersion(null);
-                      setHistoryOpen(true);
-                    }}
-                  >
-                    <History size={14} />
-                    <span>{t("History")}</span>
-                  </Button>
-                  {saveButtons(selectedRecord!, dirty)}
-                  <Actions label="Team actions">
-                    {teamMenu(selectedRecord!.saved, false, false)}
-                  </Actions>
-                </>
-              }
-            />
-          </PageBody>
+
+        {/* Sticky Team Editor Header */}
+        {team && selection.page === "team" && selectedRecord && (
+          <TeamDetailHeader
+            record={selectedRecord}
+            selection={selection}
+            selectedRoleName={selectedRole?.name}
+            dirty={dirty}
+            working={working}
+            workingOn={workingOn}
+            saveMessage={saveMessage}
+            isMobile={isMobile}
+            onBack={() => {
+              if (isMobile) setMobileDetail(false);
+              else openTeam(team.id, "overview");
+            }}
+            onOpenHistory={() => {
+              setHistoryVersion(null);
+              setHistoryOpen(true);
+            }}
+            onUndo={() => undo(selectedRecord)}
+            onSave={() => void save(selectedRecord)}
+            renderTeamMenu={() => teamMenu(selectedRecord.saved, false, false)}
+          />
         )}
-        {draftError && (
-          <div className="team-model-error" role="alert">
-            {t(
-              "Could not keep the team draft on this device. Retry saving the draft.",
-            )}
-            <Button onClick={persistDrafts}>{t("Retry saving")}</Button>
-          </div>
-        )}
-        {loadError && (
-          <div className="team-model-error" role="alert">
-            {t("Could not load teams. Retry.")}
-            <Button onClick={() => void reload()}>{t("Retry")}</Button>
-          </div>
-        )}
-        {message && (
-          <p role="status" className="team-error">
-            {message}
-          </p>
-        )}
-        <div className="team-detail-scroll" ref={scrollRef}>
-          {selection.page === "teams" && (
-            <PageBody width="editor" className="team-content team-list-page">
-              <PageHeader
-                title={t("Teams")}
-                actions={
-                  <Button variant="outline" onClick={openNewTeam}>
-                    <Plus size={15} />
-                    {t("New team")}
-                  </Button>
-                }
-              />
-              <SettingsSection className="team-list-settings">
-                <SettingsRow
-                  label="Default team"
-                  className="team-default"
-                  error={
-                    settingsError === "defaultTeam"
-                      ? "Could not save settings. Choose it again to retry."
-                      : undefined
-                  }
-                >
-                  <Select
-                    value={data.defaultTeam || "none"}
-                    onValueChange={(value) =>
-                      saveSettings({
-                        limits: data.limits,
-                        defaultTeam: value === "none" ? "" : value,
-                      })
-                    }
-                  >
-                    <SelectTrigger
-                      aria-label={t("Default team")}
-                      data-iori-action="default-team"
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent className="team-default-options">
-                      {[
-                        "none",
-                        ...pickerTeams(data.teams).map((r) => r.saved.id),
-                      ].map((id) => (
-                        <SelectItem
-                          value={id}
-                          key={id}
-                          className="team-default-option"
-                          data-iori-default-team={id}
-                        >
-                          {id === "none"
-                            ? t("None")
-                            : data.teams.find((r) => r.saved.id === id)?.saved
-                                .name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </SettingsRow>
-              </SettingsSection>
-              <SettingsSection className="team-list">
-                {pickerTeams(data.teams).map(teamListRow)}
-                {data.teams.some((r) => r.hidden) && (
-                  <HiddenItems>
-                    {data.teams.filter((r) => r.hidden).map(teamListRow)}
-                  </HiddenItems>
+
+        {/* Inline Status / Error Banners */}
+        {(draftError || loadError || message) && (
+          <div className="mx-auto flex w-full max-w-[960px] shrink-0 flex-col gap-2 px-6 pt-3 max-md:px-4">
+            {draftError && (
+              <InlineAlertBanner
+                message={t(
+                  "Could not keep the team draft on this device. Retry saving the draft.",
                 )}
-              </SettingsSection>
-              {data.teams.length === 0 && (
-                <p className="team-hint">
-                  {t(
-                    "No teams yet. Choose New team to create one from a template.",
-                  )}
-                </p>
-              )}
-            </PageBody>
+                actionLabel={t("Retry saving")}
+                onAction={persistDrafts}
+              />
+            )}
+            {loadError && (
+              <InlineAlertBanner
+                message={t("Could not load teams. Retry.")}
+                actionLabel={t("Retry")}
+                onAction={() => void reload()}
+              />
+            )}
+            {message && <InlineAlertBanner message={message} tone="status" />}
+          </div>
+        )}
+
+        {/* Scrollable Workspace Area */}
+        <div
+          ref={scrollRef}
+          className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]"
+        >
+          {selection.page === "teams" && (
+            <TeamsListView
+              teams={data.teams}
+              defaultTeam={data.defaultTeam}
+              settingsError={settingsError}
+              onDefaultTeamChange={(defaultTeam) =>
+                saveSettings({ limits: data.limits, defaultTeam })
+              }
+              onNewTeam={openNewTeam}
+              onOpenTeam={(id) => openTeam(id)}
+              formatDate={formatDate}
+              renderTeamMenu={(source) => teamMenu(source)}
+            />
           )}
+
           {team &&
             selection.page === "team" &&
             selection.detail === "overview" && (
-              <PageBody width="editor" className="team-content team-overview">
-                <SettingsSection>
-                  <Field label="Name">
-                    <Input
-                      value={team.name}
-                      aria-label={t("Name")}
-                      data-iori-field="team-name"
-                      onChange={(e) =>
-                        editTeam((value) => ({
-                          ...value,
-                          name: e.target.value,
-                        }))
-                      }
-                    />
-                  </Field>
-                  <Field label="Description">
-                    <GrowingText
-                      label="Description"
-                      rows={3}
-                      value={team.description}
-                      onChange={(description) =>
-                        editTeam((value) => ({ ...value, description }))
-                      }
-                    />
-                  </Field>
-                </SettingsSection>
-              </PageBody>
+              <TeamOverviewSection team={team} onEditTeam={editTeam} />
             )}
+
           {team &&
             selection.page === "team" &&
             selection.detail === "parent" && (
-              <PageBody width="editor" className="team-content">
-                <SettingsSection title={t("Execution settings")}>
-                  <div className="team-execution-list team-parent-execution">
-                    <ExecutionHeading
-                      parent
-                      showEffort={hasEffortOption(team.parent, catalogs, clis)}
-                    />
-                    <DndContext sensors={sensors}>
-                      {renderExecution(team.parent, undefined, true)}
-                    </DndContext>
-                  </div>
-                </SettingsSection>
-                <SettingsSection>
-                  <SettingsRow
-                    label="Allow orchestrator input to children"
-                    hint="The orchestrator can send input to a child's Terminal, including answers to approval prompts. When off, the orchestrator can still read the child's screen and stop it."
-                  >
-                    <Switch
-                      checked={team.parentInput === true}
-                      aria-label={t("Allow orchestrator input to children")}
-                      onCheckedChange={(checked) =>
-                        editTeam((value) => {
-                          const next = { ...value };
-                          if (checked) next.parentInput = true;
-                          else delete next.parentInput;
-                          return next;
-                        })
-                      }
-                    />
-                  </SettingsRow>
-                  {(
-                    [
-                      {
-                        field: "checkMinutes",
-                        label: "Check on working children",
-                        hint: "While a child keeps working, the orchestrator reads its screen at this interval. Each check uses the orchestrator's tokens.",
-                        minutes: team.checkMinutes,
-                      },
-                      {
-                        field: "backgroundWakeMinutes",
-                        label: "Remind children waiting on background commands",
-                        hint: "When a child ends its response while a background command keeps running, iori asks the child to check that command at this interval. Each reminder uses the child's tokens.",
-                        minutes:
-                          team.backgroundWakeMinutes ??
-                          defaultBackgroundWakeMinutes,
-                      },
-                    ] as const
-                  ).map(({ field, label, hint, minutes }) => (
-                    <SettingsRow
-                      key={field}
-                      label={label}
-                      hint={hint}
-                      detail={
-                        !!minutes && (
-                          <>
-                            <LimitInput
-                              key={`${team.id}-${field}`}
-                              value={String(minutes)}
-                              label={`${t(label)}: ${t("Interval in minutes")}`}
-                              min={1}
-                              max={maxTeamIntervalMinutes}
-                              onChange={(raw) =>
-                                editTeam((value) => ({
-                                  ...value,
-                                  [field]: Number(raw),
-                                }))
-                              }
-                            />
-                            <span>{t("minutes")}</span>
-                          </>
-                        )
-                      }
-                    >
-                      <Switch
-                        checked={!!minutes}
-                        aria-label={t(label)}
-                        onCheckedChange={(checked) =>
-                          editTeam((value) => {
-                            const next = { ...value };
-                            if (checked)
-                              next[field] = defaultBackgroundWakeMinutes;
-                            else if (field === "checkMinutes")
-                              delete next.checkMinutes;
-                            else next.backgroundWakeMinutes = 0;
-                            return next;
-                          })
-                        }
-                      />
-                    </SettingsRow>
-                  ))}
-                </SettingsSection>
-                <SettingsSection title={t("Orchestrator instructions")}>
-                  <Field
-                    hideLabel
-                    label="Orchestrator instructions"
-                    hint="Describe how to run the team. iori separately provides the delegation, revision and acceptance commands."
-                  >
-                    <GrowingText
-                      label="Orchestrator instructions"
-                      rows={8}
-                      value={team.instruction}
-                      onChange={(instruction) =>
-                        editTeam((value) => ({ ...value, instruction }))
-                      }
-                    />
-                  </Field>
-                </SettingsSection>
-                <SettingsSection>
-                  <TextPreview title="Text sent to orchestrator">
-                    <p style={{ whiteSpace: "pre-wrap" }}>
-                      {parentTeamText(team)}
-                    </p>
-                  </TextPreview>
-                </SettingsSection>
-              </PageBody>
-            )}
-          {selectedRole && (
-            <PageBody width="editor" className="team-content team-role-content">
-              <SettingsSection
-                id="team-section-0"
-                title={t("Basics")}
-                data-iori-role-name={selectedRole.name}
-              >
-                <Field label="Name">
-                  <Input
-                    value={selectedRole.name}
-                    aria-label={t("Name")}
-                    data-iori-field="team-name"
-                    onChange={(e) => editRole({ name: e.target.value })}
-                  />
-                </Field>
-                <Field
-                  label="When to call"
-                  hint="The orchestrator reads this to choose where to delegate."
-                >
-                  <GrowingText
-                    label="When to call"
-                    rows={2}
-                    value={selectedRole.when}
-                    onChange={(when) => editRole({ when })}
-                  />
-                </Field>
-                <div className="team-basic-settings">
-                  <SettingsRow
-                    label="Concurrency limit"
-                    hint="How many children in this role can run at once in a conversation using this team."
-                  >
-                    <NumberLimit
-                      value={selectedRole.limit}
-                      label={t("Concurrency limit")}
-                      onChange={(limit) => editRole({ limit })}
-                    />
-                  </SettingsRow>
-                  <SettingsRow
-                    label="Reuse child sessions"
-                    hint={
-                      selectedRole.reuse
-                        ? "Ask a child that has reported to continue or make corrections."
-                        : "A new child takes over each time, quoting the previous report."
-                    }
-                  >
-                    <Switch
-                      checked={selectedRole.reuse}
-                      aria-label={t("Reuse child sessions")}
-                      onCheckedChange={(reuse) => editRole({ reuse })}
-                    />
-                  </SettingsRow>
-                </div>
-              </SettingsSection>
-              <SettingsSection
-                id="team-section-1"
-                title={t("Candidates")}
-                description={
-                  candidateRows.length
-                    ? t("Candidates are tried in this order.")
-                    : undefined
+              <OrchestratorSection
+                team={team}
+                sensors={sensors}
+                onEditTeam={editTeam}
+                renderParentExecution={() =>
+                  renderExecution(team.parent, undefined, true)
                 }
-              >
-                <div className="team-difficulty-setting">
-                  <SettingsRow
-                    label="Separate by difficulty"
-                    hint="High and low lists are kept when this is off."
-                  >
-                    <Switch
-                      checked={selectedRole.split}
-                      aria-label={t("Separate by difficulty")}
-                      onCheckedChange={(split) => editRole({ split })}
-                    />
-                  </SettingsRow>
-                </div>
-                {selectedRole.split && (
-                  <div className="team-candidate-heading">
-                    <ToggleGroup
-                      type="single"
-                      variant="outline"
-                      value={difficulty}
-                      onValueChange={(v) => v && setDifficulty(v as Difficulty)}
-                      aria-label={t("Separate by difficulty")}
-                    >
-                      {levels.map((level) => (
-                        <ToggleGroupItem key={level} value={level}>
-                          {t(levelLabel[level])}
-                          <small>{selectedRole.candidates[level].length}</small>
-                        </ToggleGroupItem>
-                      ))}
-                    </ToggleGroup>
-                  </div>
-                )}
-                <div className="team-execution-list">
-                  {candidateRows.length > 0 ? (
-                    <ExecutionHeading />
-                  ) : (
-                    <p className="team-hint">
-                      {team?.parent.cli
-                        ? t(
-                            "No candidates. Runs with the orchestrator's settings ({model}).",
-                          ).replace(
-                            "{model}",
-                            `${cliName(team.parent.cli)} › ${team.parent.model ? modelLabel(team.parent.cli, team.parent.model) : t("Default")}`,
-                          )
-                        : t("No candidates configured.")}
-                    </p>
-                  )}
-                  <DndContext
-                    sensors={sensors}
-                    collisionDetection={closestCenter}
-                    onDragEnd={({ active: dragged, over }) => {
-                      if (over && dragged.id !== over.id)
-                        editRole({
-                          candidates: {
-                            ...selectedRole.candidates,
-                            [actualDifficulty]: arrayMove(
-                              candidateRows,
-                              candidateRows.findIndex(
-                                (c) => c.id === dragged.id,
-                              ),
-                              candidateRows.findIndex((c) => c.id === over.id),
-                            ),
-                          },
-                        });
-                    }}
-                  >
-                    <SortableContext
-                      items={candidateRows.map((c) => c.id)}
-                      strategy={verticalListSortingStrategy}
-                    >
-                      {candidateRows.map((c, index) =>
-                        renderExecution(c, index),
-                      )}
-                    </SortableContext>
-                  </DndContext>
-                </div>
-                <div className="team-candidate-add-row">
-                  <Popover
-                    open={candidateSearchOpen}
-                    onOpenChange={setCandidateSearchOpen}
-                  >
-                    <PopoverTrigger asChild>
-                      <Button
-                        variant="outline"
-                        className="team-add-candidate"
-                        data-iori-action="candidate-add"
-                      >
-                        <Plus size={15} />
-                        {t("Add candidate")}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent
-                      className="team-search-popover"
-                      align="start"
-                      collisionPadding={16}
-                      onEscapeKeyDown={(e) => {
-                        if (e.isComposing) e.preventDefault();
-                      }}
-                    >
-                      <ModelPicker
-                        availableModels={selectableModels}
-                        recent={recentModels}
-                        onSelect={({ cli, name: model }) => {
-                          addCandidate(cli, model);
-                          setCandidateSearchOpen(false);
-                        }}
-                      />
-                    </PopoverContent>
-                  </Popover>
-                </div>
-              </SettingsSection>
-              <SettingsSection id="team-section-2" title={t("Instructions")}>
-                <Field label="Child instructions">
-                  <GrowingText
-                    label="Child instructions"
-                    rows={5}
-                    value={selectedRole.instruction}
-                    onChange={(instruction) => editRole({ instruction })}
-                  />
-                </Field>
-              </SettingsSection>
-              <SettingsSection
-                id="team-section-3"
-                title={t("Request and report")}
-              >
-                <div className="team-format-fields">
-                  <Field label="Request fields">
-                    <GrowingText
-                      label="Request fields"
-                      rows={4}
-                      value={selectedRole.request}
-                      onChange={(request) => editRole({ request })}
-                    />
-                  </Field>
-                  <Field label="Report fields">
-                    <GrowingText
-                      label="Report fields"
-                      rows={4}
-                      value={selectedRole.report}
-                      onChange={(report) => editRole({ report })}
-                    />
-                  </Field>
-                </div>
-              </SettingsSection>
-              <SettingsSection id="team-section-4">
-                <TextPreview title="Text sent to child">
-                  <ChildText value={selectedRole} />
-                </TextPreview>
-              </SettingsSection>
-            </PageBody>
+              />
+            )}
+
+          {team && selectedRole && (
+            <RoleEditorSection
+              team={team}
+              role={selectedRole}
+              difficulty={difficulty}
+              onDifficultyChange={setDifficulty}
+              candidateSearchOpen={candidateSearchOpen}
+              onCandidateSearchOpenChange={setCandidateSearchOpen}
+              selectableModels={selectableModels}
+              recentModels={recentModels}
+              sensors={sensors}
+              onEditRole={editRole}
+              onAddCandidate={addCandidate}
+              renderCandidateRow={(item, index, total) =>
+                renderExecution(item, index, false, total)
+              }
+            />
           )}
+
           <Automations
             host={host}
             onOpenIntegrations={onOpenIntegrations}
@@ -2734,7 +1266,7 @@ export function TeamEditor({
               })
             }
             renderCandidate={(item, onChange) => (
-              <>
+              <div className="border-y border-border">
                 <ExecutionHeading
                   parent
                   showEffort={hasEffortOption(item, catalogs, clis)}
@@ -2751,9 +1283,10 @@ export function TeamEditor({
                     onLimits={onLimits}
                   />
                 </DndContext>
-              </>
+              </div>
             )}
           />
+
           {selection.page === "records" && (
             <Records
               host={host}
@@ -2773,6 +1306,7 @@ export function TeamEditor({
               }
             />
           )}
+
           {selection.page === "agents" && (
             <AgentsPage
               host={host}
@@ -2805,7 +1339,7 @@ export function TeamEditor({
                             /^\s*(?:error|fatal)\b/iu.test(line),
                           ) && (
                           <p
-                            className="team-preview-text"
+                            className="mt-1 font-mono text-2xs whitespace-pre-wrap [overflow-wrap:anywhere] text-muted-foreground"
                             data-iori-model-error-summary
                           >
                             {catalogs[cli.id].errorDetail
@@ -2815,7 +1349,7 @@ export function TeamEditor({
                               )}
                           </p>
                         )}
-                        <TextPreview title="Details">
+                        <TextPreview title="Details" className="mt-1">
                           <span data-iori-model-error-output>
                             {catalogs[cli.id].errorDetail}
                           </span>
@@ -2823,6 +1357,7 @@ export function TeamEditor({
                       </>
                     )}
                     <Button
+                      type="button"
                       variant="outline"
                       size="sm"
                       pending={loadingModels[cli.id]}
@@ -2855,631 +1390,200 @@ export function TeamEditor({
           )}
         </div>
       </div>
-      <Dialog
-        open={!!saveConflict}
-        onOpenChange={(open) => {
-          if (!open) cancelConflict();
+
+      {/* Dialogs & Sheets */}
+      <SaveConflictDialog
+        saveConflict={saveConflict}
+        conflictError={conflictError}
+        working={working}
+        workingOn={workingOn}
+        formatDate={formatDate}
+        onCancel={cancelConflict}
+        onReload={(current) => {
+          putRecord(current);
+          if (
+            selection.page === "team" &&
+            !["overview", "parent"].includes(selection.detail) &&
+            !current.saved.roles.some((r) => r.id === selection.detail)
+          )
+            setSelection({
+              page: "team",
+              teamId: current.saved.id,
+              detail: "overview",
+            });
+          setSaveMessage("");
+          finishConflict();
         }}
-      >
-        <DialogContent
-          className="team-dialog"
-          showCloseButton={false}
-          data-iori-view="team-save-conflict"
-          onCloseAutoFocus={(event) => {
-            event.preventDefault();
-            document
-              .querySelector<HTMLButtonElement>(
-                ".team-surface:not([hidden]) .team-save-button",
-              )
-              ?.focus();
-          }}
-        >
-          <DialogHeader>
-            <DialogTitle>
-              {t(
-                saveConflict?.current
-                  ? "This team was changed on another device"
-                  : "This team was deleted on another device",
-              )}
-            </DialogTitle>
-            {saveConflict?.current && (
-              <p className="page-description">
-                {[
-                  t("Version {version}").replace(
-                    "{version}",
-                    String(saveConflict.current.saved.version),
-                  ),
-                  date(saveConflict.current.saved.updated),
-                  historySummary(saveConflict.current.history[0], t),
-                ].join(" · ")}
-              </p>
-            )}
-            <DialogDescription>
-              {t(
-                saveConflict?.current
-                  ? "Reloading discards your unsaved changes on this device. Overwriting saves your changes as a new version, and the other device’s changes stay in History."
-                  : "To keep your changes, save them as a new team.",
-              )}
-            </DialogDescription>
-          </DialogHeader>
-          {(saveConflict?.current || conflictError) && (
-            <SaveResult
-              message={
-                conflictError ? t("Could not save the team. Try again.") : ""
-              }
-              error={conflictError}
-            />
-          )}
-          <DialogFooter>
-            <Button
-              variant="outline"
-              data-iori-action="team-conflict-cancel"
-              disabled={working}
-              onClick={cancelConflict}
-            >
-              {t("Cancel")}
-            </Button>
-            {saveConflict?.current ? (
-              <>
-                <Button
-                  variant="outline"
-                  data-iori-action="team-conflict-reload"
-                  disabled={working}
-                  onClick={() => {
-                    const current = saveConflict.current!;
-                    putRecord(current);
-                    if (
-                      selection.page === "team" &&
-                      !["overview", "parent"].includes(selection.detail) &&
-                      !current.saved.roles.some(
-                        (role) => role.id === selection.detail,
-                      )
-                    )
-                      setSelection({
-                        page: "team",
-                        teamId: current.saved.id,
-                        detail: "overview",
-                      });
-                    setSaveMessage("");
-                    finishConflict();
-                  }}
-                >
-                  {t("Reload")}
-                </Button>
-                <Button
-                  variant="outline"
-                  data-iori-action="team-conflict-overwrite"
-                  disabled={working}
-                  pending={workingOn === "save"}
-                  onClick={async () => {
-                    const saved = await save(
-                      selectedRecord,
-                      saveConflict.current!.saved.version,
-                      saveConflict.editedFrom,
-                    );
-                    if (saved === true) finishConflict();
-                  }}
-                >
-                  {t("Overwrite")}
-                </Button>
-              </>
-            ) : (
-              <>
-                <Button
-                  variant="outline"
-                  data-iori-action="team-conflict-discard"
-                  disabled={working}
-                  onClick={() => {
-                    if (!team) return;
-                    updateHost((d) => ({
-                      ...d,
-                      defaultTeam:
-                        d.defaultTeam === team.id ? "" : d.defaultTeam,
-                      teams: d.teams.filter((r) => r.saved.id !== team.id),
-                    }));
-                    setSelection({ page: "teams" });
-                    setMobileDetail(true);
-                    setSaveMessage("");
-                    finishConflict(false);
-                  }}
-                >
-                  {t("Discard Changes")}
-                </Button>
-                <Button
-                  data-iori-action="team-conflict-create"
-                  disabled={working}
-                  pending={workingOn === "create"}
-                  onClick={async () => {
-                    if (!team) return;
-                    setWorkingOn("create");
-                    setConflictError(false);
-                    try {
-                      const response = await connection.requestHost(
-                        host,
-                        "teams.create",
-                        { definition: clone(team) },
-                      );
-                      if (!response?.ok) {
-                        setConflictError(true);
-                        return;
-                      }
-                      updateHost((d) => ({
-                        ...d,
-                        defaultTeam:
-                          d.defaultTeam === team.id ? "" : d.defaultTeam,
-                        teams: d.teams.filter((r) => r.saved.id !== team.id),
-                      }));
-                      putRecord(response.result);
-                      setExpanded((e) => ({
-                        ...e,
-                        [response.result.saved.id]: true,
-                      }));
-                      setSelection({
-                        page: "team",
-                        teamId: response.result.saved.id,
-                        detail: "overview",
-                      });
-                      setMobileDetail(true);
-                      setSaveMessage("");
-                      finishConflict(false);
-                    } catch {
-                      setConflictError(true);
-                    } finally {
-                      setWorkingOn(undefined);
-                    }
-                  }}
-                >
-                  {t("Save as New Team")}
-                </Button>
-              </>
-            )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <Dialog
+        onOverwrite={async () => {
+          if (!saveConflict?.current) return;
+          const saved = await save(
+            selectedRecord,
+            saveConflict.current.saved.version,
+            saveConflict.editedFrom,
+          );
+          if (saved === true) finishConflict();
+        }}
+        onDiscardDeleted={() => {
+          if (!team) return;
+          updateHost((d) => ({
+            ...d,
+            defaultTeam: d.defaultTeam === team.id ? "" : d.defaultTeam,
+            teams: d.teams.filter((r) => r.saved.id !== team.id),
+          }));
+          setSelection({ page: "teams" });
+          setMobileDetail(true);
+          setSaveMessage("");
+          finishConflict(false);
+        }}
+        onSaveAsNew={async () => {
+          if (!team) return;
+          setWorkingOn("create");
+          setConflictError(false);
+          try {
+            const response = await connection.requestHost(
+              host,
+              "teams.create",
+              { definition: clone(team) },
+            );
+            if (!response?.ok) {
+              setConflictError(true);
+              return;
+            }
+            updateHost((d) => ({
+              ...d,
+              defaultTeam: d.defaultTeam === team.id ? "" : d.defaultTeam,
+              teams: d.teams.filter((r) => r.saved.id !== team.id),
+            }));
+            putRecord(response.result);
+            setExpanded((e) => ({
+              ...e,
+              [response.result.saved.id]: true,
+            }));
+            setSelection({
+              page: "team",
+              teamId: response.result.saved.id,
+              detail: "overview",
+            });
+            setMobileDetail(true);
+            setSaveMessage("");
+            finishConflict(false);
+          } catch {
+            setConflictError(true);
+          } finally {
+            setWorkingOn(undefined);
+          }
+        }}
+      />
+
+      <LeaveConfirmDialog
         open={!!pending}
-        onOpenChange={(yes) => {
-          if (!yes) cancelLeave();
+        dirty={dirty}
+        working={working}
+        saving={workingOn === "save"}
+        onCancel={cancelLeave}
+        onDiscard={() => {
+          const action = pending;
+          undo();
+          for (const editor of editors.current) editor.discard?.();
+          cancelLeave();
+          action?.();
         }}
-      >
-        <DialogContent
-          className="team-dialog"
-          data-iori-view={
-            dirty ? "team-save-confirmation" : "team-discard-confirmation"
-          }
-          onCloseAutoFocus={(event) => {
-            event.preventDefault();
-            dialogReturnFocus.current?.focus();
-          }}
-        >
-          <DialogHeader>
-            <DialogTitle>
-              {t(dirty ? "Save changes?" : "Discard changes?")}
-            </DialogTitle>
-            <DialogDescription>
-              {t(
-                dirty
-                  ? "Changes to this team have not been saved."
-                  : "Changes to these settings have not been saved.",
-              )}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={cancelLeave}>
-              {t(dirty ? "Cancel" : "Keep editing")}
-            </Button>
-            <Button
-              variant={dirty ? "outline" : "default"}
-              disabled={dirty && working}
-              data-iori-action={
-                dirty ? "team-leave-without-saving" : "team-discard"
-              }
-              onClick={() => {
-                const action = pending;
-                undo();
-                for (const editor of editors.current) editor.discard?.();
-                cancelLeave();
-                action?.();
-              }}
-            >
-              {t(dirty ? "Don't save" : "Discard changes")}
-            </Button>
-            {dirty && (
-              <Button
-                data-iori-action="team-save-and-leave"
-                disabled={working}
-                pending={workingOn === "save"}
-                onClick={async () => {
-                  const action = pending;
-                  savingLeave.current = action;
-                  const saved = await save();
-                  if (savingLeave.current !== action) return;
-                  if (saved === "conflict") {
-                    setPending(null);
-                    return;
-                  }
-                  cancelLeave();
-                  if (saved) action?.();
-                }}
-              >
-                {t("Save")}
-              </Button>
-            )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <Dialog
-        open={!!confirmation}
-        onOpenChange={(yes) => {
-          if (!yes) {
-            setConfirmation(null);
-            setConfirmationError("");
+        onSave={() => {
+          void (async () => {
+            const action = pending;
+            savingLeave.current = action;
+            const saved = await save();
+            if (savingLeave.current !== action) return;
+            if (saved === "conflict") {
+              setPending(null);
+              return;
+            }
+            cancelLeave();
+            if (saved) action?.();
+          })();
+        }}
+      />
+
+      <DeleteConfirmDialog
+        confirmation={confirmation}
+        error={confirmationError}
+        working={confirmationWorking}
+        onClose={() => {
+          setConfirmation(null);
+          setConfirmationError("");
+        }}
+        onConfirm={async () => {
+          setConfirmationWorking(true);
+          try {
+            const success = await confirmation?.action();
+            if (success !== false) setConfirmation(null);
+          } finally {
+            setConfirmationWorking(false);
           }
         }}
-      >
-        <DialogContent className="team-dialog">
-          <DialogHeader>
-            <DialogTitle>{t(confirmation?.title ?? "")}</DialogTitle>
-            <DialogDescription>{confirmation?.text}</DialogDescription>
-          </DialogHeader>
-          {confirmationError && (
-            <p className="team-error" role="alert">
-              {t(confirmationError)}
-            </p>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmation(null)}>
-              {t("Cancel")}
-            </Button>
-            <Button
-              variant="destructive"
-              data-iori-action={
-                confirmation?.title === "Delete team?"
-                  ? "team-delete-confirm"
-                  : "role-delete-confirm"
-              }
-              pending={confirmationWorking}
-              onClick={async () => {
-                setConfirmationWorking(true);
-                try {
-                  const success = await confirmation?.action();
-                  if (success !== false) setConfirmation(null);
-                } finally {
-                  setConfirmationWorking(false);
-                }
-              }}
-            >
-              {t("Delete")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <Dialog open={newTeamOpen} onOpenChange={setNewTeamOpen}>
-        <DialogContent
-          className="team-dialog team-new-dialog"
-          onOpenAutoFocus={(event) => {
-            const dialog = event.target as HTMLElement;
-            const parent =
-              dialog.querySelector<HTMLElement>(".team-new-parent")!;
-            const height =
-              dialog.getBoundingClientRect().height +
-              (teamSource.startsWith("existing:")
-                ? parent.offsetHeight + 16
-                : 0);
-            dialog.style.height = `${Math.min(height, window.innerHeight - 32)}px`;
-          }}
-        >
-          <DialogHeader>
-            <DialogTitle>{t("New team")}</DialogTitle>
-            <DialogDescription>
-              {t("Start with a template or an existing team.")}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogBody className="team-new-body">
-            <Command className="team-source-command">
-              <CommandInput placeholder={t("Search")} />
-              <div
-                className="team-source-list-wrap"
-                data-more={sourceHasMore || undefined}
-              >
-                <CommandList
-                  ref={mountSourceList}
-                  onScroll={updateSourceShadow}
-                >
-                  <CommandGroup heading={t("Templates")}>
-                    {Object.entries(templates).map(([id]) => (
-                      <CommandItem
-                        key={id}
-                        data-iori-template={id}
-                        value={`template:${id}`}
-                        keywords={[
-                          t(
-                            {
-                              development: "Development",
-                              research: "Research",
-                              writing: "Writing",
-                              minimal: "Minimal",
-                            }[id]!,
-                          ),
-                        ]}
-                        onSelect={() => setTeamSource(`template:${id}`)}
-                      >
-                        {t(
-                          {
-                            development: "Development",
-                            research: "Research",
-                            writing: "Writing",
-                            minimal: "Minimal",
-                          }[id]!,
-                        )}
-                        {teamSource === `template:${id}` && <Check size={14} />}
-                      </CommandItem>
-                    ))}
-                  </CommandGroup>
-                  <CommandGroup heading={t("Existing teams")}>
-                    {data.teams.map((r) => (
-                      <CommandItem
-                        key={r.saved.id}
-                        value={`existing:${r.saved.id}`}
-                        keywords={[r.saved.name]}
-                        onSelect={() => setTeamSource(`existing:${r.saved.id}`)}
-                      >
-                        {r.saved.name}
-                        {teamSource === `existing:${r.saved.id}` && (
-                          <Check size={14} />
-                        )}
-                      </CommandItem>
-                    ))}
-                  </CommandGroup>
-                </CommandList>
-              </div>
-            </Command>
-            <div
-              className="team-field team-new-parent"
-              data-hidden={teamSource.startsWith("existing:") || undefined}
-              role="group"
-              aria-labelledby="new-team-parent-label"
-              aria-describedby="new-team-parent-description"
-              aria-hidden={teamSource.startsWith("existing:") || undefined}
-              inert={teamSource.startsWith("existing:") || undefined}
-            >
-              <Label id="new-team-parent-label">{t("Orchestrator")}</Label>
-              <p className="team-hint" id="new-team-parent-description">
-                {t("Roles without candidates also run with these settings.")}
-              </p>
-              <div className="team-execution-list team-parent-execution">
-                <ExecutionHeading
-                  parent
-                  showEffort={hasEffortOption(newParent, catalogs, clis)}
-                />
-                <DndContext sensors={sensors}>
-                  <ExecutionRow
-                    item={newParent}
-                    parent
-                    onChange={(changes) =>
-                      setNewParent((value) => ({ ...value, ...changes }))
-                    }
-                    availableModels={selectableModels}
-                    recent={[]}
-                    limits={{}}
-                    available={availableClis}
-                    onLimits={onLimits}
-                  />
-                </DndContext>
-              </div>
-            </div>
-          </DialogBody>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setNewTeamOpen(false)}>
-              {t("Cancel")}
-            </Button>
-            <Button
-              disabled={working}
-              pending={workingOn === "create"}
-              data-iori-action="team-create"
-              onClick={addNewTeam}
-            >
-              {t("Create")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <Dialog
-        open={!!copyTeam}
-        onOpenChange={(yes) => {
-          if (!yes) setCopyTeam(null);
+      />
+
+      <NewTeamDialog
+        open={newTeamOpen}
+        onOpenChange={setNewTeamOpen}
+        templates={templates}
+        teams={data.teams}
+        teamSource={teamSource}
+        onTeamSourceChange={setTeamSource}
+        newParent={newParent}
+        onNewParentChange={(changes) =>
+          setNewParent((value) => ({ ...value, ...changes }))
+        }
+        selectableModels={selectableModels}
+        availableClis={availableClis}
+        sensors={sensors}
+        working={working}
+        creating={workingOn === "create"}
+        onLimits={onLimits}
+        onCreate={addNewTeam}
+      />
+
+      <CopyToHostDialog
+        host={host}
+        copyTeam={copyTeam}
+        copyHost={copyHost}
+        working={working}
+        copying={workingOn === "copy"}
+        onCopyHostChange={setCopyHost}
+        onClose={() => setCopyTeam(null)}
+        onCopy={copyToHost}
+      />
+
+      <TeamHistorySheet
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
+        record={selectedRecord}
+        historyVersion={historyVersion}
+        onSelectVersion={setHistoryVersion}
+        formatDate={formatDate}
+        working={working}
+        restoring={workingOn === "restore"}
+        onSaveMemo={async (version, memo) => {
+          if (!selectedRecord) return false;
+          try {
+            const response = await connection.requestHost(host, "teams.memo", {
+              teamId: selectedRecord.saved.id,
+              version,
+              memo,
+            });
+            if (!response?.ok) return false;
+            putRecord(response.result, true);
+            return true;
+          } catch {
+            return false;
+          }
         }}
-      >
-        <DialogContent className="team-dialog">
-          <DialogHeader>
-            <DialogTitle>{t("Copy to another Host")}</DialogTitle>
-            <DialogDescription>{copyTeam?.name}</DialogDescription>
-          </DialogHeader>
-          <Select value={copyHost} onValueChange={setCopyHost}>
-            <SelectTrigger aria-label={t("Host")}>
-              <SelectValue placeholder={t("Select Host")} />
-            </SelectTrigger>
-            <SelectContent>
-              {connection
-                .getSnapshot()
-                .initial?.hosts.filter((h) => h.publicKey !== host)
-                .map((h) => (
-                  <SelectItem value={h.publicKey} key={h.publicKey}>
-                    {h.hostName}
-                  </SelectItem>
-                ))}
-            </SelectContent>
-          </Select>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCopyTeam(null)}>
-              {t("Cancel")}
-            </Button>
-            <Button
-              disabled={!copyHost || working}
-              pending={workingOn === "copy"}
-              onClick={() => void copyToHost()}
-            >
-              <Copy size={14} />
-              {t("Copy to another Host")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <Sheet open={historyOpen} onOpenChange={setHistoryOpen}>
-        <SheetContent
-          className="team-history-sheet"
-          onCloseAutoFocus={(event) => {
-            event.preventDefault();
-            document
-              .querySelector<HTMLButtonElement>(".team-history-button")
-              ?.focus();
-          }}
-        >
-          <SheetHeader>
-            <SheetTitle>
-              {t("Team history")} · {team?.name}
-            </SheetTitle>
-            <SheetDescription>
-              {t("Select a version to view its contents.")}
-            </SheetDescription>
-          </SheetHeader>
-          <div className="team-history-scroll">
-            <div className="team-history-list">
-              {selectedRecord?.history.map((h) => (
-                <TeamHistoryEntry
-                  key={h.team.version}
-                  entry={h}
-                  selected={currentHistory?.team.version === h.team.version}
-                  date={date(h.team.updated)}
-                  onSelect={() => setHistoryVersion(h.team.version)}
-                  onSaveMemo={async (memo) => {
-                    try {
-                      const response = await connection.requestHost(
-                        host,
-                        "teams.memo",
-                        {
-                          teamId: selectedRecord.saved.id,
-                          version: h.team.version,
-                          memo,
-                        },
-                      );
-                      if (!response?.ok) return false;
-                      putRecord(response.result, true);
-                      return true;
-                    } catch {
-                      return false;
-                    }
-                  }}
-                />
-              ))}
-            </div>
-            {currentHistory && (
-              <div className="team-history-detail">
-                <h2>
-                  {t("Version {version}").replace(
-                    "{version}",
-                    String(currentHistory.team.version),
-                  )}{" "}
-                  · {date(currentHistory.team.updated)}
-                </h2>
-                <h3>{currentHistory.team.name}</h3>
-                <p>{currentHistory.team.description}</p>
-                <h3>{t("Orchestrator")}</h3>
-                <p>
-                  {!currentHistory.team.parent.cli ? (
-                    t("Not set")
-                  ) : (
-                    <>
-                      {cliName(currentHistory.team.parent.cli)} ·{" "}
-                      {modelLabel(
-                        currentHistory.team.parent.cli,
-                        currentHistory.team.parent.model,
-                      )}{" "}
-                      ·{" "}
-                      {currentHistory.team.parent.effort === undefined
-                        ? t("Not specified")
-                        : currentHistory.team.parent.effort}{" "}
-                      ·{" "}
-                      {currentHistory.team.parent.permission === undefined
-                        ? t("Not specified")
-                        : currentHistory.team.parent.permission}
-                      {currentHistory.team.parent.sandbox !== undefined &&
-                        ` · ${currentHistory.team.parent.sandbox}`}
-                      {currentHistory.team.parent.tools.length > 0 &&
-                        ` · ${currentHistory.team.parent.tools.join(", ")}`}
-                    </>
-                  )}
-                </p>
-                <p>{currentHistory.team.instruction}</p>
-                {currentHistory.team.roles.map((r) => (
-                  <div className="team-history-role" key={r.id}>
-                    <h3>{r.name}</h3>
-                    <p>{r.when}</p>
-                    <p>
-                      {t("Concurrency limit")}: {r.limit || t("Unlimited")} ·{" "}
-                      {t("Reuse child sessions")}:{" "}
-                      {t(r.reuse ? "Reuse" : "Do not reuse")}
-                    </p>
-                    {levels.map(
-                      (level) =>
-                        r.candidates[level].length > 0 && (
-                          <div key={level}>
-                            <h4>{t(levelLabel[level])}</h4>
-                            {r.candidates[level].map((c, i) => (
-                              <p key={c.id}>
-                                {i + 1}. {cliName(c.cli)} ·{" "}
-                                {modelLabel(c.cli, c.model)} ·{" "}
-                                {c.effort === undefined
-                                  ? t("Not specified")
-                                  : c.effort}{" "}
-                                ·{" "}
-                                {c.permission === undefined
-                                  ? t("Not specified")
-                                  : c.permission}
-                                {c.sandbox !== undefined && ` · ${c.sandbox}`}
-                                {c.tools.length > 0 &&
-                                  ` · ${c.tools.join(", ")}`}
-                              </p>
-                            ))}
-                          </div>
-                        ),
-                    )}
-                    <h4>{t("Child instructions")}</h4>
-                    <p>{r.instruction}</p>
-                    <h4>{t("Request fields")}</h4>
-                    <p>{r.request}</p>
-                    <h4>{t("Report fields")}</h4>
-                    <p>{r.report}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-          <div className="team-history-footer">
-            <p>
-              {t(
-                "Restoring saves a new version. Started children keep their assigned version.",
-              )}
-            </p>
-            <Button
-              disabled={
-                !currentHistory ||
-                currentHistory.team.version === selectedRecord?.saved.version ||
-                working
-              }
-              pending={workingOn === "restore"}
-              data-iori-action="team-restore"
-              onClick={() =>
-                guard(() => {
-                  void restore();
-                })
-              }
-            >
-              {t("Restore this version")}
-            </Button>
-          </div>
-        </SheetContent>
-      </Sheet>
+        onRestore={() =>
+          guard(() => {
+            void restore();
+          })
+        }
+      />
     </section>
   );
 }

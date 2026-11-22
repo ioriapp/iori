@@ -39,10 +39,7 @@ function DialogOverlay({
   return (
     <DialogPrimitive.Overlay
       data-slot="dialog-overlay"
-      className={cn(
-        "fixed inset-0 z-50 bg-(--modal-scrim)",
-        className
-      )}
+      className={cn("fixed inset-0 z-(--z-modal) bg-scrim", className)}
       {...props}
     />
   )
@@ -57,50 +54,30 @@ function DialogContent({
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
 }) {
-  const [content, setContent] = React.useState<HTMLDivElement | null>(null)
-  React.useEffect(() => {
-    if (!content) return
-    const update = () => {
-      const body = content.querySelector<HTMLElement>('[data-slot="dialog-body"]')
-      const areas = body ? [body, ...body.querySelectorAll<HTMLElement>("*")] : []
-      const canScroll = areas.some((area) => {
-        const overflow = getComputedStyle(area).overflowY
-        return (overflow === "auto" || overflow === "scroll") &&
-          area.scrollHeight > area.clientHeight &&
-          area.scrollTop + area.clientHeight < area.scrollHeight - 1
-      })
-      content.toggleAttribute("data-body-scrollable", canScroll)
-    }
-    const resize = new ResizeObserver(update)
-    const observe = () => {
-      resize.disconnect()
-      resize.observe(content)
-      content.querySelectorAll<HTMLElement>('[data-slot="dialog-body"], [data-slot="dialog-body"] *').forEach((node) => resize.observe(node))
-      update()
-    }
-    const mutation = new MutationObserver(observe)
-    mutation.observe(content, { childList: true, subtree: true })
-    content.addEventListener("scroll", update, true)
-    observe()
-    return () => {
-      resize.disconnect()
-      mutation.disconnect()
-      content.removeEventListener("scroll", update, true)
-    }
-  }, [content])
   return (
     <DialogPortal>
       <DialogOverlay />
       <DialogPrimitive.Content
-        ref={setContent}
         onOpenAutoFocus={(event) => {
           onOpenAutoFocus?.(event)
           if (event.defaultPrevented) return
           const dialog = event.target as HTMLElement
-          const buttons = dialog.querySelectorAll<HTMLButtonElement>('[data-slot="dialog-footer"] button:not(:disabled)')
-          const input = dialog.querySelector('input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), textarea, [contenteditable="true"]')
-          const first = Array.from(dialog.querySelectorAll<HTMLElement>('button, input, textarea, select, [tabindex]')).find(
-            (element) => element.tabIndex >= 0 && !element.matches(':disabled') && element.getClientRects().length > 0 && getComputedStyle(element).visibility !== 'hidden'
+          const buttons = dialog.querySelectorAll<HTMLButtonElement>(
+            '[data-slot="dialog-footer"] button:not(:disabled)'
+          )
+          const input = dialog.querySelector(
+            'input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), textarea, [contenteditable="true"]'
+          )
+          const first = Array.from(
+            dialog.querySelectorAll<HTMLElement>(
+              "button, input, textarea, select, [tabindex]"
+            )
+          ).find(
+            (element) =>
+              element.tabIndex >= 0 &&
+              !element.matches(":disabled") &&
+              element.getClientRects().length > 0 &&
+              getComputedStyle(element).visibility !== "hidden"
           )
           if (!input && buttons.length > 1) {
             event.preventDefault()
@@ -113,7 +90,7 @@ function DialogContent({
         data-slot="dialog-content"
         tabIndex={-1}
         className={cn(
-          "fixed top-1/2 left-1/2 z-50 grid max-h-[calc(100dvh-2rem)] w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto rounded-xl bg-popover p-4 text-xs/relaxed text-popover-foreground ring-1 ring-foreground/10 outline-none sm:max-w-sm has-data-[slot=dialog-body]:flex has-data-[slot=dialog-body]:flex-col",
+          "fixed top-1/2 left-1/2 z-(--z-modal) grid max-h-[calc(100dvh-2rem)] w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto rounded-lg border border-border bg-popover p-5 text-sm text-popover-foreground shadow-lg outline-none focus-visible:outline-none sm:max-w-md has-data-[slot=dialog-body]:flex has-data-[slot=dialog-body]:flex-col",
           className
         )}
         {...props}
@@ -123,11 +100,10 @@ function DialogContent({
           <DialogPrimitive.Close data-slot="dialog-close" asChild>
             <Button
               variant="ghost"
-              className="absolute top-2 right-2"
+              className="absolute top-3 right-3"
               size="icon-sm"
             >
-              <XIcon
-              />
+              <XIcon />
               <span className="sr-only">Close</span>
             </Button>
           </DialogPrimitive.Close>
@@ -141,18 +117,51 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="dialog-header"
-      className={cn("flex flex-col gap-1", className)}
+      className={cn("flex flex-col gap-1.5 pr-8", className)}
       {...props}
     />
   )
 }
 
 // Between the header and footer of a tall dialog, only this part scrolls.
-function DialogBody({ className, ...props }: React.ComponentProps<"div">) {
+function DialogBody({
+  className,
+  onScroll,
+  ...props
+}: React.ComponentProps<"div">) {
+  const [body, setBody] = React.useState<HTMLDivElement | null>(null)
+  const syncScrollable = React.useCallback((element: HTMLDivElement | null) => {
+    if (!element) return
+    const content = element.closest<HTMLElement>('[data-slot="dialog-content"]')
+    if (!content) return
+    const canScroll =
+      element.scrollHeight > element.clientHeight &&
+      element.scrollTop + element.clientHeight < element.scrollHeight - 1
+    content.toggleAttribute("data-body-scrollable", canScroll)
+  }, [])
+
+  React.useEffect(() => {
+    if (!body) return
+    syncScrollable(body)
+    const resize = new ResizeObserver(() => syncScrollable(body))
+    resize.observe(body)
+    return () => {
+      resize.disconnect()
+      body
+        .closest<HTMLElement>('[data-slot="dialog-content"]')
+        ?.removeAttribute("data-body-scrollable")
+    }
+  }, [body, syncScrollable])
+
   return (
     <div
+      ref={setBody}
       data-slot="dialog-body"
-      className={cn("-mx-4 grid min-h-0 gap-4 overflow-y-auto px-4", className)}
+      onScroll={(event) => {
+        onScroll?.(event)
+        syncScrollable(event.currentTarget)
+      }}
+      className={cn("-mx-5 grid min-h-0 gap-4 overflow-y-auto px-5", className)}
       {...props}
     />
   )
@@ -192,7 +201,10 @@ function DialogTitle({
   return (
     <DialogPrimitive.Title
       data-slot="dialog-title"
-      className={cn("font-heading text-sm font-medium", className)}
+      className={cn(
+        "font-heading text-base font-semibold text-foreground",
+        className
+      )}
       {...props}
     />
   )
@@ -206,7 +218,7 @@ function DialogDescription({
     <DialogPrimitive.Description
       data-slot="dialog-description"
       className={cn(
-        "[word-break:auto-phrase] text-xs/relaxed text-muted-foreground *:[a]:underline *:[a]:underline-offset-3 *:[a]:hover:text-foreground",
+        "[word-break:auto-phrase] text-sm text-muted-foreground *:[a]:underline *:[a]:underline-offset-3 *:[a]:hover:text-foreground",
         className
       )}
       {...props}

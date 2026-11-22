@@ -8,7 +8,6 @@ import { UsageStatus } from "../../apps/client/src/usage/UsageStatus.tsx";
 import { UsagePreferences } from "../../apps/client/src/usage/preferences.tsx";
 import { AgentsPage } from "../../apps/client/src/teams/AgentsPage.tsx";
 import { TeamContext } from "../../apps/client/src/teams/context.tsx";
-import "../../apps/client/src/teams/team-editor.css";
 import { Board } from "../../apps/client/src/teams/Board.tsx";
 import { StatusDot } from "../../apps/client/src/components/StatusDot.tsx";
 import {
@@ -80,11 +79,7 @@ import { allStates } from "virtual:ui-state-catalog";
 import { current, stateId } from "./runtime.ts";
 import { clis, deviceName, host, usageSnapshot } from "./fixtures.ts";
 import "./preview.css";
-import "../../apps/client/src/app.css";
-import "../../apps/client/src/workspace.css";
 import "../../apps/client/src/terminal/terminal.css";
-import "../../apps/client/src/settings.css";
-import "../../apps/client/src/worktree-creator.css";
 
 const language = new URLSearchParams(location.search).get("language") ?? "ja";
 const t = translator(language);

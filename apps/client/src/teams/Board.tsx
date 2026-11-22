@@ -1,177 +1,24 @@
-import { creationOrder } from "@iori/protocol";
-import { useEffect, useRef, useState } from "react";
-import {
-  Activity,
-  ListTodo,
-  Users,
-  ChevronDown,
-  ChevronRight,
-  MessageSquare,
-  Check,
-  X,
-} from "lucide-react";
-import type {
-  BoardData,
-  BoardAgent,
-  Changes,
-  PlanActivity,
-} from "@iori/protocol";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Users } from "lucide-react";
+import type { BoardData, Changes } from "@iori/protocol";
+import { cn } from "cn";
 import { connection } from "../connection.ts";
-import { StatusDot } from "../components/StatusDot.tsx";
+import { AsyncState, type AsyncViewMode } from "../components/AsyncState.tsx";
 import { Button } from "../components/ui/button.tsx";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "../components/ui/collapsible.tsx";
 import { Tabs, TabsList, TabsTrigger } from "../components/ui/tabs.tsx";
+import type { OpenTeamTerminal } from "./TaskHistory.tsx";
+import { boardTranslator } from "./board-i18n.ts";
+import { BoardAgents } from "./board/BoardAgents.tsx";
 import {
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
-} from "../components/ui/select.tsx";
-import { TaskHistory, type OpenTeamTerminal } from "./TaskHistory.tsx";
-import { Usage } from "./Usage.tsx";
-import {
-  boardTranslator,
-  compactNumber,
-  elapsedTime,
-  timeOf,
-} from "./board-i18n.ts";
-import { TextShimmer } from "./TextShimmer.tsx";
-import { useBoardActivity } from "./use-board-activity.ts";
-import { childStatus } from "./children.ts";
-import { isStalledCliStatus } from "../CliStatus.tsx";
-import "./board.css";
-export function ChangeAmount({
-  changes,
-  language,
-  onClick,
-}: {
-  changes: Changes;
-  language: string;
-  onClick?: () => void;
-}) {
-  const files =
-    changes.files === undefined
-      ? undefined
-      : language.toLowerCase().startsWith("ja")
-        ? `${changes.files}ファイル`
-        : `${changes.files} ${changes.files === 1 ? "file" : "files"}`;
-  const content = (
-    <>
-      {changes.added !== undefined && (
-        <span className="diff-add">+{changes.added}</span>
-      )}
-      {changes.removed !== undefined && (
-        <span className="diff-del">−{changes.removed}</span>
-      )}
-      {files !== undefined && <span>· {files}</span>}
-    </>
-  );
-  return onClick ? (
-    <button type="button" className="agent-diff" onClick={onClick}>
-      {content}
-    </button>
-  ) : (
-    <span className="agent-diff">{content}</span>
-  );
-}
-function agentState(agent: BoardAgent) {
-  if (agent.state === "starting") return "Starting";
-  if (agent.state === "finished") return "Finished";
-  if (agent.state === "failed") return "Failed";
-  if (agent.state === "stopped") return "Stopped";
-  if (agent.cliStatus?.attention)
-    return agent.cliStatus.attention.kind === "question"
-      ? "Question"
-      : "Approval";
-  if (agent.state === "waiting") return "Waiting";
-  if (isStalledCliStatus(agent.cliStatus)) return "Not responding";
-  if (
-    agent.cliStatus?.state === "active" &&
-    (agent.state === "reported" || agent.state === "question")
-  )
-    return "Running";
-  if (agent.state === "reported") return "Reported";
-  if (agent.state === "question") return "Question";
-  return "Running";
-}
-function waitingDescription(agent: BoardAgent, language: string): string {
-  const japanese = language.toLowerCase().startsWith("ja");
-  return (
-    agent.waitingReasons
-      ?.map((entry) =>
-        entry.reason === "not_installed"
-          ? `${entry.cli}: ${japanese ? "このHostにCLIが見つかりません" : "CLI not installed"}`
-          : entry.reason === "usage"
-            ? `${entry.cli}: ${japanese ? `残量が下限${entry.minimum}%未満` : `Usage below ${entry.minimum}% minimum`}`
-            : entry.reason === "failed"
-              ? `${entry.cli}: ${japanese ? "このタスクで失敗" : "Failed in this task"}`
-              : entry.reason === "role_removed"
-                ? japanese
-                  ? "役割が削除されました"
-                  : "Role removed"
-                : japanese
-                  ? "候補が設定されていません"
-                  : "No candidates configured",
-      )
-      .join(" · ") ?? ""
-  );
-}
-function CurrentOperation({
-  agent,
-  language,
-  now,
-  t,
-}: {
-  agent: BoardAgent;
-  language: string;
-  now: number;
-  t: (key: string) => string;
-}) {
-  const state = agentState(agent);
-  const activity = useBoardActivity(
-    state === "Running" && agent.cliStatus?.state === "active",
-    agent.cliStatus?.activity,
-    ["Approval", "Question"].includes(state),
-  );
-  const label =
-    activity?.kind === "tool"
-      ? [activity.tool, activity.summary].filter(Boolean).join(" ")
-      : t(activity?.kind === "thinking" ? "Thinking" : state);
-  const stalledElapsed =
-    state === "Not responding" && isStalledCliStatus(agent.cliStatus)
-      ? elapsedTime(now - agent.cliStatus.stalledSince)
-      : undefined;
-  const detail =
-    agent.state === "waiting"
-      ? agent.waiting === "capacity"
-        ? `${t("Capacity")} (${agent.role})`
-        : waitingDescription(agent, language)
-      : agent.state === "reported"
-        ? t("Awaiting orchestrator decision")
-        : agent.state === "question"
-          ? t("Awaiting the orchestrator's answer")
-          : agent.state === "failed"
-            ? agent.failure
-            : agent.state === "stopped"
-              ? t(childStatus(agent).description ?? "")
-              : undefined;
-  const description = [label, stalledElapsed, detail]
-    .filter(Boolean)
-    .join(" · ");
-  return (
-    <span
-      className={`agent-current${agent.state === "failed" ? " agent-failure" : ""}`}
-      title={description}
-    >
-      {description}
-    </span>
-  );
-}
+  BoardAttention,
+  type BoardAttentionItem,
+} from "./board/BoardAttention.tsx";
+import { BoardHeader } from "./board/BoardHeader.tsx";
+import { BoardPlan } from "./board/BoardPlan.tsx";
+import { waitingDescription } from "./board/board-state.tsx";
+
+export { ChangeAmount } from "./ChangeAmount.tsx";
+
 export function Board({
   host,
   cwd,
@@ -197,27 +44,36 @@ export function Board({
 }) {
   const t = boardTranslator(translate, language);
   const [data, setData] = useState<BoardData>();
+  const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
   const [selected, setSelected] = useState(
     typeof viewState === "string" ? viewState : "",
   );
-  const [section, setSection] = useState("plan"),
-    [showGoal, setShowGoal] = useState(false),
-    [showActivity, setShowActivity] = useState(false),
-    [showFinished, setShowFinished] = useState(false),
-    [showCancelled, setShowCancelled] = useState(false),
-    [expanded, setExpanded] = useState<string>();
+  const [section, setSection] = useState("plan");
   const [now, setNow] = useState(Date.now);
   const sectionPicked = useRef(false);
   const sectionInitialized = useRef(false);
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
+  const scopeRef = useRef(`${host}\0${cwd}`);
+  const loadRef = useRef<(() => Promise<void>) | undefined>(undefined);
+
   useEffect(() => {
-    sectionPicked.current = false;
-    sectionInitialized.current = false;
+    const scope = `${host}\0${cwd}`;
+    if (scopeRef.current !== scope) {
+      scopeRef.current = scope;
+      sectionPicked.current = false;
+      sectionInitialized.current = false;
+      setData(undefined);
+      setFailed(false);
+      setLoading(true);
+    }
   }, [host, cwd]);
+
   useEffect(() => {
     if (!visible) return;
-    let active = true,
-      fetching = false;
+    let active = true;
+    let fetching = false;
     const load = async () => {
       if (fetching) return;
       fetching = true;
@@ -225,39 +81,46 @@ export function Board({
         const result = await connection.requestHost(host, "teams.board", {
           cwd,
         });
-        if (active) {
-          if (result?.ok) {
-            if (!sectionInitialized.current && !sectionPicked.current) {
-              sectionInitialized.current = true;
-              const initialConversation =
-                result.result.conversations.find(
-                  (entry) => entry.id === selected,
-                ) ??
-                result.result.conversations.find(
-                  (entry) => entry.id === result.result.defaultConversation,
-                );
-              const hasTasks =
-                initialConversation?.plan?.tasks.some(
-                  (task) => task.state !== "cancelled",
-                ) ?? false;
-              setSection(hasTasks ? "plan" : "agents");
-            }
-            setData(result.result);
-            setSelected((current) =>
-              result.result.conversations.some((entry) => entry.id === current)
-                ? current
-                : (result.result.defaultConversation ?? ""),
-            );
-            setFailed(false);
-            setNow(Date.now());
-          } else setFailed(true);
+        if (!active) return;
+        if (result?.ok) {
+          if (!sectionInitialized.current && !sectionPicked.current) {
+            sectionInitialized.current = true;
+            const initialConversation =
+              result.result.conversations.find(
+                (entry) => entry.id === selectedRef.current,
+              ) ??
+              result.result.conversations.find(
+                (entry) => entry.id === result.result.defaultConversation,
+              );
+            const hasTasks =
+              initialConversation?.plan?.tasks.some(
+                (task) => task.state !== "cancelled",
+              ) ?? false;
+            setSection(hasTasks ? "plan" : "agents");
+          }
+          setData(result.result);
+          setSelected((current) =>
+            result.result.conversations.some((entry) => entry.id === current)
+              ? current
+              : (result.result.defaultConversation ?? ""),
+          );
+          setFailed(false);
+          setLoading(false);
+          setNow(Date.now());
+        } else {
+          setFailed(true);
+          setLoading(false);
         }
       } catch {
-        if (active) setFailed(true);
+        if (active) {
+          setFailed(true);
+          setLoading(false);
+        }
       } finally {
         fetching = false;
       }
     };
+    loadRef.current = load;
     const unsubscribe = connection.subscribeHostEvents((eventHost, event) => {
       if (eventHost !== host || event.type !== "terminal.updated") return;
       setNow(Date.now());
@@ -277,10 +140,18 @@ export function Board({
     const timer = setInterval(() => void load(), 5000);
     return () => {
       active = false;
+      loadRef.current = undefined;
       unsubscribe();
       clearInterval(timer);
     };
   }, [host, cwd, visible]);
+
+  const handleRetry = useCallback(() => {
+    setFailed(false);
+    setLoading(true);
+    void loadRef.current?.();
+  }, []);
+
   const conversation =
     data?.conversations.find((item) => item.id === selected) ??
     data?.conversations.find((item) => item.id === data.defaultConversation);
@@ -290,18 +161,20 @@ export function Board({
     id: string;
     name: string;
   }>();
+
   useEffect(() => {
     if (!visible || !teamId) return;
     let active = true;
     void connection
       .requestHost(host, "teams.read", { teamId })
       .then((result) => {
-        if (active)
+        if (active) {
           setTeam(
             result?.ok
               ? { host, id: teamId, name: result.result.saved.name }
               : undefined,
           );
+        }
       })
       .catch(() => {
         if (active) setTeam(undefined);
@@ -310,35 +183,19 @@ export function Board({
       active = false;
     };
   }, [host, teamId, visible]);
+
   const teamName = team?.host === host && team.id === teamId ? team.name : "";
   const agents =
     data?.agents.filter((agent) => agent.conversation === conversation?.id) ??
     [];
-  const plan = conversation?.plan;
-  const tasks = ["done", "in_progress", "pending"].flatMap(
-    (state) => plan?.tasks.filter((task) => task.state === state) ?? [],
+  const planTasks = ["done", "in_progress", "pending"].flatMap(
+    (state) =>
+      conversation?.plan?.tasks.filter((task) => task.state === state) ?? [],
   );
-  const completed = tasks.filter((task) => task.state === "done").length;
-  const activity = [...(plan?.activity ?? [])].reverse();
-  const goalUpdate = activity.find(
-    (entry) => entry.kind === "goal" && entry.request,
-  );
-  const renderActivity = (event: PlanActivity, index: number) => (
-    <p key={index}>
-      <time>{timeOf(event.at, language)}</time>
-      <span>
-        {t(
-          event.by === "host"
-            ? "Started when delegated"
-            : event.request
-              ? "Plan updated after your request"
-              : "Orchestrator updated the plan",
-        )}
-        {event.task !== undefined && ` · Task ${event.task}`} · {event.text}
-      </span>
-    </p>
-  );
-  const turns = agents.flatMap((agent) =>
+  const completedTasks = planTasks.filter(
+    (task) => task.state === "done",
+  ).length;
+  const turns = agents.flatMap<BoardAttentionItem>((agent) =>
     agent.cliStatus?.attention
       ? [
           {
@@ -369,574 +226,151 @@ export function Board({
           ]
         : [],
   );
-  const ended = agents
-    .filter((agent) => ["finished", "stopped"].includes(agent.state))
-    .sort(creationOrder);
-  const current = agents
-    .filter((agent) => !ended.includes(agent))
-    .sort(creationOrder);
-  const measured = agents.filter((agent) => agent.tokens !== undefined);
-  const changes = [
+
+  const measuredAgents = agents.filter((agent) => agent.tokens !== undefined);
+  const uniqueChanges = [
     ...new Map(
       agents
         .filter((agent) => agent.changes)
         .map((agent) => [agent.cwd, agent.changes!]),
     ).values(),
   ];
-  const changeTotal = changes.length
-    ? changes.reduce<Changes>((sum, value) => {
-        for (const key of ["added", "removed", "files"] as const)
+  const changeTotal = uniqueChanges.length
+    ? uniqueChanges.reduce<Changes>((sum, value) => {
+        for (const key of ["added", "removed", "files"] as const) {
           if (value[key] !== undefined) sum[key] = (sum[key] ?? 0) + value[key];
+        }
         return sum;
       }, {})
     : undefined;
-  const duration = (agent: BoardAgent) =>
-    agent.elapsedMs === undefined && agent.startedAt === undefined
-      ? ""
-      : elapsedTime(
-          (agent.elapsedMs ?? 0) +
-            (agent.startedAt === undefined ? 0 : now - agent.startedAt),
-        );
-  const roleLabel = (agent: BoardAgent) =>
-    [
-      agent.role,
-      agent.difficulty &&
-        agent.difficulty[0]!.toUpperCase() + agent.difficulty.slice(1),
-    ]
-      .filter(Boolean)
-      .join(" · ");
-  const agentRow = (agent: BoardAgent, finished = false) => (
-    <div
-      className="board-agent-row"
-      key={agent.id}
-      data-iori-board-agent={agent.id}
-    >
-      <StatusDot
-        state={
-          ["Running", "Starting"].includes(agentState(agent))
-            ? "active"
-            : ["Approval", "Question", "Not responding"].includes(
-                  agentState(agent),
-                )
-              ? "waiting"
-              : agent.state === "failed"
-                ? "failed"
-                : agent.state === "finished" || agent.state === "reported"
-                  ? "done"
-                  : "stopped"
-        }
-        aria-label={
-          agentState(agent) === "Not responding"
-            ? t("Not responding")
-            : undefined
-        }
-      />
-      <Collapsible
-        asChild
-        open={finished && expanded === agent.id}
-        onOpenChange={(open) => setExpanded(open ? agent.id : undefined)}
-      >
-        <div className="board-agent-copy">
-          <button
-            type="button"
-            className="agent-main"
-            aria-expanded={finished ? expanded === agent.id : undefined}
-            onClick={() =>
-              finished
-                ? setExpanded(expanded === agent.id ? undefined : agent.id)
-                : agent.terminalId && onOpenTerminal(agent.terminalId)
-            }
-          >
-            <span className="agent-heading">
-              <strong>{roleLabel(agent)}</strong>
-              <time>{duration(agent)}</time>
-            </span>
-            <span className="agent-title">{agent.title}</span>
-            <small>
-              {[
-                agent.cli?.name,
-                agent.model,
-                agent.effort,
-                agent.plan === undefined ? undefined : `Task ${agent.plan}`,
-              ]
-                .filter(Boolean)
-                .join(" · ")}
-            </small>
-            <CurrentOperation
-              agent={agent}
-              language={language}
-              now={now}
-              t={t}
-            />
-          </button>
-          <div className="agent-metrics">
-            {agent.changes && (
-              <ChangeAmount
-                changes={agent.changes}
-                language={language}
-                onClick={
-                  agent.cwd && !agent.worktreeRemoved
-                    ? () => onOpenGit(agent.cwd!)
-                    : undefined
-                }
-              />
-            )}
-            {agent.tokens && (
-              <span data-iori-agent-tokens="known">
-                {compactNumber(agent.tokens.input + agent.tokens.output)} tokens
-              </span>
-            )}
-          </div>
-          <small className="parent-verdict">
-            Orchestrator:{" "}
-            {agent.decision
-              ? agent.decision === "accept"
-                ? "Accepted"
-                : "Rejected"
-              : "Pending"}
-            {agent.revisions > 0 && ` · Revisions ${agent.revisions}`}
-          </small>
-          {finished && (
-            <CollapsibleContent>
-              <TaskHistory
-                host={host}
-                task={agent.task}
-                t={t}
-                language={language}
-                onOpenTerminal={onOpenTerminal}
-              />
-            </CollapsibleContent>
-          )}
-        </div>
-      </Collapsible>
-    </div>
-  );
+
+  const viewMode: AsyncViewMode =
+    data === undefined
+      ? failed
+        ? "error"
+        : loading
+          ? "loading"
+          : "empty"
+      : conversation === undefined
+        ? "empty"
+        : "ready";
+
   return (
-    <div className="board" data-iori-view="board">
-      {conversation && (
-        <div className="mx-auto mb-3 flex max-w-[1200px] flex-wrap items-center gap-2">
-          {data && data.conversations.length > 1 && (
-            <Select
-              value={conversation?.id}
-              onValueChange={(id) => {
+    <div
+      data-iori-view="board"
+      className="@container flex h-full min-h-0 flex-col overflow-auto bg-background text-foreground [scrollbar-gutter:stable]"
+    >
+      {failed && data !== undefined && (
+        <div
+          role="alert"
+          className="mx-4 mt-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-status-failed-border bg-status-failed-bg/35 px-3.5 py-2 text-xs text-foreground @3xl:mx-6"
+        >
+          <span>{t("Could not load Board")}</span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="[@media(pointer:coarse)]:min-h-11"
+            onClick={handleRetry}
+          >
+            {t("Retry")}
+          </Button>
+        </div>
+      )}
+
+      <AsyncState
+        mode={viewMode}
+        t={t}
+        className={cn(
+          viewMode === "error" && "m-4 @3xl:m-6",
+          viewMode !== "error" && "border-t-0",
+        )}
+        emptyIcon={<Users className="size-4" aria-hidden="true" />}
+        emptyTitle={t("No team conversation")}
+        errorTitle={t("Could not load Board")}
+        onRetry={handleRetry}
+      >
+        {conversation && data && (
+          <>
+            <BoardHeader
+              conversations={data.conversations}
+              conversation={conversation}
+              teamName={teamName}
+              agents={agents}
+              completedTasks={completedTasks}
+              totalTasks={planTasks.length}
+              changeTotal={changeTotal}
+              measuredAgents={measuredAgents}
+              language={language}
+              t={t}
+              onSelectConversation={(id) => {
                 setSelected(id);
                 onViewState(id);
               }}
+              onOpenConversation={onOpenTerminal}
+              onEditTeam={(id) => onEditTeam(id)}
+            />
+
+            <BoardAttention
+              items={turns}
+              teamId={conversation.teamId}
+              now={now}
+              t={t}
+              onOpenTerminal={onOpenTerminal}
+              onEditTeam={onEditTeam}
+            />
+
+            <Tabs
+              value={section}
+              onValueChange={(value) => {
+                sectionPicked.current = true;
+                setSection(value);
+              }}
+              className="sticky top-0 z-(--z-sticky) bg-background @xl:hidden"
             >
-              <SelectTrigger aria-label={t("Conversation")}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {data.conversations.map((item) => (
-                  <SelectItem key={item.id} value={item.id}>
-                    {item.name && `${item.name} · `}
-                    {new Date(item.createdAt).toLocaleString(language, {
-                      year: "numeric",
-                      month: "2-digit",
-                      day: "2-digit",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-          <Button
-            variant="outline"
-            size="sm"
-            data-iori-action="board-open-conversation"
-            onClick={() => onOpenTerminal(conversation.terminalId)}
-          >
-            <MessageSquare size={14} />
-            {t("Open conversation")}
-          </Button>
-          {teamName && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="min-w-0 max-w-full"
-              data-iori-action="board-edit-team"
-              aria-label={`${t("Edit team")}: ${teamName}`}
-              onClick={() => onEditTeam(conversation.teamId)}
-            >
-              <Users size={14} />
-              <span className="truncate">{teamName}</span>
-            </Button>
-          )}
-        </div>
-      )}
-      {failed && <p role="alert">{t("Could not load Board")}</p>}
-      {data && !conversation && <p>{t("No team conversation")}</p>}
-      {turns.length > 0 && (
-        <section className="board-turns" aria-label="Attention">
-          <header className="todo-header">
-            <h2>Attention</h2>
-          </header>
-          {turns.map((turn) => (
+              <TabsList variant="line" aria-label="Board" className="w-full">
+                <TabsTrigger value="plan" className="min-h-11">
+                  Plan
+                </TabsTrigger>
+                <TabsTrigger value="agents" className="min-h-11">
+                  Agents
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+
             <div
-              className="board-turn-row"
-              key={turn.agent.id}
-              data-iori-board-attention={turn.kind
-                .toLowerCase()
-                .replaceAll(" ", "-")}
+              data-mobile-section={section}
+              className="board-grid flex-1 @3xl:grid @3xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]"
             >
-              <span className="turn-owner">{turn.owner}</span>
-              <button
-                type="button"
-                className="turn-main"
-                onClick={() =>
-                  turn.kind === "No candidate"
-                    ? onEditTeam(conversation!.teamId, turn.agent.roleId)
-                    : turn.agent.terminalId &&
-                      onOpenTerminal(turn.agent.terminalId)
-                }
-              >
-                <span>
-                  <strong>{turn.kind}</strong> · {turn.agent.role} ·{" "}
-                  {turn.agent.title}
-                </span>
-                {turn.detail && <small>{turn.detail}</small>}
-              </button>
-              {turn.kind === "No candidate" && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() =>
-                    onEditTeam(conversation!.teamId, turn.agent.roleId)
-                  }
-                >
-                  {t("Edit team")}
-                </Button>
-              )}
-              {turn.at !== undefined && (
-                <time>{elapsedTime(now - turn.at)}</time>
-              )}
-            </div>
-          ))}
-        </section>
-      )}
-      <Tabs
-        value={section}
-        onValueChange={(value) => {
-          sectionPicked.current = true;
-          setSection(value);
-        }}
-        className="board-tabs"
-      >
-        <TabsList aria-label="Board">
-          <TabsTrigger value="plan">Plan</TabsTrigger>
-          <TabsTrigger value="agents">Agents</TabsTrigger>
-        </TabsList>
-      </Tabs>
-      <div className="board-grid" data-mobile-section={section}>
-        <section className="board-section plan-section">
-          <header className="todo-header">
-            <ListTodo size={17} />
-            <h2>
-              Plan{" "}
-              {tasks.length > 0 && (
-                <span>
-                  {completed} of {tasks.length} done
-                </span>
-              )}
-            </h2>
-          </header>
-          {plan?.goal ? (
-            <div className="plan-goal">
-              <strong>Goal</strong>
-              <p>{plan.goal}</p>
-              {plan.updatedAt !== undefined && (
-                <small>
-                  {language.toLowerCase().startsWith("ja")
-                    ? `${Math.max(0, Math.floor((now - plan.updatedAt) / 1000)) < 60 ? `${Math.max(0, Math.floor((now - plan.updatedAt) / 1000))}秒` : Math.floor((now - plan.updatedAt) / 60000) < 60 ? `${Math.floor((now - plan.updatedAt) / 60000)}分` : `${Math.floor((now - plan.updatedAt) / 3600000)}時間`}前に更新`
-                    : `Updated ${elapsedTime(now - plan.updatedAt)} ago`}
-                </small>
-              )}
-              {goalUpdate && (
-                <Collapsible
-                  className="goal-history-group"
-                  open={showGoal}
-                  onOpenChange={setShowGoal}
-                >
-                  <br />
-                  <CollapsibleTrigger asChild>
-                    <button
-                      type="button"
-                      className="goal-history"
-                      aria-expanded={showGoal}
-                    >
-                      {t("Goal updated after your request")} ·{" "}
-                      {timeOf(goalUpdate.at, language)}
-                    </button>
-                  </CollapsibleTrigger>
-                  {goalUpdate.previousGoal && (
-                    <CollapsibleContent>
-                      <p className="goal-old">
-                        {t("Previous goal")} · {goalUpdate.previousGoal}
-                      </p>
-                    </CollapsibleContent>
-                  )}
-                </Collapsible>
-              )}
-            </div>
-          ) : (
-            <p className="board-empty">{t("No plan yet")}</p>
-          )}
-          {tasks.length > 0 && (
-            <div
-              className="plan-progress"
-              role="progressbar"
-              aria-label="Plan"
-              aria-valuemin={0}
-              aria-valuemax={tasks.length}
-              aria-valuenow={completed}
-            >
-              <span
-                style={{
-                  transform: `scaleX(${tasks.length ? completed / tasks.length : 0})`,
-                }}
+              <BoardPlan
+                conversation={conversation}
+                agents={agents}
+                now={now}
+                language={language}
+                t={t}
+                onOpenTerminal={onOpenTerminal}
+                className={cn(
+                  "border-b border-border @3xl:border-b-0",
+                  section === "agents" && "hidden @xl:block",
+                )}
+              />
+              <BoardAgents
+                host={host}
+                conversationId={conversation.id}
+                agents={agents}
+                roles={data.roles}
+                usage={data.usage}
+                now={now}
+                language={language}
+                t={t}
+                onOpenTerminal={onOpenTerminal}
+                onOpenGit={onOpenGit}
+                className={cn(section === "plan" && "hidden @xl:block")}
               />
             </div>
-          )}
-          <div className="todo-list">
-            {tasks.map((task) => {
-              const assigned = agents.filter(
-                (agent) => agent.plan === task.number,
-              );
-              const latest = assigned.reduce<BoardAgent | undefined>(
-                (newest, agent) =>
-                  !newest || agent.createdAt > newest.createdAt
-                    ? agent
-                    : newest,
-                undefined,
-              );
-              const blocked = assigned.some(
-                (agent) =>
-                  agent.cliStatus?.attention ||
-                  (agent.state === "waiting" && agent.waiting === "candidates"),
-              );
-              const failed = latest?.state === "failed";
-              const state =
-                task.state === "done"
-                  ? "done"
-                  : blocked
-                    ? "blocked"
-                    : failed
-                      ? "failed"
-                      : task.state;
-              return (
-                <button
-                  type="button"
-                  key={task.number}
-                  className="todo-item"
-                  data-iori-plan-task={task.number}
-                  onClick={() =>
-                    onOpenTerminal(
-                      latest?.terminalId ?? conversation!.terminalId,
-                    )
-                  }
-                >
-                  <span className={`todo-status ${state}`}>
-                    {state === "done" ? (
-                      <Check size={14} />
-                    ) : state === "failed" ? (
-                      <X size={14} />
-                    ) : null}
-                  </span>
-                  <span className="todo-copy">
-                    <span className="todo-titleline">
-                      {state === "in_progress" ? (
-                        <TextShimmer className="todo-title">
-                          {task.title}
-                        </TextShimmer>
-                      ) : (
-                        <span className="todo-title">{task.title}</span>
-                      )}
-                      {task.added && <span className="todo-added">Added</span>}
-                    </span>
-                    <span className="todo-assignee">
-                      {assigned.length
-                        ? assigned
-                            .map((agent) =>
-                              [roleLabel(agent), agent.cli?.name, agent.model]
-                                .filter(Boolean)
-                                .join(" · "),
-                            )
-                            .join(" / ")
-                        : "Orchestrator"}
-                      {` · Task ${task.number}`}
-                    </span>
-                    {task.checkpoint && (
-                      <span className="todo-checkpoint">{task.checkpoint}</span>
-                    )}
-                    {assigned.some(
-                      (agent) => agent.revisions || agent.decision,
-                    ) && (
-                      <span className="todo-verdict">
-                        {latest &&
-                          latest.revisions > 0 &&
-                          `Revisions ${latest.revisions} `}
-                        {assigned
-                          .filter((agent) => agent.decision)
-                          .map((agent) =>
-                            agent.decision === "accept"
-                              ? "Accepted"
-                              : "Rejected",
-                          )
-                          .join(" · ")}
-                      </span>
-                    )}
-                  </span>
-                  <time>{latest ? duration(latest) : ""}</time>
-                </button>
-              );
-            })}
-          </div>
-          {plan?.tasks.some((task) => task.state === "cancelled") && (
-            <Collapsible open={showCancelled} onOpenChange={setShowCancelled}>
-              <CollapsibleTrigger asChild>
-                <button
-                  type="button"
-                  className="cancelled-fold"
-                  aria-expanded={showCancelled}
-                >
-                  {showCancelled ? (
-                    <ChevronDown size={12} />
-                  ) : (
-                    <ChevronRight size={12} />
-                  )}{" "}
-                  {
-                    plan.tasks.filter((task) => task.state === "cancelled")
-                      .length
-                  }{" "}
-                  Cancelled
-                </button>
-              </CollapsibleTrigger>
-              <CollapsibleContent>
-                {plan.tasks
-                  .filter((task) => task.state === "cancelled")
-                  .map((task) => (
-                    <p className="cancelled-task" key={task.number}>
-                      {task.title} · {task.reason}
-                    </p>
-                  ))}
-              </CollapsibleContent>
-            </Collapsible>
-          )}
-          {plan && (
-            <Collapsible
-              asChild
-              open={showActivity}
-              onOpenChange={setShowActivity}
-            >
-              <section className="activity">
-                <div className="section-label">
-                  <Activity size={14} />
-                  Activity
-                  <CollapsibleTrigger asChild>
-                    <button type="button">
-                      {t(showActivity ? "Show less" : "Show all")}
-                    </button>
-                  </CollapsibleTrigger>
-                </div>
-                {activity.slice(0, 5).map(renderActivity)}
-                <CollapsibleContent>
-                  {activity.slice(5).map(renderActivity)}
-                </CollapsibleContent>
-              </section>
-            </Collapsible>
-          )}
-        </section>
-        <section className="board-section agents-section">
-          <header className="todo-header">
-            <Users size={17} />
-            <h2>Agents</h2>
-          </header>
-          <p className="agent-summary">
-            Agents {agents.length}
-            {changeTotal && (
-              <>
-                {" "}
-                · <ChangeAmount changes={changeTotal} language={language} />
-              </>
-            )}
-            {measured.length > 0 && (
-              <>
-                {" "}
-                · {t("Tokens (input + output)")}{" "}
-                {compactNumber(
-                  measured.reduce(
-                    (sum, agent) =>
-                      sum + agent.tokens!.input + agent.tokens!.output,
-                    0,
-                  ),
-                )}
-                {measured.length < agents.length &&
-                  (language.toLowerCase().startsWith("ja")
-                    ? `（${measured.length}人分）`
-                    : ` (${measured.length} agents)`)}
-              </>
-            )}
-          </p>
-          <div className="agent-usage">
-            {data?.roles
-              .filter((role) => role.conversation === conversation?.id)
-              .map((role) => (
-                <span key={role.name}>
-                  {role.name}{" "}
-                  <b>
-                    {role.used}
-                    {role.limit && `/${role.limit}`}
-                  </b>
-                  {role.waiting > 0 && ` · ${role.waiting} Waiting`}
-                </span>
-              ))}
-          </div>
-          {data?.usage
-            .filter((entry) =>
-              agents.some((agent) => agent.cli?.id === entry.cli),
-            )
-            .map((entry) => (
-              <div className="agent-quota" key={entry.cli}>
-                <Usage
-                  compact
-                  cliId={entry.cli}
-                  usage={entry.usage}
-                  name={`Usage ${entry.name}`}
-                />
-              </div>
-            ))}
-          <div className="agent-list">
-            {current.map((agent) => agentRow(agent))}
-          </div>
-          {!agents.length && (
-            <p className="board-empty">{t("No agents yet")}</p>
-          )}
-          {ended.length > 0 && (
-            <Collapsible open={showFinished} onOpenChange={setShowFinished}>
-              <CollapsibleTrigger asChild>
-                <button
-                  type="button"
-                  className="finished-fold"
-                  data-iori-action="board-finished"
-                  aria-expanded={showFinished}
-                >
-                  {showFinished ? (
-                    <ChevronDown size={12} />
-                  ) : (
-                    <ChevronRight size={12} />
-                  )}{" "}
-                  {ended.length} Finished
-                </button>
-              </CollapsibleTrigger>
-              <CollapsibleContent>
-                {ended.map((agent) => agentRow(agent, true))}
-              </CollapsibleContent>
-            </Collapsible>
-          )}
-        </section>
-      </div>
+          </>
+        )}
+      </AsyncState>
     </div>
   );
 }

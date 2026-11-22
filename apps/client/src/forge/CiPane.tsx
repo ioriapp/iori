@@ -18,12 +18,14 @@ import {
   type ForgeCiStatusOf,
   type ForgeReadFailure,
 } from "@iori/protocol";
+import { AsyncState } from "../components/AsyncState.tsx";
 import { Button } from "../components/ui/button";
 import { connection } from "../connection.ts";
 import { native } from "../native.ts";
 import { forgeMark } from "../forge-status.ts";
 import { samePath } from "../host-path.ts";
 import { useIsMobile } from "../hooks/use-mobile.ts";
+import { cn } from "../lib/utils.ts";
 import { SplitPane } from "../reading/SplitPane.tsx";
 import { useSavedViewState } from "../reading/savedViewState.ts";
 import {
@@ -36,7 +38,6 @@ import { CiFailure } from "./CiFailure.tsx";
 import { ForgeNotice } from "./ForgeFailure.tsx";
 import { useForgeTokenChange } from "./forge-token-changes.ts";
 import { ciDuration, ciStatusLabel } from "./ci-format.ts";
-import "./ci.css";
 
 type Selection = { kind: "job" | "result"; id: string };
 export type CiViewState = {
@@ -151,6 +152,7 @@ function CiWorkspace({
   const changeRatio = useSavedViewState(view, onViewState);
   const [narrow, setNarrow] = useState(false);
   const [ci, setCi] = useState<ForgeCi>();
+  const [loading, setLoading] = useState(false);
   // A failed read, and why when the Host could tell.
   const [failed, setFailed] = useState<{ forge?: ForgeReadFailure }>();
   const [reads, setReads] = useState(0);
@@ -181,6 +183,7 @@ function CiWorkspace({
   useEffect(() => {
     if (!visible) return;
     const controller = new AbortController();
+    setLoading(true);
     markAtRead.current = JSON.stringify(
       forgeMark(hostKey, root)?.checks ?? null,
     );
@@ -202,6 +205,9 @@ function CiWorkspace({
       })
       .catch(() => {
         if (!controller.signal.aborted) setFailed({});
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
   }, [hostKey, root, visible, reads]);
@@ -265,32 +271,43 @@ function CiWorkspace({
   // Without CI, the top shows only the switcher and reloading (forge.md).
   const hasCi = Boolean(ci && (ci.runs.length || ci.results.length));
   const head = (
-    <div className="ci-head" data-iori-part="ci-head">
-      <WorktreePicker
-        label={label}
-        root={root}
-        worktrees={worktrees}
-        onSelect={onSelectWorktree}
-        field="ci-worktree"
-      />
+    <div
+      className="flex h-9 shrink-0 min-w-0 items-center gap-2 border-b border-border bg-background px-1.5 [@media(pointer:coarse)]:min-h-11"
+      data-iori-part="ci-head"
+    >
+      <div className="flex min-w-0 max-w-[38%] shrink items-center [&>*]:min-w-0 [&>*]:max-w-full [&>*]:font-normal [&>*]:[@media(pointer:coarse)]:min-h-11 [&>*]:[@media(pointer:coarse)]:min-w-11">
+        <WorktreePicker
+          label={label}
+          root={root}
+          worktrees={worktrees}
+          onSelect={onSelectWorktree}
+          field="ci-worktree"
+        />
+      </div>
       {hasCi && ci?.commit && (
         <span
-          className="ci-commit"
+          className="flex min-w-0 flex-1 items-baseline gap-2 overflow-hidden whitespace-nowrap"
           title={`${ci.commit.sha} ${ci.commit.subject ?? ""}`.trim()}
           data-iori-part="ci-commit"
         >
-          <code>{ci.commit.sha.slice(0, 7)}</code>
+          <code className="shrink-0 font-mono text-xs text-muted-foreground">
+            {ci.commit.sha.slice(0, 7)}
+          </code>
           {ci.commit.subject && (
-            <span className="reading-truncate">{ci.commit.subject}</span>
+            <span className="min-w-0 truncate text-foreground">
+              {ci.commit.subject}
+            </span>
           )}
         </span>
       )}
-      <span className="ci-head-actions">
+      <span className="ml-auto flex shrink-0 items-center gap-0.5">
         <Button
           variant="ghost"
           size="icon-sm"
+          className="[@media(pointer:coarse)]:size-11"
           aria-label={t("Reload")}
           title={t("Reload")}
+          pending={loading}
           data-iori-action="ci-reload"
           onClick={reread}
         >
@@ -300,14 +317,16 @@ function CiWorkspace({
           <Button
             variant="ghost"
             size="sm"
-            className="ci-browser"
+            className="font-normal text-muted-foreground hover:text-foreground @max-[32.5rem]:size-7 @max-[32.5rem]:px-0 [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11"
             aria-label={t("Open in browser")}
             title={t("Open in browser")}
             data-iori-action="ci-open-browser"
             onClick={() => openUrl(ci.url)}
           >
             <ExternalLink />
-            <span className="ci-browser-label">{t("Open in browser")}</span>
+            <span className="@max-[32.5rem]:hidden">
+              {t("Open in browser")}
+            </span>
           </Button>
         )}
       </span>
@@ -317,6 +336,7 @@ function CiWorkspace({
     <CiFailure
       subject="ci"
       form={ci ? "line" : "notice"}
+      className={ci ? "mx-3 my-2" : undefined}
       failure={failed.forge}
       locale={locale}
       recovery={{
@@ -347,7 +367,13 @@ function CiWorkspace({
     <button
       type="button"
       key={`${selection.kind}:${selection.id}`}
-      className={`ci-row ${nested ? "ci-job" : ""}`}
+      className={cn(
+        "relative flex min-h-7 w-full cursor-pointer items-center gap-2 border-0 bg-transparent py-1 pr-3 text-left text-sm text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50 [@media(hover:hover)]:hover:bg-muted [@media(pointer:coarse)]:min-h-11",
+        nested ? "pl-8" : "pl-3",
+        !narrow &&
+          isSelected(selection) &&
+          "bg-primary/14 before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-primary",
+      )}
       aria-current={isSelected(selection) || undefined}
       data-iori-action={`ci-select-${selection.kind}`}
       data-iori-ci-id={selection.id}
@@ -356,23 +382,57 @@ function CiWorkspace({
       onClick={() => choose(selection)}
     >
       <CiStateIcon state={forgeCiState(item.status)} />
-      <span className="ci-name">{name}</span>
-      {note && <span className="ci-note">{note}</span>}
-      {meta && <span className="ci-meta">{meta}</span>}
-      {narrow && <ChevronRight size={14} className="ci-chevron" />}
+      <span className="min-w-0 flex-1 truncate">{name}</span>
+      {note && (
+        <span className="min-w-0 shrink-[1000] truncate text-xs font-normal text-muted-foreground">
+          {note}
+          {meta ? " ·" : ""}
+        </span>
+      )}
+      {meta && (
+        <span className="ml-auto max-w-[55%] shrink-0 truncate pl-2 text-xs font-normal text-muted-foreground">
+          {meta}
+        </span>
+      )}
+      {narrow && (
+        <ChevronRight
+          size={14}
+          className="shrink-0 text-muted-foreground"
+          aria-hidden="true"
+        />
+      )}
     </button>
   );
   const list = ci && (
-    <div className="ci-list" data-iori-part="ci-list">
+    <div
+      className="min-h-0 flex-1 overflow-auto bg-background py-2"
+      data-iori-part="ci-list"
+    >
       {ci.runs.map((run) => {
         const runMeta = ciMeta(run, ciDuration(run, now));
         return (
-          <div className="ci-run" key={run.id} data-iori-ci-run={run.id}>
-            <div className="ci-run-head" title={run.name}>
+          <div
+            className="not-first:mt-2 not-first:border-t not-first:border-border-subtle not-first:pt-2"
+            key={run.id}
+            data-iori-ci-run={run.id}
+          >
+            <div
+              className="flex min-h-7 items-center gap-2 px-3 py-1 font-semibold text-foreground [@media(pointer:coarse)]:min-h-11"
+              title={run.name}
+            >
               <CiStateIcon state={forgeCiState(run.status)} />
-              <span className="ci-name">{run.name}</span>
-              {run.event && <span className="ci-note">{run.event}</span>}
-              {runMeta && <span className="ci-meta">{runMeta}</span>}
+              <span className="min-w-0 flex-1 truncate">{run.name}</span>
+              {run.event && (
+                <span className="min-w-0 shrink-[1000] truncate text-xs font-normal text-muted-foreground">
+                  {run.event}
+                  {runMeta ? " ·" : ""}
+                </span>
+              )}
+              {runMeta && (
+                <span className="ml-auto max-w-[55%] shrink-0 truncate text-xs font-normal text-muted-foreground">
+                  {runMeta}
+                </span>
+              )}
             </div>
             {run.jobs.map((job) =>
               row(
@@ -388,9 +448,11 @@ function CiWorkspace({
         );
       })}
       {ci.results.length > 0 && (
-        <div className="ci-run">
+        <div className="not-first:mt-2 not-first:border-t not-first:border-border-subtle not-first:pt-2">
           {ci.runs.length > 0 && (
-            <div className="ci-run-head ci-run-plain">{t("Other results")}</div>
+            <div className="flex min-h-7 items-center px-3 py-1 text-xs font-medium text-muted-foreground [@media(pointer:coarse)]:min-h-11">
+              {t("Other results")}
+            </div>
           )}
           {ci.results.map((result) =>
             row(
@@ -411,7 +473,7 @@ function CiWorkspace({
     <Button
       variant="ghost"
       size="icon-sm"
-      className={narrow ? "reading-back" : undefined}
+      className="[@media(pointer:coarse)]:size-11"
       data-iori-action={narrow ? "ci-back" : "toggle-ci-list"}
       aria-label={
         narrow
@@ -435,25 +497,30 @@ function CiWorkspace({
   const status = shownStatus?.status;
   const detail = ci && selected && status && (
     <div
-      className="ci-detail"
+      className="flex min-h-0 min-w-0 flex-1 flex-col bg-background"
       data-iori-part="ci-detail"
       data-iori-ci-selected={
         selected.kind === "job" ? selected.job.id : selected.result.id
       }
     >
-      <div className="reading-header ci-detail-head">
+      <div
+        className={cn(
+          "flex min-h-11 shrink-0 items-center gap-2 border-b border-border bg-background px-2 py-1.5",
+          narrow && "[@media(pointer:coarse)]:px-1",
+        )}
+      >
         {listToggle}
         {/* A long name keeps its line; the state moves under it. */}
-        <div className="ci-detail-title">
-          <span className="ci-detail-label">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-0.5">
+          <span className="flex min-w-0 max-w-full items-center gap-2">
             <CiStateIcon state={forgeCiState(status)} size={16} />
-            <span className="ci-detail-name">
+            <span className="min-w-0 truncate font-semibold text-foreground">
               {selected.kind === "job"
                 ? selected.job.name
                 : selected.result.name}
             </span>
           </span>
-          <span className="ci-meta ci-detail-meta">
+          <span className="max-w-full shrink-0 truncate text-xs font-normal text-muted-foreground">
             {[
               shownStatus && ciStatusLabel(shownStatus),
               selected.kind === "job"
@@ -469,6 +536,7 @@ function CiWorkspace({
           <Button
             variant={view.wrap ? "secondary" : "ghost"}
             size="icon-sm"
+            className="[@media(pointer:coarse)]:size-11"
             aria-pressed={view.wrap === true}
             aria-label={t("Wrap long lines")}
             title={t("Wrap long lines")}
@@ -482,6 +550,7 @@ function CiWorkspace({
           <Button
             variant="ghost"
             size="icon-sm"
+            className="[@media(pointer:coarse)]:size-11"
             aria-label={t("Open this job in browser")}
             title={t("Open this job in browser")}
             data-iori-action="ci-job-open-browser"
@@ -493,9 +562,13 @@ function CiWorkspace({
       </div>
       {selected.kind === "job" && ci.logs ? (
         forgeCiState(selected.job.status) === "skipped" ? (
-          <p className="reading-empty">{t("This job did not run.")}</p>
+          <ForgeNotice>
+            <p>{t("This job did not run.")}</p>
+          </ForgeNotice>
         ) : NOT_STARTED.has(selected.job.status) ? (
-          <p className="reading-empty">{t("This job has not started yet.")}</p>
+          <ForgeNotice>
+            <p>{t("This job has not started yet.")}</p>
+          </ForgeNotice>
         ) : (
           <CiLog
             key={selected.job.id}
@@ -511,10 +584,11 @@ function CiWorkspace({
           />
         )
       ) : (
-        <div className="ci-browser-only" data-iori-state="ci-browser-only">
+        <ForgeNotice data-iori-state="ci-browser-only">
           <Button
             variant="outline"
             size="sm"
+            className="[@media(pointer:coarse)]:min-h-11"
             data-iori-action="ci-detail-open-browser"
             onClick={() =>
               openUrl(
@@ -527,7 +601,7 @@ function CiWorkspace({
             <ExternalLink />
             {t("Open in browser")}
           </Button>
-        </div>
+        </ForgeNotice>
       )}
     </div>
   );
@@ -549,7 +623,10 @@ function CiWorkspace({
     ) : undefined;
   return (
     <div
-      className="ci-pane"
+      className={cn(
+        "@container h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background text-sm",
+        visible ? "flex" : "hidden",
+      )}
       data-iori-view="ci"
       data-iori-ci-path={root}
       data-iori-state={ci ? "loaded" : failed ? "failed" : "reading"}
@@ -558,7 +635,7 @@ function CiWorkspace({
       {!showsDetail && head}
       {failure}
       {empty ??
-        (ci && (
+        (ci ? (
           <SplitPane
             list={list}
             detailOpen={view.detailOpen}
@@ -571,7 +648,18 @@ function CiWorkspace({
           >
             {detail}
           </SplitPane>
-        ))}
+        ) : !failed ? (
+          <AsyncState
+            mode="loading"
+            compact
+            t={t}
+            emptyTitle=""
+            errorTitle=""
+            className="border-t-0"
+          >
+            {null}
+          </AsyncState>
+        ) : null)}
     </div>
   );
 }

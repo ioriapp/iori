@@ -21,7 +21,7 @@ export function ImageFacts({
   natural?: ImageSize;
 }) {
   return (
-    <div className="reading-image-facts">
+    <div className="flex flex-none flex-wrap items-center gap-3 border-t border-border-subtle px-3 py-1.5 text-xs text-muted-foreground tabular-nums">
       {natural && (
         <span>
           {natural.width} × {natural.height}
@@ -37,7 +37,7 @@ export function ImageFacts({
 
 export function ImageUnavailable({ locale }: { locale: string }) {
   return (
-    <p className="reading-inline-note reading-image-unavailable">
+    <p className="my-1 text-xs text-muted-foreground">
       {locale.startsWith("ja")
         ? "この画像は表示できません。"
         : "This image cannot be displayed."}
@@ -167,26 +167,31 @@ export function ImageViewport({
     };
   }, []);
   return (
-    <div className="reading-image-surface">
+    <div className="relative flex min-h-0 flex-1 flex-col">
       <div
-        className="reading-overlay reading-image-tools"
+        className="absolute top-2 right-4 z-(--z-popover) flex items-center gap-0.5 rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-md"
         data-iori-part="image-tools"
       >
         <Button
           variant="ghost"
           size="icon-sm"
+          className="[@media(pointer:coarse)]:size-11"
           data-iori-action="image-zoom-out"
           aria-label={t("Zoom out")}
           onClick={() => zoom(1 / ZOOM_STEP)}
         >
           <Minus />
         </Button>
-        <span className="reading-overlay-status" data-iori-part="image-scale">
+        <span
+          className="px-1.5 text-xs whitespace-nowrap text-muted-foreground tabular-nums"
+          data-iori-part="image-scale"
+        >
           {Math.round(shownScale * 100)}%
         </span>
         <Button
           variant="ghost"
           size="icon-sm"
+          className="[@media(pointer:coarse)]:size-11"
           data-iori-action="image-zoom-in"
           aria-label={t("Zoom in")}
           onClick={() => zoom(ZOOM_STEP)}
@@ -196,6 +201,7 @@ export function ImageViewport({
         <Button
           variant="ghost"
           size="sm"
+          className="[@media(pointer:coarse)]:min-h-11"
           data-iori-action="image-actual-size"
           onClick={() => {
             setFit(false);
@@ -207,6 +213,7 @@ export function ImageViewport({
         <Button
           variant="ghost"
           size="icon-sm"
+          className="aria-pressed:bg-accent aria-pressed:text-accent-foreground [@media(pointer:coarse)]:size-11"
           data-iori-action="image-fit"
           aria-label={t("Fit image")}
           aria-pressed={fit}
@@ -217,7 +224,7 @@ export function ImageViewport({
       </div>
       <div
         ref={frame}
-        className="reading-image-frame reading-image-viewport"
+        className="reading-image-frame min-h-0 flex-1 touch-pan-x touch-pan-y overflow-auto p-3 data-[fit=true]:flex data-[fit=true]:items-center data-[fit=true]:justify-center"
         data-fit={fit}
       >
         {unavailable ? (
@@ -225,7 +232,7 @@ export function ImageViewport({
         ) : (
           image.url && (
             <div
-              className="reading-image-canvas"
+              className="flex-none"
               style={
                 extent
                   ? {
@@ -239,6 +246,11 @@ export function ImageViewport({
                 src={image.url}
                 alt={alt ?? image.path}
                 data-iori-part="file-image"
+                className={
+                  fit
+                    ? "max-h-full max-w-full bg-[repeating-conic-gradient(var(--muted)_0_25%,transparent_0_50%)] bg-[length:16px_16px] object-contain"
+                    : "max-h-none max-w-none bg-[repeating-conic-gradient(var(--muted)_0_25%,transparent_0_50%)] bg-[length:16px_16px]"
+                }
                 style={
                   natural
                     ? {

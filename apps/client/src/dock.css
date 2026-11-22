@@ -1,4 +1,5 @@
-/* Dockview supplies docking behavior; shadcn supplies the header controls. */
+/* Minimal Dockview (.dv-* / .iori-dock) adapter styles.
+   All application tab/action/panel chrome lives in Tailwind v4 classes. */
 .iori-dock {
   width: 100%;
   height: 100%;
@@ -6,9 +7,9 @@
   min-height: 0;
   --dv-group-view-background-color: var(--background);
   --dv-tabs-and-actions-container-background-color: var(--sidebar);
-  --dv-tabs-and-actions-container-height: 35px;
-  --dv-tabs-and-actions-container-font-size: 0.93rem;
-  --dv-tab-font-size: 0.93rem;
+  --dv-tabs-and-actions-container-height: 2.1875rem;
+  --dv-tabs-and-actions-container-font-size: var(--text-xs);
+  --dv-tab-font-size: var(--text-xs);
   --dv-activegroup-visiblepanel-tab-background-color: var(--background);
   --dv-activegroup-hiddenpanel-tab-background-color: var(--sidebar);
   --dv-inactivegroup-visiblepanel-tab-background-color: var(--background);
@@ -37,261 +38,93 @@
   --dv-paneview-header-border-color: var(--border);
   --dv-transition-duration: 0ms;
 }
+
 /* Docking previews keep up with the pointer without interpolation. */
 .iori-dock .dv-drop-target,
 .dv-drop-target-container {
   --dv-transition-duration: 0ms;
 }
-.dock-content {
-  width: 100%;
-  height: 100%;
-  min-width: 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  /* clip, unlike hidden, cannot be scrolled by focus or scrollIntoView, so a
-     View inside never moves the panel's content out of place. */
-  overflow: clip;
-  background: var(--background);
-}
-.dock-tab {
-  display: flex;
-  align-items: center;
-  height: 34px;
-  gap: 6px;
-  font-size: 0.93rem;
-  white-space: nowrap;
-  min-width: 0;
-  max-width: 100%;
-  flex: 0 1 auto;
-}
-.dock-tab [data-slot="tabs-list"] {
-  height: 34px;
-  padding: 0;
-  gap: 0;
-  width: auto;
-  min-width: 0;
-  max-width: 100%;
-}
-.dock-tab [data-slot="tabs-trigger"] {
-  position: relative;
-  height: 34px;
-  font-size: 0.93rem;
-  max-width: 220px;
-  min-width: 0;
-  gap: 6px;
-  padding: 0 8px 0 12px;
-  overflow: hidden;
-  border: 0;
-  border-radius: 0;
-  background: var(--sidebar) !important;
-  font-weight: 400;
-}
-.dock-tab [data-slot="tabs-trigger"][data-state="active"] {
-  background: var(--background) !important;
-  color: var(--foreground);
-  font-weight: 600;
-}
-.dock-tab [data-slot="tabs-trigger"][data-state="inactive"] {
-  font-weight: 400;
-  color: var(--muted-foreground);
-}
-.dock-tab [data-slot="tabs-trigger"]::after {
-  display: none;
-}
-.dock-tab [data-slot="tabs-trigger"]:focus-visible {
-  outline: none !important;
-  box-shadow: none;
-}
-/* The selected tab is attached to the work surface with a thin blue-violet rule. */
-.dock-tab-header[data-active="true"]::before {
-  content: "";
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: var(--primary);
-  z-index: 1;
-}
-.dock-tab [data-slot="tabs-trigger"] > button {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  width: 100%;
-  min-width: 0;
-  height: 100%;
-  padding: 0 8px 0 12px;
-  color: inherit;
-  background: transparent;
-  border: 0;
-  font: inherit;
-  text-align: left;
-}
-.dock-tab-leading {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 4px;
-}
-/* Stable tab status geometry; state changes never move the label. */
-.tab-status-slot {
-  width: 14px;
-  height: 14px;
-  flex: 0 0 14px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-.tab-status-slot:empty {
-  width: 0;
-  flex-basis: 0;
-}
-.data-tab-label {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 12px;
-}
-.dock-tab-header {
-  position: relative;
-  display: flex;
-  align-items: center;
-  height: 34px;
-  min-width: 0;
-  max-width: 100%;
-  gap: 4px;
-  padding-right: 4px;
-  border-right: 1px solid var(--border);
-  background: var(--sidebar);
-}
-.dock-tab-header:has([data-slot="tabs-trigger"]:focus-visible)::after {
-  content: "";
-  position: absolute;
-  inset: 2px;
-  border: 1px solid var(--ring);
-  pointer-events: none;
-}
-.dock-tab-header[data-active="true"] {
-  background: var(--background);
-}
-/* Close appears on the selected tab and on hover, and closes in one click. */
-.dock-tab-close {
-  flex: 0 0 20px;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  color: var(--muted-foreground);
-  opacity: 0;
-}
-.dock-tab-header:hover .dock-tab-close,
-.dock-tab-header[data-active="true"] .dock-tab-close,
-.dock-tab-close:focus-visible {
-  opacity: 1;
-}
-.dock-tab-close:hover {
-  color: var(--foreground);
-}
-.dock-actions {
-  display: flex;
-  align-items: center;
-  gap: 1px;
-  height: 34px;
-  padding: 0 4px;
-}
-.dock-actions [data-slot="button"] {
-  flex: 0 0 27px;
-  width: 27px;
-  height: 27px;
-  padding: 0;
-}
+
 .iori-dock .dv-groupview {
-  outline: none !important;
+  outline: none;
 }
+
 .iori-dock .dv-tabs-and-actions-container {
   border-bottom: 1px solid var(--border);
 }
-.iori-dock .dv-tab {
-  padding: 0;
-  height: 34px;
+
+.has-window-chrome
+  .iori-dock
+  .dv-tabs-and-actions-container.window-caption-right {
+  padding-right: var(--window-controls-width, 138px);
 }
-.iori-dock .dv-content-container {
-  border: 0;
-}
-.dock-sidebar-toggle {
-  order: -1;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding-right: 4px;
-  height: 34px;
-}
-.new-items-popover {
-  width: 300px;
-  padding: 6px;
-}
-.dock-tab-list {
-  width: 260px;
-  padding: 6px;
-  display: grid;
-  gap: 2px;
-}
-.dock-tab-list-item {
-  justify-content: flex-start;
-  width: 100%;
-  height: 30px;
-  padding: 0 8px;
-  gap: 8px;
-  font-size: 13px;
-  font-weight: 400;
-}
-.dock-tab-list-item > span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.dock-tab-list-item[data-active="true"] {
-  background: var(--accent);
-  font-weight: 500;
-}
-.dock-tab-list-actions {
-  display: grid;
-  gap: 2px;
-  margin-top: 4px;
-  padding-top: 4px;
-  border-top: 1px solid var(--border);
-}
+
 /* Tabs keep their label; tabs that do not fit scroll and stay in the right-end list. */
 .iori-dock .dv-tab {
+  padding: 0;
+  height: 2.125rem;
   flex-shrink: 0;
   max-width: 100%;
 }
 
-.dv-tab:has(.dock-empty-tab) {
+.iori-dock .dv-tab:has(.dock-empty-tab) {
   display: none;
 }
-.dock-empty-pane {
-  height: 100%;
-  display: grid;
-  place-items: safe center;
-  padding: 24px;
-  overflow: auto;
+
+.iori-dock .dv-content-container {
+  border: 0;
 }
 
-.cli-elapsed {
-  color: var(--muted-foreground);
-  font-size: 10px;
-  font-variant-numeric: tabular-nums;
-  flex-shrink: 0;
-  white-space: nowrap;
-}
-.dock-tab .cli-elapsed {
-  margin-left: 4px;
+/* Maximize: lift Dockview's group and render overlay over its inline geometry. */
+.workspace-dock-shell.has-maximized .dv-sash {
+  pointer-events: none;
+  visibility: hidden;
 }
 
-.dock-content:focus-visible {
-  outline: none !important;
+.iori-dock .dv-groupview.iori-dock-maximized {
+  position: fixed !important;
+  z-index: 35 !important;
+  inset: auto !important;
+  top: 50% !important;
+  left: 50% !important;
+  width: var(--iori-pane-width, min(920px, calc(100vw - 24px))) !important;
+  max-width: calc(100vw - 24px) !important;
+  height: calc(100dvh - 32px) !important;
+  transform: translate(-50%, -50%);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--background);
+  box-shadow: var(--elevation-md);
+}
+
+.workspace-dock-shell.has-maximized
+  .dv-render-overlay.iori-dock-maximized-overlay {
+  position: fixed !important;
+  z-index: 36 !important;
+  top: calc(17px + var(--dv-tabs-and-actions-container-height)) !important;
+  left: 50% !important;
+  width: calc(var(--iori-maximized-pane-width) - 2px) !important;
+  height: calc(
+    100dvh - 34px - var(--dv-tabs-and-actions-container-height)
+  ) !important;
+  transform: translateX(-50%) !important;
+}
+
+.has-window-chrome .iori-dock .dv-groupview.iori-dock-maximized {
+  top: calc(50% + var(--window-caption-height, 35px) / 2) !important;
+  height: calc(100dvh - 32px - var(--window-caption-height, 35px)) !important;
+}
+
+.has-window-chrome
+  .workspace-dock-shell.has-maximized
+  .dv-render-overlay.iori-dock-maximized-overlay {
+  top: calc(
+    17px + var(--window-caption-height, 35px) +
+      var(--dv-tabs-and-actions-container-height)
+  ) !important;
+  height: calc(
+    100dvh - 34px - var(--window-caption-height, 35px) -
+      var(--dv-tabs-and-actions-container-height)
+  ) !important;
 }

@@ -1,23 +1,11 @@
-import { pickerClis } from "../cli-list.ts";
-import { pickerTeams } from "./team-data.ts";
-import { ErrorMessage } from "../Settings.tsx";
-import { FolderPicker } from "../FolderPicker.tsx";
-import { ForgeFailure } from "../forge/ForgeFailure.tsx";
-import {
-  PageHeader,
-  PageBody,
-  SettingsSection,
-  FieldRow,
-  SaveResult,
-} from "../components/page-layout.tsx";
 import {
   useCallback,
   useEffect,
-  useState,
   useRef,
+  useState,
   type ReactNode,
 } from "react";
-import { ArrowLeft, Plus, MoreHorizontal } from "lucide-react";
+import { ArrowLeft, MoreHorizontal, Plus } from "lucide-react";
 import {
   automationDateTime,
   automationDateTimeAt,
@@ -25,22 +13,26 @@ import {
   type AutomationDefinition,
   type AutomationList,
   type AutomationReceived,
-  type AutomationRun,
   type Candidate,
   type Team,
 } from "@iori/protocol";
-import { connection } from "../connection.ts";
-import { native } from "../native.ts";
+import { pickerClis } from "../cli-list.ts";
+import { FolderPicker } from "../FolderPicker.tsx";
+import { ErrorMessage } from "../Settings.tsx";
+import {
+  FlatPageHeader,
+  FlatSection,
+  FlatSettingRow,
+} from "../components/SectionLayout.tsx";
+import { Badge } from "../components/ui/badge.tsx";
 import { Button } from "../components/ui/button.tsx";
 import {
   DropdownMenu,
-  DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuTrigger,
 } from "../components/ui/dropdown-menu.tsx";
 import { Input } from "../components/ui/input.tsx";
-import { Textarea } from "../components/ui/textarea.tsx";
-import { Switch } from "../components/ui/switch.tsx";
 import {
   Select,
   SelectContent,
@@ -48,32 +40,26 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../components/ui/select.tsx";
-import {
-  Dialog,
-  DialogContent,
-  DialogBody,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "../components/ui/dialog.tsx";
-import { useI18n } from "./context.tsx";
+import { Switch } from "../components/ui/switch.tsx";
+import { Textarea } from "../components/ui/textarea.tsx";
+import { connection } from "../connection.ts";
+import { ForgeFailure } from "../forge/ForgeFailure.tsx";
+import { native } from "../native.ts";
 import type { OpenTeamTerminal } from "./TaskHistory.tsx";
-type AutomationDraft = {
-  draft: Automation;
-  onceInput: string;
-  saved?: Automation;
-};
-type WebhookScope = "lan" | "local";
-function editable(value: AutomationList["automations"][number]): Automation {
-  const {
-    lastRun: _lastRun,
-    issueError: _issueError,
-    webhookToken: _webhookToken,
-    ...automation
-  } = value;
-  return automation;
-}
+import { useI18n } from "./context.tsx";
+import { pickerTeams } from "./team-data.ts";
+import { AutomationDialogs } from "./automations/AutomationDialogs.tsx";
+import { AutomationHistorySection } from "./automations/AutomationHistorySection.tsx";
+import { AutomationListView } from "./automations/AutomationListView.tsx";
+import {
+  SAVE_ERRORS,
+  editableAutomation,
+  missingFieldError,
+  type AutomationDraft,
+  type HistoryState,
+  type WebhookScope,
+} from "./automations/types.ts";
+
 function Choice({
   label,
   value,
@@ -91,7 +77,11 @@ function Choice({
 }) {
   return (
     <Select value={value} onValueChange={change}>
-      <SelectTrigger aria-label={label} data-iori-field={field}>
+      <SelectTrigger
+        aria-label={label}
+        data-iori-field={field}
+        className="w-52 max-w-full"
+      >
         <SelectValue>{selectedLabel}</SelectValue>
       </SelectTrigger>
       <SelectContent>
@@ -108,25 +98,17 @@ function Choice({
     </Select>
   );
 }
-const SAVE_ERRORS = new Set([
-  "Enter a name.",
-  "Enter instructions.",
-  "Choose a folder.",
-  "Choose a CLI.",
-  "Choose a team.",
-  "Could not save the automation. Check its fields and retry.",
-]);
 
-function missingFieldError(draft: Automation): string | undefined {
-  if (!draft.name.trim()) return "Enter a name.";
-  if (!draft.instruction.trim()) return "Enter instructions.";
-  if (!draft.cwd.trim()) return "Choose a folder.";
-  if (draft.target.kind === "cli" && !draft.target.candidate.cli.trim())
-    return "Choose a CLI.";
-  if (draft.target.kind === "team" && !draft.target.teamId.trim())
-    return "Choose a team.";
-  return undefined;
-}
+const STACKED_FIELDS = new Set([
+  "Name",
+  "Instructions",
+  "Folder",
+  "Days",
+  "URL",
+  "Token",
+  "Label",
+  "curl example",
+]);
 
 export function Automations({
   host,
@@ -155,13 +137,18 @@ export function Automations({
   const { t, language, clis } = useI18n();
   const selectableTeams = pickerTeams(teams);
   const selectableClis = pickerClis(clis);
+
   const [data, setData] = useState<AutomationList>();
+  const [listError, setListError] = useState(false);
   const savedDefinitions = useRef(new Map<string, Automation>());
   const [draft, setDraft] = useState<Automation>();
-  const [runs, setRuns] = useState<AutomationRun[]>([]);
+  const [historyState, setHistoryState] = useState<HistoryState>({
+    status: "idle",
+    runs: [],
+  });
+  const historyRequestRef = useRef(0);
   const [error, setError] = useState("");
   const [retryEnabled, setRetryEnabled] = useState<() => void>();
-  // The pressed action while it waits for the Host.
   const [workingOn, setWorkingOn] = useState<
     "save" | "run" | "delete" | "enabled" | "regenerate"
   >();
@@ -171,6 +158,7 @@ export function Automations({
   const [regenerating, setRegenerating] = useState(false);
   const [regenerateError, setRegenerateError] = useState("");
   const [received, setReceived] = useState<AutomationReceived>();
+  const [receivedError, setReceivedError] = useState<string>();
   const [copyState, setCopyState] = useState<
     Record<string, "copied" | "error">
   >({});
@@ -179,6 +167,7 @@ export function Automations({
   const [draftRetry, setDraftRetry] = useState(0);
   const [loadedDraft, setLoadedDraft] = useState(false);
   const [onceInput, setOnceInput] = useState("");
+
   const load = useCallback(async () => {
     try {
       const result = await connection.requestHost(host, "automation.list", {});
@@ -196,40 +185,65 @@ export function Automations({
           const value = result.result.automations.find(
             (a) => a.id === current.id,
           );
-          return value ? editable(value) : undefined;
+          return value ? editableAutomation(value) : undefined;
         });
         savedDefinitions.current = new Map(
-          result.result.automations.map((a) => [a.id, editable(a)]),
+          result.result.automations.map((a) => [a.id, editableAutomation(a)]),
         );
         setData(result.result);
+        setListError(false);
         setError((current) =>
           current === "Could not load Automations. Retry." ? "" : current,
         );
-      } else setError("Could not load Automations. Retry.");
+      } else {
+        setListError(true);
+        setError("Could not load Automations. Retry.");
+      }
     } catch {
+      setListError(true);
       setError("Could not load Automations. Retry.");
     }
   }, [host]);
-  const history = useCallback(
+
+  const loadHistory = useCallback(
     async (id: string) => {
+      const requestId = ++historyRequestRef.current;
       if (!id) {
-        setRuns([]);
+        setHistoryState({ status: "idle", runs: [] });
         return;
       }
+      setHistoryState((current) => ({
+        status: "loading",
+        runs: current.runs,
+      }));
       try {
         const result = await connection.requestHost(
           host,
           "automation.history",
           { id },
         );
-        if (result?.ok) setRuns(result.result.runs);
-        else setError("Could not load automation history. Retry.");
+        if (historyRequestRef.current !== requestId) return;
+        if (result?.ok) {
+          setHistoryState({ status: "ready", runs: result.result.runs });
+        } else {
+          setHistoryState((current) => ({
+            status: "error",
+            runs: current.runs,
+            message: "Could not load automation history. Retry.",
+          }));
+        }
       } catch {
-        setError("Could not load automation history. Retry.");
+        if (historyRequestRef.current !== requestId) return;
+        setHistoryState((current) => ({
+          status: "error",
+          runs: current.runs,
+          message: "Could not load automation history. Retry.",
+        }));
       }
     },
     [host],
   );
+
   useEffect(() => {
     if (!active) return;
     void load();
@@ -237,13 +251,14 @@ export function Automations({
       if (key !== host) return;
       if (event.type === "automation.changed" || event.type === "snapshot") {
         void load();
-        if (draft?.id) void history(draft.id);
+        if (draft?.id) void loadHistory(draft.id);
       }
     });
     return () => {
       unsubscribe();
     };
-  }, [active, host, load, history, draft?.id]);
+  }, [active, host, load, loadHistory, draft?.id]);
+
   useEffect(() => {
     let alive = true;
     void native
@@ -273,6 +288,7 @@ export function Automations({
       alive = false;
     };
   }, [host, draftRetry]);
+
   useEffect(() => {
     if (!loadedDraft) return;
     if (draft) {
@@ -293,9 +309,12 @@ export function Automations({
         );
       });
   }, [draft, onceInput, loadedDraft, host, data]);
+
   useEffect(() => {
-    if (draft?.id) void history(draft.id);
-  }, [draft?.id, history]);
+    if (draft?.id) void loadHistory(draft.id);
+    else setHistoryState({ status: "idle", runs: [] });
+  }, [draft?.id, loadHistory]);
+
   useEffect(() => {
     if (active)
       registerBack(() => {
@@ -304,6 +323,7 @@ export function Automations({
         return true;
       });
   }, [active, draft, registerBack]);
+
   useEffect(() => {
     setDraft((current) => {
       if (!current || current.id) return current;
@@ -337,18 +357,22 @@ export function Automations({
     selectableTeams,
     defaultTeam,
   ]);
+
   if (!active) return null;
+
   const zone = data?.timeZone;
-  const date = (at: number) =>
+  const formatDate = (at: number) =>
     new Intl.DateTimeFormat(language, {
       dateStyle: "medium",
       timeStyle: "short",
       timeZone: zone,
     }).format(at);
+
   const edit = (changes: Partial<AutomationDefinition>) => {
     setSaved(false);
     setDraft((old) => (old ? { ...old, ...changes } : old));
   };
+
   const open = (automation: Automation, restore = true) => {
     const cached = restore ? drafts.current[automation.id] : undefined;
     const pending =
@@ -361,8 +385,12 @@ export function Automations({
             automationDateTime(cached.draft.schedule.at, zone)))
         ? cached
         : undefined;
-    setDraft(structuredClone(pending?.draft ?? editable(automation)));
-    setRuns([]);
+    setDraft(structuredClone(pending?.draft ?? editableAutomation(automation)));
+    setHistoryState(
+      automation.id
+        ? { status: "loading", runs: [] }
+        : { status: "idle", runs: [] },
+    );
     setCopyState({});
     setError("");
     setSaved(false);
@@ -373,6 +401,7 @@ export function Automations({
           : ""),
     );
   };
+
   const create = () =>
     open({
       id: "",
@@ -393,6 +422,7 @@ export function Automations({
       enabled: true,
       missed: "latest",
     });
+
   const save = async (action: "save" | "run" = "save") => {
     if (!draft || !zone) return;
     if (!draftChanged) return draft;
@@ -433,6 +463,7 @@ export function Automations({
       setWorkingOn(undefined);
     }
   };
+
   const run = async () => {
     if (!draft?.id) return;
     const current = await save("run");
@@ -444,7 +475,7 @@ export function Automations({
         id: current.id,
       });
       if (!result?.ok) setError("Could not run the automation. Retry.");
-      await history(draft.id);
+      await loadHistory(draft.id);
       await load();
     } catch {
       setError("Could not run the automation. Retry.");
@@ -452,6 +483,7 @@ export function Automations({
       setWorkingOn(undefined);
     }
   };
+
   const remove = async () => {
     if (!draft?.id) return;
     setWorkingOn("delete");
@@ -471,6 +503,7 @@ export function Automations({
       setWorkingOn(undefined);
     }
   };
+
   const toggleEnabled = async (enabled: boolean, targetId = draft?.id) => {
     if (!targetId) return;
     const stored = savedDefinitions.current.get(targetId);
@@ -490,7 +523,10 @@ export function Automations({
         definition: { ...definition, enabled },
       });
       if (!response?.ok) throw new Error();
-      savedDefinitions.current.set(id, editable(response.result.automation));
+      savedDefinitions.current.set(
+        id,
+        editableAutomation(response.result.automation),
+      );
       setDraft((current) =>
         current?.id === id ? { ...current, enabled } : current,
       );
@@ -502,6 +538,7 @@ export function Automations({
       setWorkingOn(undefined);
     }
   };
+
   const regenerateToken = async () => {
     if (!draft?.id) return;
     setWorkingOn("regenerate");
@@ -536,7 +573,9 @@ export function Automations({
       setWorkingOn(undefined);
     }
   };
+
   const showReceived = async (id: string) => {
+    setReceivedError((failed) => (failed === id ? undefined : failed));
     try {
       const result = await connection.requestHost(host, "automation.received", {
         id,
@@ -544,19 +583,23 @@ export function Automations({
       if (!result?.ok) throw new Error();
       setReceived(result.result.received);
     } catch {
-      setError("The Host could not complete this operation. Retry.");
+      setReceivedError(id);
     }
   };
+
   const copy = (key: string, value: string) => {
     void native.clipboardWrite(value).then(
       () => setCopyState((state) => ({ ...state, [key]: "copied" })),
       () => setCopyState((state) => ({ ...state, [key]: "error" })),
     );
   };
+
   const copyButton = (key: string, value: string) => (
-    <div>
+    <div className="flex flex-col items-start gap-1">
       <Button
+        type="button"
         variant="outline"
+        size="sm"
         data-iori-action={`automation-copy-webhook-${key}`}
         onClick={() => copy(key, value)}
       >
@@ -569,6 +612,7 @@ export function Automations({
       )}
     </div>
   );
+
   const storedAutomation = data?.automations.find(
     (value) => value.id === draft?.id,
   );
@@ -595,16 +639,7 @@ export function Automations({
   const token = storedAutomation?.webhookToken;
   const curl = (value: string) =>
     `curl -X POST -H "Authorization: Bearer ${value}" -H "Content-Type: application/json" -d '{"message":"hello"}' ${url}`;
-  const reason = (value: AutomationRun) =>
-    value.launchError
-      ? t(value.launchError)
-      : value.reason === "busy"
-        ? t("Skipped: previous conversation is working")
-        : value.reason === "offline"
-          ? t("Skipped: Host was stopped or asleep")
-          : value.reason === "disabled"
-            ? t("Skipped: automation was disabled")
-            : "";
+
   const saveError = SAVE_ERRORS.has(error);
   const savedDefinition = draft && savedDefinitions.current.get(draft.id);
   const draftChanged =
@@ -615,63 +650,63 @@ export function Automations({
         (savedDefinition?.schedule.kind !== "once" ||
           onceInput !==
             automationDateTime(savedDefinition.schedule.at, zone))));
-  const draftStatus = draftChanged
-    ? t("Unsaved changes")
-    : saved
-      ? t("Settings saved")
-      : "";
+
   const field = (
     label: string,
     children: ReactNode,
     description?: ReactNode,
   ) => (
-    <FieldRow
-      className="automation-field"
-      stacked={[
-        "Name",
-        "Instructions",
-        "Folder",
-        "Days",
-        "URL",
-        "Token",
-        "Label",
-        "curl example",
-      ].includes(label)}
+    <FlatSettingRow
+      stacked={STACKED_FIELDS.has(label)}
       label={t(label)}
       description={description}
     >
       {children}
-    </FieldRow>
+    </FlatSettingRow>
   );
+
+  const showTopError =
+    error &&
+    !saveError &&
+    !(!draft && !data && error === "Could not load Automations. Retry.");
+
   return (
-    <PageBody
-      width="editor"
-      className="team-content team-list-page"
+    <div
+      className="mx-auto flex w-full max-w-[960px] flex-col gap-6 px-6 py-5 max-md:px-4 max-md:py-4"
       data-iori-view="automations"
     >
-      <PageHeader
+      <FlatPageHeader
         title={draft ? draft.name || t("New automation") : "Automations"}
+        bordered={!draft ? false : true}
+        className={!draft ? "pb-0" : undefined}
         description={
           draft ? (
-            <SaveResult
-              inline
-              error={saveError}
-              message={
-                saveError ? (
-                  t(error)
-                ) : (
-                  <>
-                    {draftStatus}
-                    {draftStatus && zone && " · "}
-                    {zone && (
-                      <span data-iori-automation-timezone>
-                        {t("Host time zone")}: {zone}
-                      </span>
-                    )}
-                  </>
-                )
-              }
-            />
+            <span className="inline-flex flex-wrap items-center gap-2">
+              {saveError ? (
+                <span
+                  role="alert"
+                  className="text-xs font-medium text-status-failed-text"
+                >
+                  {t(error)}
+                </span>
+              ) : draftChanged ? (
+                <Badge variant="waiting" role="status">
+                  {t("Unsaved changes")}
+                </Badge>
+              ) : saved ? (
+                <Badge variant="neutral" role="status">
+                  {t("Settings saved")}
+                </Badge>
+              ) : null}
+              {zone && (
+                <span
+                  className="text-2xs text-muted-foreground"
+                  data-iori-automation-timezone
+                >
+                  {t("Host time zone")}: {zone}
+                </span>
+              )}
+            </span>
           ) : zone ? (
             <span data-iori-automation-timezone>
               {t("Host time zone")}: {zone}
@@ -680,34 +715,36 @@ export function Automations({
         }
         back={
           draft ? (
-            <div className="automation-navigation">
-              <Button
-                variant="ghost"
-                onClick={() => setDraft(undefined)}
-                data-iori-action="automation-back"
-              >
-                <ArrowLeft size={16} />
-                {t("Automations")}
-              </Button>
-            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setDraft(undefined)}
+              data-iori-action="automation-back"
+              className="h-7 px-1.5 text-muted-foreground hover:text-foreground max-md:h-10"
+            >
+              <ArrowLeft className="size-3.5" aria-hidden="true" />
+              {t("Automations")}
+            </Button>
           ) : undefined
         }
         actions={
           !draft ? (
             <Button
-              variant="outline"
+              type="button"
+              size="sm"
               onClick={create}
               data-iori-action="automation-new"
             >
-              <Plus size={15} />
+              <Plus className="size-3.5" aria-hidden="true" />
               {t("New automation")}
             </Button>
           ) : (
             <>
               {draft.id && (
                 <>
-                  <label className="field-row">
-                    {t("Enabled")}
+                  <label className="inline-flex cursor-pointer items-center gap-2 text-xs font-medium text-foreground">
+                    <span>{t("Enabled")}</span>
                     <Switch
                       aria-label={t("Enabled")}
                       data-iori-action="automation-enabled"
@@ -720,7 +757,9 @@ export function Automations({
                     />
                   </label>
                   <Button
+                    type="button"
                     variant="outline"
+                    size="sm"
                     onClick={() => void run()}
                     disabled={working}
                     pending={workingOn === "run"}
@@ -732,6 +771,7 @@ export function Automations({
               )}
               <Button
                 type="button"
+                size="sm"
                 disabled={!data || working || !draftChanged}
                 pending={workingOn === "save"}
                 data-iori-action="automation-save"
@@ -743,16 +783,19 @@ export function Automations({
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
+                      type="button"
                       variant="ghost"
-                      size="icon"
+                      size="icon-sm"
                       aria-label={t("Automation actions")}
                       data-iori-action="automation-actions"
+                      className="max-md:size-11"
                     >
-                      <MoreHorizontal />
+                      <MoreHorizontal className="size-4" />
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
                     <DropdownMenuItem
+                      variant="destructive"
                       data-iori-action="automation-delete"
                       onSelect={() => setDeleting(true)}
                     >
@@ -765,11 +808,17 @@ export function Automations({
           )
         }
       />
-      {error && !saveError && (
-        <p role="alert">
-          {t(error)}{" "}
+
+      {showTopError && (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-status-failed-border bg-status-failed-bg/45 px-3 py-2 text-xs text-status-failed-text"
+        >
+          <span>{t(error)}</span>
           <Button
+            type="button"
             variant="outline"
+            size="xs"
             onClick={() => {
               if (
                 error === "Could not change the automation. Retry." &&
@@ -784,63 +833,28 @@ export function Automations({
               )
                 setDraftRetry((value) => value + 1);
               void load();
-              if (draft?.id) void history(draft.id);
+              if (draft?.id) void loadHistory(draft.id);
             }}
           >
             {t("Retry")}
           </Button>
-        </p>
+        </div>
       )}
+
       {!draft ? (
-        <SettingsSection className="team-list">
-          {data?.automations.map((automation) => (
-            <div className="team-list-row" key={automation.id}>
-              <Button
-                variant="ghost"
-                className="team-list-open"
-                data-iori-automation-id={automation.id}
-                onClick={() => {
-                  open(automation);
-                  void load();
-                }}
-              >
-                <div className="team-list-name">
-                  <strong>{automation.name}</strong>
-                  <span
-                    data-iori-automation-enabled={
-                      automation.enabled ? "true" : "false"
-                    }
-                  >
-                    {t(automation.enabled ? "Enabled" : "Disabled")}
-                  </span>
-                </div>
-                <div className="team-list-meta">
-                  {automation.enabled && automation.nextAt !== undefined && (
-                    <span>
-                      <span data-iori-automation-next>
-                        {t("Next run")}: {date(automation.nextAt)}
-                      </span>
-                    </span>
-                  )}
-                  {automation.lastRun && (
-                    <span>
-                      {t("Last run")}: {date(automation.lastRun.scheduledAt)}{" "}
-                      {reason(automation.lastRun)}
-                    </span>
-                  )}
-                </div>
-              </Button>
-            </div>
-          ))}
-          {data && !data.automations.length && (
-            <p className="team-hint">
-              {t("No automations yet. Create one to schedule an agent.")}
-            </p>
-          )}
-        </SettingsSection>
+        <AutomationListView
+          data={data}
+          listError={listError}
+          formatDate={formatDate}
+          onOpen={(automation) => {
+            open(automation);
+            void load();
+          }}
+          onRetry={() => void load()}
+        />
       ) : (
-        <>
-          <SettingsSection title={t("Content")} onSave={() => void save()}>
+        <div className="flex flex-col gap-6">
+          <FlatSection title={t("Content")} onSave={() => void save()}>
             {field(
               "Name",
               <Input
@@ -862,15 +876,18 @@ export function Automations({
             )}
             {field(
               "Folder",
-              <div className="automation-folder-control field-code">
+              <div className="flex min-w-0 items-center gap-2">
                 <Input
                   aria-label={t("Folder")}
                   data-iori-field="automation-folder"
+                  className="min-w-0 flex-1 font-mono text-xs"
                   value={draft.cwd}
                   onChange={(e) => edit({ cwd: e.target.value })}
                 />
                 <Button
+                  type="button"
                   variant="outline"
+                  size="sm"
                   data-iori-action="automation-folder-choose"
                   onClick={() => setFolderPicker(true)}
                 >
@@ -878,8 +895,9 @@ export function Automations({
                 </Button>
               </div>,
             )}
-          </SettingsSection>
-          <SettingsSection title={t("Run")} onSave={() => void save()}>
+          </FlatSection>
+
+          <FlatSection title={t("Run")} onSave={() => void save()}>
             {field(
               "Type",
               <Choice
@@ -937,7 +955,7 @@ export function Automations({
                 />,
               )
             ) : (
-              <div className="team-execution-list team-parent-execution">
+              <div className="py-3">
                 {renderCandidate(draft.target.candidate, (changes) => {
                   if (draft.target.kind === "cli")
                     edit({
@@ -949,8 +967,9 @@ export function Automations({
                 })}
               </div>
             )}
-          </SettingsSection>
-          <SettingsSection title={t("Schedule")} onSave={() => void save()}>
+          </FlatSection>
+
+          <FlatSection title={t("Schedule")} onSave={() => void save()}>
             {field(
               "Schedule",
               <Choice
@@ -984,6 +1003,7 @@ export function Automations({
                   type="datetime-local"
                   aria-label={t("Date and time")}
                   data-iori-field="automation-once"
+                  className="w-52 max-w-full"
                   value={onceInput}
                   onChange={(e) => setOnceInput(e.target.value)}
                 />,
@@ -995,6 +1015,7 @@ export function Automations({
                 <Input
                   type="time"
                   aria-label={t("Time")}
+                  className="w-52 max-w-full"
                   value={draft.schedule.time}
                   onChange={(e) => {
                     if (
@@ -1010,7 +1031,7 @@ export function Automations({
             {draft.schedule.kind === "weekly" &&
               field(
                 "Days",
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-1.5">
                   {[
                     "Sunday",
                     "Monday",
@@ -1022,6 +1043,8 @@ export function Automations({
                   ].map((day, index) => (
                     <Button
                       key={day}
+                      type="button"
+                      size="sm"
                       variant={
                         draft.schedule.kind === "weekly" &&
                         draft.schedule.days.includes(index)
@@ -1063,8 +1086,9 @@ export function Automations({
                 }
               />,
             )}
-          </SettingsSection>
-          <SettingsSection title={t("Webhook")} onSave={() => void save()}>
+          </FlatSection>
+
+          <FlatSection title={t("Webhook")} onSave={() => void save()}>
             {field(
               "Run from webhook",
               <Switch
@@ -1082,13 +1106,13 @@ export function Automations({
               ),
             )}
             {draft.webhook && listener?.error === "port" && (
-              <FieldRow>
+              <div className="py-3">
                 <ErrorMessage
                   message={t(
                     "Webhooks are not being accepted because port {port} could not be opened.",
                   ).replace("{port}", String(listener.port))}
                 />
-              </FieldRow>
+              </div>
             )}
             {draft.webhook && (
               <>
@@ -1119,8 +1143,8 @@ export function Automations({
                     {url &&
                       field(
                         "URL",
-                        <div className="automation-copy-value">
-                          <code className="automation-code field-code">
+                        <div className="flex min-w-0 flex-col gap-2">
+                          <code className="block min-w-0 overflow-x-auto rounded-md border border-border-subtle bg-terminal p-2.5 font-mono text-2xs whitespace-pre-wrap [overflow-wrap:anywhere] text-terminal-foreground">
                             {url}
                           </code>
                           {copyButton("url", url)}
@@ -1128,14 +1152,16 @@ export function Automations({
                       )}
                     {field(
                       "Token",
-                      <div className="automation-copy-value">
-                        <code className="automation-code field-code">
+                      <div className="flex min-w-0 flex-col gap-2">
+                        <code className="block min-w-0 rounded-md border border-border-subtle bg-terminal p-2.5 font-mono text-2xs text-terminal-foreground">
                           ••••••••
                         </code>
                         <div className="flex flex-wrap items-start gap-2">
                           {copyButton("token", token)}
                           <Button
+                            type="button"
                             variant="outline"
+                            size="sm"
                             data-iori-action="automation-regenerate-webhook-token"
                             onClick={() => {
                               setRegenerateError("");
@@ -1150,8 +1176,8 @@ export function Automations({
                     {url &&
                       field(
                         "curl example",
-                        <div className="automation-copy-value">
-                          <code className="automation-code field-code">
+                        <div className="flex min-w-0 flex-col gap-2">
+                          <code className="block min-w-0 overflow-x-auto rounded-md border border-border-subtle bg-terminal p-2.5 font-mono text-2xs whitespace-pre-wrap [overflow-wrap:anywhere] text-terminal-foreground">
                             {curl("••••••••")}
                           </code>
                           {copyButton("curl", curl(token))}
@@ -1159,16 +1185,17 @@ export function Automations({
                       )}
                   </>
                 ) : (
-                  <FieldRow>
-                    <p className="team-hint">
+                  <div className="py-3">
+                    <p className="m-0 text-xs text-muted-foreground">
                       {t("Save to create the URL and token.")}
                     </p>
-                  </FieldRow>
+                  </div>
                 )}
               </>
             )}
-          </SettingsSection>
-          <SettingsSection title={t("Issue")} onSave={() => void save()}>
+          </FlatSection>
+
+          <FlatSection title={t("Issue")} onSave={() => void save()}>
             {field(
               "Run from issues",
               <Switch
@@ -1188,7 +1215,7 @@ export function Automations({
             {draft.issue &&
               (storedAutomation?.issueError === "no-forge" ||
                 storedAutomation?.issueError === "no-remote") && (
-                <FieldRow data-iori-automation-issue-error>
+                <div className="py-3" data-iori-automation-issue-error>
                   <ErrorMessage
                     message={t(
                       storedAutomation.issueError === "no-remote"
@@ -1196,13 +1223,13 @@ export function Automations({
                         : "This folder's repository has no known forge.",
                     )}
                   />
-                </FieldRow>
+                </div>
               )}
             {draft.issue &&
               storedAutomation?.issueError &&
               storedAutomation.issueError !== "no-forge" &&
               storedAutomation.issueError !== "no-remote" && (
-                <FieldRow data-iori-automation-issue-error>
+                <div className="py-3" data-iori-automation-issue-error>
                   <ForgeFailure
                     subject={t(
                       "Could not read the issues for this automation.",
@@ -1221,7 +1248,7 @@ export function Automations({
                     retryAction="automation-issue-retry"
                     form="line"
                   />
-                </FieldRow>
+                </div>
               )}
             {draft.issue &&
               field(
@@ -1233,94 +1260,21 @@ export function Automations({
                   onChange={(e) => edit({ issue: { label: e.target.value } })}
                 />,
               )}
-          </SettingsSection>
+          </FlatSection>
+
           {draft.id && (
-            <SettingsSection title={t("History")}>
-              <div className="section-rows" data-iori-view="automation-history">
-                {runs.length === 0 && (
-                  <FieldRow>
-                    <p className="team-hint">{t("Not run yet.")}</p>
-                  </FieldRow>
-                )}
-                {runs.map((value) => (
-                  <FieldRow
-                    className="automation-history-row"
-                    key={value.id}
-                    data-iori-automation-run={value.id}
-                  >
-                    <div className="team-list-meta">
-                      <span>
-                        {t(
-                          value.trigger === "manual"
-                            ? "Run now"
-                            : value.trigger === "webhook"
-                              ? "Webhook"
-                              : value.trigger === "issue"
-                                ? "Issue"
-                                : "Scheduled",
-                        )}
-                        : {date(value.scheduledAt)}
-                      </span>
-                      {value.trigger === "webhook" && value.from && (
-                        <span>
-                          {t("From")}: {value.from}
-                        </span>
-                      )}
-                      {value.trigger === "issue" && value.issue && (
-                        <span>
-                          #{value.issue.number} {value.issue.title}
-                        </span>
-                      )}
-                      {value.startedAt !== undefined && (
-                        <span>
-                          {t("Started")}: {date(value.startedAt)}
-                        </span>
-                      )}
-                    </div>
-                    {reason(value) && (
-                      <p data-iori-automation-reason={value.reason ?? "launch"}>
-                        {reason(value)}
-                      </p>
-                    )}
-                    <div className="flex flex-wrap items-start gap-2">
-                      {value.trigger === "issue" && value.issue && (
-                        <Button
-                          variant="outline"
-                          data-iori-action="automation-issue-open"
-                          onClick={() => void native.openUrl(value.issue!.url)}
-                        >
-                          {language.startsWith("ja")
-                            ? "ブラウザーで開く"
-                            : "Open in browser"}
-                        </Button>
-                      )}
-                      {value.trigger === "webhook" && (
-                        <Button
-                          variant="outline"
-                          data-iori-action="automation-received"
-                          onClick={() => void showReceived(value.id)}
-                        >
-                          {t("Received content")}
-                        </Button>
-                      )}
-                      {value.terminalId && (
-                        <Button
-                          variant="outline"
-                          data-iori-action="automation-conversation"
-                          data-iori-terminal-id={value.terminalId}
-                          onClick={() => onOpenTerminal(value.terminalId!)}
-                        >
-                          {t("Open conversation")}
-                        </Button>
-                      )}
-                    </div>
-                  </FieldRow>
-                ))}
-              </div>
-            </SettingsSection>
+            <AutomationHistorySection
+              historyState={historyState}
+              receivedError={receivedError}
+              formatDate={formatDate}
+              onRetryHistory={() => void loadHistory(draft.id)}
+              onShowReceived={(id) => void showReceived(id)}
+              onOpenTerminal={onOpenTerminal}
+            />
           )}
-        </>
+        </div>
       )}
+
       {folderPicker && (
         <FolderPicker
           t={t}
@@ -1338,108 +1292,26 @@ export function Automations({
           }}
         />
       )}
-      <Dialog
-        open={regenerating}
-        onOpenChange={(open) => {
-          setRegenerating(open);
-          if (!open) setRegenerateError("");
+
+      <AutomationDialogs
+        draftName={draft?.name}
+        working={working}
+        regenerating={regenerating}
+        regeneratingPending={workingOn === "regenerate"}
+        regenerateError={regenerateError}
+        onRegenerateOpenChange={(next) => {
+          setRegenerating(next);
+          if (!next) setRegenerateError("");
         }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t("Regenerate the token?")}</DialogTitle>
-            <DialogDescription>
-              {t("The current token will stop working.")}
-            </DialogDescription>
-            <ErrorMessage
-              message={regenerateError ? t(regenerateError) : undefined}
-            />
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setRegenerating(false)}>
-              {t("Cancel")}
-            </Button>
-            <Button
-              disabled={working}
-              pending={workingOn === "regenerate"}
-              onClick={() => void regenerateToken()}
-            >
-              {t("Regenerate")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <Dialog
-        open={!!received}
-        onOpenChange={(open) => {
-          if (!open) setReceived(undefined);
-        }}
-      >
-        <DialogContent
-          className="automation-received-dialog"
-          data-iori-view="automation-received"
-        >
-          <DialogHeader>
-            <DialogTitle>{t("Received content")}</DialogTitle>
-          </DialogHeader>
-          {received && (
-            <DialogBody>
-              <div className="team-list-meta">
-                <span>
-                  {t("Received at")}: {date(received.receivedAt)}
-                </span>
-                <span>
-                  {t("From")}: {received.from}
-                </span>
-              </div>
-              {(
-                [
-                  ["Query", JSON.stringify(received.query, null, 2)],
-                  ["Headers", JSON.stringify(received.headers, null, 2)],
-                  ["Body", received.body],
-                ] as const
-              ).map(([label, value]) => (
-                <div className="automation-received-field" key={label}>
-                  <div>{t(label)}</div>
-                  <pre className="automation-code field-code">{value}</pre>
-                </div>
-              ))}
-            </DialogBody>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setReceived(undefined)}>
-              {t("Close")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <Dialog open={deleting} onOpenChange={setDeleting}>
-        <DialogContent data-iori-view="automation-delete">
-          <DialogHeader>
-            <DialogTitle>{t("Delete automation")}</DialogTitle>
-            <DialogDescription>
-              {draft?.name}{" "}
-              {t(
-                "The automation and its history will be deleted. Started conversations will remain.",
-              )}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleting(false)}>
-              {t("Cancel")}
-            </Button>
-            <Button
-              variant="destructive"
-              data-iori-action="automation-delete-confirm"
-              onClick={() => void remove()}
-              disabled={working}
-              pending={workingOn === "delete"}
-            >
-              {t("Delete")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </PageBody>
+        onRegenerate={() => void regenerateToken()}
+        received={received}
+        onCloseReceived={() => setReceived(undefined)}
+        deleting={deleting}
+        deletingPending={workingOn === "delete"}
+        onDeletingChange={setDeleting}
+        onDelete={() => void remove()}
+        formatDate={formatDate}
+      />
+    </div>
   );
 }

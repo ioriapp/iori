@@ -55,7 +55,7 @@ export function HostSetupDialog({
   open: boolean;
   deviceName: string;
   t: (key: string) => string;
-  onClose: () => void;
+  onClose: (background?: boolean) => void;
   onCompleted?: (completion: SetupCompletion) => void;
   onInvitation?: () => void;
   onOpenWindowsSettings?: () => void;
@@ -253,7 +253,7 @@ export function HostSetupDialog({
   function close() {
     if (warning && registered)
       onCompleted?.({ type: "closedAfterWarning", hostKey: registered });
-    onClose();
+    onClose(busy || Boolean(registered && !warning && !currentError));
   }
   if (remote)
     return (
@@ -284,7 +284,7 @@ export function HostSetupDialog({
   let panel = !local ? (
     <Status>{t("Checking iori Host on this PC")}</Status>
   ) : local.installed ? (
-    <div className="host-panel-stack">
+    <div className="grid content-start gap-3">
       <Text>
         {version
           ? m(
@@ -303,8 +303,8 @@ export function HostSetupDialog({
       )}
     </div>
   ) : local.canAllowConnections ? (
-    <div className="host-panel-stack is-tight">
-      <label className="ssh-setup-check">
+    <div className="grid content-start gap-1.5">
+      <label className="flex items-center gap-2.5 text-sm [@media(pointer:coarse)]:min-h-11">
         <Checkbox
           checked={allow}
           onCheckedChange={(value) => setAllow(value === true)}
@@ -354,7 +354,7 @@ export function HostSetupDialog({
     );
   if (warning)
     panel = (
-      <div className="host-panel-stack">
+      <div className="grid content-start gap-3">
         <Text>
           {m(
             local?.installed
@@ -458,34 +458,70 @@ export function LocalHostConnections({
   connectionScope?: HostInfo["connectionScope"];
   t: (s: string) => string;
 }) {
-  const [local, setLocal] = useState<LocalHost>();
+  const [status, setStatus] = useState<"available" | "failed">();
+  const [statusRetry, setStatusRetry] = useState(0);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
   const [allowed, setAllowed] = useState<boolean | null>();
   useEffect(() => {
-    void native
-      .hostSetupStatus()
-      .then((value) => {
-        setLocal(value ?? undefined);
-        if (value?.canAllowConnections && value.host?.publicKey === hostKey)
-          void native
-            .hostFirewallStatus()
-            .then(setAllowed)
-            .catch(() => {});
-      })
-      .catch(() => {});
-  }, [hostKey]);
-  if (!local?.canAllowConnections || local.host?.publicKey !== hostKey)
-    return null;
+    let cancelled = false;
+    setStatus(undefined);
+    void native.hostSetupStatus().then(
+      (value) => {
+        if (
+          cancelled ||
+          !value?.canAllowConnections ||
+          value.host?.publicKey !== hostKey
+        )
+          return;
+        setStatus("available");
+        void native
+          .hostFirewallStatus()
+          .then((value) => {
+            if (!cancelled) setAllowed(value);
+          })
+          .catch(() => {});
+      },
+      () => {
+        if (!cancelled) setStatus("failed");
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [hostKey, statusRetry]);
+  if (!status) return null;
+  if (status === "failed")
+    return (
+      <>
+        <Separator />
+        <section
+          className="grid max-w-full justify-items-start gap-2.5 pt-3"
+          role="alert"
+        >
+          <p className="m-0 text-xs leading-relaxed text-status-failed-text [overflow-wrap:anywhere]">
+            {t("Could not check iori Host on this PC.")}
+          </p>
+          <Button
+            variant="outline"
+            onClick={() => setStatusRetry((value) => value + 1)}
+          >
+            {t("Retry")}
+          </Button>
+        </section>
+      </>
+    );
   return (
     <>
       <Separator />
-      <section className="settings-section connection-form">
+      <section className="grid max-w-full justify-items-start gap-2.5 pt-3">
         {allowed && connectionScope !== "loopback" ? (
-          <p>{t("Connections from other devices are allowed")}</p>
+          <p className="m-0 text-sm text-foreground">
+            {t("Connections from other devices are allowed")}
+          </p>
         ) : (
           <>
-            <p className="settings-note">
+            <p className="m-0 text-xs leading-relaxed font-normal text-muted-foreground [overflow-wrap:anywhere]">
               {t(
                 "Windows will ask for administrator approval to allow other devices to connect.",
               )}
@@ -512,7 +548,10 @@ export function LocalHostConnections({
           </>
         )}
         {failed && (
-          <p role="alert" className="connection-error">
+          <p
+            role="alert"
+            className="m-0 text-xs leading-relaxed text-status-failed-text [overflow-wrap:anywhere]"
+          >
             {t(
               "Could not allow connections. This PC can connect. To connect from other devices, select “Allow connections from other devices” in Connection settings.",
             )}
@@ -533,7 +572,7 @@ export function HostSetupChoices({
   onInvitation: () => void;
 }) {
   return (
-    <div className="connection-actions">
+    <div className="mt-1.5 flex flex-wrap items-center gap-2">
       <Button data-iori-action="setup-host" onClick={onLocal}>
         {t("Set up iori Host")}
       </Button>

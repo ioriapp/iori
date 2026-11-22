@@ -14,6 +14,7 @@ import { readErrorCopy, type ReadingTransport } from "../reading/transport.ts";
 import type { MenuAction } from "../reading/PathMenu.tsx";
 import { DiffDocument } from "./DiffDocument.ts";
 import { ReadingError } from "../reading/ReadingError.tsx";
+import { ReadingLoading } from "../reading/ReadingStates.tsx";
 import { useGitImages } from "./image-source.ts";
 import { GitImageDiff } from "./GitImageDiff.tsx";
 
@@ -140,16 +141,17 @@ export function DiffViewer({
   return (
     <>
       <div
-        className="reading-header reading-path-header"
+        className="flex h-9 min-w-0 flex-none items-center gap-1 border-b border-border px-1.5 [@media(pointer:coarse)]:h-11"
         data-iori-part="diff-header"
       >
         {lead}
         {title}
-        <span className="reading-spacer" />
+        <span className="flex-1" />
         {!isImage && (
           <Button
             variant="ghost"
             size="icon-sm"
+            className="aria-pressed:bg-accent aria-pressed:text-accent-foreground [@media(pointer:coarse)]:size-11"
             data-iori-action="git-diff-wrap"
             aria-pressed={position.wrap}
             aria-label={t("Wrap lines")}
@@ -163,6 +165,7 @@ export function DiffViewer({
           <Button
             variant="ghost"
             size="icon-sm"
+            className="[@media(pointer:coarse)]:size-11"
             data-iori-action="git-file-history"
             aria-label={t("File history")}
             title={t("File history")}
@@ -175,6 +178,7 @@ export function DiffViewer({
           <Button
             variant="ghost"
             size="icon-sm"
+            className="[@media(pointer:coarse)]:size-11"
             data-iori-action="open-find"
             aria-label={t("Find in diff")}
             title={t("Find in diff (Ctrl+F)")}
@@ -185,7 +189,10 @@ export function DiffViewer({
         )}
       </div>
       {shown.length > 0 && (
-        <div className="git-notes" data-iori-part="diff-notes">
+        <div
+          className="flex-none border-b border-border bg-muted/40 px-3 py-1.5 text-xs text-muted-foreground [&_p]:my-0.5"
+          data-iori-part="diff-notes"
+        >
           {shown.map((note) => (
             <p key={note}>{note}</p>
           ))}
@@ -209,22 +216,26 @@ export function DiffViewer({
           onBackHandler={onBackHandler}
         />
       ) : (
-        <div className="reading-body">
-          {document.revision && document.totalRows > 0 && (
-            <TextRows
-              key={key}
-              source={document}
-              path={absolutePath}
-              lineOf={(index) => document.lineOf(index)}
-              position={position}
-              onPosition={(value) => onPosition({ ...position, ...value })}
-              wrap={position.wrap}
-              locale={locale}
-              dataId="git-diff"
-              findRequest={findRequest}
-              onExpand={(index) => document.expand(index)}
-              extraActions={actions}
-            />
+        <div className="reading-body relative flex min-h-0 flex-1 flex-col">
+          {!document.revision ? (
+            <ReadingLoading label={t("Loading")} rows={6} />
+          ) : (
+            document.totalRows > 0 && (
+              <TextRows
+                key={key}
+                source={document}
+                path={absolutePath}
+                lineOf={(index) => document.lineOf(index)}
+                position={position}
+                onPosition={(value) => onPosition({ ...position, ...value })}
+                wrap={position.wrap}
+                locale={locale}
+                dataId="git-diff"
+                findRequest={findRequest}
+                onExpand={(index) => document.expand(index)}
+                extraActions={actions}
+              />
+            )
           )}
         </div>
       )}

@@ -16,6 +16,7 @@ import {
   Search,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
+import { cn } from "cn";
 import { native } from "../native.ts";
 import { VirtualRows, type ScrollRequest } from "./VirtualRows.tsx";
 import { LongLine, type LongLineRead } from "./LongLine.tsx";
@@ -23,6 +24,7 @@ import { FindBar, GoToLineBar } from "./FindBar.tsx";
 import { PathMenu, type MenuAction } from "./PathMenu.tsx";
 import { ReadConnectionLost, isAbort, readErrorCopy } from "./transport.ts";
 import { ReadingError } from "./ReadingError.tsx";
+import { CODE_ROW_PROBE_CLASS, useRowHeight } from "./rowHeight.ts";
 import type { SyntaxSpan } from "@iori/protocol";
 
 export type TextRowKind = "context" | "added" | "deleted" | "note" | "omission";
@@ -93,6 +95,34 @@ const INLINE_ROW_CHARS = 16_384;
 // Wrapping is turned off above this many rows; measured rows would not scroll smoothly.
 export const MAX_WRAPPED_ROWS = 200_000;
 
+const SYNTAX_CLASS: Record<string, string> = {
+  comment: "text-(--syntax-comment)",
+  keyword: "text-(--syntax-keyword)",
+  string: "text-(--syntax-string)",
+  number: "text-(--syntax-number)",
+  constant: "text-(--syntax-constant)",
+  type: "text-(--syntax-type)",
+  function: "text-(--syntax-function)",
+  variable: "text-(--syntax-variable)",
+  property: "text-(--syntax-property)",
+  tag: "text-(--syntax-tag)",
+  attribute: "text-(--syntax-attribute)",
+  operator: "text-(--syntax-operator)",
+  regexp: "text-(--syntax-regexp)",
+  escape: "text-(--syntax-escape)",
+  heading: "font-bold text-(--syntax-heading)",
+  emphasis: "italic text-(--syntax-emphasis)",
+  strong: "font-bold text-(--syntax-strong)",
+  link: "text-(--syntax-link)",
+  inserted: "text-(--syntax-inserted)",
+  deleted: "text-(--syntax-deleted)",
+};
+
+const MARK_BASE =
+  "rounded-xs bg-status-waiting/35 text-inherit [&_[data-syntax]]:text-foreground";
+const MARK_CURRENT =
+  "rounded-xs bg-status-waiting/75 text-inherit outline-1 outline-status-waiting [&_[data-syntax]]:text-foreground";
+
 function highlights(
   text: string,
   query: string,
@@ -109,7 +139,7 @@ function highlights(
       if (to <= from) continue;
       if (from > at) parts.push(text.slice(at, from));
       parts.push(
-        <span key={from} data-syntax={kind}>
+        <span key={from} data-syntax={kind} className={SYNTAX_CLASS[kind]}>
           {text.slice(from, to)}
         </span>,
       );
@@ -126,7 +156,7 @@ function highlights(
     return (
       <>
         {colored(0, current.column)}
-        <mark data-iori-part="search-current">
+        <mark data-iori-part="search-current" className={MARK_CURRENT}>
           {colored(current.column, current.column + current.length)}
         </mark>
         {colored(current.column + current.length, text.length)}
@@ -146,6 +176,7 @@ function highlights(
       <mark
         key={found}
         data-iori-part={isCurrent ? "search-current" : "search-match"}
+        className={isCurrent ? MARK_CURRENT : MARK_BASE}
       >
         {colored(found, found + needle.length)}
       </mark>,
@@ -175,7 +206,7 @@ export function TextRows({
   goToRequest = 0,
   onExpand,
   extraActions = [],
-  rowHeight = 22,
+  rowHeight,
   refresh = 0,
 }: {
   source: TextSource;
@@ -199,6 +230,8 @@ export function TextRows({
   refresh?: number;
 }) {
   const t = translator(locale);
+  const codeRow = useRowHeight(rowHeight ?? 22);
+  const effectiveRowHeight = rowHeight ?? codeRow.height;
   const latest = useRef(position);
   latest.current = position;
   const [findOpen, setFindOpen] = useState(Boolean(position.query));
@@ -667,13 +700,17 @@ export function TextRows({
     return line === undefined ? undefined : { start: line, end: line };
   })();
 
+  const effectiveWrap = wrap && source.count <= MAX_WRAPPED_ROWS;
   const renderRow = (index: number) => {
     const row =
       (sameDocument ? heldRows.current.get(index) : undefined) ??
       source.row(index);
     if (!row)
       return source.error ? null : (
-        <div className="reading-line" data-loading="true" />
+        <div
+          className="reading-line flex min-h-[1.375rem] opacity-0"
+          data-loading="true"
+        />
       );
     const isSelected =
       selected && index >= selected.first && index <= selected.last;
@@ -687,11 +724,14 @@ export function TextRows({
             : " ";
     if (row.kind === "omission")
       return (
-        <div className="reading-line" data-kind="omission">
+        <div
+          className="reading-line flex min-h-[1.375rem]"
+          data-kind="omission"
+        >
           <Button
             variant="ghost"
             size="sm"
-            className="reading-omission"
+            className="h-[1.375rem] w-full justify-start rounded-none border-y border-border-subtle bg-muted/60 font-sans text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
             data-iori-action="git-expand-context"
             onClick={() => onExpand?.(index)}
           >
@@ -703,9 +743,23 @@ export function TextRows({
         </div>
       );
     const rowMatch = current?.row === index ? current : undefined;
+    const lineTone = isSelected
+      ? "bg-accent"
+      : row.kind === "added"
+        ? "bg-diff-add-bg"
+        : row.kind === "deleted"
+          ? "bg-diff-del-bg"
+          : "bg-background";
     return (
       <div
-        className="reading-line"
+        className={cn(
+          "reading-line flex min-h-[1.375rem]",
+          effectiveWrap
+            ? "whitespace-pre-wrap [overflow-wrap:anywhere]"
+            : "whitespace-pre",
+          lineTone,
+          row.kind === "note" && "italic text-muted-foreground",
+        )}
         data-kind={row.kind}
         data-selected={isSelected ? "true" : undefined}
         data-iori-row={index}
@@ -714,7 +768,7 @@ export function TextRows({
         data-iori-new-line={row.newLine}
       >
         <span
-          className="reading-gutter"
+          className="reading-gutter sticky left-0 z-[1] flex flex-none cursor-pointer bg-inherit text-xs text-muted-foreground select-none"
           onMouseDown={(event) => {
             if (event.button !== 0) return;
             event.preventDefault();
@@ -726,20 +780,36 @@ export function TextRows({
         >
           {source.twoColumns ? (
             <>
-              <span>{row.oldLine ?? ""}</span>
-              <span>{row.newLine ?? ""}</span>
+              <span className="inline-block box-content w-[calc(var(--gutter-digits,4)*0.6em)] pr-3 pl-2 text-right tabular-nums">
+                {row.oldLine ?? ""}
+              </span>
+              <span className="inline-block box-content w-[calc(var(--gutter-digits,4)*0.6em)] pr-3 pl-2 text-right tabular-nums">
+                {row.newLine ?? ""}
+              </span>
             </>
           ) : (
-            <span>{index + 1}</span>
+            <span className="inline-block box-content w-[calc(var(--gutter-digits,4)*0.6em)] pr-3 pl-2 text-right tabular-nums">
+              {index + 1}
+            </span>
           )}
         </span>
         {source.twoColumns && (
-          <span className="reading-marker" aria-hidden="true">
+          <span
+            className={cn(
+              "w-(--marker-width) flex-none select-none",
+              row.kind === "added"
+                ? "text-diff-add-text"
+                : row.kind === "deleted"
+                  ? "text-diff-del-text"
+                  : "text-muted-foreground",
+            )}
+            aria-hidden="true"
+          >
             {marker}
           </span>
         )}
         {row.complete && row.text.length <= INLINE_ROW_CHARS ? (
-          <span className="reading-line-text">
+          <span className="reading-line-text pr-4">
             {highlights(row.text, position.query, rowMatch, row.syntax)}
           </span>
         ) : (
@@ -764,16 +834,23 @@ export function TextRows({
     );
   };
 
-  const effectiveWrap = wrap && source.count <= MAX_WRAPPED_ROWS;
   // Line numbers keep one width for the whole file so the text never shifts.
   const gutterMax = source.count + 1;
+  const gutterDigits = Math.max(3, String(gutterMax).length);
+  const gutterColumns = source.twoColumns ? 2 : 1;
+  const markerWidth = source.twoColumns ? "1.2rem" : "0px";
   return (
     <div
-      className="reading-surface"
+      className="relative flex min-h-0 flex-1 flex-col"
       ref={viewport}
       data-iori-match-row={position.match?.row}
       data-iori-match-byte={position.match?.byteOffset}
     >
+      <div
+        ref={codeRow.probe}
+        className={CODE_ROW_PROBE_CLASS}
+        aria-hidden="true"
+      />
       {findOpen && (
         <FindBar
           query={position.query}
@@ -836,7 +913,7 @@ export function TextRows({
         locale={locale}
       >
         <div
-          className="reading-text"
+          className="@container flex min-h-0 flex-1 peer-data-[centered]/error:hidden"
           data-wrap={effectiveWrap}
           onContextMenuCapture={() => captureSelection.current()}
           onPointerDownCapture={(event) => {
@@ -874,9 +951,10 @@ export function TextRows({
           }}
           style={
             {
-              "--gutter-digits": String(Math.max(3, String(gutterMax).length)),
-              "--gutter-columns": source.twoColumns ? "2" : "1",
-              "--marker-width": source.twoColumns ? "1.2rem" : "0px",
+              "--gutter-digits": String(gutterDigits),
+              "--gutter-columns": String(gutterColumns),
+              "--marker-width": markerWidth,
+              "--gutter-width": `calc(${gutterColumns} * (${gutterDigits} * 0.6 * 0.75rem + 1.25rem) + ${markerWidth})`,
             } as CSSProperties
           }
         >
@@ -889,10 +967,10 @@ export function TextRows({
                 : []),
               ...(startingRow === undefined ? [] : [startingRow]),
             ].filter((index) => index >= 0 && index < source.count)}
-            rowHeight={rowHeight}
+            rowHeight={effectiveRowHeight}
             wrap={effectiveWrap}
             dataId={dataId}
-            className="reading-lines"
+            className="bg-background font-mono text-[0.8125rem] leading-[1.375rem]"
             initialIndex={position.top}
             scrollRequest={scroll}
             onRange={onRange}

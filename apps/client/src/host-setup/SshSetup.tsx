@@ -69,7 +69,7 @@ export function SshSetup({
   t: (key: string) => string;
   onName: (name: string) => void;
   onLocal: () => void;
-  onClose: () => void;
+  onClose: (background?: boolean) => void;
   onCompleted?: (completion: SetupCompletion) => void;
   onInvitation?: () => void;
   onOpenWindowsSettings?: () => void;
@@ -485,7 +485,7 @@ export function SshSetup({
   async function cancel() {
     if (update.current && busy) {
       setDetailOpen(false);
-      onClose();
+      onClose(true);
       return;
     }
     if (warning) {
@@ -591,8 +591,10 @@ export function SshSetup({
     };
   } else if (!destination) {
     destinationField = (
-      <div className="ssh-setup-field">
-        <span className="field-label">{t("SSH destination")}</span>
+      <div className="grid min-w-0 gap-2 text-sm">
+        <span className="font-medium text-foreground">
+          {t("SSH destination")}
+        </span>
         {manual ? (
           <>
             <Input
@@ -614,8 +616,11 @@ export function SshSetup({
                 }
               }}
             />
-            <div className="ssh-setup-manual">
-              <div id="ssh-destination-help" className="ssh-setup-help">
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <div
+                id="ssh-destination-help"
+                className="flex-1 basis-full text-xs text-muted-foreground"
+              >
                 {invalid ? (
                   <Failure>
                     <P>
@@ -662,18 +667,23 @@ export function SshSetup({
         candidate.toLowerCase().includes(query.toLowerCase()),
       );
       const manualRow = (
-        <div className="ssh-manual-row">
-          <div className="group-body">
-            <Button variant="ghost" onClick={() => setManual(true)}>
-              {t("Enter manually…")}
-              <ChevronRight className="row-chevron" />
-            </Button>
-          </div>
+        <div className="border-y border-border">
+          <Button
+            variant="ghost"
+            className="h-9 w-full justify-between rounded-none px-3 text-sm font-normal [@media(pointer:coarse)]:min-h-11"
+            onClick={() => setManual(true)}
+          >
+            <span>{t("Enter manually…")}</span>
+            <ChevronRight
+              className="size-4 shrink-0 text-muted-foreground"
+              aria-hidden="true"
+            />
+          </Button>
         </div>
       );
       panel =
         candidates.length === 0 ? (
-          <div className="host-panel-stack">
+          <div className="grid content-start gap-3">
             <Text muted>
               {message(
                 t,
@@ -684,33 +694,35 @@ export function SshSetup({
             {manualRow}
           </div>
         ) : (
-          <div className="ssh-candidates-block">
-            <span className="ssh-setup-help">
+          <div className="grid gap-2">
+            <span className="text-xs text-muted-foreground">
               {message(t, "Hosts in {path}", { path: "~/.ssh/config" })}
             </span>
-            <div className="ssh-candidates-box">
-              <div className="group-body ssh-candidates">
-                {filtered.length === 0 && (
-                  <div className="row ssh-empty-row">
-                    {message(t, "No destinations match “{query}”.", { query })}
-                  </div>
-                )}
-                {filtered.map((candidate) => (
-                  <div className="row" key={candidate}>
-                    <Button
-                      variant="ghost"
-                      data-iori-ssh-host={candidate}
-                      onClick={() => {
-                        setLog([]);
-                        void choose(candidate);
-                      }}
-                    >
-                      {candidate}
-                      <ChevronRight className="row-chevron" />
-                    </Button>
-                  </div>
-                ))}
-              </div>
+            <div className="relative flex max-h-[13.5rem] flex-col divide-y divide-border-subtle overflow-y-auto border-y border-border">
+              {filtered.length === 0 && (
+                <div className="px-3 py-2.5 text-xs text-muted-foreground">
+                  {message(t, "No destinations match “{query}”.", { query })}
+                </div>
+              )}
+              {filtered.map((candidate) => (
+                <div className="p-0" key={candidate}>
+                  <Button
+                    variant="ghost"
+                    className="h-9 w-full justify-between rounded-none px-3 text-sm font-normal [@media(pointer:coarse)]:min-h-11"
+                    data-iori-ssh-host={candidate}
+                    onClick={() => {
+                      setLog([]);
+                      void choose(candidate);
+                    }}
+                  >
+                    <span className="truncate">{candidate}</span>
+                    <ChevronRight
+                      className="size-4 shrink-0 text-muted-foreground"
+                      aria-hidden="true"
+                    />
+                  </Button>
+                </div>
+              ))}
             </div>
             {manualRow}
           </div>
@@ -718,13 +730,18 @@ export function SshSetup({
     }
   } else {
     destinationField = (
-      <div className="ssh-setup-field">
-        <span className="field-label">{t("SSH destination")}</span>
-        <div className="ssh-setup-chosen">
-          <span className="name">
+      <div className="grid min-w-0 gap-2 text-sm">
+        <span className="font-medium text-foreground">
+          {t("SSH destination")}
+        </span>
+        <div className="flex min-h-11 items-start gap-2">
+          <span className="grid min-w-0 flex-1 gap-0.5 font-medium [overflow-wrap:anywhere]">
             <span>{destination}</span>
             {machine && (
-              <span className="machine" data-iori-state="ssh-machine">
+              <span
+                className="text-xs font-normal text-muted-foreground"
+                data-iori-state="ssh-machine"
+              >
                 {[platform, machine.user, machine.home]
                   .filter(Boolean)
                   .join(" · ")}
@@ -816,7 +833,7 @@ export function SshSetup({
       };
     } else if (warning) {
       panel = (
-        <div className="host-panel-stack">
+        <div className="grid content-start gap-3">
           <Text names={names}>
             {m(
               existing.current
@@ -897,7 +914,7 @@ export function SshSetup({
       };
     } else if (machine?.installed) {
       panel = (
-        <div className="host-panel-stack">
+        <div className="grid content-start gap-3">
           <Text names={names}>
             {machine.host?.version
               ? m(

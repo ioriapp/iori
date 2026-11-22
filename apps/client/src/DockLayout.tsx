@@ -1,11 +1,3 @@
-import { hasWindowChrome } from "./native.ts";
-import {
-  CliStateDot,
-  CliElapsed,
-  isStalledCliStatus,
-  useTick,
-  withStalledDescription,
-} from "./CliStatus.tsx";
 import {
   createContext,
   useCallback,
@@ -15,21 +7,22 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type DragEvent as ReactDragEvent,
 } from "react";
-import type { DragEvent as ReactDragEvent } from "react";
 import { createPortal } from "react-dom";
 import {
   ChevronDown,
   Columns2,
   Expand,
+  LayoutTemplate,
   Maximize2,
   Minimize2,
   Plus,
   Rows2,
   Square,
   X,
-  LayoutTemplate,
 } from "lucide-react";
+import { cn } from "cn";
 import {
   DockviewReact,
   themeDark,
@@ -39,14 +32,17 @@ import {
   type IDockviewPanelHeaderProps,
   type IDockviewPanelProps,
 } from "dockview-react";
-import type { TerminalShell, CliSummary, Team } from "@iori/protocol";
-import { Button } from "./components/ui/button.tsx";
-import { Tabs, TabsList, TabsTrigger } from "./components/ui/tabs.tsx";
+import type { CliSummary, Team, TerminalShell } from "@iori/protocol";
+import { CliIcon, CliIconHost } from "./CliIcon.tsx";
+import { CliLauncher, type ShellStatus } from "./CliLauncher.tsx";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "./components/ui/popover.tsx";
+  CliElapsed,
+  CliStateDot,
+  isStalledCliStatus,
+  useTick,
+  withStalledDescription,
+} from "./CliStatus.tsx";
+import { Button } from "./components/ui/button.tsx";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -54,8 +50,14 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "./components/ui/context-menu.tsx";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "./components/ui/popover.tsx";
 import { SidebarTrigger } from "./components/ui/sidebar.tsx";
-import { CliLauncher, type ShellStatus } from "./CliLauncher.tsx";
+import { hasWindowChrome } from "./native.ts";
+import { carriesPath, readPathDrag, type PathDrag } from "./path-drag.ts";
 import {
   focusAfterDockLayout,
   PanelView,
@@ -65,11 +67,23 @@ import {
   type WorkspaceTab,
   type WorkspaceViewKind,
 } from "./workspace-panel.tsx";
-import { carriesPath, readPathDrag, type PathDrag } from "./path-drag.ts";
+import {
+  dockGroupActivePanelId,
+  dockGroupCount,
+  dockGroupPanels,
+  dockPanelTabId,
+  findDockTabsStrip,
+  hasDockGroupActivePanel,
+  isDockPanelActiveInGroup,
+  moveDockTabFocus,
+  syncDockHeaders,
+  syncDockTablistSemantics,
+  syncMaximizedPanelOverlay,
+  type DockGroup,
+} from "./workspace/dock-adapter.ts";
 import "./dock.css";
-import { CliIcon, CliIconHost } from "./CliIcon.tsx";
 
-export type DockGroup = IDockviewHeaderActionsProps["group"];
+export type { DockGroup };
 export type DropDirection = "within" | "left" | "right" | "above" | "below";
 
 export const sidebarViewTransferType = "application/x-iori-workspace-view";
@@ -191,12 +205,10 @@ function useMaximizedOverlay(panel: IDockviewPanelProps) {
   const content = useRef<HTMLDivElement>(null);
   // Panel content lives in Dockview's render overlay; lift it with its group.
   useEffect(() => {
-    content.current
-      ?.closest(".dv-render-overlay")
-      ?.classList.toggle(
-        "iori-dock-maximized-overlay",
-        maximizedGroup === panel.api.group.id,
-      );
+    syncMaximizedPanelOverlay(
+      content.current,
+      maximizedGroup === panel.api.group.id,
+    );
   });
   return content;
 }
@@ -243,7 +255,7 @@ function DockPanel(panel: IDockviewPanelProps<{ tabId: string }>) {
     <div
       ref={content}
       tabIndex={-1}
-      className="dock-content"
+      className="dock-content flex h-full min-h-0 w-full min-w-0 flex-col overflow-clip bg-background focus-visible:outline-none"
       data-iori-workspace-panel={tab.id}
       onDragOver={(event) => {
         if (!allowPathDrop(event, tab)) allowSidebarViewDrop(event);
@@ -311,9 +323,8 @@ function DockTabHeader(panel: IDockviewPanelHeaderProps<{ tabId: string }>) {
     },
     [panel.api, group],
   );
-  const selected = useSyncExternalStore(
-    subscribe,
-    () => panel.api.group.activePanel?.id === panel.api.id,
+  const selected = useSyncExternalStore(subscribe, () =>
+    isDockPanelActiveInGroup(panel),
   );
   // The selected tab, with its ×, stays in view in its tab strip, also after
   // the group is resized or tabs grow, are added or removed (fonts load after
@@ -321,7 +332,7 @@ function DockTabHeader(panel: IDockviewPanelHeaderProps<{ tabId: string }>) {
   // Only the strip scrolls; the work surface never moves.
   useEffect(() => {
     const element = header.current;
-    const strip = element?.closest<HTMLElement>(".dv-tabs-container");
+    const strip = findDockTabsStrip(element);
     if (!selected || !element || !strip) return;
     const reveal = () => {
       const bounds = strip.getBoundingClientRect();
@@ -334,7 +345,7 @@ function DockTabHeader(panel: IDockviewPanelHeaderProps<{ tabId: string }>) {
     const resized = new ResizeObserver(reveal);
     const observeTabs = () => {
       resized.observe(strip);
-      for (const tab of strip.children) resized.observe(tab);
+      for (const tabNode of strip.children) resized.observe(tabNode);
     };
     observeTabs();
     const changed = new MutationObserver(() => {
@@ -357,7 +368,12 @@ function DockTabHeader(panel: IDockviewPanelHeaderProps<{ tabId: string }>) {
       <ContextMenuTrigger asChild>
         <div
           ref={header}
-          className="dock-tab-header"
+          className={cn(
+            "dock-tab-header group/tab relative flex h-[2.125rem] min-w-0 max-w-full items-center gap-1 border-r border-border bg-sidebar pr-1",
+            "data-[active=true]:bg-background",
+            "data-[active=true]:before:absolute data-[active=true]:before:inset-x-0 data-[active=true]:before:bottom-0 data-[active=true]:before:z-[1] data-[active=true]:before:h-0.5 data-[active=true]:before:bg-primary data-[active=true]:before:content-['']",
+            "has-[[role=tab]:focus-visible]:after:pointer-events-none has-[[role=tab]:focus-visible]:after:absolute has-[[role=tab]:focus-visible]:after:inset-0.5 has-[[role=tab]:focus-visible]:after:border has-[[role=tab]:focus-visible]:after:border-ring has-[[role=tab]:focus-visible]:after:content-['']",
+          )}
           data-tab-kind={tab.kind}
           data-active={selected}
           data-iori-group-id={panel.api.group.id}
@@ -380,45 +396,50 @@ function DockTabHeader(panel: IDockviewPanelHeaderProps<{ tabId: string }>) {
             dropSidebarView(payload, panel.api.group, "within");
           }}
         >
-          <Tabs className="dock-tab" value={selected ? panel.api.id : ""}>
-            <TabsList variant="line">
-              <TabsTrigger
-                asChild
-                value={panel.api.id}
-                data-state={selected ? "active" : "inactive"}
-                data-iori-tab-id={tab.id}
-                data-iori-tab-kind={tab.kind}
-                data-iori-tab-cli={tab.cli?.id}
-              >
-                <button
-                  type="button"
-                  title={tab.file?.absolutePath ?? accessibleTitle}
-                  aria-label={accessibleTitle}
-                  onClick={() => panel.api.setActive()}
-                  onDoubleClick={() =>
-                    doubleClickMaximize && maximize(panel.api.group)
-                  }
-                >
-                  <span className="dock-tab-leading">
-                    <span className="tab-status-slot">
-                      <CliStateDot status={tab.cliStatus} t={t} />
-                    </span>
-                    {tab.cli ? (
-                      <CliIcon cli={tab.cli} size={14} />
-                    ) : (
-                      <Icon size={14} aria-hidden="true" />
-                    )}
-                  </span>
-                  <span className="data-tab-label">{title}</span>
-                  {!tab.childId && <CliElapsed status={tab.cliStatus} />}
-                </button>
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={selected}
+            tabIndex={selected ? 0 : -1}
+            data-state={selected ? "active" : "inactive"}
+            data-iori-tab-id={tab.id}
+            data-iori-tab-kind={tab.kind}
+            data-iori-tab-cli={tab.cli?.id}
+            title={tab.file?.absolutePath ?? accessibleTitle}
+            aria-label={accessibleTitle}
+            className={cn(
+              "flex h-full min-w-0 max-w-[13.75rem] flex-initial cursor-pointer items-center gap-1.5 overflow-hidden border-0 bg-transparent py-0 pr-2 pl-3 text-left text-xs whitespace-nowrap outline-none focus-visible:outline-none",
+              "data-[state=active]:font-semibold data-[state=active]:text-foreground",
+              "data-[state=inactive]:font-normal data-[state=inactive]:text-muted-foreground hover:text-foreground",
+              "[&_.cli-elapsed]:ml-1 [&_.cli-elapsed]:shrink-0 [&_.cli-elapsed]:whitespace-nowrap [&_.cli-elapsed]:text-2xs [&_.cli-elapsed]:tabular-nums [&_.cli-elapsed]:text-muted-foreground",
+            )}
+            onClick={() => panel.api.setActive()}
+            onKeyDown={(event) => {
+              if (moveDockTabFocus(event.currentTarget, event.key)) {
+                event.preventDefault();
+              }
+            }}
+            onDoubleClick={() =>
+              doubleClickMaximize && maximize(panel.api.group)
+            }
+          >
+            <span className="inline-flex shrink-0 items-center gap-1">
+              <span className="inline-flex size-3.5 shrink-0 items-center justify-center empty:w-0 empty:basis-0">
+                <CliStateDot status={tab.cliStatus} t={t} />
+              </span>
+              {tab.cli ? (
+                <CliIcon cli={tab.cli} size={14} />
+              ) : (
+                <Icon size={14} aria-hidden="true" />
+              )}
+            </span>
+            <span className="min-w-0 truncate text-xs">{title}</span>
+            {!tab.childId && <CliElapsed status={tab.cliStatus} />}
+          </button>
           <Button
             variant="ghost"
             size="icon-sm"
-            className="dock-tab-close"
+            className="size-5 shrink-0 p-0 text-muted-foreground opacity-0 hover:text-foreground focus-visible:opacity-100 group-hover/tab:opacity-100 group-data-[active=true]/tab:opacity-100"
             aria-label={`${title} ${t("Close")}`}
             title={t("Close")}
             data-iori-action="workspace-close-tab"
@@ -503,16 +524,18 @@ function DockActions(group: IDockviewHeaderActionsProps) {
   }, [group.group]);
   const split = (direction: "right" | "below") => {
     setListOpen(false);
-    if (group.group.model.activePanel) dock.split(group.group, direction);
+    if (hasDockGroupActivePanel(group.group))
+      dock.split(group.group, direction);
   };
   const maximize = () => {
     setListOpen(false);
     dock.maximize(group.group);
   };
   const maximized = dock.maximizedGroup === group.group.id;
+  const activePanelId = dockGroupActivePanelId(group.group);
   return (
     <div
-      className="dock-actions"
+      className="flex h-[2.125rem] items-center gap-px px-1 [&_[data-slot=button]]:size-[1.6875rem] [&_[data-slot=button]]:shrink-0 [&_[data-slot=button]]:p-0"
       data-iori-group-id={group.group.id}
       onDragOver={allowSidebarViewDrop}
       onDrop={(event) => {
@@ -535,7 +558,7 @@ function DockActions(group: IDockviewHeaderActionsProps) {
           </Button>
         </PopoverTrigger>
         <PopoverContent
-          className="new-items-popover"
+          className="new-items-popover w-[18.75rem] p-1.5"
           side="bottom"
           align="end"
           onCloseAutoFocus={(event) => {
@@ -649,9 +672,13 @@ function DockActions(group: IDockviewHeaderActionsProps) {
             <ChevronDown size={15} />
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="dock-tab-list" side="bottom" align="end">
-          {group.group.panels.map((panel) => {
-            const id = panel.params?.tabId as string | undefined;
+        <PopoverContent
+          className="grid w-[16.25rem] gap-0.5 p-1.5"
+          side="bottom"
+          align="end"
+        >
+          {dockGroupPanels(group.group).map((panel) => {
+            const id = dockPanelTabId(panel);
             const tab = dock.tabs.find((item) => item.id === id);
             if (!tab) return null;
             const Icon = viewIcons[tab.kind];
@@ -659,8 +686,8 @@ function DockActions(group: IDockviewHeaderActionsProps) {
               <Button
                 key={panel.id}
                 variant="ghost"
-                className="dock-tab-list-item"
-                data-active={group.group.activePanel?.id === panel.id}
+                className="h-[1.875rem] w-full justify-start gap-2 px-2 text-xs font-normal data-[active=true]:bg-accent data-[active=true]:font-medium [&>span]:min-w-0 [&>span]:truncate"
+                data-active={activePanelId === panel.id}
                 onClick={() => {
                   panel.api.setActive();
                   dock.setActiveTab(tab.id);
@@ -676,10 +703,10 @@ function DockActions(group: IDockviewHeaderActionsProps) {
               </Button>
             );
           })}
-          <div className="dock-tab-list-actions">
+          <div className="mt-1 grid gap-0.5 border-t border-border pt-1">
             <Button
               variant="ghost"
-              className="dock-tab-list-item"
+              className="h-[1.875rem] w-full justify-start gap-2 px-2 text-xs font-normal"
               data-iori-action="workspace-split-right-list"
               onClick={() => split("right")}
             >
@@ -688,7 +715,7 @@ function DockActions(group: IDockviewHeaderActionsProps) {
             </Button>
             <Button
               variant="ghost"
-              className="dock-tab-list-item"
+              className="h-[1.875rem] w-full justify-start gap-2 px-2 text-xs font-normal"
               data-iori-action="workspace-split-below-list"
               onClick={() => split("below")}
             >
@@ -698,7 +725,7 @@ function DockActions(group: IDockviewHeaderActionsProps) {
             {!maximized && (
               <Button
                 variant="ghost"
-                className="dock-tab-list-item"
+                className="h-[1.875rem] w-full justify-start gap-2 px-2 text-xs font-normal"
                 data-iori-action="workspace-maximize-list"
                 onClick={maximize}
               >
@@ -725,11 +752,11 @@ function EmptyPane(panel: IDockviewPanelProps) {
   );
   const canClose = useSyncExternalStore(
     subscribe,
-    () => panel.containerApi.groups.length > 1,
+    () => dockGroupCount(panel.containerApi) > 1,
   );
   return (
     <div
-      className="dock-empty-pane"
+      className="grid h-full place-items-center overflow-auto p-6"
       ref={content}
       data-iori-view="empty-pane"
       data-iori-empty-group={panel.api.group.id}
@@ -756,6 +783,7 @@ function EmptyPane(panel: IDockviewPanelProps) {
     </div>
   );
 }
+
 function EmptyTab() {
   return <span className="dock-empty-tab" />;
 }
@@ -791,40 +819,17 @@ export function DockLayout({
   const maximizedCaptionGroup = hasWindowChrome
     ? context.maximizedGroup
     : undefined;
+  const tablistLabel = context.t("Open tabs");
 
-  // The sidebar toggle sits at the left end of the top-left tab bar.
+  // Sync the sidebar toggle, Windows caption regions, and pane ARIA tablists.
   useEffect(() => {
     if (!readyApi) return;
+    const node = dockNode.current;
     const update = () => {
-      const bars = Array.from(
-        dockNode.current?.querySelectorAll(".dv-tabs-and-actions-container") ??
-          [],
-      ).filter((element) => element.getBoundingClientRect().width > 0);
-      bars.sort((a, b) => {
-        const x = a.getBoundingClientRect();
-        const y = b.getBoundingClientRect();
-        return x.top - y.top || x.left - y.left;
-      });
-      setToggleTarget(bars[0] ?? null);
-      if (hasWindowChrome) {
-        const topBars = bars.filter(
-          (bar) => bar.getBoundingClientRect().top === 0,
-        );
-        const right = topBars.at(-1);
-        for (const bar of bars) {
-          bar.classList.toggle("window-caption-right", bar === right);
-          const regions = [bar, ...bar.querySelectorAll(".dv-void-container")];
-          for (const region of regions) {
-            if (topBars.includes(bar))
-              region.setAttribute("data-tauri-drag-region", "");
-            else region.removeAttribute("data-tauri-drag-region");
-          }
-        }
-      }
+      setToggleTarget(syncDockHeaders(node, hasWindowChrome, tablistLabel));
     };
     // Windows owns this gesture. Do not let Dockview arm a group drag whose
     // pointerup will be consumed by the OS window-move loop.
-    const node = dockNode.current;
     const captionPointerDown = (event: PointerEvent) => {
       if (
         event.target instanceof Element &&
@@ -834,13 +839,48 @@ export function DockLayout({
     };
     if (hasWindowChrome)
       node?.addEventListener("pointerdown", captionPointerDown, true);
-    const listener = readyApi.onDidLayoutChange(update);
-    update();
+    const syncTabs = () => syncDockTablistSemantics(node, tablistLabel);
+    const layoutListener = readyApi.onDidLayoutChange(update);
+    const addGroupListener = readyApi.onDidAddGroup(syncTabs);
+    const removeGroupListener = readyApi.onDidRemoveGroup(syncTabs);
+    const addPanelListener = readyApi.onDidAddPanel(syncTabs);
+    const removePanelListener = readyApi.onDidRemovePanel(syncTabs);
+    const activePanelListener = readyApi.onDidActivePanelChange(syncTabs);
+    // Observe only tab strip containers (never terminal/file bodies) so Dockview
+    // attribute re-writes stay in sync without reacting to pane content updates.
+    const tabObserver = new MutationObserver(syncTabs);
+    const observeTabStrips = () => {
+      tabObserver.disconnect();
+      if (!node) return;
+      for (const strip of node.querySelectorAll(".dv-tabs-container")) {
+        tabObserver.observe(strip, {
+          childList: true,
+          subtree: true,
+          attributes: true,
+          attributeFilter: ["role", "aria-selected", "tabindex"],
+        });
+      }
+    };
+    const updateAll = () => {
+      update();
+      observeTabStrips();
+    };
+    const layoutObserverListener = readyApi.onDidLayoutChange(observeTabStrips);
+    const addGroupObserverListener = readyApi.onDidAddGroup(observeTabStrips);
+    updateAll();
     return () => {
-      listener.dispose();
+      layoutListener.dispose();
+      addGroupListener.dispose();
+      removeGroupListener.dispose();
+      addPanelListener.dispose();
+      removePanelListener.dispose();
+      activePanelListener.dispose();
+      layoutObserverListener.dispose();
+      addGroupObserverListener.dispose();
+      tabObserver.disconnect();
       node?.removeEventListener("pointerdown", captionPointerDown, true);
     };
-  }, [readyApi, maximizedCaptionGroup]);
+  }, [readyApi, maximizedCaptionGroup, tablistLabel]);
 
   const ready = ({ api }: DockviewReadyEvent) => {
     disposeReady.current?.();
@@ -866,7 +906,7 @@ export function DockLayout({
           />
           {toggleTarget &&
             createPortal(
-              <div className="dock-sidebar-toggle">
+              <div className="order-[-1] flex h-[2.125rem] shrink-0 items-center gap-1 pr-1">
                 <SidebarTrigger
                   data-iori-action="sidebar-toggle"
                   aria-label={context.t("Toggle sidebar")}

@@ -31,19 +31,30 @@ export function WorktreePicker({
   const sorted = [...worktrees].sort(worktreeOrder);
   const separated = sorted.length > 1 && sorted.some((w) => w.primary);
   const name = (
-    <span className="reading-worktree-choice-name reading-truncate">
-      <span aria-hidden="true">{label}</span>
-      <MiddleEllipsis text={label} className="reading-worktree-choice-fitted" />
+    <span className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)] overflow-hidden whitespace-nowrap">
+      <span
+        className="invisible col-start-1 row-start-1 whitespace-nowrap"
+        aria-hidden="true"
+      >
+        {label}
+      </span>
+      <MiddleEllipsis
+        text={label}
+        className="col-start-1 row-start-1 min-w-0 overflow-hidden whitespace-nowrap"
+      />
     </span>
   );
   if (sorted.length < 2) {
     return (
       <span
-        className="reading-worktree reading-worktree-static"
+        className="reading-worktree inline-flex h-7 max-w-full min-w-0 items-center gap-1.5 rounded-sm px-2 text-xs font-medium whitespace-nowrap text-foreground select-none [@media(pointer:coarse)]:min-h-11"
         title={root}
         data-iori-field={field}
       >
-        <GitBranch />
+        <GitBranch
+          className="size-3.5 shrink-0 text-muted-foreground"
+          aria-hidden="true"
+        />
         {name}
       </span>
     );
@@ -54,13 +65,19 @@ export function WorktreePicker({
         <Button
           variant="ghost"
           size="sm"
-          className="reading-worktree"
+          className="reading-worktree h-7 max-w-full min-w-0 gap-1.5 px-2 text-xs font-medium text-foreground [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11"
           title={root}
           data-iori-field={field}
         >
-          <GitBranch />
+          <GitBranch
+            className="size-3.5 shrink-0 text-muted-foreground"
+            aria-hidden="true"
+          />
           {name}
-          <ChevronDown />
+          <ChevronDown
+            className="size-3 shrink-0 text-muted-foreground"
+            aria-hidden="true"
+          />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start">
@@ -71,13 +88,18 @@ export function WorktreePicker({
                 value={worktree.path}
                 title={`${worktree.label}\n${worktree.path}`}
                 data-iori-worktree-choice={worktree.path}
-                className="reading-worktree-choice"
+                className="data-[state=checked]:bg-accent data-[state=checked]:font-medium [@media(pointer:coarse)]:min-h-11"
               >
-                <span className="reading-worktree-choice-name">
-                  <span aria-hidden="true">{worktree.label}</span>
+                <span className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)]">
+                  <span
+                    className="invisible col-start-1 row-start-1 whitespace-nowrap"
+                    aria-hidden="true"
+                  >
+                    {worktree.label}
+                  </span>
                   <MiddleEllipsis
                     text={worktree.label}
-                    className="reading-worktree-choice-fitted"
+                    className="col-start-1 row-start-1 min-w-0 overflow-hidden whitespace-nowrap"
                   />
                 </span>
               </DropdownMenuRadioItem>

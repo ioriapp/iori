@@ -72,7 +72,7 @@ export function SplitPane({
   return (
     <div
       ref={root}
-      className="reading-split"
+      className="reading-split group/split relative flex min-h-0 flex-1 overflow-hidden"
       data-narrow={narrow}
       style={
         {
@@ -83,7 +83,11 @@ export function SplitPane({
         } as React.CSSProperties
       }
     >
-      <aside className="reading-list" hidden={!showList} data-wide={!narrow}>
+      <aside
+        className="reading-list relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background data-[wide=true]:w-(--reading-list-width) data-[wide=true]:min-w-[var(--reading-list-min,10rem)] data-[wide=true]:flex-none [&[hidden]]:hidden"
+        hidden={!showList}
+        data-wide={!narrow}
+      >
         {list}
       </aside>
       {showList && showDetail && (
@@ -95,7 +99,7 @@ export function SplitPane({
           aria-valuemax={MAX_RATIO}
           aria-valuenow={Math.round(ratio)}
           aria-label={locale.startsWith("ja") ? "一覧の幅" : "List width"}
-          className="reading-divider"
+          className="reading-divider relative w-px flex-none cursor-col-resize touch-none bg-border transition-colors before:absolute before:inset-y-0 before:-inset-x-[3px] before:z-[2] before:content-[''] hover:bg-primary/50 focus-visible:outline-2 focus-visible:outline-ring"
           onPointerDown={(event) => {
             const element = root.current;
             if (!element) return;
@@ -118,7 +122,10 @@ export function SplitPane({
           }}
         />
       )}
-      <section className="reading-detail" hidden={!showDetail}>
+      <section
+        className="reading-detail relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden [&[hidden]]:hidden"
+        hidden={!showDetail}
+      >
         {children}
       </section>
     </div>

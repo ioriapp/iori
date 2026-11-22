@@ -17,6 +17,7 @@ export function CiFailure({
   locale,
   recovery,
   form,
+  className,
 }: {
   subject: CiFailureSubject;
   failure?: ForgeReadFailure;
@@ -24,6 +25,7 @@ export function CiFailure({
   recovery: ForgeRecovery;
   /** In place of the content, above the content kept, or in a log line. */
   form: "notice" | "line" | "inline";
+  className?: string;
 }) {
   const ja = locale.startsWith("ja");
   const text =
@@ -47,6 +49,7 @@ export function CiFailure({
       failure={failure}
       locale={locale}
       recovery={recovery}
+      className={className}
     />
   );
 }

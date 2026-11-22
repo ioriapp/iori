@@ -305,7 +305,7 @@ export async function relayConnection({
       );
       await screen.input('[data-iori-field="relay-url"]', settings?.url ?? "");
       await screen.evaluate(
-        `(()=>{window.__ioriRelayDisconnected=false;const row=document.querySelector('.v9-settings-info-row[data-iori-state]');window.__ioriRelayObserver=new MutationObserver(records=>{if(records.some(record=>record.oldValue==='connected'))window.__ioriRelayDisconnected=true;});window.__ioriRelayObserver.observe(row,{attributes:true,attributeFilter:['data-iori-state'],attributeOldValue:true});})()`,
+        `(()=>{window.__ioriRelayDisconnected=false;const row=document.querySelector('[data-iori-row="connection-status"][data-iori-state]');window.__ioriRelayObserver=new MutationObserver(records=>{if(records.some(record=>record.oldValue==='connected'))window.__ioriRelayDisconnected=true;});window.__ioriRelayObserver.observe(row,{attributes:true,attributeFilter:['data-iori-state'],attributeOldValue:true});})()`,
       );
       await screen.click('[data-iori-field="address"]');
       await screen.click('[data-iori-action="settings-display"]');

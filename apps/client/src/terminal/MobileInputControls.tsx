@@ -1,11 +1,13 @@
 import {
   useCallback,
+  useEffect,
   useImperativeHandle,
   useLayoutEffect,
   useRef,
   useState,
   type Ref,
 } from "react";
+import { cn } from "cn";
 import {
   Activity,
   Clipboard,
@@ -25,6 +27,7 @@ import {
   SheetClose,
   SheetTrigger,
 } from "@/components/ui/sheet";
+import { registerLowerBand } from "../components/flow/lower-band-inset.ts";
 
 import type {
   TerminalAccessoryKey,
@@ -51,6 +54,7 @@ type Props = {
   modifiers: TerminalShortcutModifier[];
   attachInput: (input: HTMLTextAreaElement) => () => void;
   showButtonNames: boolean;
+  isCli?: boolean;
   live: boolean;
   desktopWidth: boolean;
   disabled: boolean;
@@ -67,6 +71,8 @@ type Props = {
   t: (key: string) => string;
 };
 
+const toolbarButtonClass = "h-10 min-w-10 shrink-0 gap-1.5 px-2 text-xs";
+
 export function MobileInputControls({
   handle,
   visible,
@@ -77,6 +83,7 @@ export function MobileInputControls({
   modifiers,
   attachInput,
   showButtonNames,
+  isCli = false,
   live,
   desktopWidth,
   disabled,
@@ -162,11 +169,13 @@ export function MobileInputControls({
   const send = () => {
     if (onBatchSend()) setExpanded(false);
   };
+  const inputPlaceholder = isCli ? t("Type a message…") : t("Type a command…");
   const sendButton = (
     <Button
       type="button"
       variant="secondary"
       size="icon-sm"
+      className="size-10 shrink-0"
       onPointerDown={(event) => event.preventDefault()}
       onClick={send}
       aria-label={t("Send")}
@@ -178,15 +187,16 @@ export function MobileInputControls({
   );
   return (
     <div
-      className="mobile-terminal-controls terminal-mobile-controls"
+      ref={registerLowerBand}
+      className="mobile-terminal-controls terminal-mobile-controls z-(--z-sticky) w-full shrink-0 border-t border-border bg-background pb-[max(0.3125rem,env(safe-area-inset-bottom))]"
       data-iori-panel="terminal-mobile-controls"
     >
-      <div className="mobile-toolbar-row">
-        <div className="mobile-key-band terminal-mobile-toggles">
+      <div className="flex min-h-11 min-w-0 items-center gap-0.5 px-1 py-0.5">
+        <div className="flex min-w-0 flex-1 touch-pan-x items-center gap-0.5 overflow-x-auto overflow-y-hidden whitespace-nowrap [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <Button
             variant={live ? "secondary" : "ghost"}
             size={showButtonNames ? "sm" : "icon-sm"}
-            className="mobile-key-button"
+            className={toolbarButtonClass}
             onPointerDown={(event) => event.preventDefault()}
             onClick={() => onLive(!live)}
             aria-pressed={live}
@@ -206,7 +216,7 @@ export function MobileInputControls({
           <Button
             variant="ghost"
             size={showButtonNames ? "sm" : "icon-sm"}
-            className="mobile-key-button"
+            className={toolbarButtonClass}
             onPointerDown={(event) => event.preventDefault()}
             onClick={() => onWidth(!desktopWidth)}
             aria-label={desktopWidth ? t("Device width") : t("Desktop width")}
@@ -219,7 +229,7 @@ export function MobileInputControls({
           <Button
             variant="ghost"
             size={showButtonNames ? "sm" : "icon-sm"}
-            className="mobile-paste"
+            className={toolbarButtonClass}
             onPointerDown={(event) => event.preventDefault()}
             onClick={onPaste}
             disabled={pasteDisabled}
@@ -246,7 +256,7 @@ export function MobileInputControls({
           <Button
             variant="ghost"
             size={showButtonNames ? "sm" : "icon-sm"}
-            className="mobile-paste"
+            className={toolbarButtonClass}
             onPointerDown={(event) => event.preventDefault()}
             onClick={() => imagePicker.current?.click()}
             disabled={disabled}
@@ -273,15 +283,16 @@ export function MobileInputControls({
       </div>
       {!live && (
         <Sheet open={expanded} onOpenChange={setExpanded}>
-          <div className="mobile-command-input terminal-batch-input">
+          <div className="flex items-end gap-1.5 border-t border-border bg-background px-2 pt-1.5 pb-[max(0.3125rem,env(safe-area-inset-bottom))]">
             <Textarea
               ref={bindField}
               rows={1}
-              style={{ maxHeight: `calc(${BATCH_INPUT_MAX_LINES}lh + 16px)` }}
+              className="min-h-10 min-w-0 flex-1 field-sizing-fixed overflow-y-auto rounded-md border border-input bg-card px-2.5 py-2 text-[1rem] leading-5 text-foreground"
+              style={{ maxHeight: `calc(${BATCH_INPUT_MAX_LINES}lh + 1rem)` }}
               value={batchText}
               onChange={(event) => onBatchText(event.target.value)}
               onBlur={onBatchBlur}
-              placeholder={t("Type a command…")}
+              placeholder={inputPlaceholder}
               aria-label={t("Type a command…")}
               data-iori-field="terminal-batch-input"
             />
@@ -290,6 +301,7 @@ export function MobileInputControls({
                 type="button"
                 variant="ghost"
                 size="icon-sm"
+                className="size-10 shrink-0"
                 onPointerDown={(event) => event.preventDefault()}
                 aria-label={t("Expand input")}
                 data-iori-action="terminal-batch-expand"
@@ -302,7 +314,7 @@ export function MobileInputControls({
           <SheetContent
             ref={expandedContent}
             side="bottom"
-            className="terminal-expanded-input"
+            className="inset-0 h-full gap-3 p-3"
             showCloseButton={false}
             aria-describedby={undefined}
             onOpenAutoFocus={(event) => {
@@ -315,12 +327,13 @@ export function MobileInputControls({
               field.current?.focus();
             }}
           >
-            <div className="terminal-expanded-header">
+            <div className="flex shrink-0 items-center justify-between">
               <SheetTitle>{t("Input")}</SheetTitle>
               <SheetClose asChild>
                 <Button
                   variant="ghost"
                   size="icon-sm"
+                  className="size-10 shrink-0"
                   aria-label={t("Close")}
                   data-iori-action="terminal-batch-collapse"
                 >
@@ -330,14 +343,17 @@ export function MobileInputControls({
             </div>
             <Textarea
               ref={bindExpandedField}
+              className="min-h-0 flex-1 field-sizing-fixed text-[1rem] leading-normal"
               value={batchText}
               onChange={(event) => onBatchText(event.target.value)}
               onBlur={onBatchBlur}
-              placeholder={t("Type a command…")}
+              placeholder={inputPlaceholder}
               aria-label={t("Type a command…")}
               data-iori-field="terminal-expanded-input"
             />
-            <div className="terminal-expanded-footer">{sendButton}</div>
+            <div className="flex shrink-0 items-center justify-end">
+              {sendButton}
+            </div>
           </SheetContent>
         </Sheet>
       )}
@@ -362,7 +378,18 @@ function AccessoryButton({
 }) {
   const start = useRef<{ x: number; y: number; top: number } | null>(null);
   const suppressClick = useRef(false);
+  const resetSuppressFrame = useRef<number | undefined>(undefined);
   const [swiping, setSwiping] = useState(false);
+
+  const clearResetFrame = () => {
+    if (resetSuppressFrame.current !== undefined) {
+      cancelAnimationFrame(resetSuppressFrame.current);
+      resetSuppressFrame.current = undefined;
+    }
+  };
+
+  useEffect(() => clearResetFrame, []);
+
   const isSwipe = (x: number, y: number) => {
     const from = start.current;
     // Like Termux's popup, crossing the key's upper edge selects its alternate.
@@ -376,7 +403,10 @@ function AccessoryButton({
       type="button"
       variant={pressed || swiping ? "secondary" : "ghost"}
       size="sm"
-      className={`mobile-key-button${swipeKey ? " mobile-key-with-swipe" : ""}`}
+      className={cn(
+        toolbarButtonClass,
+        swipeKey && "flex-col gap-0 py-0.5 leading-[1.1]",
+      )}
       data-iori-key={accessory.id}
       aria-label={t(accessory.accessibilityLabel ?? accessory.label)}
       aria-description={
@@ -386,6 +416,7 @@ function AccessoryButton({
       disabled={disabled}
       onPointerDown={(event) => {
         event.preventDefault();
+        clearResetFrame();
         suppressClick.current = false;
         start.current = {
           x: event.clientX,
@@ -400,21 +431,36 @@ function AccessoryButton({
       onPointerUp={(event) => {
         if (isSwipe(event.clientX, event.clientY) && swipeKey) {
           suppressClick.current = true;
+          clearResetFrame();
+          resetSuppressFrame.current = requestAnimationFrame(() => {
+            resetSuppressFrame.current = undefined;
+            suppressClick.current = false;
+          });
           onKey(swipeKey);
         }
         start.current = null;
         setSwiping(false);
       }}
       onPointerCancel={() => {
+        clearResetFrame();
+        suppressClick.current = false;
         start.current = null;
         setSwiping(false);
       }}
       onClick={() => {
-        if (!suppressClick.current) onKey(accessory);
+        if (suppressClick.current) {
+          suppressClick.current = false;
+          clearResetFrame();
+          return;
+        }
+        onKey(accessory);
       }}
     >
       {swipeKey && (
-        <span className="mobile-key-swipe-label" aria-hidden="true">
+        <span
+          className="text-[0.625rem] leading-none text-muted-foreground"
+          aria-hidden="true"
+        >
           {swipeKey.label}
         </span>
       )}

@@ -22,8 +22,6 @@ import {
 } from "./HostUninstallDialog.tsx";
 import type { UninstallFlow } from "./uninstall-flow-types.ts";
 import { SettingsSection, FieldRow } from "../components/page-layout.tsx";
-import { ScrollArea } from "../components/ui/scroll-area.tsx";
-import "../worktree-creator.css";
 import { Button } from "../components/ui/button.tsx";
 import {
   Dialog,
@@ -162,8 +160,13 @@ export function HostVersionSettings({
   const needsUpdate = !host.version || hostNeedsUpdate(host);
   return (
     <SettingsSection data-iori-view="host-version" title="iori Host">
-      <FieldRow className="v9-settings-row" label={t("Current version")}>
-        <span data-iori-value="host-version">{host.version}</span>
+      <FieldRow label={t("Current version")}>
+        <span
+          className="font-mono text-xs text-muted-foreground tabular-nums"
+          data-iori-value="host-version"
+        >
+          {host.version}
+        </span>
       </FieldRow>
       {status && (
         <HostMaintenanceProgress
@@ -199,7 +202,7 @@ export function HostVersionSettings({
         )}
         <Button
           variant="outline"
-          size="lg"
+          size="sm"
           data-iori-action="host-update"
           disabled={!needsUpdate || busy || unavailable}
           pending={
@@ -211,20 +214,21 @@ export function HostVersionSettings({
         </Button>
       </FieldRow>
       {host.version && compareVersions(host.version, clientVersion) > 0 && (
-        <>
-          <p className="settings-note">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="m-0 text-xs leading-relaxed text-muted-foreground">
             {t(
               "This Host is newer than this Client. Update the Client in General settings.",
             )}
           </p>
           <Button
             variant="outline"
+            size="sm"
             disabled={!connected}
             onClick={onClientUpdate}
           >
             {t("Open Client updates")}
           </Button>
-        </>
+        </div>
       )}
       <FieldRow
         label={t("Restart iori Host")}
@@ -239,7 +243,7 @@ export function HostVersionSettings({
       >
         <Button
           variant="outline"
-          size="lg"
+          size="sm"
           data-iori-action="host-restart"
           disabled={busy || unavailable}
           pending={
@@ -263,7 +267,7 @@ export function HostVersionSettings({
         {!state.initial?.mobile && (
           <Button
             variant="destructive"
-            size="lg"
+            size="sm"
             data-iori-action="host-uninstall"
             disabled={busy || unavailable}
             onClick={() => void uninstall.actions.open(host.publicKey)}
@@ -273,15 +277,19 @@ export function HostVersionSettings({
         )}
       </FieldRow>
       {host.terminalDaemonCanContinue === false && (
-        <p className="text-destructive">
+        <p className="m-0 text-xs text-status-failed-text">
           {t("Running Terminals will stop, and work in progress will be lost.")}
         </p>
       )}
-      {preparing && <p role="status">{t("Preparing confirmation")}</p>}
+      {preparing && (
+        <p className="m-0 text-xs text-muted-foreground" role="status">
+          {t("Preparing confirmation")}
+        </p>
+      )}
       {reason && (
         <p
           role="alert"
-          className="connection-error"
+          className="m-0 text-xs leading-relaxed text-status-failed-text"
           data-iori-state="host-maintenance-error"
         >
           {t(failures[reason] ?? failures.request!)}
@@ -305,7 +313,7 @@ export function HostVersionSettings({
         }}
       >
         <DialogContent
-          className="folder-dialog worktree-create-dialog"
+          className="max-h-[calc(100dvh-1.5rem)] w-[min(35rem,calc(100vw-1.5rem))] max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded-lg border border-border bg-popover shadow-md sm:max-w-[35rem] [&_[data-slot=dialog-description]]:[overflow-wrap:anywhere] [&_[data-slot=dialog-footer]]:flex-wrap [&_[data-slot=dialog-header]]:pr-7"
           showCloseButton={false}
           data-iori-view="host-maintenance-confirmation"
           onOpenAutoFocus={(event) => {
@@ -321,7 +329,7 @@ export function HostVersionSettings({
                   : "Restart iori Host",
               )}
             </DialogTitle>
-            <DialogDescription className="worktree-removal-summary">
+            <DialogDescription className="text-popover-foreground">
               {t(
                 confirmation?.kind === "update"
                   ? "{name} will be updated from {from} to {to}."
@@ -335,8 +343,11 @@ export function HostVersionSettings({
           {confirmation &&
             !confirmation.plan.canContinue &&
             confirmation.plan.hasOpenTerminals && (
-              <div data-slot="dialog-body" className="worktree-removal-body">
-                <ScrollArea type="auto" className="worktree-removal-scroll">
+              <div
+                data-slot="dialog-body"
+                className="-mx-5 flex min-h-0 flex-1 overflow-y-auto px-5"
+              >
+                <div className="flex min-w-0 flex-1 flex-col gap-4">
                   <HostMaintenanceStopWarning
                     plan={confirmation.plan}
                     kind={confirmation.kind}
@@ -348,7 +359,7 @@ export function HostVersionSettings({
                     onOpenTerminal={onOpenTerminal}
                     t={t}
                   />
-                </ScrollArea>
+                </div>
               </div>
             )}
           <DialogFooter>

@@ -6,7 +6,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import { Plus } from "lucide-react";
+import { Link2, Plus } from "lucide-react";
 import {
   forgeSiteOrigin,
   forgeToken,
@@ -14,14 +14,17 @@ import {
   type ForgeSite,
   type ForgeSites,
 } from "@iori/protocol";
+import { cn } from "cn";
 import { connection } from "./connection.ts";
 import { GitHubSettings, withCode } from "./GitSettings.tsx";
+import { AsyncState } from "./components/AsyncState.tsx";
 import {
   FieldRow,
   LoadRecovery,
   SaveResult,
   SettingsSection,
 } from "./components/page-layout.tsx";
+import { Badge } from "./components/ui/badge.tsx";
 import { Button } from "./components/ui/button.tsx";
 import { Input } from "./components/ui/input.tsx";
 import {
@@ -33,10 +36,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "./components/ui/dialog.tsx";
-import {
-  useSettingsEditor,
-  type RegisterSettingsEditor,
-} from "./settings-save.ts";
+import type { RegisterSettingsEditor } from "./settings-save.ts";
+import { useSaveableSettingsEditor } from "./settings/shared.tsx";
 
 type T = (key: string) => string;
 type Rejection = Extract<
@@ -61,7 +62,7 @@ export function IntegrationsSettings({
   onNestedBack: (close?: () => void) => void;
 }) {
   return (
-    <div className="integrations-settings" data-iori-view="integrations">
+    <div className="flex min-w-0 flex-col gap-7" data-iori-view="integrations">
       <GitHubSettings hostKey={hostKey} t={t} />
       <ForgeSiteSettings
         hostKey={hostKey}
@@ -146,7 +147,7 @@ function TokenField({
   storage,
   os,
   http,
-  label = "token",
+  label,
 }: {
   t: T;
   value: string;
@@ -160,7 +161,6 @@ function TokenField({
   return (
     <FieldRow
       stacked
-      className="site-token-field"
       label={<label htmlFor={id}>{t("Token")}</label>}
       description={withCode(
         t(
@@ -175,7 +175,7 @@ function TokenField({
         autoComplete="off"
         aria-label={label}
         data-iori-field="site-token"
-        className="font-mono"
+        className="font-mono [font-variant-ligatures:none]"
         value={value}
         onChange={(event) => onChange(event.target.value)}
         autoCapitalize="none"
@@ -183,7 +183,10 @@ function TokenField({
         spellCheck={false}
       />
       {(storage === "file" || http) && (
-        <p className="settings-note" data-iori-state="site-token-note">
+        <p
+          className="m-0 text-xs leading-relaxed text-muted-foreground [word-break:auto-phrase] [text-wrap:pretty]"
+          data-iori-state="site-token-note"
+        >
           {storage === "file" &&
             t(
               os === "Windows"
@@ -206,6 +209,7 @@ function TokenField({
 function FormActions({
   t,
   busy,
+  dirty,
   error,
   action,
   label,
@@ -214,6 +218,7 @@ function FormActions({
 }: {
   t: T;
   busy: boolean;
+  dirty: boolean;
   error?: string;
   action: string;
   label: string;
@@ -221,17 +226,32 @@ function FormActions({
   onSave: () => void;
 }) {
   return (
-    <div className="section-save site-form-actions">
-      <SaveResult message={error} error={Boolean(error)} />
-      <div className="site-form-buttons">
+    <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+        {error ? (
+          <SaveResult message={error} error />
+        ) : dirty ? (
+          <Badge variant="waiting">{t("Unsaved changes")}</Badge>
+        ) : null}
+      </div>
+      <div className="flex shrink-0 items-center justify-end gap-2">
         <Button
+          type="button"
           variant="outline"
+          size="sm"
           data-iori-action="site-form-cancel"
           onClick={onCancel}
         >
           {t("Cancel")}
         </Button>
-        <Button pending={busy} data-iori-action={action} onClick={onSave}>
+        <Button
+          type="button"
+          size="sm"
+          pending={busy}
+          disabled={!dirty}
+          data-iori-action={action}
+          onClick={onSave}
+        >
           {t(label)}
         </Button>
       </div>
@@ -275,6 +295,10 @@ function ForgeSiteSettings({
   const [removeBusy, setRemoveBusy] = useState(false);
   const [checking, setChecking] = useState<string>();
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
+
+  const formRef = useRef({ form, url, token });
+  formRef.current = { form, url, token };
+
   const load = useCallback(async () => {
     const revision = ++reading.current;
     try {
@@ -287,6 +311,7 @@ function ForgeSiteSettings({
       if (revision === reading.current) setFailed(true);
     }
   }, [hostKey]);
+
   useEffect(() => {
     void load();
     const stop = connection.subscribeHostEvents((host, event) => {
@@ -302,6 +327,7 @@ function ForgeSiteSettings({
       stop();
     };
   }, [hostKey, load]);
+
   const closeForm = useCallback(() => {
     saving.current?.abort();
     saving.current = undefined;
@@ -311,37 +337,38 @@ function ForgeSiteSettings({
     setToken("");
     setFormError(undefined);
   }, []);
+
   useEffect(() => () => saving.current?.abort(), []);
-  useSettingsEditor(
-    () => Boolean(form && (url.trim() || token)),
-    registerEditor,
-    closeForm,
+
+  const formDirty = Boolean(
+    form && (form.origin ? token.length > 0 : url.trim() || token),
   );
-  useEffect(() => {
-    onNestedBack(removing ? () => setRemoving(undefined) : undefined);
-    return () => onNestedBack(undefined);
-  }, [onNestedBack, removing]);
+
   const open = (origin?: string) => {
     closeForm();
     setForm({ origin });
   };
-  const save = async () => {
-    if (busy || !form) return;
+
+  const save = async (): Promise<boolean> => {
+    const current = formRef.current;
+    if (busy || !current.form) return false;
     let origin: string;
     try {
-      origin = form.origin ?? forgeSiteOrigin(url);
+      origin = current.form.origin ?? forgeSiteOrigin(current.url);
     } catch {
       setFormError(t("Enter an http or https URL."));
-      return;
+      return false;
     }
     let value: string;
     try {
-      value = forgeToken(token);
+      value = forgeToken(current.token);
     } catch {
       setFormError(
-        token.trim() ? rejectionMessage("token", t) : t("Enter a token."),
+        current.token.trim()
+          ? rejectionMessage("token", t)
+          : t("Enter a token."),
       );
-      return;
+      return false;
     }
     const controller = new AbortController();
     saving.current = controller;
@@ -356,15 +383,17 @@ function ForgeSiteSettings({
         controller.signal,
       );
       if (!response?.ok) throw new Error();
-      if ("rejected" in response.result)
+      if ("rejected" in response.result) {
         setFormError(rejectionMessage(response.result.rejected, t));
-      else {
-        closeForm();
-        void load();
+        return false;
       }
+      closeForm();
+      void load();
+      return true;
     } catch {
       if (!controller.signal.aborted)
         setFormError(rejectionMessage("error", t));
+      return false;
     } finally {
       if (saving.current === controller) {
         saving.current = undefined;
@@ -372,6 +401,26 @@ function ForgeSiteSettings({
       }
     }
   };
+
+  useSaveableSettingsEditor(
+    formDirty,
+    () =>
+      Boolean(
+        formRef.current.form &&
+        (formRef.current.form.origin
+          ? formRef.current.token.length > 0
+          : formRef.current.url.trim() || formRef.current.token),
+      ),
+    registerEditor,
+    closeForm,
+    save,
+  );
+
+  useEffect(() => {
+    onNestedBack(removing ? () => setRemoving(undefined) : undefined);
+    return () => onNestedBack(undefined);
+  }, [onNestedBack, removing]);
+
   const rowError = (origin: string, message?: string) =>
     setRowErrors((current) => {
       const next = { ...current };
@@ -379,6 +428,7 @@ function ForgeSiteSettings({
       else delete next[origin];
       return next;
     });
+
   const check = async (origin: string) => {
     setChecking(origin);
     rowError(origin);
@@ -396,6 +446,7 @@ function ForgeSiteSettings({
       setChecking(undefined);
     }
   };
+
   const remove = async () => {
     const origin = removing;
     if (!origin) return;
@@ -417,7 +468,17 @@ function ForgeSiteSettings({
       setRemoving(undefined);
     }
   };
+
   const storage = list?.storage ?? "os";
+  const asyncMode =
+    failed && !list
+      ? "error"
+      : !list
+        ? "loading"
+        : list.sites.length === 0 && !form
+          ? "empty"
+          : "ready";
+
   return (
     <SettingsSection
       title="Forgejo・Gitea"
@@ -425,160 +486,203 @@ function ForgeSiteSettings({
         "Register a token for each site to also read private repositories and Issues.",
       )}
       data-iori-view="forge-sites"
-      onSave={form ? () => void save() : undefined}
+      onSave={form && formDirty ? () => void save() : undefined}
     >
-      {failed && (
-        <div>
-          <LoadRecovery
-            message={t("Could not load settings. Retry.")}
-            retryLabel={t("Retry")}
-            onRetry={() => void load()}
-          />
-        </div>
-      )}
-      {list?.sites.length === 0 && (
-        <p className="settings-note" data-iori-state="no-forge-sites">
-          {t("No sites yet.")}
-        </p>
-      )}
-      {list?.sites.map((site) => {
-        const state = siteState(site, t, language);
-        const unreachable = site.failure?.reason === "unreachable";
-        return (
-          <div
-            key={site.origin}
-            className="forge-site"
-            data-iori-forge-site={site.origin}
-          >
-            <FieldRow
-              label={<span className="site-url">{site.origin}</span>}
-              description={
-                <span
-                  className={`site-state ${state.problem ? "is-problem" : ""}`}
-                  data-iori-state={state.id}
-                >
-                  {state.text}
-                </span>
-              }
-            >
-              {unreachable ? (
-                <Button
-                  variant="outline"
-                  pending={checking === site.origin}
-                  data-iori-action="site-retry"
-                  onClick={() => void check(site.origin)}
-                >
-                  {t("Retry")}
-                </Button>
-              ) : (
-                <Button
-                  variant="outline"
-                  data-iori-action={
-                    site.token ? "site-replace-token" : "site-register-token"
-                  }
-                  onClick={() => open(site.origin)}
-                >
-                  {t(site.token ? "Replace token" : "Register token")}
-                </Button>
-              )}
-              {site.token && (
-                <Button
-                  variant="outline"
-                  data-iori-action="site-remove"
-                  onClick={() => setRemoving(site.origin)}
-                >
-                  {t("Remove")}
-                </Button>
-              )}
-            </FieldRow>
-            {site.token?.storage === "file" && list.storage === "os" && (
-              <p className="settings-note" data-iori-state="site-token-file">
-                {t(
-                  os === "Windows"
-                    ? "Credential Manager did not accept the token, so it is kept in a file in the Host's data folder that only this user can read."
-                    : os
-                      ? "The keyring did not accept the token, so it is kept in a file in the Host's data folder that only this user can read."
-                      : "Credential Manager or the keyring did not accept the token, so it is kept in a file in the Host's data folder that only this user can read.",
-                )}
-              </p>
-            )}
-            {rowErrors[site.origin] && (
-              <p className="connection-error" role="alert">
-                {rowErrors[site.origin]}
-              </p>
-            )}
-            {form?.origin === site.origin && (
-              <div className="site-form" data-iori-view="site-form">
-                <TokenField
-                  t={t}
-                  value={token}
-                  onChange={(value) => {
-                    setToken(value);
-                    setFormError(undefined);
-                  }}
-                  storage={storage}
-                  os={os}
-                  http={site.origin.startsWith("http:")}
-                />
-                <FormActions
-                  t={t}
-                  busy={busy}
-                  error={formError}
-                  action="site-token-save"
-                  label="Save token"
-                  onCancel={closeForm}
-                  onSave={() => void save()}
+      <div
+        data-section-flush=""
+        data-iori-state={asyncMode === "empty" ? "no-forge-sites" : undefined}
+      >
+        <AsyncState
+          mode={asyncMode}
+          t={t}
+          compact
+          skeletonRows={2}
+          emptyIcon={<Link2 className="size-4" aria-hidden="true" />}
+          emptyTitle={t("No sites yet.")}
+          emptyActionLabel={t("Add site")}
+          onEmptyAction={() => open()}
+          errorTitle={t("Could not load settings. Retry.")}
+          retryLabel={t("Retry")}
+          onRetry={() => void load()}
+          className="border-y-0 px-0"
+        >
+          <div className="flex flex-col divide-y divide-border-subtle">
+            {failed && list && (
+              <div className="py-3.5">
+                <LoadRecovery
+                  message={t("Could not load settings. Retry.")}
+                  retryLabel={t("Retry")}
+                  onRetry={() => void load()}
                 />
               </div>
             )}
+            {list?.sites.map((site) => {
+              const siteStatus = siteState(site, t, language);
+              const unreachable = site.failure?.reason === "unreachable";
+              return (
+                <div
+                  key={site.origin}
+                  className="flex min-w-0 flex-col gap-3 py-3.5"
+                  data-iori-forge-site={site.origin}
+                >
+                  <FieldRow
+                    label={
+                      <span className="[overflow-wrap:anywhere]">
+                        {site.origin}
+                      </span>
+                    }
+                    description={
+                      <span
+                        className={cn(
+                          siteStatus.problem && "text-status-failed-text",
+                        )}
+                        data-iori-state={siteStatus.id}
+                      >
+                        {siteStatus.text}
+                      </span>
+                    }
+                  >
+                    {unreachable ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        pending={checking === site.origin}
+                        data-iori-action="site-retry"
+                        onClick={() => void check(site.origin)}
+                      >
+                        {t("Retry")}
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        data-iori-action={
+                          site.token
+                            ? "site-replace-token"
+                            : "site-register-token"
+                        }
+                        onClick={() => open(site.origin)}
+                      >
+                        {t(site.token ? "Replace token" : "Register token")}
+                      </Button>
+                    )}
+                    {site.token && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        data-iori-action="site-remove"
+                        onClick={() => setRemoving(site.origin)}
+                      >
+                        {t("Remove")}
+                      </Button>
+                    )}
+                  </FieldRow>
+                  {site.token?.storage === "file" && list.storage === "os" && (
+                    <p
+                      className="m-0 text-xs leading-relaxed text-muted-foreground [word-break:auto-phrase] [text-wrap:pretty]"
+                      data-iori-state="site-token-file"
+                    >
+                      {t(
+                        os === "Windows"
+                          ? "Credential Manager did not accept the token, so it is kept in a file in the Host's data folder that only this user can read."
+                          : os
+                            ? "The keyring did not accept the token, so it is kept in a file in the Host's data folder that only this user can read."
+                            : "Credential Manager or the keyring did not accept the token, so it is kept in a file in the Host's data folder that only this user can read.",
+                      )}
+                    </p>
+                  )}
+                  {rowErrors[site.origin] && (
+                    <p
+                      className="m-0 text-xs text-status-failed-text"
+                      role="alert"
+                    >
+                      {rowErrors[site.origin]}
+                    </p>
+                  )}
+                  {form?.origin === site.origin && (
+                    <div
+                      className="flex flex-col gap-3 border-l-2 border-border pl-4"
+                      data-iori-view="site-form"
+                    >
+                      <TokenField
+                        t={t}
+                        value={token}
+                        onChange={(value) => {
+                          setToken(value);
+                          setFormError(undefined);
+                        }}
+                        storage={storage}
+                        os={os}
+                        http={site.origin.startsWith("http:")}
+                      />
+                      <FormActions
+                        t={t}
+                        busy={busy}
+                        dirty={formDirty}
+                        error={formError}
+                        action="site-token-save"
+                        label="Save token"
+                        onCancel={closeForm}
+                        onSave={() => void save()}
+                      />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {list &&
+              (form && !form.origin ? (
+                <div
+                  className="flex flex-col gap-3 py-3.5"
+                  data-iori-view="site-form"
+                >
+                  <SiteUrlField
+                    t={t}
+                    value={url}
+                    onChange={(value) => {
+                      setUrl(value);
+                      setFormError(undefined);
+                    }}
+                  />
+                  <TokenField
+                    t={t}
+                    label={t("Token for the site to add")}
+                    value={token}
+                    onChange={(value) => {
+                      setToken(value);
+                      setFormError(undefined);
+                    }}
+                    storage={storage}
+                    os={os}
+                    http={url.trim().toLowerCase().startsWith("http:")}
+                  />
+                  <FormActions
+                    t={t}
+                    busy={busy}
+                    dirty={formDirty}
+                    error={formError}
+                    action="site-add-save"
+                    label="Add"
+                    onCancel={closeForm}
+                    onSave={() => void save()}
+                  />
+                </div>
+              ) : (
+                <div className="py-3.5">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    data-iori-action="site-add"
+                    onClick={() => open()}
+                  >
+                    <Plus className="size-3.5" aria-hidden="true" />
+                    {t("Add site")}
+                  </Button>
+                </div>
+              ))}
           </div>
-        );
-      })}
-      {list &&
-        (form && !form.origin ? (
-          <div className="site-form" data-iori-view="site-form">
-            <SiteUrlField
-              t={t}
-              value={url}
-              onChange={(value) => {
-                setUrl(value);
-                setFormError(undefined);
-              }}
-            />
-            <TokenField
-              t={t}
-              label={t("Token for the site to add")}
-              value={token}
-              onChange={(value) => {
-                setToken(value);
-                setFormError(undefined);
-              }}
-              storage={storage}
-              os={os}
-              http={url.trim().toLowerCase().startsWith("http:")}
-            />
-            <FormActions
-              t={t}
-              busy={busy}
-              error={formError}
-              action="site-add-save"
-              label="Add"
-              onCancel={closeForm}
-              onSave={() => void save()}
-            />
-          </div>
-        ) : (
-          <div>
-            <Button
-              variant="outline"
-              data-iori-action="site-add"
-              onClick={() => open()}
-            >
-              <Plus size={16} aria-hidden="true" />
-              {t("Add site")}
-            </Button>
-          </div>
-        ))}
+        </AsyncState>
+      </div>
       <Dialog
         open={Boolean(removing)}
         onOpenChange={(next) => !next && setRemoving(undefined)}
@@ -637,7 +741,7 @@ function SiteUrlField({
         placeholder="https://forgejo.example.com"
         inputMode="url"
         data-iori-field="site-url"
-        className="font-mono"
+        className="font-mono [font-variant-ligatures:none]"
         onChange={(event) => onChange(event.target.value)}
         autoCapitalize="none"
         autoCorrect="off"

@@ -47,15 +47,18 @@ function ImageSide({
   const loading = !image.url && !image.error && !unavailable;
   return (
     <section
-      className="reading-image-surface image-diff-side"
+      className="image-diff-side relative flex min-h-0 min-w-0 flex-1 flex-col group-data-[narrow=true]/split:w-full group-data-[narrow=true]/split:flex-none [&+.image-diff-side]:border-l [&+.image-diff-side]:border-border group-data-[narrow=true]/split:[&+.image-diff-side]:border-t group-data-[narrow=true]/split:[&+.image-diff-side]:border-l-0"
       aria-label={label}
       data-image-side={side}
     >
-      <div className="image-diff-label" aria-hidden={!label || undefined}>
+      <div
+        className="flex-none px-3 py-2 text-xs font-medium text-foreground group-data-[narrow=true]/split:sticky group-data-[narrow=true]/split:top-0 group-data-[narrow=true]/split:z-[1] group-data-[narrow=true]/split:bg-background"
+        aria-hidden={!label || undefined}
+      >
         {label ?? "\u00a0"}
       </div>
       <div
-        className="reading-image-frame"
+        className="reading-image-frame flex flex-none items-start justify-start overflow-visible px-3 py-0"
         data-fit="true"
         aria-busy={loading || undefined}
       >
@@ -64,13 +67,17 @@ function ImageSide({
             {image.error}
           </ReadingError>
         ) : loading ? (
-          <Spinner aria-hidden="true" aria-label={undefined} />
+          <Spinner
+            className="text-muted-foreground"
+            aria-hidden="true"
+            aria-label={undefined}
+          />
         ) : unavailable ? (
           <ImageUnavailable locale={locale} />
         ) : (
           <Button
             variant="ghost"
-            className="image-diff-open"
+            className="block h-auto max-w-full rounded-none border-0 bg-transparent p-0 hover:bg-transparent"
             aria-label={openLabel}
             title={openLabel}
             data-iori-action="git-image-open"
@@ -80,6 +87,7 @@ function ImageSide({
             <img
               src={image.url}
               alt={label ? `${label} ${image.path}` : image.path}
+              className="box-content max-h-none max-w-full flex-none border border-border bg-[repeating-conic-gradient(var(--muted)_0_25%,transparent_0_50%)] bg-[length:16px_16px]"
               style={
                 image.natural
                   ? {
@@ -236,13 +244,16 @@ export function GitImageDiff({
     };
   }, []);
   return (
-    <div ref={containerRef} className="git-image-diff">
+    <div ref={containerRef} className="relative flex min-h-0 flex-1 flex-col">
       <div
         ref={scrollRef}
-        className="reading-body image-diff-scroll"
+        className="reading-body relative block min-h-0 flex-1 overflow-auto data-[overflow=true]:[mask-image:linear-gradient(to_bottom,var(--foreground)_calc(100%-2rem),transparent)] [&[hidden]]:hidden"
         hidden={Boolean(opened)}
       >
-        <div ref={columnsRef} className="image-diff-columns">
+        <div
+          ref={columnsRef}
+          className="flex min-h-full min-w-0 items-stretch group-data-[narrow=true]/split:flex-col"
+        >
           {sides.map((side) => (
             <ImageSide
               key={side}
@@ -270,8 +281,11 @@ export function GitImageDiff({
         </div>
       </div>
       {opened && (
-        <div className="git-image-expanded" data-iori-part="git-image-expanded">
-          <div className="reading-header">
+        <div
+          className="flex min-h-0 flex-1 flex-col"
+          data-iori-part="git-image-expanded"
+        >
+          <div className="flex h-9 min-w-0 flex-none items-center gap-1 border-b border-border px-1.5 [@media(pointer:coarse)]:h-11">
             {sides.length > 1 && (
               <ToggleGroup
                 type="single"
@@ -283,20 +297,26 @@ export function GitImageDiff({
               >
                 <ToggleGroupItem
                   value="old"
+                  className="[@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:px-3"
                   data-iori-action="git-image-before"
                 >
                   {t("Before")}
                 </ToggleGroupItem>
-                <ToggleGroupItem value="new" data-iori-action="git-image-after">
+                <ToggleGroupItem
+                  value="new"
+                  className="[@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:px-3"
+                  data-iori-action="git-image-after"
+                >
                   {t("After")}
                 </ToggleGroupItem>
               </ToggleGroup>
             )}
-            <span className="reading-spacer" />
+            <span className="flex-1" />
             <Button
               ref={closeRef}
               variant="ghost"
               size="icon-sm"
+              className="[@media(pointer:coarse)]:size-11"
               data-iori-action="git-image-close"
               aria-label={t("Close")}
               title={t("Close")}

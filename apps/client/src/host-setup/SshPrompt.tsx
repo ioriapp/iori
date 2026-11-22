@@ -40,7 +40,7 @@ export function SshPrompt({
         ? message(t, "{user}@{host} password", values)
         : t("SSH response");
   return (
-    <div className="host-panel-stack" data-iori-state="ssh-prompt">
+    <div className="grid content-start gap-3" data-iori-state="ssh-prompt">
       {value.kind === "password" && value.attempt > 1 && (
         <Failure>
           <P>
@@ -53,7 +53,7 @@ export function SshPrompt({
         </Failure>
       )}
       <form
-        className="ssh-setup-prompt"
+        className="grid gap-2.5 rounded-md border border-border bg-card p-3"
         onSubmit={(event) => {
           event.preventDefault();
           const value = hostKey ? "yes" : answer;
@@ -73,7 +73,9 @@ export function SshPrompt({
               )}
             </Text>
             {value.fingerprint && (
-              <code className="ssh-fingerprint">{value.fingerprint}</code>
+              <code className="font-mono text-xs [font-variant-ligatures:none] [overflow-wrap:anywhere]">
+                {value.fingerprint}
+              </code>
             )}
             <SshOriginal t={t}>{prompt.text}</SshOriginal>
           </>
@@ -87,8 +89,10 @@ export function SshPrompt({
             {value.kind === "other" || value.kind === "hostKeyChanged" ? (
               <Original>{prompt.text}</Original>
             ) : null}
-            <label className="ssh-setup-field">
-              <span className="label">{secretLabel}</span>
+            <label className="grid min-w-0 gap-2 text-sm">
+              <span className="font-medium text-foreground [overflow-wrap:anywhere]">
+                {secretLabel}
+              </span>
               <Input
                 type="password"
                 autoComplete="off"
@@ -100,7 +104,7 @@ export function SshPrompt({
           </>
         )}
         {!notification && (
-          <div className="actions">
+          <div className="flex flex-wrap justify-end gap-2">
             {onCancel && (
               <Button
                 type="button"

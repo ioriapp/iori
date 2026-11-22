@@ -557,8 +557,22 @@ export class HostStore {
     const rows = this.#database.prepare("SELECT id FROM teams").all() as {
       id: string;
     }[];
+    const conversations = this.#database
+      .prepare(
+        `SELECT json_extract(c.value_json, '$.teamId') AS teamId, COUNT(*) AS count
+         FROM team_conversations c
+         JOIN terminals t ON t.id = json_extract(c.value_json, '$.terminalId')
+         GROUP BY teamId`,
+      )
+      .all() as { teamId: string; count: number }[];
+    const counts = new Map(
+      conversations.map(({ teamId, count }) => [teamId, count]),
+    );
     const teams = rows
-      .map((r) => this.readTeam(r.id)!)
+      .map(({ id }) => ({
+        ...this.readTeam(id)!,
+        conversationCount: counts.get(id) ?? 0,
+      }))
       .sort((a, b) => nameOrder(a.saved, b.saved));
     return {
       ...this.teamSettings(),

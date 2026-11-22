@@ -108,7 +108,7 @@ export function PathMenu({
       >
         {children}
       </ContextMenuTrigger>
-      <ContextMenuContent className="reading-context-menu" collisionPadding={8}>
+      <ContextMenuContent collisionPadding={8}>
         {leadingActions.map(renderAction)}
         {leadingActions.length > 0 && <ContextMenuSeparator />}
         <ContextMenuItem
@@ -140,7 +140,7 @@ export function PathMenu({
         {actions.length > 0 && separateActions && <ContextMenuSeparator />}
         {actions.map((item) => renderAction(item))}
         {error && (
-          <p className="reading-menu-error" role="alert">
+          <p className="mx-2 my-1 text-xs text-status-failed-text" role="alert">
             {t("That did not work. Select it again.")}
           </p>
         )}

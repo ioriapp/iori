@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import type { OpenFile, FileOpenRequest } from "../workspace-panel.tsx";
 import type { FileInfo } from "@iori/protocol";
+import { cn } from "cn";
 import { Button } from "../components/ui/button";
 import { SplitPane } from "../reading/SplitPane.tsx";
 import {
@@ -53,6 +54,7 @@ import {
 } from "./MarkdownSurface.tsx";
 import { ImageSurface } from "./ImageSurface.tsx";
 import { ReadingError } from "../reading/ReadingError.tsx";
+import { ReadingEmpty, ReadingLoading } from "../reading/ReadingStates.tsx";
 
 export type FilesPaneProps = {
   standalone?: OpenFile;
@@ -172,7 +174,15 @@ function FilesWorkspace({
     run: () => save(path),
   });
   const strip = useRef<HTMLDivElement>(null);
+  const tabRefs = useRef(new Map<string, HTMLButtonElement | null>());
+  const pendingFocusTab = useRef<string | undefined>(undefined);
   const active = view.active;
+  useEffect(() => {
+    const target = pendingFocusTab.current;
+    if (!target) return;
+    pendingFocusTab.current = undefined;
+    tabRefs.current.get(target)?.focus({ preventScroll: true });
+  }, [view.tabs, active]);
   useEffect(() => {
     const list = strip.current;
     if (!list) return;
@@ -392,19 +402,28 @@ function FilesWorkspace({
       detailOpen: true,
     }));
   };
-  const close = (path: string) => {
+  const selectTab = (path: string, focus = false) => {
+    setView((value) => ({
+      ...value,
+      active: path,
+      detailOpen: true,
+    }));
+    if (focus) tabRefs.current.get(path)?.focus({ preventScroll: true });
+  };
+  const close = (path: string, restoreFocus = false) => {
     setView((current) => {
       const tabs = current.tabs.filter((item) => item !== path);
       const index = current.tabs.indexOf(path);
-      const active =
+      const nextActive =
         current.active === path
           ? (tabs[Math.min(index, tabs.length - 1)] ?? undefined)
           : current.active;
+      if (restoreFocus && nextActive) pendingFocusTab.current = nextActive;
       return {
         ...current,
         tabs,
-        active,
-        detailOpen: current.detailOpen && Boolean(active),
+        active: nextActive,
+        detailOpen: current.detailOpen && Boolean(nextActive),
       };
     });
   };
@@ -457,7 +476,7 @@ function FilesWorkspace({
   const list = (
     <>
       <div
-        className="reading-header reading-list-header"
+        className="flex h-9 min-w-0 flex-none items-center gap-1 px-1.5 [@media(pointer:coarse)]:h-11"
         data-iori-part="files-list-header"
       >
         <WorktreePicker
@@ -467,10 +486,11 @@ function FilesWorkspace({
           onSelect={onSelectWorktree}
           field="files-worktree"
         />
-        <span className="reading-spacer" />
+        <span className="flex-1" />
         <Button
           variant="ghost"
           size="icon-sm"
+          className="[@media(pointer:coarse)]:size-11"
           aria-label={t("Filter by file name")}
           data-iori-action="open-file-filter"
           onClick={() => tree.current?.openFilter()}
@@ -499,7 +519,7 @@ function FilesWorkspace({
 
   const header = active && (
     <div
-      className="reading-header reading-path-header"
+      className="flex h-9 min-w-0 flex-none items-center gap-1 border-b border-border px-1.5 [@media(pointer:coarse)]:h-11"
       data-iori-part="file-header"
     >
       <PathMenu
@@ -508,29 +528,29 @@ function FilesWorkspace({
         actions={[saveAction(active)]}
       >
         <nav
-          className={
-            standalone
-              ? "reading-breadcrumb reading-file-breadcrumb"
-              : "reading-breadcrumb"
-          }
+          className={cn(
+            "grid min-w-0 grid-cols-[minmax(0,1fr)] px-1 text-xs whitespace-nowrap text-muted-foreground",
+            standalone ? "flex-1" : "flex-[0_1_auto]",
+          )}
           title={standalone?.absolutePath ?? active}
           aria-label={t("Path")}
         >
           {standalone ? (
             <MiddleEllipsis
               text={standalone.displayPath}
-              className="reading-file-path reading-muted"
+              className="min-w-0 overflow-hidden text-xs text-muted-foreground"
             />
           ) : (
             <BreadcrumbPath path={active} />
           )}
         </nav>
       </PathMenu>
-      <span className="reading-spacer" />
+      <span className="flex-1" />
       {markdown && (
         <Button
           variant="ghost"
           size="icon-sm"
+          className="aria-pressed:bg-accent aria-pressed:text-accent-foreground [@media(pointer:coarse)]:size-11"
           data-iori-action="markdown-source"
           aria-pressed={Boolean(position?.source) || tooLarge}
           disabled={tooLarge || !position}
@@ -566,6 +586,7 @@ function FilesWorkspace({
         <Button
           variant="ghost"
           size="icon-sm"
+          className="aria-pressed:bg-accent aria-pressed:text-accent-foreground [@media(pointer:coarse)]:size-11"
           data-iori-action="file-wrap"
           aria-pressed={Boolean(position?.wrap)}
           aria-label={t("Wrap lines")}
@@ -581,6 +602,7 @@ function FilesWorkspace({
         <Button
           variant="ghost"
           size="icon-sm"
+          className="[@media(pointer:coarse)]:size-11"
           data-iori-action="file-history"
           aria-label={t("File history")}
           title={t("File history")}
@@ -593,6 +615,7 @@ function FilesWorkspace({
         <Button
           variant="ghost"
           size="icon-sm"
+          className="[@media(pointer:coarse)]:size-11"
           data-iori-action="open-find"
           aria-label={t("Find")}
           title={t("Find (Ctrl+F)")}
@@ -604,123 +627,115 @@ function FilesWorkspace({
     </div>
   );
 
+  const fileError = infoError && (
+    <ReadingError
+      centered={!current}
+      retryLabel={
+        infoError.missing || (standalone && !current) ? t("Reload") : t("Retry")
+      }
+      action="file-retry"
+      onRetry={() => setInfoRequest((value) => value + 1)}
+    >
+      {infoError.message}
+    </ReadingError>
+  );
   let body: React.ReactNode = null;
-  if (!active)
-    body = <p className="reading-empty">{t("Choose a file from the list")}</p>;
-  else if (infoError && !current)
+  if (!active) body = <ReadingEmpty title={t("Choose a file from the list")} />;
+  else if (infoError && !current) body = fileError;
+  else if (!current || !position)
+    body = <ReadingLoading label={t("Loading")} rows={6} />;
+  else if (current.kind === "text" && current.lineCount === 0)
+    body = <ReadingEmpty title={t("This file is empty")} state="empty-file" />;
+  else if (rendered)
     body = (
-      <ReadingError
-        centered
-        retryLabel={standalone || infoError.missing ? t("Reload") : t("Retry")}
-        action="file-retry"
-        onRetry={() => setInfoRequest((value) => value + 1)}
-      >
-        {infoError.message}
-      </ReadingError>
+      <MarkdownSurface
+        transport={transport}
+        root={root}
+        info={current}
+        refresh={readRefresh}
+        position={position.markdown}
+        onPosition={(markdownPosition) =>
+          updatePosition((current) => ({
+            ...current,
+            markdown: markdownPosition,
+          }))
+        }
+        onOpen={open}
+        standalone={Boolean(standalone)}
+        onOpenFile={onOpenFile}
+        locale={locale}
+        findRequest={findRequest}
+        extraActions={menuActions}
+      />
     );
-  else if (current && position) {
-    if (current.kind === "text" && current.lineCount === 0)
-      body = (
-        <p className="reading-empty" data-iori-state="empty-file">
-          {t("This file is empty")}
-        </p>
-      );
-    else if (rendered)
-      body = (
-        <MarkdownSurface
-          transport={transport}
-          root={root}
-          info={current}
-          refresh={readRefresh}
-          position={position.markdown}
-          onPosition={(markdownPosition) =>
-            updatePosition((current) => ({
-              ...current,
-              markdown: markdownPosition,
-            }))
-          }
-          onOpen={open}
-          standalone={Boolean(standalone)}
-          onOpenFile={onOpenFile}
-          locale={locale}
-          findRequest={findRequest}
-          extraActions={menuActions}
-        />
-      );
-    else if (current.kind === "text")
-      body = (
-        <TextSurface
-          key={`${active}:${openRevision}`}
-          transport={transport}
-          root={root}
-          info={current}
-          refresh={readRefresh}
-          position={position}
-          onPosition={(value) =>
-            updatePosition((current) => ({ ...current, ...value }))
-          }
-          wrap={position.wrap}
-          locale={locale}
-          findRequest={findRequest}
-          goToRequest={goToRequest}
-          extraActions={menuActions}
-        />
-      );
-    else if (current.kind === "image")
-      body = (
-        <ImageSurface
-          transport={transport}
-          root={root}
-          info={current}
-          refresh={readRefresh}
-          locale={locale}
-        />
-      );
-    else if (current.kind === "symlink")
-      body = (
-        <p
-          className="reading-empty"
-          data-iori-state={`link-${current.symlinkTarget ?? "unknown"}`}
-        >
-          {current.symlinkTarget === "outside_root"
+  else if (current.kind === "text")
+    body = (
+      <TextSurface
+        key={`${active}:${openRevision}`}
+        transport={transport}
+        root={root}
+        info={current}
+        refresh={readRefresh}
+        position={position}
+        onPosition={(value) =>
+          updatePosition((current) => ({ ...current, ...value }))
+        }
+        wrap={position.wrap}
+        locale={locale}
+        findRequest={findRequest}
+        goToRequest={goToRequest}
+        extraActions={menuActions}
+      />
+    );
+  else if (current.kind === "image")
+    body = (
+      <ImageSurface
+        transport={transport}
+        root={root}
+        info={current}
+        refresh={readRefresh}
+        locale={locale}
+      />
+    );
+  else if (current.kind === "symlink")
+    body = (
+      <ReadingEmpty
+        state={`link-${current.symlinkTarget ?? "unknown"}`}
+        title={
+          current.symlinkTarget === "outside_root"
             ? t("This link points outside the open folder.")
-            : t("This link's target no longer exists.")}
-        </p>
-      );
-    else if (current.kind === "directory")
-      body = <p className="reading-empty">{t("This is a folder")}</p>;
-    else
-      body = (
-        <div
-          className="reading-empty"
-          data-iori-state={
-            current.kind === "binary" ? "binary-file" : "unsupported-file"
-          }
-        >
-          <p>
-            {current.kind === "binary"
-              ? t("This file cannot be shown as text")
-              : t("This format cannot be displayed")}
-          </p>
-          <p className="reading-muted">
-            {[
-              current.mimeType,
-              current.sizeBytes === undefined
-                ? undefined
-                : formatBytes(current.sizeBytes, locale),
-            ]
-              .filter(Boolean)
-              .join(" · ")}
-          </p>
-        </div>
-      );
-  }
+            : t("This link's target no longer exists.")
+        }
+      />
+    );
+  else if (current.kind === "directory")
+    body = <ReadingEmpty title={t("This is a folder")} />;
+  else
+    body = (
+      <ReadingEmpty
+        state={current.kind === "binary" ? "binary-file" : "unsupported-file"}
+        title={
+          current.kind === "binary"
+            ? t("This file cannot be shown as text")
+            : t("This format cannot be displayed")
+        }
+        description={[
+          current.mimeType,
+          current.sizeBytes === undefined
+            ? undefined
+            : formatBytes(current.sizeBytes, locale),
+        ]
+          .filter(Boolean)
+          .join(" · ")}
+      />
+    );
 
   const detail = (
     <>
       {header}
+      {current && fileError}
       <div
-        className="reading-body"
+        className="reading-body relative flex min-h-0 flex-1 flex-col"
         onKeyDown={(event) => {
           if (event.defaultPrevented || !(event.ctrlKey || event.metaKey))
             return;
@@ -739,9 +754,12 @@ function FilesWorkspace({
     </>
   );
 
+  const activeTabIndex = active ? view.tabs.indexOf(active) : -1;
+  const focusableTabIndex = activeTabIndex >= 0 ? activeTabIndex : 0;
+
   return (
     <div
-      className="files-pane"
+      className="files-pane flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background text-sm [&[hidden]]:hidden"
       aria-label={standalone ? t("File") : undefined}
       data-iori-view={standalone ? "file" : "files"}
       hidden={!visible}
@@ -773,11 +791,17 @@ function FilesWorkspace({
           onNarrow={setNarrow}
           list={list}
         >
-          <div className="reading-tabs" data-iori-part="file-tabs">
+          <div
+            className="flex h-9 flex-none items-center border-b border-border bg-sidebar [@media(pointer:coarse)]:h-11"
+            data-iori-part="file-tabs"
+          >
             <Button
               variant="ghost"
               size="icon-sm"
-              className={`reading-tabs-lead${narrow ? " reading-back" : ""}`}
+              className={cn(
+                "mx-0.5 ml-1 aria-pressed:bg-accent aria-pressed:text-accent-foreground [@media(pointer:coarse)]:size-11",
+                narrow && "[.mobile-retained-view_&]:hidden",
+              )}
               data-iori-action={narrow ? "reading-back" : "toggle-file-list"}
               aria-label={
                 narrow
@@ -797,84 +821,140 @@ function FilesWorkspace({
             >
               {narrow ? <ArrowLeft /> : <PanelLeft />}
             </Button>
-            <div ref={strip} className="reading-tab-strip" role="tablist">
-              {view.tabs.map((path, index) => (
-                <PathMenu
-                  key={path}
-                  path={
-                    info?.path === path ? info.absolutePath : `${root}/${path}`
-                  }
-                  locale={locale}
-                  showIcons={false}
-                  leadingActions={[
-                    {
-                      label: t("Close"),
-                      action: "file-tab-close",
-                      run: () => close(path),
-                    },
-                    {
-                      label: t("Close Others"),
-                      action: "file-tab-close-others",
-                      disabled: view.tabs.length === 1,
-                      run: () => closeTabs(path, "others"),
-                    },
-                    {
-                      label: t("Close to the Right"),
-                      action: "file-tab-close-right",
-                      disabled: index === view.tabs.length - 1,
-                      run: () => closeTabs(path, "right"),
-                    },
-                    {
-                      label: t("Close to the Left"),
-                      action: "file-tab-close-left",
-                      disabled: index === 0,
-                      run: () => closeTabs(path, "left"),
-                    },
-                    {
-                      label: t("Close All"),
-                      action: "file-tab-close-all",
-                      run: () => closeTabs(path, "all"),
-                    },
-                  ]}
-                  actions={[saveAction(path)]}
-                  separateActions={false}
-                >
-                  <div
+            <div
+              ref={strip}
+              role="tablist"
+              className="flex h-full min-w-0 flex-1 overflow-x-auto [scrollbar-width:none] [--tab-fade-left:0px] [--tab-fade-right:0px] [mask-image:linear-gradient(to_right,transparent,var(--foreground)_var(--tab-fade-left),var(--foreground)_calc(100%-var(--tab-fade-right)),transparent)] data-[left=true]:[--tab-fade-left:1rem] data-[right=true]:[--tab-fade-right:1rem]"
+            >
+              {view.tabs.map((path, index) => {
+                const isSelected = path === active;
+                return (
+                  <PathMenu
                     key={path}
-                    className="reading-tab"
-                    role="tab"
-                    aria-selected={path === active}
-                    data-iori-tab={path}
-                    title={path}
-                    onClick={() =>
-                      setView((value) => ({
-                        ...value,
-                        active: path,
-                        detailOpen: true,
-                      }))
+                    path={
+                      info?.path === path
+                        ? info.absolutePath
+                        : `${root}/${path}`
                     }
-                    onAuxClick={(event) => {
-                      if (event.button === 1) close(path);
-                    }}
+                    locale={locale}
+                    showIcons={false}
+                    leadingActions={[
+                      {
+                        label: t("Close"),
+                        action: "file-tab-close",
+                        run: () => close(path),
+                      },
+                      {
+                        label: t("Close Others"),
+                        action: "file-tab-close-others",
+                        disabled: view.tabs.length === 1,
+                        run: () => closeTabs(path, "others"),
+                      },
+                      {
+                        label: t("Close to the Right"),
+                        action: "file-tab-close-right",
+                        disabled: index === view.tabs.length - 1,
+                        run: () => closeTabs(path, "right"),
+                      },
+                      {
+                        label: t("Close to the Left"),
+                        action: "file-tab-close-left",
+                        disabled: index === 0,
+                        run: () => closeTabs(path, "left"),
+                      },
+                      {
+                        label: t("Close All"),
+                        action: "file-tab-close-all",
+                        run: () => closeTabs(path, "all"),
+                      },
+                    ]}
+                    actions={[saveAction(path)]}
+                    separateActions={false}
                   >
-                    <FileCode />
-                    <span>{path.split("/").at(-1)}</span>
-                    <button
-                      type="button"
-                      className="reading-tab-close"
-                      aria-label={t("Close {value1}").replace("{value1}", () =>
-                        String(path),
+                    <div
+                      className={cn(
+                        "group/tab flex h-full max-w-[15.5rem] flex-none items-center border-b-2 transition-colors select-none",
+                        isSelected
+                          ? "border-primary bg-background text-foreground"
+                          : "border-transparent text-muted-foreground hover:text-foreground",
                       )}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        close(path);
+                      title={path}
+                      onAuxClick={(event) => {
+                        if (event.button === 1) close(path);
                       }}
                     >
-                      <X />
-                    </button>
-                  </div>
-                </PathMenu>
-              ))}
+                      <button
+                        ref={(element) => {
+                          if (element) tabRefs.current.set(path, element);
+                          else tabRefs.current.delete(path);
+                        }}
+                        type="button"
+                        role="tab"
+                        aria-selected={isSelected}
+                        tabIndex={index === focusableTabIndex ? 0 : -1}
+                        data-iori-tab={path}
+                        className={cn(
+                          "flex h-full min-w-0 flex-1 cursor-pointer items-center gap-1.5 pr-1 pl-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset",
+                          isSelected ? "font-semibold" : "font-medium",
+                        )}
+                        onClick={() => selectTab(path)}
+                        onKeyDown={(event) => {
+                          const count = view.tabs.length;
+                          if (!count) return;
+                          if (event.key === "ArrowRight") {
+                            event.preventDefault();
+                            selectTab(view.tabs[(index + 1) % count]!, true);
+                          } else if (event.key === "ArrowLeft") {
+                            event.preventDefault();
+                            selectTab(
+                              view.tabs[(index - 1 + count) % count]!,
+                              true,
+                            );
+                          } else if (event.key === "Home") {
+                            event.preventDefault();
+                            selectTab(view.tabs[0]!, true);
+                          } else if (event.key === "End") {
+                            event.preventDefault();
+                            selectTab(view.tabs[count - 1]!, true);
+                          } else if (event.key === "Delete") {
+                            event.preventDefault();
+                            close(path, true);
+                          }
+                        }}
+                      >
+                        <FileCode
+                          className="size-3.5 shrink-0"
+                          aria-hidden="true"
+                        />
+                        <span className="truncate">
+                          {path.split("/").at(-1)}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        tabIndex={-1}
+                        className={cn(
+                          "mr-1 inline-flex size-[1.125rem] flex-none cursor-pointer items-center justify-center rounded-sm border-0 bg-transparent text-current transition-opacity outline-none hover:bg-accent focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/50",
+                          "[@media(pointer:coarse)]:mr-0 [@media(pointer:coarse)]:size-11",
+                          isSelected
+                            ? "opacity-100"
+                            : "opacity-0 group-hover/tab:opacity-100 [@media(pointer:coarse)]:pointer-events-none",
+                        )}
+                        aria-label={t("Close {value1}").replace(
+                          "{value1}",
+                          () => String(path),
+                        )}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          close(path);
+                        }}
+                      >
+                        <X className="size-3" aria-hidden="true" />
+                      </button>
+                    </div>
+                  </PathMenu>
+                );
+              })}
             </div>
           </div>
           {detail}

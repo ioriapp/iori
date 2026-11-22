@@ -1,6 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { Pin, RefreshCw } from "lucide-react";
+import { cn } from "cn";
 import {
   selectUsageWindow,
   statusBarUsageWindows,
@@ -33,7 +34,6 @@ import {
 } from "../usage-format.ts";
 import { useUsagePreferences } from "./preferences.tsx";
 import { refreshUsage, useUsageRefresh } from "./refresh.ts";
-import "./usage-status.css";
 
 type Shape = "circle" | "bar";
 type Display = "remaining" | "used";
@@ -152,17 +152,20 @@ function Graph({
   } as CSSProperties;
   return shape === "circle" ? (
     <svg
-      className={"usage-ring" + (detail ? " detail" : "")}
+      className={cn(
+        "flex-none fill-none stroke-[2]",
+        detail ? "size-5" : "size-3",
+      )}
       viewBox="0 0 16 16"
       aria-hidden="true"
       style={style}
     >
-      <circle cx="8" cy="8" r="6" className="usage-ring-track" />
+      <circle cx="8" cy="8" r="6" className="stroke-[var(--usage-track)]" />
       <circle
         cx="8"
         cy="8"
         r="6"
-        className="usage-ring-fill"
+        className="stroke-[var(--usage-color)]"
         pathLength="100"
         strokeDasharray={`${value} 100`}
         transform="rotate(-90 8 8)"
@@ -170,7 +173,10 @@ function Graph({
     </svg>
   ) : (
     <span
-      className={"usage-bar" + (detail ? " detail" : "")}
+      className={cn(
+        "block flex-none [&_[data-slot=progress]]:h-1 [&_[data-slot=progress]]:bg-[var(--usage-track)] [&_[data-slot=progress-indicator]]:bg-[var(--usage-color)]",
+        detail ? "w-24" : "w-6",
+      )}
       aria-hidden="true"
       style={style}
     >
@@ -183,17 +189,22 @@ function RefreshUsage({
   language,
   busy,
   onRefresh,
+  className,
 }: {
   language: Language;
   busy: boolean;
   onRefresh: () => void;
+  className?: string;
 }) {
   const label = language.toLowerCase().startsWith("ja")
     ? "利用枠を更新"
     : "Refresh usage";
   return (
     <Button
-      className="usage-heading-action usage-refresh-button"
+      className={cn(
+        "text-muted-foreground hover:text-foreground max-sm:size-11 [@media(pointer:coarse)]:size-11",
+        className,
+      )}
       variant="ghost"
       size="icon"
       disabled={busy}
@@ -234,12 +245,14 @@ function WindowPicker({
   const matched = findSelectedWindow(cli.windows, selected);
   const hasMatch = matched !== undefined;
   const value = matched ? windowKey(matched) : "";
+  const radioItemClass =
+    "whitespace-normal leading-snug [overflow-wrap:anywhere] max-sm:min-h-11 [@media(pointer:coarse)]:min-h-11 data-[highlighted]:bg-accent data-[state=checked]:bg-accent/80 data-[state=checked]:font-medium";
 
   return (
     <DropdownMenu modal={false} open={open} onOpenChange={onOpenChange}>
       <DropdownMenuTrigger asChild>
         <Button
-          className="usage-heading-action usage-pin-button"
+          className="text-muted-foreground hover:text-foreground data-[pinned]:text-primary data-[pinned]:hover:text-primary max-sm:-my-2 max-sm:size-11 [@media(pointer:coarse)]:-my-2 [@media(pointer:coarse)]:size-11"
           variant="ghost"
           size="icon"
           data-pinned={hasMatch || undefined}
@@ -250,7 +263,7 @@ function WindowPicker({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
-        className="usage-pin-menu-content"
+        className="max-w-[min(18.75rem,calc(100vw-1.5rem))] motion-reduce:animate-none"
         align="end"
         sideOffset={4}
       >
@@ -272,12 +285,18 @@ function WindowPicker({
             });
           }}
         >
-          <DropdownMenuRadioItem value="">{autoLabel}</DropdownMenuRadioItem>
+          <DropdownMenuRadioItem className={radioItemClass} value="">
+            {autoLabel}
+          </DropdownMenuRadioItem>
           <DropdownMenuSeparator />
           {cli.windows.map((window, index) => {
             const key = windowKey(window);
             return (
-              <DropdownMenuRadioItem key={`${key}-${index}`} value={key}>
+              <DropdownMenuRadioItem
+                className={radioItemClass}
+                key={`${key}-${index}`}
+                value={key}
+              >
                 {windowLabel(window)}
               </DropdownMenuRadioItem>
             );
@@ -319,14 +338,20 @@ function UsageDetail({
     : undefined;
 
   return (
-    <section className="usage-detail" aria-labelledby={headingId}>
-      <div className="usage-detail-heading">
-        <h2 id={headingId}>
+    <section
+      className="usage-detail min-w-0 flex-none [&+.usage-detail]:mt-3.5 [&+.usage-detail]:border-t [&+.usage-detail]:border-border [&+.usage-detail]:pt-3.5"
+      aria-labelledby={headingId}
+    >
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <h2
+          id={headingId}
+          className="m-0 flex min-w-0 items-center gap-2 text-sm font-semibold text-foreground [overflow-wrap:anywhere]"
+        >
           <CliIcon cli={cli} hostKey={cli.hostKey} size={16} />
           {cli.name}
         </h2>
         {(selectable || refresh) && (
-          <div className="usage-detail-actions">
+          <div className="inline-flex flex-none items-center gap-0.5 max-sm:-me-2 max-sm:gap-0 [@media(pointer:coarse)]:-me-2 [@media(pointer:coarse)]:gap-0">
             {selectable && (
               <WindowPicker
                 cli={cli}
@@ -339,6 +364,7 @@ function UsageDetail({
             )}
             {refresh && (
               <RefreshUsage
+                className="max-sm:-my-2 [@media(pointer:coarse)]:-my-2"
                 language={language}
                 busy={refresh.busy}
                 onRefresh={refresh.onRefresh}
@@ -348,7 +374,9 @@ function UsageDetail({
         )}
       </div>
       {updatedAt !== undefined && (
-        <p className="usage-updated">{formatUpdatedAt(updatedAt, language)}</p>
+        <p className="mt-0 mb-3 text-xs text-muted-foreground">
+          {formatUpdatedAt(updatedAt, language)}
+        </p>
       )}
       {cli.windows.map((window, index) => {
         const isPinned = window === pinnedWindow;
@@ -357,17 +385,17 @@ function UsageDetail({
         const labelHead = lastSpace === -1 ? "" : label.slice(0, lastSpace + 1);
         const labelTail = lastSpace === -1 ? label : label.slice(lastSpace + 1);
         return (
-          <div className={"usage-window " + shape} key={index}>
-            <div className="usage-window-line">
-              <span className="usage-window-name">
+          <div className="mt-3.5 first:mt-0" key={index}>
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
                 {isPinned ? (
                   <>
                     {labelHead}
-                    <span className="usage-window-name-tail">
+                    <span className="whitespace-nowrap">
                       {labelTail}
                       <Pin
                         size={11}
-                        className="usage-window-pin"
+                        className="ms-1 inline align-[-0.125rem] text-primary"
                         aria-hidden="true"
                       />
                     </span>
@@ -378,7 +406,7 @@ function UsageDetail({
               </span>
               <Graph window={window} shape={shape} display={display} detail />
               <span
-                className="usage-window-percentage"
+                className="w-[9ch] min-w-[9ch] flex-none text-end whitespace-nowrap tabular-nums"
                 style={{ color: numberTone(window) }}
               >
                 {percentage(window, display)}%{" "}
@@ -386,7 +414,7 @@ function UsageDetail({
               </span>
             </div>
             {window.resetsAt !== undefined && (
-              <p className="usage-reset">
+              <p className="mt-1 mb-0 text-xs text-muted-foreground tabular-nums">
                 {resetLabel(window.resetsAt, language)}
               </p>
             )}
@@ -487,7 +515,7 @@ function UsagePopup({
 
   return (
     <PopoverContent
-      className="usage-status-popover"
+      className="usage-status-popover relative w-[22.75rem] max-w-[calc(100vw-1.25rem)] gap-0 overflow-visible rounded-lg border border-border bg-popover p-0 text-xs shadow-md motion-reduce:animate-none before:absolute before:inset-x-0 before:top-full before:h-2.5 before:content-[''] data-[mobile]:w-[calc(100vw-1.25rem)]"
       data-mobile={mobile || undefined}
       side="top"
       align="end"
@@ -513,9 +541,12 @@ function UsagePopup({
       }
     >
       {isAll && (
-        <div className="usage-popup-global-heading">
-          <h2>{allUsage(language)}</h2>
+        <div className="flex h-12 items-center justify-between gap-2 border-b border-border-subtle px-4 pt-3 pb-2 max-sm:py-0.5 [@media(pointer:coarse)]:py-0.5">
+          <h2 className="m-0 font-heading text-base font-semibold text-foreground">
+            {allUsage(language)}
+          </h2>
           <RefreshUsage
+            className="max-sm:-me-2 [@media(pointer:coarse)]:-me-2"
             language={language}
             busy={clis.some((cli) => refreshing.includes(cli.id))}
             onRefresh={() => void onRefresh(clis.map((cli) => cli.id))}
@@ -523,7 +554,7 @@ function UsagePopup({
         </div>
       )}
       <div
-        className="usage-popup-scroll"
+        className="flex min-h-0 flex-col gap-0 overflow-y-auto rounded-[inherit] bg-popover px-4 pt-4 pb-7 [scrollbar-color:var(--border)_transparent]"
         ref={setBody}
         style={{ maxHeight: bodyLimit }}
         data-more={more || undefined}
@@ -711,6 +742,12 @@ export function UsageStatus({
     language.toLowerCase().startsWith("ja")
       ? `ほかの利用枠 ${count}件`
       : `${count} more usage limits`;
+  const triggerBaseClass =
+    "h-[1.125rem] gap-1.5 rounded-sm px-1.5 text-[length:inherit] font-normal text-muted-foreground aria-expanded:border-primary/55 aria-expanded:bg-primary/6 aria-expanded:font-semibold";
+  const usageItemClass = cn(
+    "usage-item border border-transparent bg-transparent hover:bg-primary/6 focus-visible:bg-primary/6",
+    triggerBaseClass,
+  );
   const content = (cli: Cli) => {
     const saved = selectedWindows[cli.id];
     const pinnedMatch = findSelectedWindow(cli.windows, saved);
@@ -720,13 +757,10 @@ export function UsageStatus({
       <>
         <CliIcon cli={cli} hostKey={hostKey} size={14} />
         <span
-          className={"usage-mini-graphs " + shape}
-          style={
-            {
-              "--usage-mini-bar-height": "4px",
-              "--usage-mini-gap": "2px",
-            } as CSSProperties
-          }
+          className={cn(
+            "usage-mini-graphs flex items-center max-sm:hidden",
+            shape === "bar" ? "flex-col gap-0.5" : "gap-1",
+          )}
         >
           {windows.map((window, index) => (
             <Graph
@@ -737,7 +771,7 @@ export function UsageStatus({
             />
           ))}
         </span>
-        <span className="usage-number" style={{ color: numberTone(active) }}>
+        <span className="tabular-nums" style={{ color: numberTone(active) }}>
           {percentage(active, display)}%
         </span>
       </>
@@ -780,7 +814,7 @@ export function UsageStatus({
     if (measuring)
       return (
         <Button
-          className="usage-item"
+          className={usageItemClass}
           variant="ghost"
           size="sm"
           tabIndex={-1}
@@ -797,7 +831,7 @@ export function UsageStatus({
       >
         <PopoverTrigger asChild>
           <Button
-            className="usage-item"
+            className={usageItemClass}
             variant="ghost"
             size="sm"
             aria-label={usageLabel(
@@ -825,7 +859,10 @@ export function UsageStatus({
   if (!clis.length) return null;
   return (
     <>
-      <div className="usage-status-items" ref={line}>
+      <div
+        className="flex min-w-0 flex-1 items-center justify-end gap-1.5"
+        ref={line}
+      >
         {mobile ? (
           <Popover
             open={opened !== null}
@@ -835,7 +872,10 @@ export function UsageStatus({
               <Button
                 variant="ghost"
                 size="sm"
-                className="usage-mobile-trigger"
+                className={cn(
+                  triggerBaseClass,
+                  "min-w-0 max-sm:h-[1.375rem] max-sm:px-0",
+                )}
                 aria-label={clis
                   .slice(0, visible)
                   .map((cli) =>
@@ -853,7 +893,10 @@ export function UsageStatus({
                 }}
               >
                 {clis.slice(0, visible).map((cli) => (
-                  <span className="usage-mobile-cli" key={cli.id}>
+                  <span
+                    className="inline-flex items-center gap-1.5 px-1.5"
+                    key={cli.id}
+                  >
                     {content(cli)}
                   </span>
                 ))}
@@ -862,7 +905,7 @@ export function UsageStatus({
                     asChild
                     variant="outline"
                     size="sm"
-                    className="usage-more"
+                    className={cn("usage-more", triggerBaseClass)}
                   >
                     <span aria-hidden="true">+{clis.length - visible}</span>
                   </Button>
@@ -881,7 +924,7 @@ export function UsageStatus({
               >
                 <PopoverTrigger asChild>
                   <Button
-                    className="usage-more"
+                    className={cn("usage-more", triggerBaseClass)}
                     variant="outline"
                     size="sm"
                     aria-label={moreLabel(clis.length - visible)}
@@ -905,12 +948,17 @@ export function UsageStatus({
           </>
         )}
       </div>
-      <div className="usage-measure" ref={buttons} aria-hidden="true" inert>
+      <div
+        className="pointer-events-none invisible absolute right-0 bottom-0 flex w-max gap-1.5"
+        ref={buttons}
+        aria-hidden="true"
+        inert
+      >
         {clis.map((cli) => item(cli, true))}
         <Button
           variant="outline"
           size="sm"
-          className="usage-more"
+          className={cn("usage-more", triggerBaseClass)}
           tabIndex={-1}
         >
           +{clis.length}

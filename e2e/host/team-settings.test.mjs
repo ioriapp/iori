@@ -113,6 +113,59 @@ test("既定チームを隠すと既定が解除され、戻しても解除さ�
     );
   }));
 
+test("チーム一覧は開ける会話の数をチームごとに返す", (t) =>
+  runHostTest(t, async ({ client, dataRoot, stage }) => {
+    const cli = await registerScriptedCli(client, dataRoot);
+    const createTeam = async (name) =>
+      (
+        await client.request("teams.create", {
+          definition: {
+            name,
+            description: "",
+            instruction: "",
+            parent: { id: "parent", cli, model: "", tools: [], minimum: "" },
+            roles: [],
+          },
+        })
+      ).saved.id;
+    const firstTeam = await createTeam("First");
+    const secondTeam = await createTeam("Second");
+    const unusedTeam = await createTeam("Unused");
+    const launchTeam = (teamId) =>
+      client.request("team.launch", { teamId, cwd: dataRoot });
+    const counts = async () => {
+      const { teams } = await client.request("teams.list");
+      return Object.fromEntries(
+        teams.map(({ saved, conversationCount }) => [
+          saved.id,
+          conversationCount,
+        ]),
+      );
+    };
+
+    stage("同じフォルダーでチームごとに会話を開始する");
+    const { terminal } = await launchTeam(firstTeam);
+    await launchTeam(firstTeam);
+    await launchTeam(secondTeam);
+    await client.request("cli.launch", { cliId: cli, cwd: dataRoot });
+    assert.deepEqual(await counts(), {
+      [firstTeam]: 2,
+      [secondTeam]: 1,
+      [unusedTeam]: 0,
+    });
+
+    stage("閉じた会話は件数から除かれる");
+    await client.request("terminal.close", {
+      terminalId: terminal.id,
+      confirm: true,
+    });
+    assert.deepEqual(await counts(), {
+      [firstTeam]: 1,
+      [secondTeam]: 1,
+      [unusedTeam]: 0,
+    });
+  }));
+
 test("CLIとモデルの上限設定をHost再起動後も保持する", (t) =>
   runHostTest(t, async ({ client, restart, stage }) => {
     stage("CLIとモデルの上限を保存する");

@@ -138,7 +138,9 @@ test(
       .fill(["{", '  "schema": 1,', '  "id": "bad-json",', "}"].join("\n"));
     await page.getByRole("button", { name: "Add", exact: true }).click();
     await expect(
-      page.locator('[data-iori-view="cli-definition-add"] .cli-def-error'),
+      page.locator(
+        '[data-iori-view="cli-definition-add"] [data-iori-state="cli-definition-error"]',
+      ),
     ).toContainText("The JSON format is not valid (line 4, column 1).");
     await expect(
       page.locator('[data-iori-view="cli-definition-confirmation"]'),

@@ -1,15 +1,14 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { GitBranch } from "lucide-react";
 import type {
   GitHubAccounts,
   RepositoryGitSettings as Settings,
 } from "@iori/protocol";
 import { connection } from "./connection.ts";
 import { basename } from "./workspace-panel.tsx";
+import { AsyncState } from "./components/AsyncState.tsx";
 import { Input } from "./components/ui/input.tsx";
-import {
-  useSettingsEditor,
-  type RegisterSettingsEditor,
-} from "./settings-save.ts";
+import type { RegisterSettingsEditor } from "./settings-save.ts";
 import {
   SettingsSection,
   LoadRecovery,
@@ -23,6 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./components/ui/select.tsx";
+import { useSaveableSettingsEditor } from "./settings/shared.tsx";
 
 type Props = {
   hostKey: string;
@@ -77,69 +77,102 @@ export function withCode(text: string, codes: string[]) {
     `(${codes.map((code) => code.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")).join("|")})`,
     "u",
   );
-  return text
-    .split(pattern)
-    .map((part, index) =>
-      codes.includes(part) ? <code key={index}>{part}</code> : part,
-    );
+  return text.split(pattern).map((part, index) =>
+    codes.includes(part) ? (
+      <code
+        key={index}
+        className="rounded-xs bg-muted px-1.5 py-0.5 font-mono text-[0.9em] whitespace-nowrap [font-variant-ligatures:none]"
+      >
+        {part}
+      </code>
+    ) : (
+      part
+    ),
+  );
 }
 
 export function GitHubSettings({ hostKey, t }: Props) {
   const { accounts, failed, load } = useGitHubAccounts(hostKey);
+  const mode = failed && !accounts ? "error" : !accounts ? "loading" : "ready";
+
   return (
     <SettingsSection
       title="GitHub"
       description={withCode(t("This Host uses its gh login."), ["gh"])}
       data-iori-view="github-settings"
     >
-      {failed && (
-        <div>
-          <Recovery failed={failed} load={load} t={t} />
-        </div>
-      )}
-      {accounts &&
-        (!accounts.available ? (
-          <p data-iori-state="github-missing">
-            {withCode(t("gh was not found."), ["gh"])}
-          </p>
-        ) : accounts.accounts.length === 0 ? (
-          <p data-iori-state="github-signed-out">
-            {withCode(t("Run gh auth login in a Terminal on this Host."), [
-              "gh auth login",
-            ])}
-          </p>
-        ) : (
-          <>
-            {accounts.accounts.map((account) => (
-              <FieldRow
-                key={account.login}
-                data-iori-github-account={account.login}
-                label={account.login}
-                description={
-                  account.active || !account.verified ? (
-                    <>
-                      {account.active && (
-                        <span data-iori-state="github-active">
-                          {t("Active account")}
-                        </span>
-                      )}
-                      {account.active && !account.verified && " · "}
-                      {!account.verified && t("Could not verify")}
-                    </>
-                  ) : undefined
-                }
-              />
-            ))}
-            <p className="settings-note">
-              {withCode(
-                t(
-                  "Use gh auth switch in a Terminal on this Host to change the active account.",
-                ),
-                ["gh auth switch"],
-              )}
-            </p>
-          </>
-        ))}
+      <div data-section-flush="">
+        <AsyncState
+          mode={mode}
+          t={t}
+          compact
+          skeletonRows={2}
+          emptyTitle=""
+          errorTitle={t("Could not load settings. Retry.")}
+          retryLabel={t("Retry")}
+          onRetry={() => void load()}
+          className="border-y-0 px-0"
+        >
+          <div className="flex flex-col divide-y divide-border-subtle">
+            {failed && accounts && (
+              <div className="py-3.5">
+                <Recovery failed={failed} load={load} t={t} />
+              </div>
+            )}
+            {accounts &&
+              (!accounts.available ? (
+                <p
+                  className="m-0 py-3.5 text-sm text-muted-foreground"
+                  data-iori-state="github-missing"
+                >
+                  {withCode(t("gh was not found."), ["gh"])}
+                </p>
+              ) : accounts.accounts.length === 0 ? (
+                <p
+                  className="m-0 py-3.5 text-sm text-muted-foreground"
+                  data-iori-state="github-signed-out"
+                >
+                  {withCode(
+                    t("Run gh auth login in a Terminal on this Host."),
+                    ["gh auth login"],
+                  )}
+                </p>
+              ) : (
+                <>
+                  {accounts.accounts.map((account) => (
+                    <FieldRow
+                      key={account.login}
+                      className="py-3.5"
+                      data-iori-github-account={account.login}
+                      label={account.login}
+                      description={
+                        account.active || !account.verified ? (
+                          <>
+                            {account.active && (
+                              <span data-iori-state="github-active">
+                                {t("Active account")}
+                              </span>
+                            )}
+                            {account.active && !account.verified && " · "}
+                            {!account.verified && t("Could not verify")}
+                          </>
+                        ) : undefined
+                      }
+                    />
+                  ))}
+                  <p className="m-0 py-3.5 text-xs leading-relaxed text-muted-foreground">
+                    {withCode(
+                      t(
+                        "Use gh auth switch in a Terminal on this Host to change the active account.",
+                      ),
+                      ["gh auth switch"],
+                    )}
+                  </p>
+                </>
+              ))}
+          </div>
+        </AsyncState>
+      </div>
     </SettingsSection>
   );
 }
@@ -154,6 +187,7 @@ function SavedText({
   url = false,
   t,
   description,
+  nested = false,
 }: {
   value: string;
   onSave: (value: string) => Promise<string>;
@@ -163,6 +197,7 @@ function SavedText({
   url?: boolean;
   t: Props["t"];
   description?: string;
+  nested?: boolean;
 }) {
   const id = useId();
   const [value, setValue] = useState(initial);
@@ -171,6 +206,7 @@ function SavedText({
   const [busy, setBusy] = useState(false);
   const draft = useRef(initial);
   const baseline = useRef(initial);
+
   useEffect(() => {
     if (draft.current === baseline.current) {
       draft.current = initial;
@@ -178,18 +214,18 @@ function SavedText({
     }
     baseline.current = initial;
   }, [initial]);
-  useSettingsEditor(
-    () => draft.current !== baseline.current,
-    registerEditor,
-    () => {
-      draft.current = baseline.current;
-      setValue(baseline.current);
-      setSaved(false);
-      setError("");
-    },
-  );
-  const save = async () => {
-    if (busy) return;
+
+  const dirty = value !== baseline.current;
+
+  const discard = () => {
+    draft.current = baseline.current;
+    setValue(baseline.current);
+    setSaved(false);
+    setError("");
+  };
+
+  const save = async (): Promise<boolean> => {
+    if (busy) return false;
     const submitted = draft.current;
     setBusy(true);
     setSaved(false);
@@ -202,27 +238,38 @@ function SavedText({
         setValue(result);
         setSaved(true);
       }
-    } catch (error) {
+      return true;
+    } catch (err) {
       setError(
-        error instanceof Error && error.message === "url"
+        err instanceof Error && err.message === "url"
           ? "Enter an http or https URL."
           : "Could not save. Press Save or Enter to retry.",
       );
+      return false;
     } finally {
       setBusy(false);
     }
   };
-  return (
-    <SettingsSection
-      title={<label htmlFor={id}>{t(label)}</label>}
-      onSave={() => void save()}
-    >
-      <FieldRow stacked>
+
+  useSaveableSettingsEditor(
+    dirty,
+    () => draft.current !== baseline.current,
+    registerEditor,
+    discard,
+    save,
+  );
+
+  const inputBody = (
+    <>
+      <FieldRow
+        stacked
+        label={nested ? <label htmlFor={id}>{t(label)}</label> : undefined}
+      >
         <Input
           id={id}
           value={value}
           data-iori-field={field}
-          className="font-mono"
+          className="font-mono [font-variant-ligatures:none]"
           aria-invalid={Boolean(error)}
           onChange={(event) => {
             draft.current = event.target.value;
@@ -235,17 +282,56 @@ function SavedText({
           autoCorrect="off"
           spellCheck={false}
         />
-        {description && <p className="settings-note">{description}</p>}
+        {description && (
+          <p className="m-0 text-xs leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
+            {description}
+          </p>
+        )}
       </FieldRow>
       <SectionSave
         t={t}
         busy={busy}
+        dirty={dirty}
         action={`save-${field}`}
+        onDiscard={discard}
         onSave={() => void save()}
         error={Boolean(error)}
         state="saved"
         message={error ? t(error) : saved ? t("Settings saved") : undefined}
       />
+    </>
+  );
+
+  if (nested) {
+    return (
+      <div
+        className="flex min-w-0 flex-col gap-2 pt-2"
+        onKeyDown={(event) => {
+          if (
+            !event.defaultPrevented &&
+            event.key === "Enter" &&
+            !event.nativeEvent.isComposing &&
+            event.target instanceof HTMLInputElement &&
+            (dirty || Boolean(error))
+          ) {
+            event.preventDefault();
+            void save();
+          }
+        }}
+      >
+        {inputBody}
+      </div>
+    );
+  }
+
+  return (
+    <SettingsSection
+      title={<label htmlFor={id}>{t(label)}</label>}
+      onSave={() => {
+        if (dirty || Boolean(error)) void save();
+      }}
+    >
+      {inputBody}
     </SettingsSection>
   );
 }
@@ -316,6 +402,7 @@ function GitHubAccountSetting({
         >
           <SelectTrigger
             id="repository-github-account"
+            className="w-56 max-w-full max-sm:w-full"
             data-iori-field="repository-github-account"
           >
             <SelectValue />
@@ -347,22 +434,19 @@ function GitHubAccountSetting({
         </Select>
       </FieldRow>
       {accounts && !accounts.available && (
-        <p className="settings-note">{t("gh was not found.")}</p>
+        <p className="m-0 text-xs leading-relaxed text-muted-foreground">
+          {t("gh was not found.")}
+        </p>
       )}
       {accounts?.available && accounts.accounts.length === 0 && (
-        <p className="settings-note">
-          {t("Run gh auth login in a Terminal on this Host.")
-            .split("gh auth login")
-            .map((part, index) => (
-              <span key={index}>
-                {index > 0 && <code>gh auth login</code>}
-                {part}
-              </span>
-            ))}
+        <p className="m-0 text-xs leading-relaxed text-muted-foreground">
+          {withCode(t("Run gh auth login in a Terminal on this Host."), [
+            "gh auth login",
+          ])}
         </p>
       )}
       {error && (
-        <p className="connection-error" role="alert">
+        <p className="m-0 text-xs text-status-failed-text" role="alert">
           {t("Could not save the account. Choose it again to retry.")}
         </p>
       )}
@@ -409,64 +493,87 @@ export function RepositoryGitSettings({
       stop();
     };
   }, [hostKey, load]);
+
+  const mode = failed && !settings ? "error" : !settings ? "loading" : "ready";
+
   return (
     <div
-      className="git-settings"
+      className="flex min-w-0 flex-col gap-7"
       data-iori-view="repository-git-settings"
       data-iori-repository-path={path}
     >
-      <Recovery failed={failed} load={load} t={t} />
-      {settings && (
-        <>
-          <SavedText
-            value={settings.setupCommand}
-            field="repository-setup-command"
-            registerEditor={registerEditor}
-            label="Command to run after creating a worktree"
-            t={t}
-            onSave={async (setupCommand) => {
-              const response = await connection.requestHost(
-                hostKey,
-                "repository.git.set",
-                { path, setupCommand },
-              );
-              if (!response?.ok) throw new Error();
-              return response.result.setupCommand;
-            }}
-          />
-          <SettingsSection title={t("Remotes and websites")}>
-            {settings.remotes.length === 0 && (
-              <p className="settings-note">
-                {t("No remotes. Add a remote in a Terminal.")}
-              </p>
-            )}
-            {settings.remotes.map((remote) => (
-              <div
-                className="git-remote"
-                key={`${remote.name}:${remote.url}`}
-                data-iori-remote-name={remote.name}
-                data-iori-forge-host={remote.remoteHost}
-              >
-                <strong>{remote.name}</strong>
-                <p className="git-remote-url">{remote.url}</p>
-                {remote.forge && (
-                  <p className="settings-note" data-iori-value="remote-website">
-                    {remote.forge.label}
-                    {remote.forge.id !== "github" ? `（${remote.webUrl}）` : ""}
+      <AsyncState
+        mode={mode}
+        t={t}
+        compact
+        skeletonRows={3}
+        emptyIcon={<GitBranch className="size-4" aria-hidden="true" />}
+        emptyTitle=""
+        errorTitle={t("Could not load settings. Retry.")}
+        retryLabel={t("Retry")}
+        onRetry={() => void load()}
+      >
+        {failed && settings && <Recovery failed={failed} load={load} t={t} />}
+        {settings && (
+          <>
+            <SavedText
+              value={settings.setupCommand}
+              field="repository-setup-command"
+              registerEditor={registerEditor}
+              label="Command to run after creating a worktree"
+              t={t}
+              onSave={async (setupCommand) => {
+                const response = await connection.requestHost(
+                  hostKey,
+                  "repository.git.set",
+                  { path, setupCommand },
+                );
+                if (!response?.ok) throw new Error();
+                return response.result.setupCommand;
+              }}
+            />
+            <SettingsSection title={t("Remotes and websites")}>
+              {settings.remotes.length === 0 && (
+                <p className="m-0 text-xs leading-relaxed text-muted-foreground">
+                  {t("No remotes. Add a remote in a Terminal.")}
+                </p>
+              )}
+              {settings.remotes.map((remote) => (
+                <div
+                  className="flex min-w-0 flex-col gap-1.5"
+                  key={`${remote.name}:${remote.url}`}
+                  data-iori-remote-name={remote.name}
+                  data-iori-forge-host={remote.remoteHost}
+                >
+                  <strong className="text-sm font-semibold text-foreground">
+                    {remote.name}
+                  </strong>
+                  <p className="m-0 font-mono text-xs text-muted-foreground [overflow-wrap:anywhere] [font-variant-ligatures:none]">
+                    {remote.url}
                   </p>
-                )}
-                {remote.detecting && (
-                  <p
-                    className="settings-note"
-                    data-iori-state="forge-detecting"
-                  >
-                    {t("Checking website…")}
-                  </p>
-                )}
-                {remote.remoteHost &&
-                  (remote.mapping !== undefined || !remote.forge) && (
-                    <>
+                  {remote.forge && (
+                    <p
+                      className="m-0 text-xs leading-relaxed text-muted-foreground [overflow-wrap:anywhere]"
+                      data-iori-value="remote-website"
+                    >
+                      {remote.forge.label}
+                      {remote.forge.id !== "github"
+                        ? `（${remote.webUrl}）`
+                        : ""}
+                    </p>
+                  )}
+                  {remote.detecting && (
+                    <p
+                      className="m-0 text-xs leading-relaxed text-muted-foreground"
+                      data-iori-state="forge-detecting"
+                    >
+                      {t("Checking website…")}
+                    </p>
+                  )}
+                  {remote.remoteHost &&
+                    (remote.mapping !== undefined || !remote.forge) && (
                       <SavedText
+                        nested
                         value={remote.mapping ?? ""}
                         field="forge-web-url"
                         registerEditor={registerEditor}
@@ -513,13 +620,13 @@ export function RepositoryGitSettings({
                           return webUrl;
                         }}
                       />
-                    </>
-                  )}
-              </div>
-            ))}
-          </SettingsSection>
-          {settings.remotes.some((remote) => remote.forge?.id === "github") && (
-            <>
+                    )}
+                </div>
+              ))}
+            </SettingsSection>
+            {settings.remotes.some(
+              (remote) => remote.forge?.id === "github",
+            ) && (
               <GitHubAccountSetting
                 hostKey={hostKey}
                 path={path}
@@ -527,10 +634,10 @@ export function RepositoryGitSettings({
                 automaticAccount={settings.githubAutoAccount}
                 t={t}
               />
-            </>
-          )}
-        </>
-      )}
+            )}
+          </>
+        )}
+      </AsyncState>
     </div>
   );
 }

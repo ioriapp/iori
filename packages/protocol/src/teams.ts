@@ -157,7 +157,7 @@ export type TeamSettings = {
   limits: Record<string, string>;
 };
 export type TeamList = TeamSettings & {
-  teams: (TeamRecord & { hidden: boolean })[];
+  teams: (TeamRecord & { hidden: boolean; conversationCount?: number })[];
   templates: Record<string, TeamDefinition>;
   cliNames: Record<string, string>;
   usageClis?: string[];

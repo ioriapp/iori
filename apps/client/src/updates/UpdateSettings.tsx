@@ -52,6 +52,7 @@ export function SettingsUpdateMark({ t }: { t: (key: string) => string }) {
     />
   );
 }
+
 export function UpdateSettings({
   t,
   receiveDevelopmentVersions,
@@ -76,7 +77,6 @@ export function UpdateSettings({
   return (
     <SettingsSection title={t("Updates")} data-iori-view="client-update">
       <FieldRow
-        className="v9-settings-row"
         label={t("Current version")}
         description={
           update.latest && !update.available && !update.error
@@ -84,8 +84,10 @@ export function UpdateSettings({
             : undefined
         }
       >
-        <div className="update-current-controls">
-          <span>{update.options.version}</span>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <span className="font-mono text-xs text-muted-foreground tabular-nums">
+            {update.options.version}
+          </span>
           <Button
             variant="outline"
             size="sm"
@@ -98,15 +100,15 @@ export function UpdateSettings({
           </Button>
         </div>
       </FieldRow>
-      <FieldRow className="v9-settings-row v9-settings-switch-row">
-        <span>
+      <FieldRow
+        label={
           <label htmlFor="receive-development-versions">
             {t("Receive development versions")}
           </label>
-          <span className="settings-note block">
-            {t("Also update to versions that are still being tested.")}
-          </span>
-        </span>
+        }
+        description={t("Also update to versions that are still being tested.")}
+        error={preferenceError}
+      >
         <Switch
           id="receive-development-versions"
           data-iori-action="receive-development-versions"
@@ -114,17 +116,18 @@ export function UpdateSettings({
           disabled={update.phase === "installing"}
           onCheckedChange={onDevelopmentVersionsChange}
         />
-        {preferenceError}
       </FieldRow>
       {(update.available ||
         (update.phase === "installing" && update.confirmationAvailable)) && (
         <FieldRow
-          className="v9-settings-row"
           label={
             update.available ? (
               <>
                 {t("New version")}{" "}
-                <span data-iori-state="update-version">
+                <span
+                  className="font-mono tabular-nums"
+                  data-iori-state="update-version"
+                >
                   {update.available.version}
                 </span>
               </>
@@ -184,20 +187,21 @@ export function UpdateSettings({
         </FieldRow>
       )}
       {update.available && update.options.administratorApproval && (
-        <p className="settings-note">
+        <p className="m-0 text-xs leading-relaxed text-muted-foreground">
           {t("Updating asks for administrator approval.")}
         </p>
       )}
       {update.available && hostCount > 0 && (
-        <FieldRow className="v9-settings-row v9-settings-switch-row">
-          <span>
+        <FieldRow
+          label={
             <label htmlFor="update-connected-hosts">
               {t("Also update connected iori Hosts ({count})").replace(
                 "{count}",
                 String(hostCount),
               )}
             </label>
-          </span>
+          }
+        >
           <Checkbox
             id="update-connected-hosts"
             data-iori-field="update-connected-hosts"
@@ -210,7 +214,7 @@ export function UpdateSettings({
         </FieldRow>
       )}
       {update.phase === "permission" && (
-        <p className="settings-note">
+        <p className="m-0 text-xs leading-relaxed text-muted-foreground">
           {t(
             "Allow apps from this source in Android settings, then return to continue. If a list of apps appears, select iori.",
           )}
@@ -218,7 +222,10 @@ export function UpdateSettings({
       )}
       {update.phase === "downloading" && update.progress && (
         <div className="space-y-2">
-          <p className="settings-note" role="status">
+          <p
+            className="m-0 text-xs leading-relaxed text-muted-foreground"
+            role="status"
+          >
             {t("Downloading update")} {progress}%
           </p>
           <Progress value={progress} aria-label={t("Downloading update")} />
@@ -226,7 +233,7 @@ export function UpdateSettings({
       )}
       {update.error && (
         <p
-          className="connection-error"
+          className="m-0 text-xs leading-relaxed text-status-failed-text"
           role="alert"
           data-iori-state="update-error"
         >

@@ -23,9 +23,11 @@ export function SetupFields({
   children?: ReactNode;
 }) {
   return (
-    <div className="ssh-setup-fields">
-      <label className="ssh-setup-field">
-        <span className="field-label">{t("This device’s name")}</span>
+    <div className="grid gap-4">
+      <label className="grid min-w-0 gap-2 text-sm">
+        <span className="font-medium text-foreground">
+          {t("This device’s name")}
+        </span>
         <Input
           value={name}
           disabled={disabled}
@@ -33,12 +35,12 @@ export function SetupFields({
           onChange={(event) => onName(event.target.value)}
           data-iori-field="device-name"
         />
-        <span className="ssh-setup-help">
+        <span className="text-xs text-muted-foreground">
           {t("This name appears in the iori Host device list.")}
         </span>
       </label>
-      <div className="ssh-setup-field">
-        <span className="field-label">{t("Destination")}</span>
+      <div className="grid min-w-0 gap-2 text-sm">
+        <span className="font-medium text-foreground">{t("Destination")}</span>
         <ToggleGroup
           type="single"
           variant="outline"
@@ -49,10 +51,18 @@ export function SetupFields({
           disabled={disabled}
           className="justify-start"
         >
-          <ToggleGroupItem value="local" data-iori-action="setup-local">
+          <ToggleGroupItem
+            className="[@media(pointer:coarse)]:min-h-11"
+            value="local"
+            data-iori-action="setup-local"
+          >
             {t("This PC")}
           </ToggleGroupItem>
-          <ToggleGroupItem value="ssh" data-iori-action="setup-ssh">
+          <ToggleGroupItem
+            className="[@media(pointer:coarse)]:min-h-11"
+            value="ssh"
+            data-iori-action="setup-ssh"
+          >
             {t("Another machine (SSH)")}
           </ToggleGroupItem>
         </ToggleGroup>

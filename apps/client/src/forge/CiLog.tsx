@@ -14,6 +14,7 @@ import {
   type ForgeCiStep,
   type ForgeReadFailure,
 } from "@iori/protocol";
+import { AsyncState } from "../components/AsyncState.tsx";
 import { connection } from "../connection.ts";
 import { native } from "../native.ts";
 import { Button } from "../components/ui/button";
@@ -22,6 +23,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "../components/ui/collapsible.tsx";
+import { cn } from "../lib/utils.ts";
 import { VirtualRows, type ScrollRequest } from "../reading/VirtualRows.tsx";
 import { ansiPalette } from "../terminal/terminal-colors.ts";
 import {
@@ -35,7 +37,7 @@ import {
 import { ciDuration } from "./ci-format.ts";
 import { CiStateIcon } from "./CiStateIcon.tsx";
 import { CiFailure } from "./CiFailure.tsx";
-import type { ForgeRecovery } from "./ForgeFailure.tsx";
+import { ForgeNotice, type ForgeRecovery } from "./ForgeFailure.tsx";
 import { useForgeTokenChange } from "./forge-token-changes.ts";
 
 // The reading Views' code line height.
@@ -123,37 +125,60 @@ function Steps({
   }, [open]);
   return (
     <Collapsible asChild open={open} onOpenChange={onOpen}>
-      <div className="ci-steps" data-iori-part="ci-steps" data-open={open}>
+      <div
+        className="shrink-0 border-b border-border bg-background"
+        data-iori-part="ci-steps"
+        data-open={open}
+      >
         <CollapsibleTrigger asChild>
           <button
             type="button"
-            className="ci-steps-toggle"
+            className="flex min-h-7 w-full cursor-pointer items-center gap-1.5 border-0 bg-transparent px-3 py-1 text-left text-xs font-semibold text-muted-foreground transition-colors [@media(hover:hover)]:hover:bg-muted [@media(pointer:coarse)]:min-h-11"
             aria-expanded={open}
             data-iori-action="ci-steps-toggle"
           >
-            {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+            {open ? (
+              <ChevronDown size={13} className="shrink-0" aria-hidden="true" />
+            ) : (
+              <ChevronRight size={13} className="shrink-0" aria-hidden="true" />
+            )}
             <span>Steps</span>
-            <span className="ci-meta">{steps.length}</span>
+            <span className="font-normal text-muted-foreground">
+              {steps.length}
+            </span>
             {!open && current && (
-              <span className="ci-steps-current">
+              <span className="ml-2 flex min-w-0 items-center gap-1.5 font-normal text-foreground">
                 <CiStateIcon state={forgeCiState(current.status)} />
-                <span className="reading-truncate">{current.name}</span>
+                <span className="min-w-0 truncate">{current.name}</span>
               </span>
             )}
           </button>
         </CollapsibleTrigger>
         <CollapsibleContent>
-          <div className="ci-step-list" ref={list}>
+          {/* The steps take at most about eight rows; the half row shows that more scroll. */}
+          <div
+            className="max-h-[min(30vh,13.75rem)] overflow-auto divide-y divide-border-subtle/50"
+            ref={list}
+          >
             {steps.map((step, index) => (
               <div
                 key={index}
-                className="ci-step"
+                className="flex min-h-6.5 items-center gap-2 py-0.5 pr-3 pl-7 text-xs [@media(pointer:coarse)]:min-h-9"
                 data-current={step === current || undefined}
                 data-iori-ci-step={step.name}
               >
                 <CiStateIcon state={forgeCiState(step.status)} />
-                <span className="ci-name">{step.name}</span>
-                <span className="ci-meta">{ciDuration(step, now)}</span>
+                <span
+                  className={cn(
+                    "min-w-0 flex-1 truncate text-foreground",
+                    step === current && "font-semibold",
+                  )}
+                >
+                  {step.name}
+                </span>
+                <span className="ml-auto shrink-0 font-normal text-muted-foreground">
+                  {ciDuration(step, now)}
+                </span>
               </div>
             ))}
           </div>
@@ -369,28 +394,45 @@ export function CiLog({
     <CiFailure
       subject="log"
       form={loaded ? "line" : "notice"}
+      className={loaded ? "mx-3 my-2" : undefined}
       failure={failed.forge}
       locale={locale}
       recovery={{ ...recovery, onRetry: () => setRetry((value) => value + 1) }}
     />
   );
-  if (!loaded) return failure || null;
+  if (!loaded)
+    return (
+      failure || (
+        <AsyncState
+          mode="loading"
+          compact
+          t={t}
+          skeletonRows={4}
+          emptyTitle=""
+          errorTitle=""
+          className="border-t-0"
+        >
+          {null}
+        </AsyncState>
+      )
+    );
   const top = loaded.start > 0 ? 1 : 0;
   return (
     <>
       {steps}
       {failure}
       {loaded.notRun ? (
-        <p className="reading-empty" data-iori-state="ci-log-not-run">
-          {t("This job did not run.")}
-        </p>
+        <ForgeNotice data-iori-state="ci-log-not-run">
+          <p>{t("This job did not run.")}</p>
+        </ForgeNotice>
       ) : loaded.availableWhenDone ? (
-        <div className="ci-browser-only" data-iori-state="ci-log-when-done">
+        <ForgeNotice data-iori-state="ci-log-when-done">
           <p>{t("GitHub returns a job's log only after the job is done.")}</p>
           {job.url && (
             <Button
               variant="outline"
               size="sm"
+              className="[@media(pointer:coarse)]:min-h-11"
               data-iori-action="ci-log-open-browser"
               onClick={() => void native.openUrl(job.url!)}
             >
@@ -398,15 +440,15 @@ export function CiLog({
               {t("Open in browser")}
             </Button>
           )}
-        </div>
+        </ForgeNotice>
       ) : loaded.lines.length === 0 && loaded.start === 0 ? (
-        <p className="reading-empty" data-iori-state="ci-log-empty">
-          {t("There is no log yet.")}
-        </p>
+        <ForgeNotice data-iori-state="ci-log-empty">
+          <p>{t("There is no log yet.")}</p>
+        </ForgeNotice>
       ) : (
         <div
           ref={area}
-          className="ci-log"
+          className="flex min-h-0 flex-1 bg-terminal font-mono text-xs leading-[22px] text-terminal-foreground"
           data-wrap={wrap}
           data-iori-view="ci-log"
           data-iori-log-start={loaded.start}
@@ -428,7 +470,15 @@ export function CiLog({
             renderRow={(index) => {
               if (index < top)
                 return (
-                  <div className="ci-log-line ci-log-earlier" data-loading>
+                  <div
+                    className={cn(
+                      "flex min-h-[22px] items-center gap-2 px-4 font-sans",
+                      wrap
+                        ? "whitespace-pre-wrap [overflow-wrap:anywhere]"
+                        : "whitespace-pre",
+                    )}
+                    data-loading
+                  >
                     {earlierFailed && (
                       <CiFailure
                         subject="earlier"
@@ -449,7 +499,14 @@ export function CiLog({
               const line = loaded.lines[index - top]!;
               return (
                 <div
-                  className="ci-log-line"
+                  className={cn(
+                    "min-h-[22px] px-4",
+                    wrap
+                      ? "whitespace-pre-wrap [overflow-wrap:anywhere]"
+                      : "whitespace-pre",
+                    line.kind === "error" && "text-status-failed-text",
+                    line.kind === "warning" && "text-status-waiting-text",
+                  )}
                   data-kind={line.kind}
                   data-iori-log-line={index - top}
                 >

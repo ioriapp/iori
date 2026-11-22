@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactNode } from "react";
+import { cn } from "cn";
 import { Button } from "../ui/button.tsx";
 import {
   Dialog,
@@ -9,7 +10,6 @@ import {
   DialogTitle,
 } from "../ui/dialog.tsx";
 import { rich } from "./Notice.tsx";
-import "./flow.css";
 
 export type FooterSpec = {
   focusCancel?: boolean;
@@ -80,7 +80,15 @@ export function FlowDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className={`worktree-create-dialog dialog-full-screen host-flow-dialog is-${kind}`}
+        className={cn(
+          "dialog-full-screen grid max-h-[calc(100dvh-1.5rem)] w-[min(35rem,calc(100vw-1.5rem))] max-w-[calc(100vw-1.5rem)] gap-4 overflow-hidden text-sm [word-break:auto-phrase] sm:max-w-[35rem]",
+          "max-md:h-dvh max-md:max-h-dvh max-md:w-full max-md:max-w-full max-md:border-0",
+          "max-md:[&_[data-slot=button]]:min-h-11 max-md:[&_[data-slot=input]]:min-h-11 max-md:[&_[data-slot=tabs-trigger]]:min-h-11 max-md:[&_[data-slot=toggle-group-item]]:min-h-11",
+          "[&_code]:[font-variant-ligatures:none] [&_pre]:[font-variant-ligatures:none]",
+          kind === "setup"
+            ? "h-[min(43.75rem,calc(100dvh-1.5rem))] grid-rows-[auto_auto_minmax(0,1fr)_auto]"
+            : "h-[min(36.25rem,calc(100dvh-1.5rem))] grid-rows-[auto_minmax(0,1fr)_auto]",
+        )}
         data-iori-view={
           kind === "setup" ? "host-setup" : "host-maintenance-confirmation"
         }
@@ -92,19 +100,36 @@ export function FlowDialog({
           }
         }}
       >
-        <DialogHeader>
+        <DialogHeader className="min-w-0 pr-0">
           <DialogTitle>{title}</DialogTitle>
-          <DialogDescription className="host-desc">
+          <DialogDescription className="min-h-[1lh] [overflow-wrap:anywhere]">
             {rich(description, names)}
           </DialogDescription>
         </DialogHeader>
-        <div className="host-flow-fields">{fields}</div>
-        <div className="host-flow-panel" ref={panelRef}>
+        <div
+          className={cn(
+            "min-w-0 empty:-mt-4",
+            kind === "uninstall" && "hidden",
+          )}
+        >
+          {fields}
+        </div>
+        <div
+          className={cn(
+            "grid min-h-0 min-w-0 content-start gap-3 overflow-y-auto text-sm",
+            "data-[overflow=true]:[mask-image:linear-gradient(to_bottom,var(--foreground)_calc(100%-2rem),transparent)]",
+            "has-[>[data-iori-view=host-progress]]:grid-rows-[minmax(0,1fr)] has-[>[data-iori-view=host-progress]]:content-stretch",
+          )}
+          ref={panelRef}
+        >
           {panel}
         </div>
-        <DialogFooter>
+        <DialogFooter className="flex-wrap items-center max-md:items-stretch">
           {footer.note && (
-            <span className="host-footer-note" role="status">
+            <span
+              className="mr-auto text-xs text-muted-foreground max-md:order-99 max-md:mr-0 max-md:text-center"
+              role="status"
+            >
               {footer.note}
             </span>
           )}

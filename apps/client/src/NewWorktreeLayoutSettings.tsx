@@ -18,20 +18,18 @@ export function NewWorktreeLayoutSettings({
   return (
     <SettingsSection title={t("New worktree layout")}>
       <FieldRow
-        className="v9-settings-row"
+        label={t(
+          saved
+            ? "Opens with your saved layout."
+            : "Opens with the default layout.",
+        )}
         data-iori-view="new-worktree-layout-settings"
       >
-        <span>
-          {t(
-            saved
-              ? "Opens with your saved layout."
-              : "Opens with the default layout.",
-          )}
-        </span>
-        <div className="new-worktree-layout-actions">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <span title={!save ? t("Open a worktree, then save.") : undefined}>
             <Button
               variant="outline"
+              size="sm"
               disabled={!save}
               title={!save ? t("Open a worktree, then save.") : undefined}
               data-iori-action="save-worktree-layout"
@@ -42,6 +40,7 @@ export function NewWorktreeLayoutSettings({
           </span>
           <Button
             variant="outline"
+            size="sm"
             disabled={!saved}
             data-iori-action="reset-worktree-layout"
             onClick={() => void worktreeLayoutDefault.save(t, true)}

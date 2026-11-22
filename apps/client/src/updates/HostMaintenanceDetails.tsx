@@ -168,9 +168,12 @@ export function HostMaintenanceWork({
         <SettingsSection
           data-iori-maintenance-working="true"
           title={
-            <span className="worktree-removal-warning-heading">
+            <span className="inline-flex max-w-full min-w-0 items-center gap-1.5">
               {t("Work that will be interrupted")}
-              <TriangleAlert aria-hidden="true" />
+              <TriangleAlert
+                className="size-3.5 shrink-0 text-destructive"
+                aria-hidden="true"
+              />
             </span>
           }
         >
@@ -229,7 +232,10 @@ export function HostMaintenanceStopWarning({
   return (
     <>
       {!plan.canContinue && plan.hasOpenTerminals && (
-        <p data-iori-maintenance-open="true">
+        <p
+          className="m-0 text-sm text-foreground"
+          data-iori-maintenance-open="true"
+        >
           {t(
             kind === "uninstall"
               ? "All open CLIs and Terminals will stop."

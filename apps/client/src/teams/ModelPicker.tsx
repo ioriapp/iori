@@ -11,8 +11,7 @@ import {
   CommandItem,
   CommandList,
 } from "../components/ui/command.tsx";
-import { CliIcon, useCliName, useModelLabel } from "./context.tsx";
-import { useI18n } from "./context.tsx";
+import { CliIcon, useCliName, useI18n, useModelLabel } from "./context.tsx";
 import { groupModels, modelOrder, modelProvider } from "./model-catalog.ts";
 import type { Candidate } from "./team-data.ts";
 
@@ -120,6 +119,7 @@ export function ModelPicker({
       provider: modelProvider(model),
     };
     const label = model ? modelLabel(cli, model) : t("Default");
+    const isSelected = selected?.cli === cli && selected.model === model;
     return (
       <CommandItem
         key={`${prefix}${token(target)}`}
@@ -130,11 +130,15 @@ export function ModelPicker({
         data-kind="model"
         data-iori-model={model}
         onSelect={() => onSelect(target)}
-        className="model-picker-model"
+        className="flex min-h-7 items-center gap-2 rounded-sm px-2 py-1.5 text-xs text-foreground data-selected:bg-accent data-selected:text-accent-foreground data-[disabled=true]:opacity-45 [&>svg:last-child]:hidden"
         title={`${cliName(cli)} › ${label}`}
       >
-        {!limits && !grouped && <CliIcon name={cli} size={14} />}
-        <span>
+        {!limits && !grouped && (
+          <span className="inline-flex size-3.5 shrink-0 items-center justify-center">
+            <CliIcon name={cli} size={14} />
+          </span>
+        )}
+        <span className="min-w-0 flex-1 truncate">
           {grouped
             ? label === model
               ? model.slice(model.indexOf("/") + 1)
@@ -143,8 +147,11 @@ export function ModelPicker({
               ? label
               : `${cliName(cli)} › ${label}`}
         </span>
-        {selected?.cli === cli && selected.model === model && (
-          <Check size={12} />
+        {isSelected && (
+          <Check
+            className="ml-auto size-3 shrink-0 text-primary"
+            aria-hidden="true"
+          />
         )}
       </CommandItem>
     );
@@ -156,9 +163,10 @@ export function ModelPicker({
     const open = !!expanded[key];
     const expand = (
       <Button
+        type="button"
         variant="ghost"
         size="icon-sm"
-        className="model-picker-expand"
+        className="size-7 shrink-0 rounded-sm text-muted-foreground hover:text-foreground"
         aria-label={`${t(open ? "Collapse provider" : "Expand provider")} ${cliName(cli)} › ${provider}`}
         aria-expanded={open}
         onPointerDown={(event) => event.preventDefault()}
@@ -169,12 +177,16 @@ export function ModelPicker({
           }
         }}
       >
-        {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        {open ? (
+          <ChevronDown className="size-3.5" aria-hidden="true" />
+        ) : (
+          <ChevronRight className="size-3.5" aria-hidden="true" />
+        )}
       </Button>
     );
     return (
       <div key={provider}>
-        <div className="model-picker-provider-row">
+        <div className="flex items-center gap-0.5">
           <CommandItem
             value={key}
             data-cli={cli}
@@ -182,11 +194,13 @@ export function ModelPicker({
             data-kind="provider"
             disabled={disabled}
             onSelect={() => (limits ? onSelect(target) : toggle(cli, provider))}
-            className="model-picker-provider"
+            className="flex min-h-7 min-w-0 flex-1 items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-xs font-medium text-foreground data-selected:bg-accent data-selected:text-accent-foreground data-[disabled=true]:opacity-45 [&>svg:last-child]:hidden"
             aria-expanded={open}
           >
-            <span>{provider}</span>
-            <small>{values.length}</small>
+            <span className="min-w-0 flex-1 truncate">{provider}</span>
+            <small className="shrink-0 font-normal text-2xs tabular-nums text-muted-foreground">
+              {values.length}
+            </small>
           </CommandItem>
           {disabled ? (
             <CommandItem
@@ -194,19 +208,23 @@ export function ModelPicker({
               data-cli={cli}
               data-provider={provider}
               data-kind="provider"
-              className="model-picker-expand"
+              className="flex size-7 shrink-0 items-center justify-center rounded-sm p-0 text-muted-foreground data-selected:bg-accent data-selected:text-accent-foreground [&>svg:last-child]:hidden"
               aria-label={`${t(open ? "Collapse provider" : "Expand provider")} ${cliName(cli)} › ${provider}`}
               aria-expanded={open}
               onSelect={() => toggle(cli, provider)}
             >
-              {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+              {open ? (
+                <ChevronDown className="size-3.5" aria-hidden="true" />
+              ) : (
+                <ChevronRight className="size-3.5" aria-hidden="true" />
+              )}
             </CommandItem>
           ) : (
             expand
           )}
         </div>
         {open && (
-          <div className="model-picker-provider-models">
+          <div className="ml-3 border-l border-border-subtle pl-1.5">
             {values.map((model) => modelItem(cli, model, "", true))}
           </div>
         )}
@@ -216,7 +234,7 @@ export function ModelPicker({
   return (
     <Command
       ref={root}
-      className="model-picker"
+      className="flex w-full flex-col overflow-hidden rounded-md bg-popover p-1 text-popover-foreground"
       shouldFilter={false}
       value={active}
       onValueChange={setActive}
@@ -232,8 +250,8 @@ export function ModelPicker({
           setActive("");
         }}
       />
-      <CommandList>
-        <CommandEmpty>
+      <CommandList className="max-h-72 overflow-x-hidden overflow-y-auto py-1">
+        <CommandEmpty className="px-3 py-6 text-center text-xs text-muted-foreground">
           {t(
             catalogs.length
               ? "No matching models."
@@ -241,7 +259,10 @@ export function ModelPicker({
           )}
         </CommandEmpty>
         {!searching && recent.length > 0 && (
-          <CommandGroup heading={t("Models used in this team")}>
+          <CommandGroup
+            heading={t("Models used in this team")}
+            className="p-0.5 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-2xs [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:text-muted-foreground"
+          >
             {recent.map(({ cli, model }) => modelItem(cli, model, "recent:"))}
           </CommandGroup>
         )}
@@ -257,7 +278,11 @@ export function ModelPicker({
             );
             return [
               defaultMatches || ungrouped.length ? (
-                <CommandGroup key={`${cli}/`} heading={cliName(cli)}>
+                <CommandGroup
+                  key={`${cli}/`}
+                  heading={cliName(cli)}
+                  className="p-0.5 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-2xs [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:text-muted-foreground"
+                >
                   {defaultMatches && modelItem(cli, "")}
                   {ungrouped.map((model) => modelItem(cli, model))}
                 </CommandGroup>
@@ -269,6 +294,7 @@ export function ModelPicker({
                   <CommandGroup
                     key={`${cli}/${provider}`}
                     heading={`${cliName(cli)} › ${provider}`}
+                    className="p-0.5 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-2xs [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:text-muted-foreground"
                   >
                     {found.map((model) => modelItem(cli, model, "", true))}
                   </CommandGroup>
@@ -287,7 +313,11 @@ export function ModelPicker({
           if (!showDefault && !remaining.length) return null;
           const remainingGroups = groupModels(remaining);
           return (
-            <CommandGroup key={cli} heading={cliName(cli)}>
+            <CommandGroup
+              key={cli}
+              heading={cliName(cli)}
+              className="p-0.5 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-2xs [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:text-muted-foreground"
+            >
               {showDefault && modelItem(cli, "")}
               {useProviders
                 ? Object.entries(remainingGroups).map(([provider, list]) =>

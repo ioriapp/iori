@@ -97,8 +97,9 @@ export function useTerminalClose({
       <DialogContent
         data-iori-dialog="terminal-close-confirmation"
         showCloseButton={false}
+        className="max-md:top-auto max-md:bottom-3 max-md:w-[calc(100%-1.5rem)] max-md:max-w-none max-md:translate-y-0 max-md:p-4 sm:max-w-md"
       >
-        <DialogHeader>
+        <DialogHeader className="pr-0">
           <DialogTitle>
             {confirmation?.command
               ? t("{command} is running").replace(
@@ -113,10 +114,11 @@ export function useTerminalClose({
             )}
           </DialogDescription>
         </DialogHeader>
-        <DialogFooter>
+        <DialogFooter className="mt-1 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <Button
             variant="outline"
             data-iori-action="terminal-cancel-close"
+            className="max-md:min-h-11 max-md:w-full max-md:text-sm"
             disabled={busy}
             onClick={cancel}
           >
@@ -125,6 +127,7 @@ export function useTerminalClose({
           <Button
             variant="destructive"
             data-iori-action="terminal-confirm-close"
+            className="max-md:min-h-11 max-md:w-full max-md:text-sm"
             pending={busy}
             onClick={() =>
               confirmation &&

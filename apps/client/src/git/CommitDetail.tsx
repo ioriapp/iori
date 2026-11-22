@@ -19,9 +19,10 @@ import {
   type ReadingTransport,
 } from "../reading/transport.ts";
 import { formatDate } from "../reading/format.ts";
-import { useRowHeight } from "../reading/rowHeight.ts";
+import { LIST_ROW_PROBE_CLASS, useRowHeight } from "../reading/rowHeight.ts";
 import { ChangeIcon, kindName, parentDirectory } from "./changes.tsx";
 import { ReadingError } from "../reading/ReadingError.tsx";
+import { ReadingEmpty, ReadingLoading } from "../reading/ReadingStates.tsx";
 
 type Commit = ReadResultByMethod["git.commit"];
 
@@ -113,13 +114,25 @@ export function CommitDetail({
 
   return (
     <>
-      <div ref={row.probe} className="reading-row-probe" aria-hidden="true" />
-      <div className="reading-header" data-iori-part="commit-header">
+      <div
+        ref={row.probe}
+        className={LIST_ROW_PROBE_CLASS}
+        aria-hidden="true"
+      />
+      <div
+        className="flex h-9 min-w-0 flex-none items-center gap-1.5 border-b border-border px-1.5 [@media(pointer:coarse)]:h-11"
+        data-iori-part="commit-header"
+      >
         {lead}
-        <code className="git-hash" title={hash}>
+        <code
+          className="shrink-0 font-mono text-xs text-muted-foreground"
+          title={hash}
+        >
           {hash.slice(0, 10)}
         </code>
-        <span className="reading-truncate git-commit-title">{subject}</span>
+        <span className="min-w-0 truncate px-1 text-xs font-semibold text-foreground">
+          {subject}
+        </span>
       </div>
       {error && (
         <ReadingError
@@ -130,18 +143,25 @@ export function CommitDetail({
           {error}
         </ReadingError>
       )}
+      {!commit && !error && <ReadingLoading label={t("Loading")} rows={5} />}
       {commit && (
-        <div className="git-commit-detail" data-iori-part="commit-detail">
-          <div className="git-commit-meta">
+        <div
+          className="max-h-[45%] flex-none overflow-auto border-b border-border px-3 py-2.5"
+          data-iori-part="commit-detail"
+        >
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <span>{commit.author}</span>
             <time>{formatDate(commit.authorTimeMs, locale)}</time>
           </div>
           {body.join("\n").trim() && (
-            <pre className="git-commit-message" data-iori-part="commit-message">
+            <pre
+              className="my-2 font-sans text-xs leading-relaxed whitespace-pre-wrap text-foreground [overflow-wrap:anywhere]"
+              data-iori-part="commit-message"
+            >
               {body.join("\n").trim()}
             </pre>
           )}
-          <div className="git-commit-parents">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground [&_code]:font-mono">
             {commit.parents.length === 0 && (
               <span>{t("Root commit (no parent)")}</span>
             )}
@@ -156,6 +176,7 @@ export function CommitDetail({
                 <Select value={parent ?? ""} onValueChange={onParent}>
                   <SelectTrigger
                     size="sm"
+                    className="[@media(pointer:coarse)]:min-h-11"
                     aria-label={t("Parent to compare")}
                     data-iori-action="git-parent-select"
                   >
@@ -178,16 +199,19 @@ export function CommitDetail({
         </div>
       )}
       {commit && merge && !compared && (
-        <p className="reading-empty">
-          {t("Choose a parent to see the changes.")}
-        </p>
+        <ReadingEmpty title={t("Choose a parent to see the changes.")} />
       )}
       {ready && (
-        <div className="git-commit-files">
-          <div className="git-section-heading" data-static="true">
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div
+            className="git-section-heading flex h-7 flex-none items-center gap-1.5 border-b border-border-subtle px-2.5 text-xs font-semibold text-muted-foreground [@media(pointer:coarse)]:h-10"
+            data-static="true"
+          >
             <span>{t("Changed files")}</span>
             {files.total !== undefined && (
-              <span className="git-count">{files.total}</span>
+              <span className="git-count ml-auto rounded-full bg-muted px-1.5 text-2xs font-medium text-muted-foreground tabular-nums">
+                {files.total}
+              </span>
             )}
           </div>
           {Boolean(files.error) && (
@@ -199,18 +223,18 @@ export function CommitDetail({
             count={files.count}
             rowHeight={row.height}
             dataId="git-commit-files"
-            className="git-list-rows"
+            className="py-0.5 [&_.reading-virtual-row]:w-full"
             label={t("Files in the commit")}
             onRange={(first, last) => files.ensure(first, last)}
             renderRow={(index) => {
               const file = files.get(index);
-              if (!file) return <div className="git-row" data-loading="true" />;
+              if (!file) return <div className="h-full" data-loading="true" />;
               const name = file.path.slice(file.path.lastIndexOf("/") + 1);
               return (
                 <PathMenu path={file.absolutePath} locale={locale}>
                   <button
                     type="button"
-                    className="git-row"
+                    className="flex h-full w-full cursor-pointer items-center gap-1.5 border-0 bg-transparent pr-2.5 pl-5 text-left text-xs whitespace-nowrap text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-inset [@media(hover:hover)]:hover:bg-muted/70"
                     data-iori-action="git-commit-file-select"
                     data-path={file.path}
                     title={`${file.oldPath ? `${file.oldPath} → ` : ""}${file.path} · ${kindName(file.kind, ja)}`}
@@ -226,8 +250,10 @@ export function CommitDetail({
                     onClick={() => onOpenFile(file)}
                   >
                     <ChangeIcon kind={file.kind} ja={ja} />
-                    <span className="git-row-name">{name}</span>
-                    <span className="git-row-directory">
+                    <span className="min-w-0 flex-[0_1_auto] truncate">
+                      {name}
+                    </span>
+                    <span className="min-w-0 flex-[0_1000_auto] truncate text-xs text-muted-foreground">
                       {parentDirectory(file.path)}
                     </span>
                   </button>

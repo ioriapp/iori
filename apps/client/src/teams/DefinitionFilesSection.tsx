@@ -1,9 +1,8 @@
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import type { CliSummary } from "@iori/protocol";
 import { connection } from "../connection.ts";
-import { FieldRow, LoadRecovery } from "../components/page-layout.tsx";
 import { Button } from "../components/ui/button.tsx";
 import { Textarea } from "../components/ui/textarea.tsx";
 import {
@@ -89,22 +88,28 @@ export function DefinitionFileStatus({
   onRetry: () => void;
 }) {
   const { t } = useI18n();
-  if (read && "failed" in read)
+  if (read && "failed" in read) {
     return (
-      <LoadRecovery
-        message={t("Could not load the file.")}
-        retryLabel={t("Retry")}
-        onRetry={onRetry}
-      />
+      <div
+        role="alert"
+        className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-status-failed-border bg-status-failed-bg/35 px-3 py-2 text-xs text-foreground"
+      >
+        <p>{t("Could not load the file.")}</p>
+        <Button type="button" variant="outline" size="sm" onClick={onRetry}>
+          {t("Retry")}
+        </Button>
+      </div>
     );
-  if (read && "unsupported" in read)
+  }
+  if (read && "unsupported" in read) {
     return (
-      <p className="definition-file-message">
+      <p className="py-2 text-xs text-muted-foreground">
         {t("This file can't be displayed.")}
       </p>
     );
+  }
   return (
-    <p className="definition-file-message" role="status">
+    <p className="py-2 text-xs text-muted-foreground" role="status">
       {t("Loading")}
     </p>
   );
@@ -126,9 +131,10 @@ export function DefinitionTextField({
   const { t } = useI18n();
   const label = t(definitionFileLabels[kind]);
   return (
-    <FieldRow stacked label={label} className="field-code">
+    <div className="flex min-w-0 flex-col gap-1.5">
+      <span className="text-xs font-medium text-foreground">{label}</span>
       <Textarea
-        className="cli-def-json"
+        className="max-h-96 min-h-40 overflow-auto whitespace-pre font-mono text-xs [field-sizing:fixed] [font-variant-ligatures:none]"
         aria-label={label}
         aria-invalid={invalid}
         data-iori-field={kind === "json" ? "cli-definition-json" : undefined}
@@ -139,36 +145,8 @@ export function DefinitionTextField({
         onChange={(event) => onChange(event.currentTarget.value)}
       />
       {children}
-    </FieldRow>
+    </div>
   );
-}
-
-function useScrollEdges<T extends HTMLElement>() {
-  return useCallback((element: T | null) => {
-    if (!element) return;
-    let mounted = true;
-    const update = () => {
-      if (!mounted) return;
-      element.dataset.overflow = String(
-        element.scrollTop + element.clientHeight < element.scrollHeight - 1,
-      );
-      element.dataset.right = String(
-        element.scrollLeft + element.clientWidth < element.scrollWidth - 1,
-      );
-      element.dataset.left = String(element.scrollLeft > 1);
-    };
-    const observer = new ResizeObserver(update);
-    observer.observe(element);
-    for (const child of element.children) observer.observe(child);
-    element.addEventListener("scroll", update);
-    void document.fonts.ready.then(update);
-    update();
-    return () => {
-      mounted = false;
-      observer.disconnect();
-      element.removeEventListener("scroll", update);
-    };
-  }, []);
 }
 
 export function DefinitionFileDisclosure({
@@ -185,32 +163,42 @@ export function DefinitionFileDisclosure({
   onRetry: () => void;
 }) {
   const { t } = useI18n();
-  const measureScroll = useScrollEdges<HTMLPreElement>();
   return (
     <Collapsible open={open} onOpenChange={onOpenChange}>
       <CollapsibleTrigger asChild>
-        <Button variant="ghost" className="definition-file-trigger">
+        <Button
+          type="button"
+          variant="ghost"
+          className="flex h-auto min-h-9 w-full items-center justify-between gap-2 rounded-sm px-2 py-2 text-left text-xs font-normal whitespace-normal [@media(pointer:coarse)]:min-h-11"
+        >
           <span className="flex min-w-0 flex-wrap items-baseline gap-x-3">
-            <code>{file.name}</code>
-            <span className="definition-file-kind">
+            <code className="font-mono text-foreground [overflow-wrap:anywhere]">
+              {file.name}
+            </code>
+            <span className="text-xs text-muted-foreground">
               {t(definitionFileLabels[file.kind])}
             </span>
           </span>
           {open ? (
-            <ChevronDown aria-hidden="true" />
+            <ChevronDown
+              className="size-3.5 shrink-0 text-muted-foreground"
+              aria-hidden="true"
+            />
           ) : (
-            <ChevronRight aria-hidden="true" />
+            <ChevronRight
+              className="size-3.5 shrink-0 text-muted-foreground"
+              aria-hidden="true"
+            />
           )}
         </Button>
       </CollapsibleTrigger>
-      <CollapsibleContent className="definition-read-panel">
+      <CollapsibleContent className="min-w-0 px-2 pt-1 pb-2.5">
         {read && "text" in read ? (
           <pre
-            ref={measureScroll}
             role="region"
             tabIndex={0}
             aria-label={file.name}
-            className="definition-read-code rounded-md border px-3 py-2 text-xs outline-offset-2"
+            className="max-h-80 overflow-auto whitespace-pre rounded-md border border-border bg-card px-3 py-2 font-mono text-xs text-foreground outline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 [font-variant-ligatures:none]"
           >
             <code>{read.text}</code>
           </pre>
@@ -239,14 +227,7 @@ export function DefinitionFileTabs({
 }) {
   const { t } = useI18n();
   const tabsScroll = useRef<HTMLDivElement>(null);
-  const measureTabs = useScrollEdges<HTMLDivElement>();
-  const setTabsScroll = useCallback(
-    (element: HTMLDivElement | null) => {
-      tabsScroll.current = element;
-      return measureTabs(element);
-    },
-    [measureTabs],
-  );
+
   useLayoutEffect(() => {
     const scroller = tabsScroll.current;
     const active = scroller?.querySelector('[data-state="active"]');
@@ -260,24 +241,29 @@ export function DefinitionFileTabs({
 
   return (
     <Tabs
-      className="definition-tabs"
+      className="min-w-0 gap-3"
       value={selected}
       onValueChange={(key) => {
         const file = files.find((entry) => definitionFileKey(entry) === key);
         if (file) onSelect(file);
       }}
     >
-      <div className="definition-tabs-scroll" ref={setTabsScroll}>
-        <TabsList variant="line" aria-label={t("Definition")}>
+      <div ref={tabsScroll} className="max-w-full overflow-x-auto pb-0.5">
+        <TabsList
+          variant="line"
+          aria-label={t("Definition")}
+          className="w-full justify-start [@media(pointer:coarse)]:min-h-11"
+        >
           {files.map((file) => (
             <TabsTrigger
               key={definitionFileKey(file)}
               value={definitionFileKey(file)}
+              className="flex-none px-2.5 font-mono text-xs"
             >
               {file.name}
               {changed(file) && (
                 <>
-                  <span className="text-[0.625rem]" aria-hidden="true">
+                  <span className="text-2xs text-primary" aria-hidden="true">
                     ●
                   </span>
                   <span className="sr-only">{t("Unsaved changes")}</span>

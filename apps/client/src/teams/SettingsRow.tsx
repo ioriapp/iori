@@ -1,9 +1,8 @@
-import { FieldRow } from "../components/page-layout.tsx";
-import { useRef, useState } from "react";
-import type { ReactNode } from "react";
-import { Input } from "../components/ui/input.tsx";
+import { useRef, useState, type ReactNode } from "react";
+import { ChevronDown, ChevronUp } from "lucide-react";
+import { cn } from "cn";
 import { Button } from "../components/ui/button.tsx";
-import { ChevronUp, ChevronDown } from "lucide-react";
+import { Input } from "../components/ui/input.tsx";
 import { useI18n } from "./context.tsx";
 
 export function SettingsRow({
@@ -25,28 +24,50 @@ export function SettingsRow({
 }) {
   const { t } = useI18n();
   return (
-    <FieldRow className={`team-setting-row ${className}`}>
-      <div className="team-setting-copy">
-        <span className="team-setting-label">{t(label)}</span>
-        {hint && <p className="team-hint">{t(hint)}</p>}
+    <div
+      className={cn(
+        "team-setting-row grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-6 gap-y-2 py-3.5 max-md:gap-x-4",
+        className,
+      )}
+    >
+      <div className="team-setting-copy min-w-0">
+        <span className="team-setting-label block text-xs font-medium leading-relaxed text-foreground">
+          {t(label)}
+        </span>
+        {hint && (
+          <p className="mt-0.5 text-2xs leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
+            {t(hint)}
+          </p>
+        )}
       </div>
-      <div className="team-setting-control">{children}</div>
+      <div className="team-setting-control flex shrink-0 items-center justify-end gap-2">
+        {children}
+      </div>
       {detail && (
-        <div className="team-setting-control team-setting-note">{detail}</div>
+        <div className="col-span-full flex items-center justify-end gap-2">
+          {detail}
+        </div>
       )}
       {note && (
-        <p className="team-hint team-setting-note" role="status">
+        <p
+          className="col-span-full m-0 text-2xs text-muted-foreground [overflow-wrap:anywhere]"
+          role="status"
+        >
           {t(note)}
         </p>
       )}
       {error && (
-        <p className="connection-error" role="alert">
+        <p
+          className="col-span-full m-0 text-xs text-status-failed-text [overflow-wrap:anywhere]"
+          role="alert"
+        >
           {t(error)}
         </p>
       )}
-    </FieldRow>
+    </div>
   );
 }
+
 export function LimitInput({
   value,
   onChange,
@@ -68,6 +89,7 @@ export function LimitInput({
   const input = useRef<HTMLInputElement>(null);
   const [draft, setDraft] = useState<string>();
   const displayed = draft ?? value;
+
   const change = (raw: string) => {
     if (
       max !== undefined &&
@@ -79,6 +101,7 @@ export function LimitInput({
     setDraft(undefined);
     onChange(raw);
   };
+
   const step = (direction: 1 | -1) => {
     if (max !== undefined) {
       change(
@@ -92,8 +115,9 @@ export function LimitInput({
     const next = BigInt(value || "0") + BigInt(direction);
     onChange(next > 0n ? next.toString() : "");
   };
+
   return (
-    <div className="team-limit-stepper">
+    <div className="relative inline-flex h-8 w-28 shrink-0 items-center max-md:h-10 max-md:w-32">
       <Input
         ref={input}
         id={id}
@@ -108,7 +132,7 @@ export function LimitInput({
         aria-valuetext={displayed || (max === undefined ? t("Unlimited") : "")}
         value={displayed}
         placeholder={max === undefined ? t("Unlimited") : String(min)}
-        className="team-numeric-input"
+        className="h-full w-full pr-7 text-xs tabular-nums max-md:pr-9 max-md:text-sm"
         onChange={(event) =>
           change(
             max === undefined
@@ -130,20 +154,21 @@ export function LimitInput({
           step(event.key === "ArrowUp" ? 1 : -1);
         }}
       />
-      <div className="team-limit-step-buttons">
+      <div className="absolute inset-y-px right-px grid w-6 grid-rows-2 border-l border-border-subtle max-md:w-8">
         <Button
           type="button"
           variant="ghost"
           tabIndex={-1}
           data-iori-action="limit-increase"
           aria-label={`${label}: ${t("Increase limit")}`}
+          className="h-full min-h-0 w-full rounded-none rounded-tr-md p-0 text-muted-foreground hover:bg-accent hover:text-foreground"
           onPointerDown={(event) => event.preventDefault()}
           onClick={() => {
             input.current?.focus();
             step(1);
           }}
         >
-          <ChevronUp size={10} />
+          <ChevronUp className="size-3" aria-hidden="true" />
         </Button>
         <Button
           type="button"
@@ -152,13 +177,14 @@ export function LimitInput({
           data-iori-action="limit-decrease"
           aria-label={`${label}: ${t("Decrease limit")}`}
           disabled={Number(displayed || 0) <= min}
+          className="h-full min-h-0 w-full rounded-none rounded-br-md border-t border-border-subtle p-0 text-muted-foreground hover:bg-accent hover:text-foreground"
           onPointerDown={(event) => event.preventDefault()}
           onClick={() => {
             input.current?.focus();
             step(-1);
           }}
         >
-          <ChevronDown size={10} />
+          <ChevronDown className="size-3" aria-hidden="true" />
         </Button>
       </div>
     </div>

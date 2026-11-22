@@ -1,4 +1,6 @@
-export const TERMINAL_FONT_SIZES = [12, 13, 14, 15, 16, 17, 18] as const;
+export const TERMINAL_FONT_SIZES = [
+  10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28,
+] as const;
 
 export function pinchedTerminalFontSize(
   startSize: number,

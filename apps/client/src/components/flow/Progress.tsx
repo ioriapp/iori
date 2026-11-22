@@ -5,14 +5,15 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { cn } from "cn";
 import { Check, X } from "lucide-react";
 import { Spinner } from "../ui/spinner.tsx";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs.tsx";
 import { rich } from "./Notice.tsx";
-import "./flow.css";
 
 export type StepState = "done" | "current" | "stopped" | "failed" | "next";
 export type Step = { label: string; state: StepState };
+
 export function steps(
   labels: string[],
   current: number,
@@ -23,6 +24,7 @@ export function steps(
     state: index < current ? "done" : index === current ? at : "next",
   }));
 }
+
 export function StepList({
   items,
   names,
@@ -33,18 +35,43 @@ export function StepList({
   t: (key: string) => string;
 }) {
   return (
-    <ol className="host-steps">
+    <ol className="m-0 grid list-none gap-2.5 py-1">
       {items.map((item) => (
-        <li key={item.label} data-state={item.state}>
-          {item.state === "done" && (
-            <Check className="ci-passed" aria-label={t("Done")} />
+        <li
+          key={item.label}
+          data-state={item.state}
+          className={cn(
+            "flex items-center gap-2.5 text-sm",
+            item.state === "next" && "text-muted-foreground",
+            (item.state === "current" || item.state === "stopped") &&
+              "font-semibold text-foreground",
           )}
-          {item.state === "current" && <Spinner aria-label={t("Running")} />}
+        >
+          {item.state === "done" && (
+            <Check
+              className="size-4 shrink-0 text-status-complete"
+              aria-label={t("Done")}
+            />
+          )}
+          {item.state === "current" && (
+            <Spinner
+              className="size-4 shrink-0 text-muted-foreground"
+              aria-label={t("Running")}
+            />
+          )}
           {item.state === "failed" && (
-            <X className="ci-failed" aria-label={t("Failed")} />
+            <X
+              className="size-4 shrink-0 text-status-failed"
+              aria-label={t("Failed")}
+            />
           )}
           {(item.state === "next" || item.state === "stopped") && (
-            <span className="host-step-dot" aria-hidden="true" />
+            <span
+              className="grid size-4 shrink-0 place-items-center"
+              aria-hidden="true"
+            >
+              <span className="size-1.5 rounded-full bg-border" />
+            </span>
           )}
           <span>{rich(item.label, names)}</span>
         </li>
@@ -52,6 +79,7 @@ export function StepList({
     </ol>
   );
 }
+
 export function LogView({ lines }: { lines: string[] }) {
   const box = useRef<HTMLPreElement>(null);
   const follow = useRef(true);
@@ -61,7 +89,7 @@ export function LogView({ lines }: { lines: string[] }) {
   }, [lines]);
   return (
     <pre
-      className="host-log"
+      className="m-0 h-full overflow-auto rounded-md border border-border-subtle bg-muted/35 px-3 py-2 font-mono text-xs leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere] text-foreground [font-variant-ligatures:none]"
       ref={box}
       onScroll={(event) => {
         const element = event.currentTarget;
@@ -73,6 +101,7 @@ export function LogView({ lines }: { lines: string[] }) {
     </pre>
   );
 }
+
 export function Progress({
   items,
   log,
@@ -94,15 +123,16 @@ export function Progress({
     <Tabs
       value={view}
       onValueChange={(value) => setView(value as "steps" | "log")}
-      className="host-progress"
+      className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-2.5"
       data-iori-view="host-progress"
     >
-      <TabsList variant="line" className="host-progress-tabs">
+      <TabsList variant="line" className="w-full justify-start max-md:h-11">
         <TabsTrigger
           data-iori-action="host-progress-steps"
           value="steps"
           id={`${id}-steps-tab`}
           aria-controls={`${id}-steps`}
+          className="flex-none px-2.5 text-sm max-md:min-h-11"
         >
           {t("Progress")}
         </TabsTrigger>
@@ -111,6 +141,7 @@ export function Progress({
           value="log"
           id={`${id}-log-tab`}
           aria-controls={`${id}-log`}
+          className="flex-none px-2.5 text-sm max-md:min-h-11"
         >
           {t("Log")}
         </TabsTrigger>
@@ -119,7 +150,7 @@ export function Progress({
         value="steps"
         id={`${id}-steps`}
         aria-labelledby={`${id}-steps-tab`}
-        className="host-progress-steps"
+        className="m-0 grid content-start gap-2.5 text-sm data-[state=inactive]:hidden"
       >
         <StepList items={items} names={names} t={t} />
         {children}
@@ -128,7 +159,7 @@ export function Progress({
         value="log"
         id={`${id}-log`}
         aria-labelledby={`${id}-log-tab`}
-        className="host-progress-log"
+        className="m-0 grid min-h-0 grid-rows-[minmax(0,1fr)_auto] gap-2.5 text-sm data-[state=inactive]:hidden"
       >
         <LogView lines={log} />
         {children}

@@ -42,6 +42,17 @@ export function kindName(kind: GitChangeKind, ja: boolean): string {
   return (names[kind] ?? names.modified)[ja ? 1 : 0];
 }
 
+const KIND_COLOR: Record<GitChangeKind, string> = {
+  added: "text-status-running-text",
+  untracked: "text-status-running-text",
+  deleted: "text-status-failed-text",
+  conflict: "text-status-failed-text",
+  modified: "text-status-waiting-text",
+  typechange: "text-status-waiting-text",
+  renamed: "text-primary",
+  copied: "text-primary",
+};
+
 /** Each kind has its own icon and color; the name is in the tooltip and for screen readers. */
 export function ChangeIcon({ kind, ja }: { kind: GitChangeKind; ja: boolean }) {
   const Icon =
@@ -62,7 +73,7 @@ export function ChangeIcon({ kind, ja }: { kind: GitChangeKind; ja: boolean }) {
                   : FileDiff;
   return (
     <Icon
-      className="git-kind"
+      className={`size-3.5 flex-none ${KIND_COLOR[kind] ?? "text-status-waiting-text"}`}
       data-kind={kind}
       aria-label={kindName(kind, ja)}
       role="img"

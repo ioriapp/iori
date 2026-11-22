@@ -23,13 +23,15 @@ import {
 import type { FileEntry } from "@iori/protocol";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
+import { cn } from "cn";
 import { VirtualRows, type ScrollRequest } from "../reading/VirtualRows.tsx";
 import { PathMenu } from "../reading/PathMenu.tsx";
 import { writePathDrag } from "../path-drag.ts";
 import { PagedList } from "../reading/paged.ts";
 import { readErrorCopy, type ReadingTransport } from "../reading/transport.ts";
-import { useRowHeight } from "../reading/rowHeight.ts";
+import { LIST_ROW_PROBE_CLASS, useRowHeight } from "../reading/rowHeight.ts";
 import { ReadingError } from "../reading/ReadingError.tsx";
+import { ReadingEmpty, ReadingLoading } from "../reading/ReadingStates.tsx";
 
 const PAGE = 128;
 
@@ -353,6 +355,9 @@ export function FileTree({
 
   const searching = Boolean(findList.current);
   const total = findList.current ? findList.current.count : size("");
+  const loading = searching ? !findList.current?.loaded : !listFor("").loaded;
+  const emptySearch =
+    searching && Boolean(findList.current?.loaded) && total === 0;
   const entryAt = (row: number) => {
     if (findList.current)
       return { entry: findList.current.get(row), depth: 0, index: row };
@@ -380,7 +385,7 @@ export function FileTree({
   return (
     <PathMenu path={root} locale={locale} actions={putAction("")}>
       <div
-        className="files-tree"
+        className="relative flex min-h-0 flex-1 flex-col pt-1 data-[drop-root]:bg-accent data-[drop-root]:outline-1 data-[drop-root]:-outline-offset-1 data-[drop-root]:outline-ring"
         data-drop-root={dropFolder === "" || undefined}
         onDragOver={(event) => {
           if (!event.dataTransfer.types.includes("Files")) return;
@@ -407,12 +412,17 @@ export function FileTree({
           );
         }}
       >
-        <div ref={row.probe} className="reading-row-probe" aria-hidden="true" />
+        <div
+          ref={row.probe}
+          className={LIST_ROW_PROBE_CLASS}
+          aria-hidden="true"
+        />
         {(filterOpen || query) && (
-          <div className="files-filter">
+          <div className="flex flex-none items-center gap-1 border-b border-border-subtle px-1.5 py-1.5">
             <Input
               ref={filterInput}
               autoFocus
+              className="h-7 text-xs [@media(pointer:coarse)]:h-10"
               aria-label={t("Filter by file name")}
               data-iori-field="file-filter"
               placeholder={t("Filter by file name")}
@@ -428,6 +438,7 @@ export function FileTree({
             <Button
               variant="ghost"
               size="icon-sm"
+              className="[@media(pointer:coarse)]:size-10"
               aria-label={t("Clear filter")}
               data-iori-action="file-filter-clear"
               onClick={() => {
@@ -451,161 +462,188 @@ export function FileTree({
             {readErrorCopy(failed, locale)}
           </ReadingError>
         )}
-        <VirtualRows
-          count={total}
-          rowHeight={row.height}
-          dataId={searching ? "file-find" : "file-tree"}
-          role="tree"
-          label={ja ? "ファイル" : "Files"}
-          className="files-tree-rows"
-          scrollRequest={scroll}
-          onRange={onRange}
-          onKeyDown={(event) => {
-            const current = entryAt(focus);
-            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-              event.preventDefault();
-              const next = Math.max(
-                0,
-                Math.min(
-                  total - 1,
-                  focus + (event.key === "ArrowDown" ? 1 : -1),
-                ),
-              );
-              setFocus(next);
-              setScroll({ index: next, key: Date.now() });
-            } else if (
-              event.key === "ArrowRight" &&
-              current.entry &&
-              isDirectory(current.entry) &&
-              !open.current.has(current.entry.path) &&
-              !searching
-            ) {
-              event.preventDefault();
-              toggle(current.entry, current.index);
-            } else if (
-              event.key === "ArrowLeft" &&
-              !searching &&
-              current.entry
-            ) {
-              event.preventDefault();
-              if (open.current.has(current.entry.path))
-                toggle(current.entry, current.index);
-              else {
-                const parent = rowOf(parentOf(current.entry.path));
-                if (parent !== undefined && parentOf(current.entry.path)) {
-                  setFocus(parent);
-                  setScroll({ index: parent, key: Date.now() });
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          {loading && !failed && (
+            <ReadingLoading
+              compact
+              label={t("Loading")}
+              rows={5}
+              className="pointer-events-none absolute inset-x-0 top-0 z-[1]"
+            />
+          )}
+          {emptySearch && !failed ? (
+            <ReadingEmpty compact title={t("No matches")} />
+          ) : (
+            <VirtualRows
+              count={total}
+              rowHeight={row.height}
+              dataId={searching ? "file-find" : "file-tree"}
+              role="tree"
+              label={ja ? "ファイル" : "Files"}
+              className="py-1"
+              scrollRequest={scroll}
+              onRange={onRange}
+              onKeyDown={(event) => {
+                const current = entryAt(focus);
+                if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                  event.preventDefault();
+                  const next = Math.max(
+                    0,
+                    Math.min(
+                      total - 1,
+                      focus + (event.key === "ArrowDown" ? 1 : -1),
+                    ),
+                  );
+                  setFocus(next);
+                  setScroll({ index: next, key: Date.now() });
+                } else if (
+                  event.key === "ArrowRight" &&
+                  current.entry &&
+                  isDirectory(current.entry) &&
+                  !open.current.has(current.entry.path) &&
+                  !searching
+                ) {
+                  event.preventDefault();
+                  toggle(current.entry, current.index);
+                } else if (
+                  event.key === "ArrowLeft" &&
+                  !searching &&
+                  current.entry
+                ) {
+                  event.preventDefault();
+                  if (open.current.has(current.entry.path))
+                    toggle(current.entry, current.index);
+                  else {
+                    const parent = rowOf(parentOf(current.entry.path));
+                    if (parent !== undefined && parentOf(current.entry.path)) {
+                      setFocus(parent);
+                      setScroll({ index: parent, key: Date.now() });
+                    }
+                  }
+                } else if (event.key === "Enter" && current.entry) {
+                  event.preventDefault();
+                  activate(current.entry, current.index);
+                } else if (
+                  event.key.length === 1 &&
+                  !event.ctrlKey &&
+                  !event.metaKey &&
+                  !event.altKey
+                ) {
+                  setFilterOpen(true);
+                  setQuery((value) => value + event.key);
+                  event.preventDefault();
                 }
-              }
-            } else if (event.key === "Enter" && current.entry) {
-              event.preventDefault();
-              activate(current.entry, current.index);
-            } else if (
-              event.key.length === 1 &&
-              !event.ctrlKey &&
-              !event.metaKey &&
-              !event.altKey
-            ) {
-              setFilterOpen(true);
-              setQuery((value) => value + event.key);
-              event.preventDefault();
-            }
-          }}
-          renderRow={(rowIndex) => {
-            const { entry, depth, index } = entryAt(rowIndex);
-            if (!entry)
-              return <div className="files-tree-row" data-loading="true" />;
-            const directory = isDirectory(entry);
-            const opened = open.current.has(entry.path);
-            const outside =
-              entry.kind === "symlink" && entry.symlinkTarget !== "inside_root";
-            return (
-              <PathMenu
-                path={entry.absolutePath}
-                locale={locale}
-                actions={
-                  directory
-                    ? putAction(entry.path)
-                    : entry.kind === "file" ||
-                        (entry.kind === "symlink" &&
-                          entry.targetKind === "file" &&
-                          entry.symlinkTarget === "inside_root")
-                      ? [
-                          {
-                            label: t("Download…"),
-                            icon: <Download aria-hidden="true" />,
-                            action: "files-save",
-                            run: () => onSave(entry.path),
-                          },
-                        ]
-                      : []
-                }
-              >
-                <div
-                  className="files-tree-row"
-                  role="treeitem"
-                  aria-level={depth + 1}
-                  aria-selected={selected === entry.path}
-                  aria-expanded={directory && !searching ? opened : undefined}
-                  data-active={selected === entry.path || undefined}
-                  data-focused={focus === rowIndex || undefined}
-                  data-iori-file={entry.path}
-                  data-iori-put-folder={
-                    directory ? entry.path : parentOf(entry.path)
-                  }
-                  data-drop-target={
-                    (directory && dropFolder === entry.path) || undefined
-                  }
-                  style={{ "--level": depth } as CSSProperties}
-                  title={searching ? entry.path : entry.name}
-                  draggable
-                  onDragStart={(event) =>
-                    writePathDrag(event.dataTransfer, {
-                      hostKey,
-                      root,
-                      path: entry.path,
-                      absolutePath: entry.absolutePath,
-                    })
-                  }
-                  onClick={() => {
-                    setFocus(rowIndex);
-                    activate(entry, index);
-                  }}
-                >
-                  <span className="files-tree-chevron" aria-hidden="true">
-                    {directory &&
-                      !searching &&
-                      (opened ? <ChevronDown /> : <ChevronRight />)}
-                  </span>
-                  {directory ? (
-                    opened ? (
-                      <FolderOpen />
-                    ) : (
-                      <Folder />
-                    )
-                  ) : entry.kind === "symlink" ? (
-                    <Link />
-                  ) : (
-                    <FileCode />
-                  )}
-                  <span className="files-tree-name">{entry.name}</span>
-                  {searching && parentOf(entry.path) && (
-                    <span className="files-tree-parent">
-                      {parentOf(entry.path)}
-                    </span>
-                  )}
-                  {outside && (
-                    <span className="files-tree-note">
-                      {entry.symlinkTarget === "broken"
-                        ? t("broken link")
-                        : t("outside")}
-                    </span>
-                  )}
-                </div>
-              </PathMenu>
-            );
-          }}
-        />
+              }}
+              renderRow={(rowIndex) => {
+                const { entry, depth, index } = entryAt(rowIndex);
+                if (!entry)
+                  return <div className="h-full" data-loading="true" />;
+                const directory = isDirectory(entry);
+                const opened = open.current.has(entry.path);
+                const outside =
+                  entry.kind === "symlink" &&
+                  entry.symlinkTarget !== "inside_root";
+                return (
+                  <PathMenu
+                    path={entry.absolutePath}
+                    locale={locale}
+                    actions={
+                      directory
+                        ? putAction(entry.path)
+                        : entry.kind === "file" ||
+                            (entry.kind === "symlink" &&
+                              entry.targetKind === "file" &&
+                              entry.symlinkTarget === "inside_root")
+                          ? [
+                              {
+                                label: t("Download…"),
+                                icon: <Download aria-hidden="true" />,
+                                action: "files-save",
+                                run: () => onSave(entry.path),
+                              },
+                            ]
+                          : []
+                    }
+                  >
+                    <div
+                      className={cn(
+                        "relative flex h-full cursor-pointer items-center gap-1.5 pr-2 pl-[calc(0.5rem+var(--level,0)*0.75rem)] text-xs whitespace-nowrap text-foreground select-none",
+                        "before:pointer-events-none before:absolute before:inset-y-0 before:left-2 before:w-[calc(var(--level,0)*0.75rem)] before:bg-[repeating-linear-gradient(to_right,transparent_0_calc(0.75rem-1px),var(--border-subtle)_calc(0.75rem-1px)_0.75rem)] before:content-['']",
+                        "[@media(hover:hover)]:hover:bg-muted/70",
+                        "group-data-[narrow=false]/split:data-[active]:bg-accent group-data-[narrow=false]/split:data-[active]:text-accent-foreground group-data-[narrow=false]/split:data-[active]:shadow-[inset_2px_0_0_var(--primary)]",
+                        "group-focus/virtual:data-[focused]:outline-1 group-focus/virtual:data-[focused]:-outline-offset-1 group-focus/virtual:data-[focused]:outline-ring",
+                        "data-[drop-target]:bg-accent data-[drop-target]:outline-1 data-[drop-target]:-outline-offset-1 data-[drop-target]:outline-ring",
+                      )}
+                      role="treeitem"
+                      aria-level={depth + 1}
+                      aria-selected={selected === entry.path}
+                      aria-expanded={
+                        directory && !searching ? opened : undefined
+                      }
+                      data-active={selected === entry.path || undefined}
+                      data-focused={focus === rowIndex || undefined}
+                      data-iori-file={entry.path}
+                      data-iori-put-folder={
+                        directory ? entry.path : parentOf(entry.path)
+                      }
+                      data-drop-target={
+                        (directory && dropFolder === entry.path) || undefined
+                      }
+                      style={{ "--level": depth } as CSSProperties}
+                      title={searching ? entry.path : entry.name}
+                      draggable
+                      onDragStart={(event) =>
+                        writePathDrag(event.dataTransfer, {
+                          hostKey,
+                          root,
+                          path: entry.path,
+                          absolutePath: entry.absolutePath,
+                        })
+                      }
+                      onClick={() => {
+                        setFocus(rowIndex);
+                        activate(entry, index);
+                      }}
+                    >
+                      <span
+                        className="inline-flex w-3.5 shrink-0 items-center justify-center text-muted-foreground [&_svg]:size-3"
+                        aria-hidden="true"
+                      >
+                        {directory &&
+                          !searching &&
+                          (opened ? <ChevronDown /> : <ChevronRight />)}
+                      </span>
+                      {directory ? (
+                        opened ? (
+                          <FolderOpen className="size-3.5 shrink-0 text-muted-foreground" />
+                        ) : (
+                          <Folder className="size-3.5 shrink-0 text-muted-foreground" />
+                        )
+                      ) : entry.kind === "symlink" ? (
+                        <Link className="size-3.5 shrink-0 text-muted-foreground" />
+                      ) : (
+                        <FileCode className="size-3.5 shrink-0 text-muted-foreground" />
+                      )}
+                      <span className="min-w-0 truncate">{entry.name}</span>
+                      {searching && parentOf(entry.path) && (
+                        <span className="min-w-0 truncate text-xs text-muted-foreground">
+                          {parentOf(entry.path)}
+                        </span>
+                      )}
+                      {outside && (
+                        <span className="min-w-0 truncate text-xs text-muted-foreground">
+                          {entry.symlinkTarget === "broken"
+                            ? t("broken link")
+                            : t("outside")}
+                        </span>
+                      )}
+                    </div>
+                  </PathMenu>
+                );
+              }}
+            />
+          )}
+        </div>
         {footer}
       </div>
     </PathMenu>

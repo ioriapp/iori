@@ -79,7 +79,7 @@ export function IssueMarkdown({
             </span>,
           )
         ) : (
-          <span className="reading-inline-note">{alt}</span>
+          <span className="text-muted-foreground">{alt}</span>
         ),
     } as Components;
     return (
@@ -98,7 +98,8 @@ export function IssueMarkdown({
   }, [text, base, locale]);
   return (
     <div
-      className="reading-markdown issues-markdown"
+      className="reading-markdown text-sm leading-relaxed [overflow-wrap:anywhere] [&_:is(p,ul,ol,blockquote,table,pre):last-child]:mb-0"
+      style={{ padding: 0 }}
       data-iori-part="issue-markdown"
     >
       {rendered}

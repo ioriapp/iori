@@ -1,12 +1,94 @@
-import { createTeam } from "./fixtures/journeys.ts";
+import { join } from "node:path";
+import { createTeam, launch } from "./fixtures/journeys.ts";
 import {
   test,
   expect,
   openFolder,
   visibleTerminal,
   terminalId,
+  type App,
 } from "./fixtures/test.ts";
 import { repository } from "./support/reading.ts";
+
+async function addKeyboardCli(app: App) {
+  const cli = "Keyboard fixture";
+  const file = "keyboard-fixture.mjs";
+  await app.files({
+    [file]: `
+      process.stdout.write("\\x1b]2;Review sprint\\x07");
+      process.stdin.setRawMode(true);
+      process.stdin.on("data", (bytes) => {
+        for (const byte of bytes) console.log("KEY:" + byte.toString(16));
+      });
+      console.log("KEYBOARD_READY");
+    `,
+  });
+  await app.request("cli.definition.save", {
+    definition: JSON.stringify({
+      schema: 1,
+      id: "keyboard-fixture",
+      name: cli,
+      command: { shell: `'${process.execPath}' '${join(app.folder, file)}'` },
+    }),
+  });
+  return cli;
+}
+
+test(
+  "最大化したCLIでEscとCtrl+Kを入力できる",
+  { tag: "@desktop" },
+  async ({ page, registeredApp: app }) => {
+    const cli = await addKeyboardCli(app);
+    await app.open(page);
+    await openFolder(page, app);
+    await launch(page, cli);
+    const terminal = visibleTerminal(page);
+    const id = await terminalId(terminal);
+    await app.terminalText(id, "KEYBOARD_READY");
+    await page.getByRole("button", { name: "Maximize", exact: true }).click();
+    const restore = page.locator('[data-iori-action="workspace-restore"]');
+    await expect(restore).toBeVisible();
+    const input = terminal.getByRole("textbox");
+    await input.press("Control+Shift+F");
+    const find = terminal.getByRole("textbox", {
+      name: "Search terminal output",
+    });
+    await find.press("Escape");
+    await expect(find).toBeHidden();
+    await expect(restore).toBeVisible();
+
+    await input.press("Control+k");
+    await input.press("Escape");
+    await app.terminalText(id, "KEY:b");
+    await app.terminalText(id, "KEY:1b");
+    await expect(restore).toBeVisible();
+    await restore.press("Escape");
+    await expect(restore).toBeHidden();
+  },
+);
+
+test(
+  "サイドバーで会話の名前とCLIの名前から絞り込む",
+  { tag: "@desktop" },
+  async ({ page, registeredApp: app }) => {
+    const cli = await addKeyboardCli(app);
+    await app.open(page);
+    await openFolder(page, app);
+    await launch(page, cli);
+    const row = page.getByRole("button", {
+      name: "Review sprint",
+      exact: true,
+    });
+    await expect(row).toBeVisible();
+    const search = page.getByRole("textbox", { name: "Search", exact: true });
+    await search.fill("review sprint");
+    await expect(row).toBeVisible();
+    await search.fill("keyboard fixture");
+    await expect(row).toBeVisible();
+    await search.fill("unmatched search");
+    await expect(row).toBeHidden();
+  },
+);
 
 test(
   "タブを分割して最大化し再読込後も配置を保つ",
@@ -70,5 +152,40 @@ test(
     await expect(board).toHaveAttribute("data-state", "active");
     await git.click();
     await expect(git).toHaveAttribute("data-state", "active");
+  },
+);
+
+test(
+  "複数タブのペインが単一のtablistとaria-selectedを持つ",
+  { tag: "@desktop" },
+  async ({ page, registeredApp: app }) => {
+    await repository(app.folder);
+    await app.open(page);
+    await openFolder(page, app);
+    const tablists = page.getByRole("tablist", {
+      name: "Open tabs",
+      exact: true,
+    });
+    await expect(tablists).toHaveCount(1);
+    const tabs = tablists.first().getByRole("tab");
+    await expect(tabs).toHaveCount(3);
+    const startTab = tabs.filter({ hasText: "Start" });
+    const filesTab = tabs.filter({ hasText: "Files" });
+    const gitTab = tabs.filter({ hasText: "Git" });
+    await expect(startTab).toHaveAttribute("aria-selected", "true");
+    await expect(startTab).toHaveAttribute("tabindex", "0");
+    await expect(filesTab).toHaveAttribute("aria-selected", "false");
+    await expect(filesTab).toHaveAttribute("tabindex", "-1");
+    await expect(gitTab).toHaveAttribute("aria-selected", "false");
+    await expect(gitTab).toHaveAttribute("tabindex", "-1");
+
+    await filesTab.click();
+    await expect(filesTab).toHaveAttribute("aria-selected", "true");
+    await expect(filesTab).toHaveAttribute("tabindex", "0");
+    await expect(startTab).toHaveAttribute("aria-selected", "false");
+
+    await filesTab.press("ArrowRight");
+    await expect(gitTab).toHaveAttribute("aria-selected", "true");
+    await expect(gitTab).toBeFocused();
   },
 );

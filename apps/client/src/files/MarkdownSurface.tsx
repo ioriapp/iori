@@ -25,6 +25,8 @@ import {
 import { InlineImage } from "./ImageSurface.tsx";
 import { markdownRemarkPlugins } from "../reading/markdown-plugins.ts";
 import { ReadingError } from "../reading/ReadingError.tsx";
+import { ReadingLoading } from "../reading/ReadingStates.tsx";
+import "../reading/reading.css";
 import { readFileChunks } from "./read-file-chunks.ts";
 import { useConnectionRetry } from "../reading/useConnectionRetry.ts";
 
@@ -123,7 +125,7 @@ function LocalImage({
       refresh={refresh}
     />
   ) : (
-    <span className="reading-inline-note">{alt}</span>
+    <span className="text-xs text-muted-foreground">{alt}</span>
   );
 }
 
@@ -416,7 +418,7 @@ export function MarkdownSurface({
               : markdownPath(info.path, src)
             : undefined;
         return path === undefined ? (
-          <span className="reading-inline-note">{alt}</span>
+          <span className="text-xs text-muted-foreground">{alt}</span>
         ) : (
           <LocalImage
             standalone={standalone}
@@ -445,7 +447,7 @@ export function MarkdownSurface({
   }, [text, transport, root, info.path, locale]);
 
   return (
-    <div className="reading-surface">
+    <div className="relative flex min-h-0 flex-1 flex-col">
       {findOpen && (
         <FindBar
           query={position.query}
@@ -492,7 +494,7 @@ export function MarkdownSurface({
       >
         <div
           ref={scroller}
-          className="reading-markdown-scroll"
+          className="min-h-0 flex-1 overflow-auto outline-none peer-data-[centered]/error:hidden"
           data-iori-scroll="file-markdown"
           tabIndex={0}
           onContextMenuCapture={() => {
@@ -518,15 +520,19 @@ export function MarkdownSurface({
             } else if (event.key === "Escape") setFindOpen(false);
           }}
         >
-          <div
-            ref={content}
-            className="reading-markdown"
-            data-iori-part="markdown-rendered"
-          >
-            <RefreshContext.Provider value={refresh}>
-              {rendered}
-            </RefreshContext.Provider>
-          </div>
+          {text === undefined && !error ? (
+            <ReadingLoading label={t("Loading")} rows={6} />
+          ) : (
+            <div
+              ref={content}
+              className="reading-markdown"
+              data-iori-part="markdown-rendered"
+            >
+              <RefreshContext.Provider value={refresh}>
+                {rendered}
+              </RefreshContext.Provider>
+            </div>
+          )}
         </div>
       </PathMenu>
     </div>

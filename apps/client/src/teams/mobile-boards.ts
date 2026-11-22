@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   BoardSummary,
   CliStatus,
@@ -6,21 +6,37 @@ import type {
 } from "@iori/protocol";
 import { connection } from "../connection.ts";
 
+export type MobileBoardsState = {
+  boards: Record<string, BoardSummary[]>;
+  loading: Record<string, boolean>;
+  errors: Record<string, string | undefined>;
+  retry: (host?: string) => void;
+};
+
 export function useMobileBoards(
   connectedHosts: string[],
   terminalLists: Record<string, TerminalListResult>,
   visible: boolean,
-) {
+): MobileBoardsState {
   const [boards, setBoards] = useState<Record<string, BoardSummary[]>>({});
+  const [loading, setLoading] = useState<Record<string, boolean>>({});
+  const [errors, setErrors] = useState<Record<string, string | undefined>>({});
+  const [retryTick, setRetryTick] = useState(0);
+  const loadedHosts = useRef(new Set<string>());
   const sessions = useRef(new Map<string, { unsupported: boolean }>());
   const terminalStates = useRef(
     new Map<string, Map<string, CliStatus["state"] | undefined>>(),
   );
   const hostsKey = JSON.stringify(connectedHosts);
+
   // Keep connection-scoped knowledge while Home is unmounted.
   useEffect(() => {
-    for (const host of sessions.current.keys())
-      if (!connectedHosts.includes(host)) sessions.current.delete(host);
+    for (const host of sessions.current.keys()) {
+      if (!connectedHosts.includes(host)) {
+        sessions.current.delete(host);
+        loadedHosts.current.delete(host);
+      }
+    }
     for (const host of connectedHosts)
       if (!sessions.current.has(host))
         sessions.current.set(host, { unsupported: false });
@@ -31,7 +47,22 @@ export function useMobileBoards(
         ),
       ),
     );
+    setLoading((current) =>
+      Object.fromEntries(
+        Object.entries(current).filter(([host]) =>
+          connectedHosts.includes(host),
+        ),
+      ),
+    );
+    setErrors((current) =>
+      Object.fromEntries(
+        Object.entries(current).filter(([host]) =>
+          connectedHosts.includes(host),
+        ),
+      ),
+    );
   }, [hostsKey]);
+
   // Seed from the existing terminal snapshot, including when Home is hidden.
   // Events update this map immediately, before React renders the new list.
   useEffect(() => {
@@ -46,6 +77,7 @@ export function useMobileBoards(
         ),
       );
   }, [terminalLists]);
+
   useEffect(() => {
     if (!visible) return;
     let active = true;
@@ -59,28 +91,63 @@ export function useMobileBoards(
         return;
       }
       fetching.add(host);
+      if (!loadedHosts.current.has(host)) {
+        setLoading((current) =>
+          current[host] ? current : { ...current, [host]: true },
+        );
+      }
       try {
         const result = await connection.requestHost(host, "teams.boards", {});
         if (sessions.current.get(host) !== session) return;
         if (result?.ok) {
-          if (active)
+          loadedHosts.current.add(host);
+          if (active) {
             setBoards((current) => ({
               ...current,
               [host]: result.result.boards,
             }));
+            setErrors((current) =>
+              current[host] === undefined
+                ? current
+                : { ...current, [host]: undefined },
+            );
+          }
         } else if (result?.error.code === "invalid_request") {
           session.unsupported = true;
-          setBoards((current) =>
-            Object.fromEntries(
-              Object.entries(current).filter(([key]) => key !== host),
-            ),
-          );
+          loadedHosts.current.delete(host);
+          if (active) {
+            setBoards((current) =>
+              Object.fromEntries(
+                Object.entries(current).filter(([key]) => key !== host),
+              ),
+            );
+            setErrors((current) =>
+              current[host] === undefined
+                ? current
+                : { ...current, [host]: undefined },
+            );
+          }
+        } else if (active && !loadedHosts.current.has(host)) {
+          setErrors((current) => ({
+            ...current,
+            [host]: result?.error.code ?? "internal_error",
+          }));
         }
       } catch {
-        // Reconnect or the next state change requests a fresh snapshot.
+        if (active && !loadedHosts.current.has(host)) {
+          setErrors((current) => ({
+            ...current,
+            [host]: "Could not connect to the Host.",
+          }));
+        }
       } finally {
         fetching.delete(host);
-        if (active && changed.delete(host)) void load(host);
+        if (active) {
+          setLoading((current) =>
+            current[host] ? { ...current, [host]: false } : current,
+          );
+          if (changed.delete(host)) void load(host);
+        }
       }
     };
     const stop = connection.subscribeHostEvents((host, event) => {
@@ -108,6 +175,16 @@ export function useMobileBoards(
       active = false;
       stop();
     };
-  }, [hostsKey, visible]);
-  return boards;
+  }, [hostsKey, visible, retryTick]);
+
+  const retry = useCallback((host?: string) => {
+    setErrors((current) => {
+      if (!host) return {};
+      if (current[host] === undefined) return current;
+      return { ...current, [host]: undefined };
+    });
+    setRetryTick((count) => count + 1);
+  }, []);
+
+  return { boards, loading, errors, retry };
 }

@@ -43,19 +43,24 @@ export function ClientInitialization({
     }
   }
   return (
-    <main className="onboarding-screen" data-iori-view="initializing">
-      <section className="onboarding-panel">
-        <span className="app-wordmark">iori</span>
+    <main
+      className="onboarding-screen grid h-full w-full place-items-center overflow-auto p-6 max-[700px]:items-start max-[700px]:p-4.5 in-[.has-window-chrome]:pt-(--window-caption-height)"
+      data-iori-view="initializing"
+    >
+      <section className="grid w-full max-w-[32.5rem] gap-4 py-6 max-[700px]:my-auto max-[700px]:py-4">
+        <span className="w-fit font-heading text-lg font-semibold tracking-tight text-foreground">
+          iori
+        </span>
         <ErrorMessage message={error ? t(error) : undefined} />
         {canReset && (
-          <p className="onboarding-guidance">
+          <p className="m-0 text-sm leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
             {t(
               "To use iori on this device again, reset its registration. You will need to register with each Host again from its invitation.",
             )}
           </p>
         )}
         {error && (
-          <div className="initialization-actions flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2 max-md:[&>button]:min-h-11 [@media(pointer:coarse)]:[&>button]:min-h-11">
             <Button
               onClick={() => void onRetry()}
               data-iori-action="retry-initial"
@@ -85,7 +90,7 @@ export function ClientInitialization({
         }}
       >
         <DialogContent
-          className="registration-reset-dialog"
+          className="[&_[data-iori-state=error]]:text-pretty [&_[data-iori-state=error]]:[word-break:auto-phrase] [&_[data-slot=dialog-description]]:text-pretty [&_[data-slot=dialog-description]]:[word-break:auto-phrase]"
           showCloseButton={false}
           onCloseAutoFocus={(event) => {
             event.preventDefault();

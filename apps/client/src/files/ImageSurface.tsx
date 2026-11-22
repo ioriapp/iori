@@ -81,7 +81,9 @@ export function InlineImage({
 }) {
   const { url, error } = useImageUrl(transport, root, info, locale, refresh);
   if (error)
-    return <span className="reading-inline-note">{alt ?? info.path}</span>;
+    return (
+      <span className="text-xs text-muted-foreground">{alt ?? info.path}</span>
+    );
   return url ? <img src={url} alt={alt ?? info.path} /> : null;
 }
 
@@ -107,7 +109,7 @@ export function ImageSurface({
     refresh,
   );
   return (
-    <div className="reading-image-surface">
+    <div className="relative flex min-h-0 flex-1 flex-col">
       {error && (
         <ReadingError centered={!url} retryLabel={t("Retry")} onRetry={retry}>
           {error}

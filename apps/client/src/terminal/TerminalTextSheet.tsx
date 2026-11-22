@@ -26,7 +26,7 @@ export function TerminalTextSheet({
     >
       <SheetContent
         side="bottom"
-        className="terminal-text-sheet"
+        className="h-[85dvh]"
         data-iori-panel="terminal-text"
         aria-describedby={undefined}
         onOpenAutoFocus={(event) => {
@@ -46,7 +46,7 @@ export function TerminalTextSheet({
         <SheetHeader>
           <SheetTitle>{t("Select as text")}</SheetTitle>
         </SheetHeader>
-        <div className="terminal-text-output">
+        <div className="min-h-0 overflow-y-auto px-6 pb-6 font-mono text-sm whitespace-pre-wrap [overflow-wrap:anywhere] select-text">
           {text.lines.map((line, index) => (
             <span key={index}>
               <span

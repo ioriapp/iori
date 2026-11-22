@@ -1,5 +1,6 @@
 import { pickerClis } from "./cli-list.ts";
 import { pickerTeams } from "./teams/team-data.ts";
+import { requestTeamsList } from "./teams/teams-list-cache.ts";
 import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import type {
@@ -33,7 +34,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./components/ui/select.tsx";
-import "./worktree-creator.css";
 
 /** Values the screen opens with, as "Start with this Issue" fills them. */
 export type WorktreePrefill = { name: string; instruction: string };
@@ -65,6 +65,7 @@ export function WorktreeCreator({
 }: Props) {
   const [options, setOptions] = useState<ResultByMethod["worktrees.options"]>();
   const [clis, setClis] = useState<CliListResult>();
+  const [rawTeams, setRawTeams] = useState<TeamList>();
   const [teams, setTeams] = useState<TeamList>();
   const [terminals, setTerminals] = useState<ResultByMethod["terminal.list"]>();
   const [terminalStatus, setTerminalStatus] = useState<
@@ -100,7 +101,7 @@ export function WorktreeCreator({
     setTerminalStatus("loading");
     void Promise.all([
       connection.requestHost(host.publicKey, "cli.list", {}),
-      connection.requestHost(host.publicKey, "teams.list", {}),
+      requestTeamsList(host.publicKey),
       git
         ? connection.requestHost(host.publicKey, "worktrees.options", {
             path: folder.workspacePath,
@@ -124,6 +125,7 @@ export function WorktreeCreator({
         }
         // Only CLIs found on this Host can be launched.
         setClis(cli.result);
+        setRawTeams(team.result);
         setTeams({ ...team.result, teams: pickerTeams(team.result.teams) });
         if (opts?.ok) {
           setOptions(opts.result);
@@ -302,7 +304,7 @@ export function WorktreeCreator({
         }}
       >
         <DialogContent
-          className="folder-dialog worktree-create-dialog dialog-full-screen"
+          className="dialog-full-screen max-h-[calc(100dvh-1.5rem)] w-[min(35rem,calc(100vw-1.5rem))] max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded-lg border border-border bg-popover shadow-md sm:max-w-[35rem] [&_[data-slot=dialog-description]]:[overflow-wrap:anywhere] [&_[data-slot=dialog-footer]]:flex-wrap [&_[data-slot=dialog-header]]:pr-7"
           onKeyDown={(event) => {
             if (
               git &&
@@ -333,7 +335,7 @@ export function WorktreeCreator({
             <DialogDescription>{folder.workspacePath}</DialogDescription>
           </DialogHeader>
           <Button
-            className="worktree-create-close"
+            className="absolute top-2 right-2 [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11"
             data-slot="dialog-close"
             variant="ghost"
             size="icon-sm"
@@ -346,7 +348,7 @@ export function WorktreeCreator({
           </Button>
           {git ? (
             <>
-              <label className="worktree-create-field">
+              <label className="grid gap-2 text-sm font-medium text-foreground">
                 {t("Name (optional)")}
                 <Input
                   ref={nameInput}
@@ -371,7 +373,7 @@ export function WorktreeCreator({
                   disabled={busy || !!creationId || !!createdPath}
                 />
               </label>
-              <label className="worktree-create-field">
+              <label className="grid gap-2 text-sm font-medium text-foreground [&_[data-slot=select-trigger]]:w-full">
                 {t("Base branch")}
                 <Select
                   value={base}
@@ -394,7 +396,7 @@ export function WorktreeCreator({
                   </SelectContent>
                 </Select>
               </label>
-              <label className="worktree-create-field">
+              <label className="grid gap-2 text-sm font-medium text-foreground">
                 {t("Command to run after creating a worktree")}
                 <Input
                   data-iori-field="worktree-setup-command"
@@ -406,7 +408,7 @@ export function WorktreeCreator({
                   spellCheck={false}
                 />
               </label>
-              <label className="worktree-create-field">
+              <label className="grid gap-2 text-sm font-medium text-foreground [&_[data-slot=select-trigger]]:w-full">
                 {t("CLI or team")}
                 <Select
                   value={choice}
@@ -452,7 +454,7 @@ export function WorktreeCreator({
                   </SelectContent>
                 </Select>
               </label>
-              <label className="worktree-create-field">
+              <label className="grid gap-2 text-sm font-medium text-foreground [&_textarea]:min-h-[5.25rem]">
                 {t("First instruction (optional)")}
                 <Textarea
                   rows={3}
@@ -466,7 +468,9 @@ export function WorktreeCreator({
           ) : (
             clis && (
               <CliLauncher
+                className="w-full"
                 hostKey={host.publicKey}
+                preloadedTeams={rawTeams}
                 t={t}
                 clis={pickerClis(clis.clis)}
                 shells={terminals?.shells ?? []}
@@ -489,11 +493,15 @@ export function WorktreeCreator({
             )
           )}
           {alert && (
-            <div role="alert">
-              {t(alert)}
+            <div
+              role="alert"
+              className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-status-failed-border bg-status-failed-bg/35 px-3 py-2 text-xs text-status-failed-text [overflow-wrap:anywhere]"
+            >
+              <span>{t(alert)}</span>
               {error && !clis && (
                 <Button
                   variant="outline"
+                  size="sm"
                   onClick={() => setReload((v) => v + 1)}
                 >
                   {t("Retry")}

@@ -12,6 +12,7 @@ export function IssuesFailure({
   locale,
   recovery,
   form,
+  className,
 }: {
   subject: "list" | "issue" | "labels";
   error: unknown;
@@ -19,6 +20,7 @@ export function IssuesFailure({
   recovery: ForgeRecovery;
   /** In place of the content, or above the content kept. */
   form: "notice" | "line";
+  className?: string;
 }) {
   const ja = locale.startsWith("ja");
   const t = translator(locale);
@@ -41,6 +43,7 @@ export function IssuesFailure({
       failure={forgeFailureOf(error)}
       locale={locale}
       recovery={recovery}
+      className={className}
     />
   );
 }

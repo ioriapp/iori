@@ -49,12 +49,14 @@ function QrImage({
     <div
       ref={container}
       className={
-        fullscreen ? "invitation-qr-dialog-area" : "invitation-qr-container"
+        fullscreen
+          ? "invitation-qr-dialog-area flex items-center justify-center"
+          : "w-full min-w-0"
       }
     >
       {size > 0 && (
         <img
-          className="invitation-qr"
+          className="block [image-rendering:pixelated]"
           src={url}
           alt=""
           width={size}
@@ -108,7 +110,7 @@ export function InviteQr({
     <>
       <button
         type="button"
-        className="invitation-qr-button invitation-qr-container"
+        className="block w-[min(22.5rem,100%)] min-w-0 cursor-pointer border-0 bg-transparent p-0"
         aria-label={t("Enlarge QR code")}
         title={t("Enlarge QR code")}
         onClick={() => setOpen(true)}
@@ -117,7 +119,7 @@ export function InviteQr({
       </button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent
-          className="invitation-qr-dialog"
+          className="z-[61] flex max-h-[calc(100dvh-3rem)] w-max max-w-[calc(100vw-3rem)] flex-col items-center gap-0 overflow-visible rounded-none border-0 bg-white p-0 shadow-none sm:max-w-[calc(100vw-3rem)]"
           showCloseButton={false}
           aria-describedby={undefined}
           onClick={(event) => {
@@ -131,11 +133,11 @@ export function InviteQr({
           }}
         >
           <DialogTitle className="sr-only">{t("Invitation")}</DialogTitle>
-          <div className="invitation-qr-dialog-header" />
+          <div className="invitation-qr-dialog-header flex-[0_0_2.5rem] self-stretch" />
           <DialogClose asChild>
             <Button
               variant="ghost"
-              className="absolute top-2 right-2"
+              className="absolute top-2 right-2 text-[#171717] hover:bg-neutral-200 hover:text-[#171717]"
               size="icon-sm"
               aria-label={t("Close")}
             >

@@ -36,7 +36,7 @@ export function FileTransferDialogs() {
             {t("Files with the same names already exist.")}
           </DialogDescription>
         </DialogHeader>
-        <ul className="files-replace-names">
+        <ul className="max-h-[45dvh] space-y-1 overflow-auto text-xs text-foreground [overflow-wrap:anywhere]">
           {confirmation?.names.map((name) => (
             <li key={name}>{name}</li>
           ))}
@@ -120,19 +120,22 @@ export function useFileUploads(
         const name = transfer.path.split("/").at(-1)!;
         return (
           <div
-            className="files-transfer"
+            className="flex items-center gap-2 border-t border-border bg-background px-2.5 py-2"
             key={transfer.id}
             data-iori-put={transfer.kind === "put" ? name : undefined}
             data-iori-save={transfer.kind === "save" ? name : undefined}
           >
-            <div className="files-transfer-detail">
-              <span title={transfer.path}>{name}</span>
-              <span className="reading-muted">
+            <div className="flex min-w-0 flex-1 flex-col gap-0.5 text-xs tabular-nums">
+              <span className="truncate text-foreground" title={transfer.path}>
+                {name}
+              </span>
+              <span className="text-muted-foreground">
                 {transfer.size === undefined
                   ? ""
                   : `${formatBytes(transfer.size, locale)} · ${transfer.size ? Math.floor((transfer.written / transfer.size) * 100) : 0}%`}
               </span>
               <progress
+                className="h-1 w-full accent-primary"
                 value={
                   transfer.size === undefined ? undefined : transfer.written
                 }
@@ -143,6 +146,7 @@ export function useFileUploads(
             <Button
               variant="outline"
               size="sm"
+              className="[@media(pointer:coarse)]:min-h-11"
               data-iori-action={
                 transfer.kind === "put"
                   ? "files-put-cancel"

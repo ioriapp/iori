@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { cn } from "cn";
 import { ChevronDown, X } from "lucide-react";
 import { createPortal } from "react-dom";
 import { notices, useNotices, type Notice } from "../../notices.ts";
@@ -9,8 +10,11 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "../ui/collapsible.tsx";
+import { acquireLowerBandInset } from "./lower-band-inset.ts";
 import { P, rich } from "./Notice.tsx";
-import "./flow.css";
+
+const inlineFittedNameClass =
+  "relative inline-block min-w-0 max-w-full flex-[0_1_auto] overflow-hidden whitespace-nowrap before:invisible before:pe-px before:content-[attr(data-iori-fitted-name)] [&>span]:absolute [&>span]:inset-0 [&>span]:w-full";
 
 export function Toast({
   notice,
@@ -70,7 +74,12 @@ export function Toast({
   }, [notice]);
   return (
     <div
-      className={`host-toast ${notice.removalFailure ? "removal-toast" : ""}`}
+      className={cn(
+        "relative flex max-w-full items-start gap-2 rounded-lg border border-border bg-popover py-3 pr-2 pl-3.5 text-sm text-popover-foreground shadow-md [word-break:auto-phrase]",
+        "max-[700px]:[&_[data-slot=button]]:relative max-[700px]:[&_[data-slot=button]]:before:absolute max-[700px]:[&_[data-slot=button]]:before:top-1/2 max-[700px]:[&_[data-slot=button]]:before:left-1/2 max-[700px]:[&_[data-slot=button]]:before:h-11 max-[700px]:[&_[data-slot=button]]:before:w-[max(100%,2.75rem)] max-[700px]:[&_[data-slot=button]]:before:-translate-x-1/2 max-[700px]:[&_[data-slot=button]]:before:-translate-y-1/2 max-[700px]:[&_[data-slot=button]]:before:content-['']",
+        notice.removalFailure &&
+          "pointer-events-auto w-[26.25rem] min-w-0 max-[700px]:w-full",
+      )}
       data-iori-removal-failure={notice.removalFailure || undefined}
       data-iori-view="host-notice"
       data-iori-notice-key={notice.key}
@@ -84,28 +93,31 @@ export function Toast({
         start();
       }}
     >
-      <div className="host-toast-body">
+      <div className="flex min-h-0 max-h-[calc(100dvh-var(--removal-lower-bands-height,1.375rem)-4rem)] min-w-0 flex-1 flex-col gap-2 max-md:max-h-[calc(100dvh-var(--removal-lower-bands-height,1.375rem)-3.5rem)] [&>*]:min-w-0 [&>[data-slot=button]]:flex-none [&>[data-slot=button]]:self-end">
         {notice.title && (
-          <p className="removal-toast-title" title={notice.title}>
+          <p
+            className="m-0 flex flex-none items-baseline pr-7 font-semibold"
+            title={notice.title}
+          >
             {notice.titleName
               ? (() => {
                   const at = notice.titleName.at;
                   if (at < 0) return notice.title;
                   return (
                     <>
-                      <span className="removal-template-affix">
+                      <span className="flex-none whitespace-pre">
                         {notice.title.slice(0, at)}
                       </span>
                       <span
-                        className="removal-inline-name"
+                        className={cn(inlineFittedNameClass, "font-semibold")}
                         data-iori-fitted-name={notice.titleName.text}
                       >
                         <MiddleEllipsis
                           text={notice.titleName.text}
-                          className="removal-fitted-name"
+                          className="block truncate"
                         />
                       </span>
-                      <span className="removal-template-affix">
+                      <span className="flex-none whitespace-pre">
                         {notice.title.slice(at + notice.titleName.text.length)}
                       </span>
                     </>
@@ -115,37 +127,48 @@ export function Toast({
           </p>
         )}
         <div
-          className="host-toast-scroll host-flow-panel"
+          className={cn(
+            "grid min-h-0 flex-[0_1_auto] gap-4 overflow-y-auto overscroll-contain p-0",
+            "data-[overflow=true]:[mask-image:linear-gradient(to_bottom,var(--foreground)_calc(100%-2rem),transparent)]",
+            "[&>p]:m-0 [&>p]:flex-none [&>p]:pr-7",
+          )}
           ref={scroll}
           data-overflow={overflow}
         >
           {notice.text && (
             <P>
               {notice.text.match(/[^。]+。?/g)?.map((sentence, index) => (
-                <span className="host-toast-sentence" key={index}>
+                <span className="max-[700px]:block" key={index}>
                   {rich(sentence, names)}
                 </span>
               ))}
             </P>
           )}
           {notice.items?.map((item, index) => (
-            <div className="removal-failure" key={index}>
+            <div
+              className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1"
+              key={index}
+            >
               {item.name && (
-                <p className="removal-failure-name" title={item.name}>
+                <p className="m-0 flex flex-none font-medium" title={item.name}>
                   <span
-                    className="removal-inline-name"
+                    className={cn(inlineFittedNameClass, "font-medium")}
                     data-iori-fitted-name={item.name}
                   >
                     <MiddleEllipsis
                       text={item.name}
-                      className="removal-fitted-name"
+                      className="block truncate"
                     />
                   </span>
                 </p>
               )}
-              <p className="removal-reason">{item.reason}</p>
+              <p className="m-0 flex-none leading-relaxed [overflow-wrap:anywhere]">
+                {item.reason}
+              </p>
               {item.stopped && (
-                <p className="removal-stopped">{item.stopped}</p>
+                <p className="m-0 flex-none text-muted-foreground">
+                  {item.stopped}
+                </p>
               )}
               {item.gitOutput && <NoticeOriginal text={item.gitOutput} t={t} />}
             </div>
@@ -182,7 +205,7 @@ export function Toast({
       </div>
       {notice.dismissible !== false && (
         <Button
-          className="host-toast-close"
+          className="absolute top-2 right-2 m-0 shrink-0"
           data-iori-action="host-notice-close"
           variant="ghost"
           size="icon-sm"
@@ -198,6 +221,7 @@ export function Toast({
     </div>
   );
 }
+
 export function NoticeStack({
   t,
   names,
@@ -206,57 +230,16 @@ export function NoticeStack({
   names?: readonly string[];
 }) {
   const items = useNotices();
-  useEffect(() => {
-    const update = () => {
-      const bands = [
-        ...document.querySelectorAll<HTMLElement>(
-          ".status-bar, .mobile-terminal-controls",
-        ),
-      ].filter((node) => node.getClientRects().length > 0);
-      const top = Math.min(
-        window.innerHeight,
-        ...bands.map((node) => node.getBoundingClientRect().top),
-      );
-      document.documentElement.style.setProperty(
-        "--removal-lower-bands-height",
-        `${window.innerHeight - top}px`,
-      );
-    };
-    const resize = new ResizeObserver(update);
-    const observe = () => {
-      resize.disconnect();
-      document
-        .querySelectorAll(".status-bar, .mobile-terminal-controls")
-        .forEach((node) => resize.observe(node));
-      update();
-    };
-    const mutation = new MutationObserver((records) => {
-      if (
-        records.some((record) =>
-          [...record.addedNodes, ...record.removedNodes].some(
-            (node) =>
-              node instanceof Element &&
-              (node.matches(".status-bar, .mobile-terminal-controls") ||
-                node.querySelector(".status-bar, .mobile-terminal-controls")),
-          ),
-        )
-      )
-        observe();
-    });
-    mutation.observe(document.body, { childList: true, subtree: true });
-    window.addEventListener("resize", update);
-    observe();
-    return () => {
-      resize.disconnect();
-      mutation.disconnect();
-      window.removeEventListener("resize", update);
-      document.documentElement.style.removeProperty(
-        "--removal-lower-bands-height",
-      );
-    };
-  }, []);
+  useEffect(() => acquireLowerBandInset(), []);
   return createPortal(
-    <div className="host-notice-stack">
+    <div
+      className={cn(
+        "fixed right-4 bottom-4 z-(--z-toast) grid max-w-[min(26.25rem,calc(100vw-2rem))] gap-2",
+        "max-[700px]:right-2 max-[700px]:bottom-2 max-[700px]:left-2 max-[700px]:max-w-none",
+        "has-[>[data-iori-removal-failure=true]]:bottom-[calc(var(--removal-lower-bands-height,1.375rem)+1rem)]",
+        "max-md:has-[>[data-iori-removal-failure=true]]:bottom-[calc(var(--removal-lower-bands-height,1.375rem)+0.5rem)]",
+      )}
+    >
       {items.map((notice) => (
         <Toast key={notice.key} notice={notice} t={t} names={names} />
       ))}
@@ -275,20 +258,31 @@ export function NoticeOriginal({
   reserve?: boolean;
 }) {
   return (
-    <Collapsible className="host-ssh-original">
+    <Collapsible className="grid gap-1.5">
       <CollapsibleTrigger asChild>
         <Button
           variant="outline"
           size="sm"
-          className="host-ssh-original-trigger"
+          className="justify-self-start text-muted-foreground [&[data-state=open]_svg]:rotate-180"
         >
           {t("Details")}
-          <ChevronDown />
+          <ChevronDown
+            className="size-3.5 transition-transform"
+            aria-hidden="true"
+          />
         </Button>
       </CollapsibleTrigger>
-      <div className={reserve ? "removal-original-slot" : undefined}>
+      <div
+        className={
+          reserve
+            ? "h-[min(6lh,30dvh)] min-h-0 overflow-y-auto text-xs leading-normal"
+            : undefined
+        }
+      >
         <CollapsibleContent>
-          <pre className="host-setup-original">{text}</pre>
+          <pre className="m-0 rounded-md border border-border-subtle bg-muted/40 px-2.5 py-2 font-mono text-xs leading-normal whitespace-pre-wrap [overflow-wrap:anywhere] text-muted-foreground [font-variant-ligatures:none]">
+            {text}
+          </pre>
         </CollapsibleContent>
       </div>
     </Collapsible>

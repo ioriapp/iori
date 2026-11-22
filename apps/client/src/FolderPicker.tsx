@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Folder, TriangleAlert } from "lucide-react";
 import type { FolderEntry, HostInfo } from "@iori/protocol";
+import { cn } from "cn";
 import { isWindowsHostPath } from "./host-path.ts";
 import { connection } from "./connection.ts";
 import { Spinner } from "./components/ui/spinner.tsx";
-import "./updates/connected-hosts.css";
 import { Kbd } from "./components/ui/kbd.tsx";
 import { Button } from "./components/ui/button.tsx";
 import {
@@ -230,7 +230,7 @@ export function FolderPicker({
       onOpenChange={(value) => !value && onClose()}
     >
       <DialogContent
-        className="folder-dialog host-folder-dialog"
+        className="w-[min(35rem,calc(100vw-1.5rem))] max-w-[calc(100vw-1.5rem)] rounded-lg border border-border bg-popover shadow-md sm:max-w-[35rem] max-md:[&_button]:min-h-11 max-md:[&_[data-slot=select-trigger]]:min-h-11 [@media(pointer:coarse)]:[&_button]:min-h-11 [@media(pointer:coarse)]:[&_[data-slot=select-trigger]]:min-h-11"
         data-iori-view="folder-picker"
         onEscapeKeyDown={(event) => {
           if (composing.current || event.isComposing) event.preventDefault();
@@ -245,10 +245,11 @@ export function FolderPicker({
           </DialogDescription>
         </DialogHeader>
         {hosts.length > 1 && (
-          <div className="folder-dialog-row">
+          <div className="flex min-w-0 items-center justify-between gap-3 text-sm">
             <span>{t("Host")}</span>
             <Select value={hostKey} onValueChange={onHostChange}>
               <SelectTrigger
+                className="min-w-0 flex-1 [&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:flex-1 [&_[data-slot=select-value]]:overflow-hidden"
                 data-iori-host-key={hostKey}
                 aria-label={t("Host")}
                 title={
@@ -257,17 +258,23 @@ export function FolderPicker({
               >
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent className="host-selection-menu">
+              <SelectContent className="z-[90] w-(--radix-select-trigger-width) min-w-0 max-w-[calc(100vw-1.5rem)] [&_[data-radix-select-viewport]]:w-full [&_[data-radix-select-viewport]]:min-w-0">
                 {hosts.map((host) => (
                   <SelectItem
                     key={host.publicKey}
+                    className="min-w-0 pr-8 [@media(pointer:coarse)]:min-h-11 [&>span:last-child]:min-w-0 [&>span:last-child]:flex-1 [&>span:last-child]:overflow-hidden"
                     data-iori-host-key={host.publicKey}
                     value={host.publicKey}
                     title={host.hostName}
                   >
-                    <span className="host-option">
+                    <span className="flex w-full min-w-0 items-center gap-2">
                       <span
-                        className="nav-connected-mark"
+                        className={cn(
+                          "inline-block size-2 shrink-0 rounded-full",
+                          state.connectedHosts.includes(host.publicKey)
+                            ? "bg-status-running"
+                            : "bg-status-stopped",
+                        )}
                         data-connected={state.connectedHosts.includes(
                           host.publicKey,
                         )}
@@ -278,7 +285,10 @@ export function FolderPicker({
                             : "Disconnected",
                         )}
                       />
-                      <span className="host-option-name" title={host.hostName}>
+                      <span
+                        className="min-w-0 flex-1 truncate text-left"
+                        title={host.hostName}
+                      >
                         {host.hostName}
                       </span>
                     </span>
@@ -289,6 +299,7 @@ export function FolderPicker({
           </div>
         )}
         <Command
+          className="min-w-0"
           shouldFilter={false}
           value={selected}
           onValueChange={setSelected}
@@ -331,11 +342,14 @@ export function FolderPicker({
             }}
           />
           <CommandList
-            className="folder-dialog-list"
+            className="h-[min(20rem,45dvh)] min-h-[min(20rem,45dvh)] max-h-[min(20rem,45dvh)] border-y border-border"
             aria-busy={busy || connecting}
           >
             {connecting ? (
-              <div className="folder-connection-state" role="status">
+              <div
+                className="flex min-h-full items-center justify-center gap-2 px-3 py-6 text-sm text-muted-foreground"
+                role="status"
+              >
                 <Spinner aria-hidden="true" />
                 <span>{t("Connecting")}</span>
               </div>
@@ -343,27 +357,39 @@ export function FolderPicker({
               <div
                 className={
                   error === connectionFailure
-                    ? "folder-connection-state"
-                    : "folder-dialog-note"
+                    ? "flex min-h-full items-center justify-center px-3 py-6"
+                    : "p-2"
                 }
               >
                 <div
-                  className={
-                    error === connectionFailure
-                      ? "host-notice is-error"
-                      : undefined
-                  }
+                  className={cn(
+                    "grid w-full items-start gap-2 rounded-md border border-status-failed-border bg-status-failed-bg/35 p-3 text-sm text-foreground",
+                    error === connectionFailure &&
+                      "grid-cols-[1rem_minmax(0,1fr)]",
+                  )}
                   role="alert"
                 >
                   {error === connectionFailure && (
-                    <TriangleAlert aria-hidden="true" />
+                    <TriangleAlert
+                      className="mt-0.5 size-4 text-status-failed-text"
+                      aria-hidden="true"
+                    />
                   )}
-                  <div className="body">
-                    <p>{t(error)}</p>
+                  <div className="grid min-w-0 gap-2">
+                    <p
+                      className={cn(
+                        "m-0 [overflow-wrap:anywhere]",
+                        error !== connectionFailure &&
+                          "text-status-failed-text",
+                      )}
+                    >
+                      {t(error)}
+                    </p>
                     {canRetry && (
                       <Button
                         variant="outline"
                         size="sm"
+                        className="justify-self-start"
                         onClick={() =>
                           ready
                             ? setRetry((value) => value + 1)
@@ -377,19 +403,29 @@ export function FolderPicker({
                 </div>
               </div>
             ) : !directory ? (
-              <p className="folder-dialog-note">{t("Enter a folder path.")}</p>
+              <p className="m-2 text-sm text-muted-foreground">
+                {t("Enter a folder path.")}
+              </p>
+            ) : busy && candidates.length === 0 ? (
+              <div
+                className="flex min-h-full items-center justify-center gap-2 px-3 py-6 text-sm text-muted-foreground"
+                role="status"
+              >
+                <Spinner aria-hidden="true" />
+                <span>{t("Loading")}</span>
+              </div>
             ) : (
               candidates.map((entry) => (
                 <CommandItem
                   key={entry.path}
                   value={entry.path}
                   title={entry.path}
-                  className="folder-dialog-item"
+                  className="flex h-8 w-full justify-start gap-2 px-2 text-sm font-normal [@media(pointer:coarse)]:min-h-11 [&_svg]:shrink-0 [&_svg]:text-muted-foreground"
                   data-iori-folder-path={entry.path}
                   onSelect={() => descend(entry.path)}
                 >
                   <Folder size={14} />
-                  <span>{entry.name}</span>
+                  <span className="min-w-0 truncate">{entry.name}</span>
                 </CommandItem>
               ))
             )}
@@ -399,11 +435,13 @@ export function FolderPicker({
               ready &&
               directory &&
               candidates.length === 0 && (
-                <p className="folder-dialog-note">{t("No matching folders")}</p>
+                <p className="m-2 text-sm text-muted-foreground">
+                  {t("No matching folders")}
+                </p>
               )}
           </CommandList>
         </Command>
-        <div className="folder-dialog-actions">
+        <div className="flex flex-wrap justify-end gap-2">
           <Button variant="outline" onClick={onClose}>
             {t("Cancel")}
           </Button>
@@ -414,7 +452,7 @@ export function FolderPicker({
             onClick={() => void open()}
           >
             {t(purpose === "select" ? "Use this folder" : "Add")}{" "}
-            <Kbd className="folder-dialog-shortcut">Ctrl+Enter</Kbd>
+            <Kbd className="[@media(pointer:coarse)]:hidden">Ctrl+Enter</Kbd>
           </Button>
         </div>
       </DialogContent>

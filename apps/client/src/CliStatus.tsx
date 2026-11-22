@@ -47,6 +47,19 @@ export function CliStateDot({
 }) {
   if (!status) return null;
   const stalled = isStalledCliStatus(status);
+  const label = stalled
+    ? t("Not responding")
+    : status.state === "idle"
+      ? t("Idle")
+      : status.state === "active"
+        ? t("Running")
+        : status.state === "waiting"
+          ? t("Attention")
+          : status.state === "done"
+            ? status.outcome === "failure"
+              ? t("Failed")
+              : t("Done")
+            : t("Stopped");
   return (
     <StatusDot
       state={
@@ -59,21 +72,8 @@ export function CliStateDot({
               : status.state
       }
       animated={status.state === "active" && !stalled}
-      aria-label={
-        stalled
-          ? t("Not responding")
-          : status.state === "idle"
-            ? "Idle"
-            : status.state === "active"
-              ? "Running"
-              : status.state === "waiting"
-                ? t("Attention")
-                : status.state === "done"
-                  ? status.outcome === "failure"
-                    ? "Failed"
-                    : "Done"
-                  : "Stopped"
-      }
+      t={t}
+      label={label}
     />
   );
 }
@@ -83,7 +83,7 @@ export function CliElapsed({ status }: { status?: CliStatus }) {
   if (!status) return null;
   return (
     <time
-      className="cli-elapsed"
+      className="cli-elapsed shrink-0 self-center text-xs tabular-nums text-muted-foreground"
       title={new Date(status.since).toLocaleString(
         document.documentElement.lang,
       )}

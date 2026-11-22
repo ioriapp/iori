@@ -33,10 +33,15 @@ export function FindBar({
     input.current?.select();
   }, [focusKey]);
   return (
-    <div className="reading-overlay" role="search" data-iori-part="find">
+    <div
+      className="absolute top-2 right-4 z-(--z-popover) flex items-center gap-1 rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-md"
+      role="search"
+      data-iori-part="find"
+    >
       <Input
         ref={input}
         value={query}
+        className="h-7 w-[min(16rem,50vw)] text-xs text-popover-foreground [@media(pointer:coarse)]:h-10"
         data-iori-field="find-query"
         aria-label={t("Find")}
         placeholder={t("Find")}
@@ -52,10 +57,15 @@ export function FindBar({
           }
         }}
       />
-      {status && <span className="reading-overlay-status">{status}</span>}
+      {status && (
+        <span className="px-1.5 text-xs whitespace-nowrap text-muted-foreground">
+          {status}
+        </span>
+      )}
       <Button
         variant="ghost"
         size="icon-sm"
+        className="[@media(pointer:coarse)]:size-11"
         aria-label={t("Previous match")}
         title={t("Previous match (Shift+Enter)")}
         data-iori-action="find-previous"
@@ -66,6 +76,7 @@ export function FindBar({
       <Button
         variant="ghost"
         size="icon-sm"
+        className="[@media(pointer:coarse)]:size-11"
         aria-label={t("Next match")}
         title={t("Next match (Enter)")}
         data-iori-action="find-next"
@@ -76,6 +87,7 @@ export function FindBar({
       <Button
         variant="ghost"
         size="icon-sm"
+        className="[@media(pointer:coarse)]:size-11"
         aria-label={t("Close")}
         data-iori-action="find-close"
         onClick={onClose}
@@ -103,7 +115,7 @@ export function GoToLineBar({
   useEffect(() => input.current?.focus({ preventScroll: true }), []);
   return (
     <form
-      className="reading-overlay"
+      className="absolute top-2 right-4 z-(--z-popover) flex items-center gap-1 rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-md"
       data-iori-part="go-to-line"
       onSubmit={(event) => {
         event.preventDefault();
@@ -114,6 +126,7 @@ export function GoToLineBar({
       <Input
         ref={input}
         inputMode="numeric"
+        className="h-7 w-[min(16rem,50vw)] text-xs text-popover-foreground [@media(pointer:coarse)]:h-10"
         data-iori-field="go-to-line"
         aria-label={t("Go to line")}
         placeholder={t("Line (1–{value1})").replace("{value1}", () =>
@@ -129,6 +142,7 @@ export function GoToLineBar({
       <Button
         variant="ghost"
         size="icon-sm"
+        className="[@media(pointer:coarse)]:size-11"
         aria-label={t("Close")}
         onClick={onClose}
         type="button"

@@ -6,7 +6,7 @@
 
 - 語は、市場に流通するアプリの日本語の画面で使われている語にそろえる。基準にするのは、Visual Studio Code の日本語の言語パック、Apple（iOS・macOS）の用語集、Microsoft の用語集、Android（AOSP）の画面の文である。迷った時は、これらで多く使われている訳を採る。
 - 設計の文書の説明と画面の文を引く所、Release の本文（日本語）も、この文書の語で書く。
-- iori 固有の名前（iori Host・Attention・Board・Files・Terminal・worktree など）は英語のまま書く（AI開発の用語は簡単な英語のまま）。
+- 画面は表示言語にそろえる。固有名詞（iori Host・Attention・Board・Files・Git・Terminal・Records・Automations・AI Agents・Teams・Team・Orchestrator・Plan・Agents・Agent・Task N など）と、CLI・Gitの専門用語（worktree・commit・push・PR・CI・sandbox・Effort など）はそのまま使う。
 - この文書に無い語を新しく使う時は、上の基準で訳を引き、ここに足してから使う。
 - Microsoft の用語集の訳はカタカナの語の間に半角スペースを入れる（ラウンド トリップ）が、iori の文では入れない（ラウンドトリップ）。製品の正式な名前（この PC・OpenSSH クライアントなど）は除く。
 
@@ -14,7 +14,7 @@
 
 | 意味                                                 | 使う語                                               | 使わない語                                                                       | 基準                                                                                         |
 | ---------------------------------------------------- | ---------------------------------------------------- | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| 接続する・接続が切れる                               | 接続・切断・再接続・接続済み・未接続                 | つながる・つなぐ・つなぎ直す・切れる                                             | VS Code・Apple・Microsoft                                                                    |
+| 接続する・接続が切れる                               | 接続・切断・再接続                                   | つながる・つなぐ・つなぎ直す・切れる                                             | VS Code・Apple・Microsoft                                                                    |
 | 一覧などから取り除く                                 | 削除                                                 | 外す・消す                                                                       | 全て                                                                                         |
 | 登録・設定を取り消す                                 | 解除（登録の解除・自動起動の解除）                   | 外す                                                                             | Apple・Microsoft                                                                             |
 | 見せる                                               | 表示                                                 | 示す・出す                                                                       | 全て                                                                                         |
@@ -35,7 +35,6 @@
 | シェル・プロセスが動く場所                           | 作業ディレクトリ                                     | 作業フォルダー                                                                   | VS Code・Microsoft・macOS（Owner の決定）                                                    |
 | 技術の語                                             | シェル・トークン・ジョブ・リモート                   | shell・token・job・remote                                                        | VS Code・Microsoft（Owner の決定）。Git の操作の名前（commit・push・fetch など）は英語のまま |
 | テーマの「System default」                           | システムの設定に合わせる                             | OSに合わせる                                                                     | Owner の決定                                                                                 |
-| version                                              | バージョン                                           | 版                                                                               | 全て                                                                                         |
 | 使う人                                               | ユーザー                                             | 利用者                                                                           | Apple・Microsoft                                                                             |
 | OSが秘密を預かる仕組み                               | キーリング（Linux）・資格情報マネージャー（Windows） | 鍵束・資格情報ストア・資格情報の保管所                                           | VS Code・Microsoft（Owner の決定）                                                           |
 | SSHのhost key                                        | ホストキー                                           | host鍵                                                                           | Microsoft                                                                                    |
@@ -46,12 +45,10 @@
 | user-defined                                         | ユーザー定義                                         | ユーザーの定義                                                                   | VS Code・Microsoft                                                                           |
 | File history                                         | ファイル履歴                                         | ファイルの履歴                                                                   | Microsoft                                                                                    |
 | Invitation（貼り付ける・コピーするもの）             | 招待コード                                           | 招待の文字列                                                                     | Owner の決定                                                                                 |
-| 応答・作業が終わった状態（Done）                     | 完了                                                 | 終わった                                                                         | VS Code（`Done`→完了）                                                                       |
 | 5時間・週などの個々の制限（rate limit）              | 利用枠（長さは 5h・7d）                              | 窓                                                                               | VS Code（`session rate limit`→セッション レート制限、`weekly rate limit`→週間レート制限）    |
 | Overwrite（保存の競合）                              | 上書き                                               | —                                                                                | VS Code の保存の競合（Overwrite → 上書き）                                                   |
 | 文字の位置（Line・Column）                           | 行 {n}、列 {n}                                       | {n}行目・{n}文字目                                                               | VS Code（`Ln {0}, Col {1}` → 行 {0}、列 {1}）                                                |
 | モデルを指定せずに CLI 自身のモデルで使う（Default） | 既定                                                 | デフォルト・標準                                                                 | VS Code（`Default`→既定、`Use the vendor's default model`→ベンダーの既定のモデルを使用する） |
-| 作業中の Agent が進まない状態（Not responding）      | 応答なし                                             | 止まっている・進んでいない                                                       | Apple（`Not Responding`→応答なし）                                                           |
 | 一定の間隔で繰り返す（Every 15 minutes）             | 15分ごと・1時間ごと                                  | 15分おき・毎時                                                                   | macOS（`Every 15 minutes`→15分ごと、`Every hour`→1時間ごと）                                 |
 | 入力を送る（Send input）                             | 入力を送信                                           | 入力を送る・打ち込む                                                             | VS Code（`Send input to a shell session`→入力をシェル セッションに送信する）                 |
 | バックグラウンド（background）                       | バックグラウンド                                     | —                                                                                | VS Code・Microsoft（「コマンドはバックグラウンドで実行されています」）                       |
@@ -60,12 +57,38 @@
 | 自動（Auto）                                         | 自動                                                 | —                                                                                | VS Code・Apple・Microsoft                                                                    |
 | チームの統括役（Orchestrator）                       | Orchestrator（日英とも英語のまま）                   | 親・オーケストレーター（画面のチーム呼称として。Git の親コミットは「親」のまま） | Owner の決定（Roo Code・Anthropic の慣例）                                                   |
 
+## 状態と件数
+
+状態、件数、難易度、バージョンは表示言語に合わせる。ラベル、読み上げ名、行の補足、通知で同じ状態語を使う。
+
+| 意味                           | 日本語        | 英語                            |
+| ------------------------------ | ------------- | ------------------------------- |
+| 内容を取得中                   | 読み込み中    | Loading                         |
+| Agentが作業中                  | 実行中        | Running                         |
+| CLIの許可を待っている          | 承認待ち      | Approval / Waiting for approval |
+| Orchestratorの判定を待っている | 判定待ち      | Pending                         |
+| 応答・作業が終わった           | 完了          | Done / Finished                 |
+| 操作・作業が失敗した           | 失敗          | Failed                          |
+| 作業が停止した                 | 停止          | Stopped                         |
+| 作業の開始を待っている         | 待機中        | Waiting                         |
+| 作業を待つ状態に戻った         | 待機中        | Idle                            |
+| 開始したAgentが応答していない  | 応答なし      | Not responding                  |
+| Hostに接続済み                 | 接続済み      | Connected                       |
+| Hostに未接続                   | 未接続        | Disconnected                    |
+| 保存が済んだ                   | 保存済み      | Saved                           |
+| 作業の難しさ                   | 難易度        | Difficulty                      |
+| 難易度の段階                   | 高・中・低    | High / Medium / Low             |
+| 定義・製品のバージョン         | バージョン    | Version                         |
+| 通知の件数                     | 通知 1件      | 1 notification                  |
+| 完了の件数                     | 完了 3件      | 3 finished                      |
+| 使用トークン量                 | トークン 412k | 412k tokens                     |
+
 ## 表記
 
 - 否定は「ない」（「無い」と書かない）。
 - 条件の「時」は「とき」（「このHostをまた使うとき」）。「起動時」「日時」「時間」など時刻・時点を表す語は漢字のまま。
 - 「わかる」（「分かる」と書かない）。
-- 文は句点で終える。ボタン・ラベル・短い状態には付けない（[画面の見た目と言葉](visual-style.md)）。
+- 文は句点で終える。ボタン・ラベル・短い状態には付けない。確認ダイアログの問いは疑問符で終える。
 
 ## 文書の用語
 

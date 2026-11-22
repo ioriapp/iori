@@ -1,52 +1,29 @@
-import {
-  useWorktreeRemovalFlow,
-  locallyRemoving,
-} from "./worktree-removal-flow.ts";
-import { Spinner } from "./components/ui/spinner.tsx";
-import ioriIcon from "./assets/iori-icon.svg";
-import { connection } from "./connection.ts";
-import { creationOrder, worktreeOrder, definitionOrder } from "@iori/protocol";
-import { terminalTitle } from "./workspace-panel.tsx";
-import { WorktreeEntrances } from "./WorktreeEntrances.tsx";
-import { MiddleEllipsis } from "./MiddleEllipsis.tsx";
-import { ForgeMarks } from "./ForgeMarks.tsx";
-import { useForgeStatus, forgeKey } from "./forge-status.ts";
-import { issueRepositoryKey } from "./issues/issue-repositories.ts";
-import {
-  SidebarSort,
-  SortableSidebarItem,
-  useSidebarSortHandle,
-} from "./SidebarSort.tsx";
-import { hostNeedsUpdate } from "./updates/host-controller.ts";
-import { UpdateMark, SettingsUpdateMark } from "./updates/UpdateSettings.tsx";
-import { hasWindowChrome } from "./native.ts";
-import { ChildRows, type ChildRowProps } from "./teams/ChildRows.tsx";
-import { elapsedTime } from "./teams/board-i18n.ts";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { DragEvent as ReactDragEvent } from "react";
+import { useEffect, useState } from "react";
 import {
   Bot,
   ChevronDown,
   ChevronRight,
   CircleDot,
   Folder,
-  FolderMinus,
-  GitBranch,
   Home,
   Plus,
   Search,
   Settings,
-  Terminal,
-  Trash2,
-  Users,
-  X,
 } from "lucide-react";
-import type {
-  CliSummary,
-  FolderHistoryItem,
-  HostInfo,
-  Worktree,
-} from "@iori/protocol";
+import type { FolderHistoryItem, HostInfo } from "@iori/protocol";
+import { cn } from "cn";
+import {
+  useWorktreeRemovalFlow,
+  locallyRemoving,
+} from "./worktree-removal-flow.ts";
+import ioriIcon from "./assets/iori-icon.svg";
+import { connection } from "./connection.ts";
+import { useForgeStatus, forgeKey } from "./forge-status.ts";
+import { issueRepositoryKey } from "./issues/issue-repositories.ts";
+import { SidebarSort, SortableSidebarItem } from "./SidebarSort.tsx";
+import { hostNeedsUpdate } from "./updates/host-controller.ts";
+import { UpdateMark, SettingsUpdateMark } from "./updates/UpdateSettings.tsx";
+import { hasWindowChrome } from "./native.ts";
 import { Button } from "./components/ui/button.tsx";
 import { Input } from "./components/ui/input.tsx";
 import {
@@ -56,9 +33,6 @@ import {
 } from "./components/ui/collapsible.tsx";
 import {
   ContextMenu,
-  ContextMenuContent,
-  ContextMenuLabel,
-  ContextMenuItem,
   ContextMenuTrigger,
 } from "./components/ui/context-menu.tsx";
 import {
@@ -71,264 +45,22 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "./components/ui/sidebar.tsx";
-import { ScrollArea } from "./components/ui/scroll-area.tsx";
-import {
-  basename,
-  type WorkspaceViewKind,
-  worktreeLabel,
-} from "./workspace-panel.tsx";
-import "./navigation.css";
-import {
-  CliStateDot,
-  CliElapsed,
-  isStalledCliStatus,
-  useTick,
-  withStalledDescription,
-} from "./CliStatus.tsx";
+import { basename } from "./workspace-panel.tsx";
+import { isStalledCliStatus, useTick } from "./CliStatus.tsx";
 import { StatusDot } from "./components/StatusDot.tsx";
-import { CliIcon } from "./CliIcon.tsx";
+import {
+  worktreesOf,
+  type NavigationProps,
+  type SidebarFolder,
+} from "./navigation/types.ts";
+import {
+  SORTABLE_ITEM_CLASS,
+  SortableRowButton,
+  WorktreeContextMenuContent,
+  WorktreeItem,
+} from "./navigation/WorktreeItem.tsx";
 
-export type SidebarFolder = { host: HostInfo; folder: FolderHistoryItem };
-
-type Props = {
-  showForgeStatus: boolean;
-  clisRevision: number;
-  childRows: (hostKey: string, path: string) => ChildRowProps;
-  isChildWorktree: (hostKey: string, path: string) => boolean;
-  sessionsFor: (
-    hostKey: string,
-    path: string,
-  ) => import("@iori/protocol").TerminalSummary[];
-  t: (key: string) => string;
-  hosts: HostInfo[];
-  onReorderHosts: (keys: string[]) => void;
-  collapsedKeys?: string[];
-  onCollapsedChange: (keys: string[], automatic?: boolean) => void;
-  loadedHistoryHosts: string[];
-  onReorderFolders: (hostKey: string, paths: string[]) => void;
-  observedHosts: Record<string, HostInfo>;
-  homeActive: boolean;
-  onHome: () => void;
-  teamsHostKey?: string;
-  onTeams: (host: HostInfo) => void;
-  connectedHosts: string[];
-  issueRepositories: Record<
-    string,
-    import("@iori/protocol").ForgeIssueRepository | null
-  >;
-  folders: SidebarFolder[];
-  selected?: { hostKey: string; workspacePath: string; worktreePath: string };
-  historyError: Record<string, string>;
-  removeError: string;
-  dragViews: boolean;
-  onRetryHistory: (hostKey: string) => void;
-  onDeleteWorktree: (
-    host: HostInfo,
-    path: string,
-    cleanup: boolean,
-    label?: string,
-  ) => void;
-  onCreate: (host: HostInfo, folder: FolderHistoryItem) => void;
-  onOpenIssues: (host: HostInfo, folder: FolderHistoryItem) => void;
-  onSelectWorktree: (
-    host: HostInfo,
-    folder: FolderHistoryItem,
-    worktree: Worktree,
-  ) => void;
-  onOpenView: (kind: WorkspaceViewKind) => void;
-  /** A worktree row's CI mark: that worktree's CI View. */
-  onOpenCi: (host: HostInfo, folder: FolderHistoryItem, item: Worktree) => void;
-  onDragView: (
-    kind: WorkspaceViewKind,
-    terminalId?: string,
-    source?: { hostKey: string; workspacePath: string; worktreePath: string },
-  ) => (event: ReactDragEvent<HTMLButtonElement>) => void;
-  attentionCount: number;
-  onAttention: () => void;
-  activeTerminalId?: string;
-  terminalErrors: Record<string, string>;
-  onOpenTerminal: (terminalId: string, hostKey: string) => void;
-  onCloseTerminal: (terminalId: string) => void;
-  onAddFolder: (hostKey: string) => void;
-  onRemoveFolder: (hostKey: string, folder: FolderHistoryItem) => void;
-  onSettings: (hostKey?: string, repositoryPath?: string) => void;
-};
-
-function SortableRowButton({
-  sortable,
-  ...props
-}: React.ComponentProps<typeof SidebarMenuButton> & {
-  sortable: boolean;
-}) {
-  const handle = useSidebarSortHandle(sortable);
-  return <SidebarMenuButton {...props} {...handle} />;
-}
-
-function WorkspaceSidebarItem({
-  sortable,
-  id,
-  disabled,
-  ...props
-}: React.ComponentProps<typeof SidebarMenuItem> & {
-  sortable: boolean;
-  id: string;
-  disabled: boolean;
-}) {
-  return sortable ? (
-    <SortableSidebarItem id={id} disabled={disabled} {...props} />
-  ) : (
-    <SidebarMenuItem {...props} />
-  );
-}
-
-function WorktreeRow({
-  children,
-  controls,
-  ...props
-}: React.ComponentProps<"div"> & {
-  children: React.ReactNode;
-  controls: React.ReactNode;
-}) {
-  const row = useRef<HTMLDivElement>(null);
-  const end = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => {
-    const element = row.current;
-    const trailing = end.current;
-    if (!element || !trailing) return;
-    const resize = () =>
-      element.style.setProperty(
-        "--nav-worktree-controls-width",
-        `${trailing.getBoundingClientRect().width}px`,
-      );
-    const observer = new ResizeObserver(resize);
-    observer.observe(trailing);
-    resize();
-    return () => observer.disconnect();
-  }, []);
-  return (
-    <div className="nav-worktree-row" ref={row} {...props}>
-      {children}
-      <div className="nav-worktree-controls" ref={end}>
-        {controls}
-      </div>
-    </div>
-  );
-}
-
-export function worktreesOf(folder: FolderHistoryItem): Worktree[] {
-  return folder.kind === "git"
-    ? [...(folder.worktrees ?? [])].sort((a, b) =>
-        worktreeOrder(
-          {
-            ...a,
-            label: worktreeLabel(a.branch, a.path, folder.workspacePath),
-          },
-          {
-            ...b,
-            label: worktreeLabel(b.branch, b.path, folder.workspacePath),
-          },
-        ),
-      )
-    : [{ path: folder.path, detached: false, primary: true }];
-}
-
-type ActivityGroup = { cli?: CliSummary; count: number };
-
-// Measure the existing icons and counts at the user's text size. The summary
-// reserves room for the worktree name and keeps only the prefix that fits.
-function WorktreeActivity({
-  hostKey,
-  groups,
-  t,
-}: {
-  hostKey: string;
-  groups: ActivityGroup[];
-  t: Props["t"];
-}) {
-  const container = useRef<HTMLSpanElement>(null);
-  const measure = useRef<HTMLSpanElement>(null);
-  const [visible, setVisible] = useState(groups.length);
-  const groupSizes = JSON.stringify(
-    groups.map((group) => [group.cli?.id, group.count]),
-  );
-  const groupCount = groups.length;
-  useLayoutEffect(() => {
-    const element = container.current;
-    const ruler = measure.current;
-    if (!element || !ruler) return;
-    const resize = () => {
-      const items = [...ruler.children];
-      const gap = parseFloat(getComputedStyle(ruler).columnGap);
-      const widths = items.map((item) => item.getBoundingClientRect().width);
-      const available = element.getBoundingClientRect().width;
-      let count = groupCount;
-      const width = (length: number) =>
-        widths.slice(0, length).reduce((sum, value) => sum + value, 0) +
-        Math.max(0, length - 1) * gap;
-      if (width(count) > available) {
-        while (count > 0 && width(count) + gap + widths[groupCount] > available)
-          count--;
-      }
-      setVisible(count);
-    };
-    const observer = new ResizeObserver(resize);
-    observer.observe(element);
-    observer.observe(ruler);
-    resize();
-    return () => observer.disconnect();
-  }, [groupSizes, groupCount]);
-  const render = (group: ActivityGroup) => (
-    <span className="nav-activity-kind" key={group.cli?.id ?? "terminal"}>
-      {group.cli ? (
-        <CliIcon hostKey={hostKey} cli={group.cli} size={14} />
-      ) : (
-        <Terminal size={14} />
-      )}
-      {group.count > 1 && <span>{group.count}</span>}
-    </span>
-  );
-  const description = groups
-    .map((group) => `${group.cli?.name ?? t("Terminal")} × ${group.count}`)
-    .join(", ");
-  return (
-    <span
-      className="nav-activity-summary"
-      ref={container}
-      role="img"
-      aria-label={description}
-      title={description}
-    >
-      <span className="nav-activity-measure" ref={measure} aria-hidden="true">
-        {groups.map(render)}
-        <span>+{groups.length}</span>
-      </span>
-      <span className="nav-activity-visible" aria-hidden="true">
-        {groups.slice(0, visible).map(render)}
-        {visible < groups.length && <span>+{groups.length - visible}</span>}
-      </span>
-    </span>
-  );
-}
-
-function parentStateLabel(
-  terminal: import("@iori/protocol").TerminalSummary,
-  t: (key: string) => string,
-  now: number,
-) {
-  if (terminal.state === "exited" || terminal.state === "error")
-    return t("Exited");
-  if (terminal.cliResumePending) return "Stopped";
-  const status = terminal.cliStatus;
-  if (!status) return undefined;
-  if (isStalledCliStatus(status))
-    return `${t("Not responding")} · ${elapsedTime(now - status.stalledSince)}`;
-  if (status.state === "waiting")
-    return status.attention?.kind === "question" ? "Question" : "Approval";
-  if (status.state === "active") return "Running";
-  if (status.state === "done")
-    return status.outcome === "failure" ? "Failed" : "Done";
-  return "Idle";
-}
+export { worktreesOf, type SidebarFolder };
 
 export function Navigation({
   showForgeStatus,
@@ -372,7 +104,7 @@ export function Navigation({
   terminalErrors,
   onOpenTerminal,
   onCloseTerminal,
-}: Props) {
+}: NavigationProps) {
   const removalState = useWorktreeRemovalFlow();
   const isRemoving = (hostKey: string, path: string) =>
     locallyRemoving(removalState, hostKey, path) ||
@@ -417,6 +149,7 @@ export function Navigation({
       active = false;
     };
   }, [connectedKey, clisRevision]);
+
   const forgeTargets = hosts.map((host) => ({
     host: host.publicKey,
     paths: folders
@@ -484,6 +217,7 @@ export function Navigation({
     loadedHistoryHosts,
     onCollapsedChange,
   ]);
+
   const needle = query.trim().toLocaleLowerCase();
   const matching = (value: string) =>
     value.toLocaleLowerCase().includes(needle);
@@ -494,427 +228,62 @@ export function Navigation({
     else next.add(id);
     onCollapsedChange([...next]);
   };
+  const closeMobile = () => setOpenMobile(false);
 
-  const removeMenu = (
+  const renderWorktree = (
     host: HostInfo,
     folder: FolderHistoryItem,
-    item?: Worktree,
+    item: ReturnType<typeof worktreesOf>[number],
   ) => (
-    <ContextMenuContent>
-      {item && (
-        <ContextMenuLabel className="nav-folder-menu-name">
-          {basename(item.path)}
-        </ContextMenuLabel>
-      )}
-      {(!item || folder.kind !== "git") && (
-        <ContextMenuItem
-          data-iori-action="workspace-settings"
-          onSelect={() => {
-            onSettings(host.publicKey, folder.workspacePath);
-            setOpenMobile(false);
-          }}
-        >
-          <Settings aria-hidden="true" />
-          {t("Workspace settings…")}
-        </ContextMenuItem>
-      )}
-      {folder.kind === "git" && (!item || !item.primary) && (
-        <ContextMenuItem
-          data-iori-action={item ? "worktree-delete" : "worktree-cleanup"}
-          onSelect={() =>
-            onDeleteWorktree(
-              host,
-              item?.path ?? folder.workspacePath,
-              !item,
-              item
-                ? worktreeLabel(item.branch, item.path, folder.workspacePath)
-                : undefined,
-            )
-          }
-        >
-          <Trash2 aria-hidden="true" />
-          {t(item ? "Delete worktree" : "Delete merged worktrees…")}
-        </ContextMenuItem>
-      )}
-      {(!item || item.primary || folder.kind !== "git") && (
-        <ContextMenuItem
-          data-iori-action="sidebar-remove"
-          onSelect={() => onRemoveFolder(host.publicKey, folder)}
-        >
-          <FolderMinus aria-hidden="true" />
-          {t("Remove from sidebar")}
-        </ContextMenuItem>
-      )}
-    </ContextMenuContent>
+    <WorktreeItem
+      key={item.path}
+      host={host}
+      folder={folder}
+      item={item}
+      needle={needle}
+      matching={matching}
+      isMobile={isMobile}
+      isSelected={
+        selected?.hostKey === host.publicKey &&
+        selected.workspacePath === folder.workspacePath &&
+        selected.worktreePath === item.path
+      }
+      removing={isRemoving(host.publicKey, item.path)}
+      isRemoving={isRemoving}
+      collapsed={collapsed}
+      toggle={toggle}
+      cliOrder={cliOrders[host.publicKey] ?? []}
+      forgeStatus={
+        showForgeStatus
+          ? forgeStatuses[forgeKey(host.publicKey, item.path)]
+          : undefined
+      }
+      childRows={getChildRows(host.publicKey, item.path)}
+      sessions={sessionsFor(host.publicKey, item.path)}
+      activeTerminalId={activeTerminalId}
+      terminalErrors={terminalErrors}
+      dragViews={dragViews}
+      now={now}
+      t={t}
+      onSelectWorktree={onSelectWorktree}
+      onCreate={onCreate}
+      onOpenView={onOpenView}
+      onOpenCi={onOpenCi}
+      onDragView={onDragView}
+      onOpenTerminal={onOpenTerminal}
+      onCloseTerminal={onCloseTerminal}
+      onDeleteWorktree={onDeleteWorktree}
+      onRemoveFolder={onRemoveFolder}
+      onSettings={onSettings}
+      onCloseMobile={closeMobile}
+    />
   );
-
-  const worktree = (
-    host: HostInfo,
-    folder: FolderHistoryItem,
-    item: Worktree,
-  ) => {
-    const plain = folder.kind !== "git";
-    const removing = isRemoving(host.publicKey, item.path);
-    const childRows = getChildRows(host.publicKey, item.path);
-    const terminals = sessionsFor(host.publicKey, item.path).sort(
-      creationOrder,
-    );
-    const childrenByParent = new Map<string, typeof childRows.children>();
-    for (const child of [...childRows.children].sort(creationOrder)) {
-      let children = childrenByParent.get(child.parentTerminalId);
-      if (!children)
-        childrenByParent.set(child.parentTerminalId, (children = []));
-      children.push(child);
-    }
-    if (
-      !matching(
-        `${host.hostName} ${folder.path} ${item.branch ?? ""} ${item.path} ${childRows.children.map((child) => `${child.role} ${child.title} ${child.model ?? ""}`).join(" ")}`,
-      )
-    )
-      return null;
-    const isSelected =
-      selected?.hostKey === host.publicKey &&
-      selected.workspacePath === folder.workspacePath &&
-      selected.worktreePath === item.path;
-    const folderName = basename(item.path);
-    const label = plain
-      ? folderName
-      : worktreeLabel(item.branch, item.path, folder.workspacePath);
-    const forgeStatus = showForgeStatus
-      ? forgeStatuses[forgeKey(host.publicKey, item.path)]
-      : undefined;
-    const id = `worktree:${host.publicKey}:${folder.workspacePath}:${item.path}`;
-    const hasRows = terminals.length > 0 || childRows.children.length > 0;
-    const open = !hasRows || !collapsed.has(id) || Boolean(needle);
-    const activity = new Map<string, ActivityGroup>();
-    const addActivity = (cli?: CliSummary) => {
-      const key = cli?.id ?? "terminal";
-      const group = activity.get(key);
-      if (group) group.count++;
-      else activity.set(key, { cli, count: 1 });
-    };
-    for (const terminal of terminals)
-      if (terminal.state === "running" && !terminal.cliResumePending)
-        addActivity(terminal.cli);
-    for (const child of [...childRows.children].sort(creationOrder))
-      if (
-        child.terminalId &&
-        child.cli &&
-        ["running", "reported", "question"].includes(child.state)
-      )
-        addActivity(child.cli);
-    const button = (
-      <SortableRowButton
-        sortable={plain && !needle && !removing}
-        className={`nav-worktree-button ${isSelected ? "is-selected" : ""} ${removing ? "is-deleting" : ""}`}
-        disabled={removing}
-        aria-current={isSelected ? "page" : undefined}
-        title={
-          removing
-            ? undefined
-            : `${label}
-${folderName}
-${item.path}`
-        }
-        data-iori-worktree-path={item.path}
-        data-iori-workspace-path={plain ? folder.workspacePath : undefined}
-        data-iori-host-key={host.publicKey}
-        onClick={() => {
-          toggle(id, true);
-          onSelectWorktree(host, folder, item);
-        }}
-      >
-        <span className="nav-worktree-titleline">
-          {removing ? (
-            <Spinner aria-hidden="true" />
-          ) : plain ? (
-            <Folder size={14} />
-          ) : (
-            <GitBranch size={14} />
-          )}
-          {/* Selection changes the font weight used to fit the name. */}
-          <MiddleEllipsis
-            key={isSelected ? "selected" : "unselected"}
-            text={label}
-          />
-          {item.merged && forgeStatus?.pullRequest?.state !== "merged" && (
-            <span className="nav-branch" data-iori-worktree-merged="true">
-              Merged
-            </span>
-          )}
-          {!open && activity.size > 0 && (
-            <WorktreeActivity
-              hostKey={host.publicKey}
-              groups={[...activity.values()].sort((a, b) =>
-                definitionOrder(cliOrders[host.publicKey] ?? [])(
-                  a.cli?.id ?? "",
-                  b.cli?.id ?? "",
-                ),
-              )}
-              t={t}
-            />
-          )}
-        </span>
-      </SortableRowButton>
-    );
-    return (
-      <WorkspaceSidebarItem
-        sortable={plain}
-        id={folder.workspacePath}
-        disabled={Boolean(needle)}
-        className={`nav-worktree ${plain ? "nav-plain-folder" : ""}`}
-        key={item.path}
-      >
-        <Collapsible open={open} onOpenChange={(value) => toggle(id, value)}>
-          <WorktreeRow
-            role="group"
-            title={
-              removing
-                ? t("Deleting {name}").replace("{name}", () => label)
-                : undefined
-            }
-            aria-label={
-              removing
-                ? t("Deleting {name}").replace("{name}", () => label)
-                : undefined
-            }
-            data-iori-worktree-removing={removing ? "true" : undefined}
-            onContextMenu={
-              removing ? (event) => event.preventDefault() : undefined
-            }
-            controls={
-              <>
-                <ForgeMarks
-                  status={removing ? undefined : forgeStatus}
-                  t={t}
-                  onOpenCi={() => onOpenCi(host, folder, item)}
-                />
-                {plain && (
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={t("Start CLI or team")}
-                    title={t("Start CLI or team")}
-                    className="nav-folder-start"
-                    data-iori-action="folder-start-cli"
-                    data-iori-folder-path={folder.path}
-                    onClick={() => onCreate(host, folder)}
-                  >
-                    <Plus size={14} />
-                  </Button>
-                )}
-                {hasRows && (
-                  <CollapsibleTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      className="nav-worktree-toggle"
-                      disabled={removing}
-                      aria-label={t(
-                        open ? "Collapse {name}" : "Expand {name}",
-                      ).replace("{name}", label)}
-                      data-iori-action="worktree-toggle"
-                    >
-                      {open ? (
-                        <ChevronDown size={13} />
-                      ) : (
-                        <ChevronRight size={13} />
-                      )}
-                    </Button>
-                  </CollapsibleTrigger>
-                )}
-              </>
-            }
-          >
-            {removing ? (
-              button
-            ) : (
-              <ContextMenu>
-                <ContextMenuTrigger asChild>{button}</ContextMenuTrigger>
-                {removeMenu(host, folder, item)}
-              </ContextMenu>
-            )}
-          </WorktreeRow>
-          <CollapsibleContent>
-            {isSelected && isMobile && !removing && (
-              <WorktreeEntrances
-                plain={plain}
-                board={terminals.some((terminal) => terminal.teamConversation)}
-                mobile
-                t={t}
-                onDrag={onDragView}
-                onOpen={(kind) => {
-                  onOpenView(kind);
-                  setOpenMobile(false);
-                }}
-              />
-            )}
-            {hasRows && (
-              <SidebarMenu className="nav-session-list">
-                {terminals.map((terminal) => {
-                  const teamName =
-                    terminal.teamConversation && !terminal.teamChild
-                      ? terminal.teamName
-                      : undefined;
-                  const stateLabel = teamName
-                    ? parentStateLabel(terminal, t, now)
-                    : undefined;
-                  return (
-                    <SidebarMenuItem key={terminal.id}>
-                      <ContextMenu>
-                        <ContextMenuTrigger asChild disabled={removing}>
-                          <SidebarMenuButton
-                            className={`nav-session ${teamName ? "is-team-parent" : ""} ${terminal.id === activeTerminalId ? "is-current" : ""} ${removing ? "removal-disabled" : ""}`}
-                            aria-current={
-                              terminal.id === activeTerminalId
-                                ? "page"
-                                : undefined
-                            }
-                            title={
-                              teamName
-                                ? [
-                                    teamName,
-                                    terminalTitle(terminal.title),
-                                    stateLabel,
-                                  ]
-                                    .filter(Boolean)
-                                    .join(" · ")
-                                : withStalledDescription(
-                                    terminalTitle(terminal.title),
-                                    terminal.cliStatus,
-                                    t,
-                                    now,
-                                  )
-                            }
-                            disabled={removing}
-                            draggable={!removing && dragViews}
-                            onDragStart={onDragView("terminal", terminal.id, {
-                              hostKey: host.publicKey,
-                              workspacePath: folder.workspacePath,
-                              worktreePath: item.path,
-                            })}
-                            data-iori-terminal-row={terminal.id}
-                            data-iori-row-cli={terminal.cli?.id}
-                            onClick={() => {
-                              onOpenTerminal(terminal.id, host.publicKey);
-                              setOpenMobile(false);
-                            }}
-                          >
-                            {teamName ? (
-                              <>
-                                <span className="nav-session-line">
-                                  <CliStateDot
-                                    status={terminal.cliStatus}
-                                    t={t}
-                                  />
-                                  <Users
-                                    size={14}
-                                    className="nav-session-team-icon"
-                                    aria-hidden="true"
-                                  />
-                                  <span className="nav-session-copy">
-                                    <span className="nav-session-title nav-session-team-name">
-                                      {teamName}
-                                    </span>
-                                  </span>
-                                  <CliElapsed status={terminal.cliStatus} />
-                                </span>
-                                <span className="nav-child-detail nav-session-detail">
-                                  {terminal.cli ? (
-                                    <CliIcon
-                                      hostKey={host.publicKey}
-                                      cli={terminal.cli}
-                                      size={10}
-                                    />
-                                  ) : (
-                                    <Terminal
-                                      size={10}
-                                      className="cli-icon"
-                                      aria-hidden="true"
-                                    />
-                                  )}
-                                  <span className="nav-child-model">
-                                    {terminalTitle(terminal.title)}
-                                  </span>
-                                  {stateLabel && (
-                                    <>
-                                      <span aria-hidden="true">·</span>
-                                      <span className="nav-child-state">
-                                        {stateLabel}
-                                      </span>
-                                    </>
-                                  )}
-                                </span>
-                              </>
-                            ) : (
-                              <>
-                                <CliStateDot
-                                  status={terminal.cliStatus}
-                                  t={t}
-                                />
-                                {terminal.cli ? (
-                                  <CliIcon
-                                    hostKey={host.publicKey}
-                                    cli={terminal.cli}
-                                    size={14}
-                                  />
-                                ) : (
-                                  <Terminal size={14} />
-                                )}
-                                <span className="nav-session-copy">
-                                  <span className="nav-session-title">
-                                    {terminalTitle(terminal.title)}
-                                  </span>
-                                </span>
-                                <CliElapsed status={terminal.cliStatus} />
-                                {(terminal.state === "exited" ||
-                                  terminal.state === "error") && (
-                                  <span className="nav-session-exited">
-                                    {t("Exited")}
-                                  </span>
-                                )}
-                              </>
-                            )}
-                          </SidebarMenuButton>
-                        </ContextMenuTrigger>
-                        <ContextMenuContent>
-                          <ContextMenuItem
-                            data-iori-action="terminal-close"
-                            onSelect={() => onCloseTerminal(terminal.id)}
-                          >
-                            <X aria-hidden="true" />
-                            {t("Close terminal")}
-                          </ContextMenuItem>
-                        </ContextMenuContent>
-                      </ContextMenu>
-                      <ChildRows
-                        {...childRows}
-                        isRemoving={(path) =>
-                          removing || isRemoving(host.publicKey, path)
-                        }
-                        children={childrenByParent.get(terminal.id) ?? []}
-                      />
-                      {terminalErrors[terminal.id] && (
-                        <p className="nav-inline-error" role="alert">
-                          {terminalErrors[terminal.id]}
-                        </p>
-                      )}
-                    </SidebarMenuItem>
-                  );
-                })}
-              </SidebarMenu>
-            )}
-          </CollapsibleContent>
-        </Collapsible>
-      </WorkspaceSidebarItem>
-    );
-  };
 
   const repository = (host: HostInfo, folder: FolderHistoryItem) => {
     const items = worktreesOf(folder).filter(
       (worktree) => !isChildWorktree(host.publicKey, worktree.path),
     );
-    const rows = items.map((item) => worktree(host, folder, item));
+    const rows = items.map((item) => renderWorktree(host, folder, item));
     if (!rows.some(Boolean)) return null;
     const id = `repo:${host.publicKey}:${folder.workspacePath}`;
     const open = !collapsed.has(id) || Boolean(needle);
@@ -923,26 +292,42 @@ ${item.path}`
         id={folder.workspacePath}
         disabled={Boolean(needle)}
         key={folder.workspacePath}
-        className="nav-repository"
+        className={cn(
+          SORTABLE_ITEM_CLASS,
+          "nav-repository mx-1.5 mt-2.5 mb-0.5",
+        )}
       >
         <Collapsible open={open} onOpenChange={(value) => toggle(id, value)}>
-          <div className="nav-repository-heading">
+          <div className="nav-repository-heading flex items-center pr-1.5">
             <ContextMenu>
               <ContextMenuTrigger asChild>
                 <CollapsibleTrigger asChild>
                   <SortableRowButton
                     sortable={!needle}
-                    className="nav-repository-button"
+                    className="nav-repository-button h-auto min-h-7 min-w-0 flex-1 touch-manipulation gap-1.5 px-1.5 py-1 text-sm font-medium text-foreground [@media(pointer:coarse)]:min-h-9"
                     data-iori-repository-path={folder.workspacePath}
                     data-iori-workspace-path={folder.workspacePath}
                     title={folder.workspacePath}
                   >
-                    <Folder size={13} />
-                    <span>{basename(folder.workspacePath)}</span>
+                    <Folder
+                      className="size-3.5 shrink-0 text-muted-foreground"
+                      aria-hidden="true"
+                    />
+                    <span className="truncate">
+                      {basename(folder.workspacePath)}
+                    </span>
                   </SortableRowButton>
                 </CollapsibleTrigger>
               </ContextMenuTrigger>
-              {removeMenu(host, folder)}
+              <WorktreeContextMenuContent
+                host={host}
+                folder={folder}
+                t={t}
+                onSettings={onSettings}
+                onDeleteWorktree={onDeleteWorktree}
+                onRemoveFolder={onRemoveFolder}
+                onCloseMobile={closeMobile}
+              />
             </ContextMenu>
             {issueRepositories[
               issueRepositoryKey(host.publicKey, folder.workspacePath)
@@ -950,44 +335,48 @@ ${item.path}`
               <Button
                 variant="ghost"
                 size="icon-sm"
-                className="nav-repository-action"
+                className="nav-repository-action size-6.5 shrink-0 text-muted-foreground hover:text-foreground [@media(pointer:coarse)]:size-10"
                 aria-label="Issues"
                 title="Issues"
                 data-iori-action="repository-issues"
                 data-iori-repository-path={folder.workspacePath}
                 onClick={() => onOpenIssues(host, folder)}
               >
-                <CircleDot size={14} />
+                <CircleDot className="size-3.5" aria-hidden="true" />
               </Button>
             )}
             <Button
               variant="ghost"
               size="icon-sm"
-              className="nav-repository-action"
+              className="nav-repository-action size-6.5 shrink-0 text-muted-foreground hover:text-foreground [@media(pointer:coarse)]:size-10"
               aria-label={t("New worktree")}
               title={t("New worktree")}
               data-iori-action="new-worktree"
               data-iori-repository-path={folder.workspacePath}
               onClick={() => onCreate(host, folder)}
             >
-              <Plus size={14} />
+              <Plus className="size-3.5" aria-hidden="true" />
             </Button>
             <CollapsibleTrigger asChild>
               <Button
                 variant="ghost"
                 size="icon-sm"
-                className="nav-worktree-toggle"
+                className="nav-worktree-toggle size-6.5 shrink-0 text-muted-foreground hover:text-foreground aria-expanded:bg-transparent aria-expanded:hover:bg-accent [@media(pointer:coarse)]:size-10"
                 aria-label={t(
                   open ? "Collapse {name}" : "Expand {name}",
                 ).replace("{name}", basename(folder.workspacePath))}
                 data-iori-action="repository-toggle"
               >
-                {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                {open ? (
+                  <ChevronDown className="size-3.5" aria-hidden="true" />
+                ) : (
+                  <ChevronRight className="size-3.5" aria-hidden="true" />
+                )}
               </Button>
             </CollapsibleTrigger>
           </div>
           <CollapsibleContent>
-            <SidebarMenu>{rows}</SidebarMenu>
+            <SidebarMenu className="gap-0">{rows}</SidebarMenu>
           </CollapsibleContent>
         </Collapsible>
       </SortableSidebarItem>
@@ -1001,7 +390,7 @@ ${item.path}`
     const rows = own.map(({ folder }) =>
       folder.kind === "git"
         ? repository(host, folder)
-        : worktreesOf(folder).map((item) => worktree(host, folder, item)),
+        : worktreesOf(folder).map((item) => renderWorktree(host, folder, item)),
     );
     if (
       needle &&
@@ -1014,25 +403,39 @@ ${item.path}`
     const connected = connectedHosts.includes(host.publicKey);
     // A Host that is not connected has not answered yet; that is not a failure.
     const historyFailure = connected ? historyError[host.publicKey] : undefined;
+
     return (
       <SortableSidebarItem
         id={host.publicKey}
         disabled={Boolean(needle)}
-        className="nav-host-section"
+        className={cn(
+          SORTABLE_ITEM_CLASS,
+          "nav-host-section mt-3 border-t border-sidebar-border/70 pt-2 first:mt-1 first:border-t-0 first:pt-0",
+        )}
         key={host.publicKey}
       >
         <Collapsible open={open} onOpenChange={(value) => toggle(id, value)}>
-          <div className="nav-host-row">
+          <div className="nav-host-row relative flex items-center pr-1">
             <CollapsibleTrigger asChild>
               <SortableRowButton
                 sortable={!needle}
-                className="nav-host-title"
+                className="nav-host-title flex h-auto min-h-8 min-w-0 flex-1 touch-manipulation items-center gap-1.5 px-3 py-1 text-sm font-medium text-sidebar-foreground [@media(pointer:coarse)]:min-h-10"
                 data-iori-host-key={host.publicKey}
               >
-                <span className="nav-host-name">{host.hostName}</span>
-                {host.os && <span className="nav-host-os">{host.os}</span>}
+                <span className="nav-host-name min-w-0 truncate">
+                  {host.hostName}
+                </span>
+                {host.os && (
+                  <span className="nav-host-os ml-auto shrink-0 text-xs font-normal text-muted-foreground">
+                    {host.os}
+                  </span>
+                )}
                 <span
-                  className="nav-connected-mark"
+                  className={cn(
+                    "nav-connected-mark size-1.5 shrink-0 rounded-full",
+                    host.os ? "ml-1" : "ml-auto",
+                    connected ? "bg-status-running" : "bg-status-stopped",
+                  )}
                   data-connected={connected}
                   role="img"
                   aria-label={t(connected ? "Connected" : "Disconnected")}
@@ -1042,17 +445,17 @@ ${item.path}`
             <Button
               variant="ghost"
               size="icon-sm"
-              className="nav-host-settings"
+              className="nav-host-settings relative size-6.5 shrink-0 text-muted-foreground hover:text-foreground [&_[data-iori-state=update-available]]:absolute [&_[data-iori-state=update-available]]:top-0.5 [&_[data-iori-state=update-available]]:right-0.5 [@media(pointer:coarse)]:size-10"
               aria-label={t("Host settings")}
               title={t("Host settings")}
               data-iori-action="host-settings-open"
               data-iori-host-key={host.publicKey}
               onClick={() => {
                 onSettings(host.publicKey);
-                setOpenMobile(false);
+                closeMobile();
               }}
             >
-              <Settings size={13} />
+              <Settings className="size-3.5" aria-hidden="true" />
               <UpdateMark
                 t={t}
                 available={hostNeedsUpdate(observedHosts[host.publicKey])}
@@ -1061,19 +464,22 @@ ${item.path}`
             <Button
               variant="ghost"
               size="icon-sm"
-              className="nav-host-add"
+              className="nav-host-add size-6.5 shrink-0 text-muted-foreground hover:text-foreground [@media(pointer:coarse)]:size-10"
               aria-label={t("Add folder")}
               title={t("Add folder")}
               data-iori-action="sidebar-add-folder"
               data-iori-host-name={host.hostName}
               onClick={() => onAddFolder(host.publicKey)}
             >
-              <Plus size={13} />
+              <Plus className="size-3.5" aria-hidden="true" />
             </Button>
           </div>
           <CollapsibleContent>
             {historyFailure && (
-              <div className="nav-inline-error" role="alert">
+              <div
+                className="nav-inline-error mx-3 my-1 flex items-center justify-between gap-2 text-xs text-status-failed-text"
+                role="alert"
+              >
                 <span>{t(historyFailure)}</span>
                 <Button
                   variant="outline"
@@ -1084,21 +490,22 @@ ${item.path}`
                 </Button>
               </div>
             )}
-            <SidebarMenu>
-              <SidebarMenuItem>
+            <SidebarMenu className="gap-0">
+              <SidebarMenuItem className="mx-1.5">
                 <SidebarMenuButton
                   isActive={teamsHostKey === host.publicKey}
                   aria-current={
                     teamsHostKey === host.publicKey ? "page" : undefined
                   }
+                  className="h-auto min-h-8 gap-2 px-2 py-1 text-sm data-[active=true]:bg-primary/15 data-[active=true]:font-semibold data-[active=true]:[&>svg]:text-primary [@media(pointer:coarse)]:min-h-10"
                   data-iori-action="open-agents-teams"
                   data-iori-host-key={host.publicKey}
                   onClick={() => {
                     onTeams(host);
-                    setOpenMobile(false);
+                    closeMobile();
                   }}
                 >
-                  <Bot size={14} />
+                  <Bot className="size-3.5 shrink-0" aria-hidden="true" />
                   <span>{t("AI Agents/Teams")}</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
@@ -1111,12 +518,12 @@ ${item.path}`
                 {rows}
               </SidebarSort>
               {own.length === 0 && !historyFailure && (
-                <SidebarMenuItem className="nav-worktree">
+                <SidebarMenuItem className="nav-worktree mx-1.5">
                   <SidebarMenuButton
-                    className="nav-add-folder"
+                    className="nav-add-folder h-auto min-h-8 gap-2 px-2 py-1 text-sm text-muted-foreground [@media(pointer:coarse)]:min-h-10"
                     onClick={() => onAddFolder(host.publicKey)}
                   >
-                    <Plus size={13} />
+                    <Plus className="size-3.5 shrink-0" aria-hidden="true" />
                     <span>{t("Add folder")}…</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
@@ -1129,18 +536,21 @@ ${item.path}`
   };
 
   return (
-    <Sidebar className="nav-sidebar" collapsible="offcanvas">
-      <SidebarHeader>
+    <Sidebar
+      className="nav-sidebar border-r border-sidebar-border bg-sidebar text-sm text-sidebar-foreground data-[mobile=true]:w-[min(20.375rem,calc(100vw-2.75rem))] data-[mobile=true]:max-w-[calc(100vw-2.75rem)]"
+      collapsible="offcanvas"
+    >
+      <SidebarHeader className="gap-1.5 px-2 pt-2 pb-1.5">
         {hasWindowChrome && (
           <div className="window-sidebar-drag-strip" data-tauri-drag-region />
         )}
         {!isMobile && (
           <div
-            className="nav-brand-row"
+            className="nav-brand-row flex min-h-7 items-center gap-2"
             data-tauri-drag-region={hasWindowChrome ? "" : undefined}
           >
             <div
-              className="nav-brand"
+              className="nav-brand flex shrink-0 items-center gap-2 px-2"
               data-tauri-drag-region={hasWindowChrome ? "" : undefined}
             >
               <img
@@ -1148,10 +558,11 @@ ${item.path}`
                 width={20}
                 height={20}
                 alt=""
+                className="size-5 shrink-0"
                 data-tauri-drag-region={hasWindowChrome ? "" : undefined}
               />
               <span
-                className="app-wordmark"
+                className="app-wordmark font-heading text-sm font-semibold tracking-tight text-sidebar-foreground"
                 data-tauri-drag-region={hasWindowChrome ? "" : undefined}
               >
                 iori
@@ -1160,55 +571,67 @@ ${item.path}`
           </div>
         )}
         <div
-          className="nav-search"
+          className="nav-search flex min-h-7 items-center gap-1.5 rounded-md border border-sidebar-border bg-sidebar-accent/60 px-2.5 text-muted-foreground focus-within:border-ring focus-within:ring-1 focus-within:ring-ring/40"
           data-tauri-drag-region={hasWindowChrome ? "" : undefined}
         >
-          <Search size={13} />
+          <Search className="size-3.5 shrink-0" aria-hidden="true" />
           <Input
             placeholder={t("Search")}
             aria-label={t("Search")}
+            className="h-auto min-h-7 border-0 bg-transparent p-0 text-sm shadow-none focus-visible:border-transparent focus-visible:ring-0"
             // Opening the drawer must not raise the software keyboard.
             tabIndex={isMobile ? -1 : undefined}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />
         </div>
-        <SidebarMenu>
+        <SidebarMenu className="gap-0">
           <SidebarMenuItem>
             <SidebarMenuButton
-              className="nav-pending"
+              className={cn(
+                "nav-pending flex h-auto min-h-8 items-center gap-2 rounded-md px-2 py-1 text-sm font-normal [@media(pointer:coarse)]:min-h-10",
+                attentionCount > 0 &&
+                  "border border-status-waiting-border bg-status-waiting-bg/50 font-medium text-foreground",
+              )}
               data-iori-action="attention-open"
               data-iori-attention-count={attentionCount}
               onClick={() => {
                 onAttention();
-                setOpenMobile(false);
+                closeMobile();
               }}
               disabled={attentionCount === 0}
             >
-              <StatusDot state="waiting" aria-label={t("Attention")} />
+              <StatusDot state="waiting" t={t} label={t("Attention")} />
               <span>{t("Attention")}</span>
-              <span className="nav-count">{attentionCount}</span>
+              <span className="nav-count ml-auto text-xs tabular-nums text-muted-foreground">
+                {attentionCount}
+              </span>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarHeader>
-      <SidebarContent>
-        <ScrollArea className="navigation-scroll">
+
+      <SidebarContent className="gap-0 overflow-hidden">
+        <div className="navigation-scroll flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto pr-1.5">
           {removeError && (
-            <p className="nav-inline-error" role="alert">
+            <p
+              className="nav-inline-error mx-3 my-1 text-xs text-status-failed-text"
+              role="alert"
+            >
               {t(removeError)}
             </p>
           )}
-          <SidebarMenu>
+          <SidebarMenu className="gap-0 pb-2">
             {isMobile && (
-              <SidebarMenuItem>
+              <SidebarMenuItem className="mx-1.5 mb-1">
                 <SidebarMenuButton
                   isActive={homeActive}
                   aria-current={homeActive ? "page" : undefined}
+                  className="h-auto min-h-9 gap-2 px-2 py-1 text-sm data-[active=true]:bg-primary/15 data-[active=true]:font-semibold data-[active=true]:[&>svg]:text-primary [@media(pointer:coarse)]:min-h-10"
                   data-iori-action="mobile-home"
                   onClick={onHome}
                 >
-                  <Home size={14} />
+                  <Home className="size-3.5 shrink-0" aria-hidden="true" />
                   <span>{t("Home")}</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
@@ -1222,22 +645,24 @@ ${item.path}`
               {hosts.map(hostSection)}
             </SidebarSort>
           </SidebarMenu>
-        </ScrollArea>
+        </div>
       </SidebarContent>
-      <SidebarFooter>
-        <div className="nav-footer-actions">
+
+      <SidebarFooter className="border-t border-sidebar-border px-2 py-1">
+        <div className="nav-footer-actions flex min-h-8 items-center gap-1">
           <Button
             variant="ghost"
             size="icon-sm"
+            className="relative size-7 text-muted-foreground hover:text-foreground [@media(pointer:coarse)]:size-11"
             aria-label={t("Settings")}
             title={t("Settings")}
             data-iori-action="settings-open"
             onClick={() => {
               onSettings();
-              setOpenMobile(false);
+              closeMobile();
             }}
           >
-            <Settings size={14} />
+            <Settings className="size-3.5" aria-hidden="true" />
             <SettingsUpdateMark t={t} />
           </Button>
         </div>

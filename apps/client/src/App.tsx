@@ -63,7 +63,17 @@ import {
   DialogTitle,
 } from "./components/ui/dialog.tsx";
 import { normalizeTerminalAccessoryLayout } from "./terminal/terminal-accessory-layout.ts";
-import "./app.css";
+import { useIsMobile } from "./hooks/use-mobile.ts";
+import { cn } from "cn";
+
+const UI_FONT_MIN = 12;
+const UI_FONT_MAX = 24;
+const UI_FONT_DEFAULT = 16;
+
+function clampUiFontSize(raw: number): number {
+  if (!Number.isFinite(raw)) return UI_FONT_DEFAULT;
+  return Math.min(UI_FONT_MAX, Math.max(UI_FONT_MIN, Math.round(raw)));
+}
 
 const defaultPreferences: Preferences = {
   notifyWaiting: true,
@@ -74,7 +84,7 @@ const defaultPreferences: Preferences = {
   receiveDevelopmentVersions: false,
   language: "system",
   theme: "system",
-  fontSize: 16,
+  fontSize: UI_FONT_DEFAULT,
   usageDisplay: "used",
   usageGraph: "bar",
   usageWindows: {},
@@ -168,7 +178,7 @@ function readPreferences(value: unknown): Preferences {
     usageGraph: value.usageGraph === "circle" ? "circle" : "bar",
     usageWindows: readUsageWindows(value.usageWindows),
     fontSize: isNumber(value.fontSize)
-      ? value.fontSize
+      ? clampUiFontSize(value.fontSize)
       : defaultPreferences.fontSize,
     terminalFontFamily:
       typeof value.terminalFontFamily === "string"
@@ -532,7 +542,11 @@ function AppContent({
         attemptedSidebarCleanups.current.clear();
       }
       preferencesDirty.current = true;
-      const next = { ...preferencesRef.current, ...change };
+      const normalizedChange =
+        change.fontSize === undefined
+          ? change
+          : { ...change, fontSize: clampUiFontSize(change.fontSize) };
+      const next = { ...preferencesRef.current, ...normalizedChange };
       preferencesRef.current = next;
       setPreferences(next);
       return savePreferences(next);
@@ -625,6 +639,9 @@ function AppContent({
     return () => query.removeEventListener("change", update);
   }, []);
 
+  const isMobile = useIsMobile();
+  const isMobileDevice = isMobile || Boolean(state.initial?.mobile);
+
   useEffect(() => {
     document.documentElement.classList.toggle("dark", resolvedTheme === "dark");
     document.documentElement.lang = (preferences.language === "system"
@@ -635,13 +652,47 @@ function AppContent({
       .startsWith("ja")
       ? "ja"
       : "en";
-    document.documentElement.style.fontSize = `${preferences.fontSize}px`;
+    document.documentElement.style.fontSize = `${clampUiFontSize(preferences.fontSize)}px`;
   }, [
     resolvedTheme,
     preferences.language,
     preferences.fontSize,
     systemLanguage,
   ]);
+
+  useEffect(() => {
+    if (isMobileDevice) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.isComposing || event.keyCode === 229) return;
+      if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+      const current = clampUiFontSize(preferencesRef.current.fontSize);
+      let next: number | undefined;
+      if (
+        event.key === "+" ||
+        event.key === "=" ||
+        event.code === "NumpadAdd"
+      ) {
+        next = clampUiFontSize(current + 1);
+      } else if (
+        (!event.shiftKey && event.key === "-") ||
+        event.code === "NumpadSubtract"
+      ) {
+        next = clampUiFontSize(current - 1);
+      } else if (
+        !event.shiftKey &&
+        (event.key === "0" || event.code === "Numpad0")
+      ) {
+        next = UI_FONT_DEFAULT;
+      }
+      if (next === undefined) return;
+      event.preventDefault();
+      if (next !== current) {
+        void changePreferences({ fontSize: next });
+      }
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [isMobileDevice, changePreferences]);
 
   useEffect(() => {
     if (!state.disconnectedAt || state.connected || state.revoked) return;
@@ -926,7 +977,12 @@ function AppContent({
     {
       value: usagePreferences,
     },
-    <div className={`app-root${hasWindowChrome ? " has-window-chrome" : ""}`}>
+    <div
+      className={cn(
+        "relative h-dvh w-full overflow-hidden bg-background text-foreground",
+        hasWindowChrome && "has-window-chrome",
+      )}
+    >
       <WindowChrome t={t} />
       <NoticeStack t={t} />
       {standaloneUninstalls.map((flow) => (
@@ -959,13 +1015,17 @@ function AppContent({
           }}
         />
       ) : firstRun ? (
-        <main className="onboarding-screen">
+        <main className="onboarding-screen grid h-full w-full place-items-center overflow-auto p-6 max-[700px]:items-start max-[700px]:p-4.5 in-[.has-window-chrome]:pt-(--window-caption-height)">
           <section
-            className="onboarding-panel"
+            className="grid w-full max-w-[32.5rem] gap-4 py-6 max-[700px]:my-auto max-[700px]:py-4"
             data-iori-view={invite ? "confirm-registration" : "first-run"}
           >
-            <span className="app-wordmark">iori</span>
-            <h1>{t(invite ? "Confirm registration" : "Connect to a Host")}</h1>
+            <span className="w-fit font-heading text-lg font-semibold tracking-tight text-foreground">
+              iori
+            </span>
+            <h1 className="m-0 font-heading text-xl font-semibold text-foreground">
+              {t(invite ? "Confirm registration" : "Connect to a Host")}
+            </h1>
             {canSetupHost && !invitationEntry && !invite ? (
               <HostSetupChoices
                 t={t}
@@ -974,20 +1034,22 @@ function AppContent({
               />
             ) : !invite ? (
               <>
-                <p className="onboarding-guidance">
+                <p className="m-0 text-sm leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
                   {t(
                     "Use an invitation from iori-host invite on the Host or Devices → Invite a new device on a registered device.",
                   )}
                 </p>
                 <form
+                  className="grid gap-3.5 border-t border-border pt-4"
                   onSubmit={(event) => {
                     event.preventDefault();
                     parse(input);
                   }}
                 >
-                  <label className="connection-field">
+                  <label className="m-0 grid gap-2 text-sm font-medium text-foreground">
                     <span>{t("Invitation")}</span>
                     <Textarea
+                      className="min-h-[5.125rem] resize-y font-mono text-xs [font-variant-ligatures:none]"
                       data-iori-field="invitation"
                       required
                       rows={4}
@@ -1001,7 +1063,7 @@ function AppContent({
                   <ErrorMessage
                     message={state.error ? t(state.error) : undefined}
                   />
-                  <div className="connection-actions">
+                  <div className="mt-1.5 flex flex-wrap items-center gap-2">
                     {state.initial.canScanQr && (
                       <Button
                         type="button"
@@ -1043,12 +1105,7 @@ function AppContent({
                         {t("Back")}
                       </Button>
                     )}
-                    <Button
-                      className={state.initial.canScanQr ? "" : ""}
-                      data-iori-action="continue"
-                    >
-                      {t("Continue")}
-                    </Button>
+                    <Button data-iori-action="continue">{t("Continue")}</Button>
                     {adding && state.host && (
                       <Button
                         type="button"
@@ -1067,6 +1124,7 @@ function AppContent({
               </>
             ) : (
               <form
+                className="grid gap-3.5 border-t border-border pt-4"
                 onSubmit={(event) => {
                   event.preventDefault();
                   setBusy(true);
@@ -1083,25 +1141,31 @@ function AppContent({
                     .finally(() => setBusy(false));
                 }}
               >
-                <dl className="host-confirmation">
-                  <div>
-                    <dt>{t("Host")}</dt>
-                    <dd data-iori-value="host-name">{invite.hostName}</dd>
+                <dl className="m-0 grid gap-3 divide-y divide-border-subtle border-b border-border pb-3 text-sm">
+                  <div className="grid grid-cols-[6.25rem_minmax(0,1fr)] gap-3">
+                    <dt className="text-muted-foreground">{t("Host")}</dt>
+                    <dd
+                      className="m-0 min-w-0 font-mono text-xs text-foreground [font-variant-ligatures:none] [overflow-wrap:anywhere]"
+                      data-iori-value="host-name"
+                    >
+                      {invite.hostName}
+                    </dd>
                   </div>
-                  <div>
-                    <dt>{t("Address")}</dt>
-                    <dd>
+                  <div className="grid grid-cols-[6.25rem_minmax(0,1fr)] gap-3 pt-3">
+                    <dt className="text-muted-foreground">{t("Address")}</dt>
+                    <dd className="m-0 min-w-0 font-mono text-xs text-foreground [font-variant-ligatures:none] [overflow-wrap:anywhere]">
                       {invite.addresses.map((address) => (
-                        <span className="address-line" key={address}>
+                        <span className="block" key={address}>
                           {address}
                         </span>
                       ))}
                     </dd>
                   </div>
                 </dl>
-                <label className="connection-field">
+                <label className="m-0 grid gap-2 text-sm font-medium text-foreground">
                   <span>{t("This device’s name")}</span>
                   <Input
+                    className="h-9"
                     data-iori-field="device-name"
                     required
                     value={name}
@@ -1111,7 +1175,7 @@ function AppContent({
                 <ErrorMessage
                   message={state.error ? t(state.error) : undefined}
                 />
-                <div className="connection-actions">
+                <div className="mt-1.5 flex flex-wrap items-center gap-2">
                   <Button
                     type="button"
                     variant="outline"
@@ -1147,22 +1211,31 @@ function AppContent({
           </section>
         </main>
       ) : state.revoked ? (
-        <main className="onboarding-screen" data-iori-view="revoked">
-          <section className="onboarding-panel">
-            <span className="app-wordmark">iori</span>
-            <h1>{t("This device’s registration was revoked.")}</h1>
-            <p className="onboarding-guidance">
+        <main
+          className="onboarding-screen grid h-full w-full place-items-center overflow-auto p-6 max-[700px]:items-start max-[700px]:p-4.5 in-[.has-window-chrome]:pt-(--window-caption-height)"
+          data-iori-view="revoked"
+        >
+          <section className="grid w-full max-w-[32.5rem] gap-4 py-6 max-[700px]:my-auto max-[700px]:py-4">
+            <span className="w-fit font-heading text-lg font-semibold tracking-tight text-foreground">
+              iori
+            </span>
+            <h1 className="m-0 font-heading text-xl font-semibold text-foreground">
+              {t("This device’s registration was revoked.")}
+            </h1>
+            <p className="m-0 text-sm leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
               {t("Get a new invitation and register again.")}
             </p>
-            <Button
-              data-iori-action="register-again"
-              onClick={() => {
-                setAdding(true);
-                setInvite(undefined);
-              }}
-            >
-              {t("Register again")}
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                data-iori-action="register-again"
+                onClick={() => {
+                  setAdding(true);
+                  setInvite(undefined);
+                }}
+              >
+                {t("Register again")}
+              </Button>
+            </div>
           </section>
         </main>
       ) : (
@@ -1264,7 +1337,7 @@ function AppContent({
           }}
         >
           <DialogContent
-            className="add-host-dialog"
+            className="w-[min(32.5rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] sm:max-w-[32.5rem]"
             data-iori-view={invite ? "confirm-registration" : "first-run"}
             showCloseButton={false}
           >
@@ -1280,14 +1353,16 @@ function AppContent({
             </DialogHeader>
             {!invite ? (
               <form
+                className="grid gap-3.5"
                 onSubmit={(event) => {
                   event.preventDefault();
                   parse(input);
                 }}
               >
-                <label className="connection-field">
+                <label className="m-0 grid gap-2 text-sm font-medium text-foreground">
                   <span>{t("Invitation")}</span>
                   <Textarea
+                    className="min-h-[5.125rem] resize-y font-mono text-xs [font-variant-ligatures:none]"
                     data-iori-field="invitation"
                     required
                     rows={4}
@@ -1301,7 +1376,7 @@ function AppContent({
                 <ErrorMessage
                   message={state.error ? t(state.error) : undefined}
                 />
-                <div className="connection-actions">
+                <div className="mt-1.5 flex flex-wrap items-center gap-2">
                   {state.initial?.canScanQr && (
                     <Button
                       type="button"
@@ -1360,6 +1435,7 @@ function AppContent({
               </form>
             ) : (
               <form
+                className="grid gap-3.5"
                 onSubmit={(event) => {
                   event.preventDefault();
                   setBusy(true);
@@ -1371,25 +1447,31 @@ function AppContent({
                     .finally(() => setBusy(false));
                 }}
               >
-                <dl className="host-confirmation">
-                  <div>
-                    <dt>{t("Host")}</dt>
-                    <dd data-iori-value="host-name">{invite.hostName}</dd>
+                <dl className="m-0 grid gap-3 divide-y divide-border-subtle border-y border-border py-3 text-sm">
+                  <div className="grid grid-cols-[6.25rem_minmax(0,1fr)] gap-3">
+                    <dt className="text-muted-foreground">{t("Host")}</dt>
+                    <dd
+                      className="m-0 min-w-0 font-mono text-xs text-foreground [font-variant-ligatures:none] [overflow-wrap:anywhere]"
+                      data-iori-value="host-name"
+                    >
+                      {invite.hostName}
+                    </dd>
                   </div>
-                  <div>
-                    <dt>{t("Address")}</dt>
-                    <dd>
+                  <div className="grid grid-cols-[6.25rem_minmax(0,1fr)] gap-3 pt-3">
+                    <dt className="text-muted-foreground">{t("Address")}</dt>
+                    <dd className="m-0 min-w-0 font-mono text-xs text-foreground [font-variant-ligatures:none] [overflow-wrap:anywhere]">
                       {invite.addresses.map((address) => (
-                        <span className="address-line" key={address}>
+                        <span className="block" key={address}>
                           {address}
                         </span>
                       ))}
                     </dd>
                   </div>
                 </dl>
-                <label className="connection-field">
+                <label className="m-0 grid gap-2 text-sm font-medium text-foreground">
                   <span>{t("This device’s name")}</span>
                   <Input
+                    className="h-9"
                     data-iori-field="device-name"
                     required
                     value={name}
@@ -1399,7 +1481,7 @@ function AppContent({
                 <ErrorMessage
                   message={state.error ? t(state.error) : undefined}
                 />
-                <div className="connection-actions">
+                <div className="mt-1.5 flex flex-wrap items-center gap-2">
                   <Button
                     type="button"
                     variant="outline"
@@ -1432,7 +1514,7 @@ function AppContent({
       )}
       <Dialog open={discardAddHost} onOpenChange={setDiscardAddHost}>
         <DialogContent
-          className="discard-add-host-dialog"
+          className="w-[min(32.5rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] sm:max-w-[32.5rem]"
           data-iori-view="discard-add-host-confirmation"
         >
           <DialogHeader>
@@ -1462,7 +1544,7 @@ function AppContent({
       </Dialog>
       {(!state.host || state.revoked) && (
         <Button
-          className="app-settings-trigger"
+          className="app-settings-trigger fixed top-3 right-3 z-(--z-popover) border border-border bg-card in-[.has-window-chrome]:top-[calc(var(--window-caption-height)+0.75rem)]"
           variant="ghost"
           size="icon"
           data-iori-action="settings-open"
@@ -1516,7 +1598,7 @@ function AppContent({
       </Dialog>
       <Dialog open={addHostChoiceOpen} onOpenChange={setAddHostChoiceOpen}>
         <DialogContent
-          className="add-host-dialog"
+          className="w-[min(32.5rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] sm:max-w-[32.5rem]"
           data-iori-view="host-choices"
         >
           <DialogHeader>
@@ -1541,7 +1623,10 @@ function AppContent({
           open={setupOpen}
           deviceName={state.initial.deviceName}
           t={t}
-          onClose={() => setSetupOpen(false)}
+          onClose={(background = false) => {
+            setSetupOpen(false);
+            if (!background) setSetupStarted(false);
+          }}
           onCompleted={() => {
             setSetupOpen(false);
             setSetupStarted(false);
@@ -1623,7 +1708,10 @@ function AppContent({
         }}
       />
       {state.storageError && !setupOpen && (
-        <div className="storage-retry" role="alert">
+        <div
+          className="fixed right-4 bottom-4 z-(--z-toast) flex max-w-[min(35rem,calc(100vw-2rem))] items-center gap-3 rounded-lg border border-border bg-popover px-3 py-2.5 text-sm shadow-md max-[700px]:right-2 max-[700px]:bottom-2 max-[700px]:flex-col max-[700px]:items-start max-[700px]:gap-2"
+          role="alert"
+        >
           <span>{t("Could not save the registration. Retry saving.")}</span>
           <Button
             variant="outline"

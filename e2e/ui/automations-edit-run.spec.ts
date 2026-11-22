@@ -163,3 +163,117 @@ test(
     ).toBeVisible();
   },
 );
+
+test(
+  "受信内容の読み込みに失敗した回を再試行して本文を開く",
+  { tag: "@desktop" },
+  async ({ page, registeredApp: app }) => {
+    await addModel(app);
+    const { automation } = await app.request("automation.save", {
+      definition: {
+        name: "Webhook history",
+        instruction: "Read the webhook.",
+        cwd: app.folder,
+        target: {
+          kind: "cli",
+          candidate: {
+            id: app.cliId,
+            cli: app.cliId,
+            model: "test-model",
+            tools: [],
+            minimum: "",
+          },
+        },
+        schedule: { kind: "manual" },
+        webhook: { scope: "local" },
+        missed: "skip",
+        enabled: false,
+      },
+    });
+    const { webhook } = await app.request("automation.list", {});
+    const body = "Sample webhook delivery";
+    const delivery = await fetch(
+      `http://127.0.0.1:${webhook?.port}/hooks/${automation.id}`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${automation.webhookToken}` },
+        body,
+      },
+    );
+    expect(delivery.status).toBe(202);
+
+    await app.open(page);
+    await page
+      .getByRole("button", { name: "AI Agents/Teams", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Automations", exact: true })
+      .click();
+    await page.getByRole("button", { name: /Webhook history/ }).click();
+    await app.faults.fail("automation.received");
+    await page
+      .getByRole("button", { name: "Received content", exact: true })
+      .click();
+    const alert = page
+      .getByRole("alert")
+      .filter({ hasText: "The Host could not complete this operation." });
+    await expect(alert).toBeVisible();
+    await app.faults.clear();
+    await alert.getByRole("button", { name: "Retry", exact: true }).click();
+    await expect(
+      page.getByRole("dialog", { name: "Received content" }).getByText(body),
+    ).toBeVisible();
+  },
+);
+
+test(
+  "履歴の取得失敗で未実行表示を出さず再試行で0件表示へ回復する",
+  { tag: "@desktop" },
+  async ({ page, registeredApp: app }) => {
+    await addModel(app);
+    await app.request("automation.save", {
+      definition: {
+        name: "History error check",
+        instruction: "Check history state.",
+        cwd: app.folder,
+        target: {
+          kind: "cli",
+          candidate: {
+            id: app.cliId,
+            cli: app.cliId,
+            model: "test-model",
+            tools: [],
+            minimum: "",
+          },
+        },
+        schedule: { kind: "manual" },
+        missed: "skip",
+        enabled: true,
+      },
+    });
+    await app.open(page);
+    await page
+      .getByRole("button", { name: "AI Agents/Teams", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Automations", exact: true })
+      .click();
+    await app.faults.fail("automation.history");
+    await page.getByRole("button", { name: /History error check/ }).click();
+    const historySection = page.locator(
+      '[data-iori-view="automation-history"]',
+    );
+    const errorAlert = historySection.getByRole("alert");
+    await expect(errorAlert).toContainText(
+      "Could not load automation history. Retry.",
+    );
+    await expect(historySection.getByText("Not run yet.")).toHaveCount(0);
+    await app.faults.clear();
+    await errorAlert
+      .getByRole("button", { name: "Retry", exact: true })
+      .click();
+    await expect(
+      historySection.getByText("Not run yet.", { exact: true }),
+    ).toBeVisible();
+  },
+);

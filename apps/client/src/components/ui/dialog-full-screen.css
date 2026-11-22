@@ -11,13 +11,13 @@
     translate: none;
     border: 0;
     border-radius: 0;
-    box-shadow: none !important;
+    box-shadow: none;
     align-content: start;
   }
 }
 
 [data-slot="dialog-content"]:focus-visible {
-  outline: none !important;
+  outline: none;
 }
 [data-body-scrollable] > [data-slot="dialog-footer"] {
   position: relative;
@@ -25,13 +25,13 @@
 [data-body-scrollable] > [data-slot="dialog-footer"]::before {
   content: "";
   position: absolute;
-  inset: calc(-1 * var(--space-2)) 0 auto;
+  inset: -0.5rem 0 auto;
   border-top: 1px solid var(--border);
 }
 @media (max-width: 767px) {
   [data-slot="dialog-content"] {
     --dialog-mobile-control-size: 44px;
-    --dialog-mobile-edge: var(--space-2);
+    --dialog-mobile-edge: 0.5rem;
   }
   [data-slot="dialog-footer"] button,
   [data-slot="dialog-content"] [data-slot="dialog-close"] {

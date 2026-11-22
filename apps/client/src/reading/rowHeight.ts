@@ -1,10 +1,18 @@
 import { useLayoutEffect, useRef, useState } from "react";
 
+/** Probe element classes for list rows (28px desktop at 16px root, 40px touch). */
+export const LIST_ROW_PROBE_CLASS =
+  "pointer-events-none invisible absolute h-7 [@media(pointer:coarse)]:h-10";
+
+/** Probe element classes for code/diff rows (22px at 16px root, scales with rem). */
+export const CODE_ROW_PROBE_CLASS =
+  "pointer-events-none invisible absolute h-[1.375rem]";
+
 /**
- * The list row height in pixels, read from the pane's --reading-row so it
- * follows the sample's --row and grows for touch input.
+ * The row height in pixels, read from a hidden probe element so virtualized
+ * rows follow the root rem scale (12px–24px) and grow for touch input.
  */
-export function useRowHeight(fallback = 26) {
+export function useRowHeight(fallback = 28) {
   const probe = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState(fallback);
   useLayoutEffect(() => {

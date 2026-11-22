@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
+import { cn } from "cn";
 
 // Taller content is mapped onto this many pixels so every WebView can scroll it.
 const MAX_SCROLL_PX = 8_000_000;
@@ -184,7 +185,7 @@ function FixedRows({
     rows.push(
       <div
         key={index}
-        className="reading-virtual-row"
+        className="reading-virtual-row absolute left-0 w-max min-w-full"
         data-index={index}
         style={{
           top: scrollTop + index * rowHeight - logicalTop.current,
@@ -197,7 +198,10 @@ function FixedRows({
   return (
     <div
       ref={ref}
-      className={`reading-virtual ${className}`}
+      className={cn(
+        "reading-virtual group/virtual min-h-0 min-w-0 flex-1 overflow-auto [overflow-anchor:none] outline-none",
+        className,
+      )}
       aria-label={label}
       role={role}
       data-iori-scroll={dataId}
@@ -218,7 +222,7 @@ function FixedRows({
         render();
       }}
     >
-      <div className="reading-virtual-spacer" style={{ height: spacer }}>
+      <div className="relative min-w-full" style={{ height: spacer }}>
         {rows}
       </div>
     </div>
@@ -271,7 +275,10 @@ function MeasuredRows({
   return (
     <div
       ref={ref}
-      className={`reading-virtual ${className}`}
+      className={cn(
+        "reading-virtual group/virtual min-h-0 min-w-0 flex-1 overflow-auto [overflow-anchor:none] outline-none",
+        className,
+      )}
       aria-label={label}
       role={role}
       data-iori-scroll={dataId}
@@ -286,7 +293,7 @@ function MeasuredRows({
       }}
     >
       <div
-        className="reading-virtual-spacer"
+        className="relative min-w-full"
         style={{ height: virtual.getTotalSize() }}
       >
         {items.map((item) => (
@@ -294,7 +301,7 @@ function MeasuredRows({
             key={item.key}
             data-index={item.index}
             ref={virtual.measureElement}
-            className="reading-virtual-row wrap"
+            className="reading-virtual-row absolute left-0 w-full min-w-full"
             style={{ top: item.start, minHeight: rowHeight }}
           >
             {renderRow(item.index)}

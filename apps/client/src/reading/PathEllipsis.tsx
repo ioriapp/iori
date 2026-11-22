@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState } from "react";
+import { cn } from "cn";
 
 let measureContext: CanvasRenderingContext2D | null | undefined;
 
@@ -111,22 +112,24 @@ export function PathEllipsis({
   return (
     <span
       ref={boxRef}
-      className={
-        className
-          ? `reading-path-ellipsis ${className}`
-          : "reading-path-ellipsis"
-      }
+      className={cn(
+        "grid min-w-0 flex-[0_1_auto] grid-cols-[minmax(0,1fr)]",
+        className,
+      )}
     >
-      <span ref={probeRef} className="reading-path-probe" aria-hidden="true">
+      <span
+        ref={probeRef}
+        className="pointer-events-none invisible col-start-1 row-start-1 overflow-hidden whitespace-nowrap"
+        aria-hidden="true"
+      >
         {path}
       </span>
       <span
         ref={shownRef}
-        className={
-          fitted.clipFilename
-            ? "reading-path-shown reading-truncate"
-            : "reading-path-shown"
-        }
+        className={cn(
+          "col-start-1 row-start-1 min-w-0 overflow-hidden whitespace-nowrap",
+          fitted.clipFilename && "truncate",
+        )}
       >
         {shown}
       </span>
@@ -212,19 +215,26 @@ export function BreadcrumbPath({ path }: { path: string }) {
     ? ["…", ...parts.slice(fit.start)]
     : parts.slice(fit.start);
 
+  const segClass =
+    "flex-none [&:not(:last-child)]:after:px-1 [&:not(:last-child)]:after:opacity-70 [&:not(:last-child)]:after:content-['›']";
+
   return (
     <>
       <span
         ref={probeRef}
-        className="reading-breadcrumb-row reading-breadcrumb-probe"
+        className="pointer-events-none invisible relative col-start-1 row-start-1 flex min-w-0 overflow-hidden"
         aria-hidden="true"
       >
-        <span ref={ellipsisRef} className="reading-breadcrumb-ellipsis-probe">
+        <span
+          ref={ellipsisRef}
+          className={cn(segClass, "absolute top-0 left-0")}
+        >
           …
         </span>
         {parts.map((part, index) => (
           <span
             key={index}
+            className={segClass}
             ref={(el) => {
               partRefs.current[index] = el;
             }}
@@ -233,15 +243,22 @@ export function BreadcrumbPath({ path }: { path: string }) {
           </span>
         ))}
       </span>
-      <span className="reading-breadcrumb-row">
-        {visible.map((part, index) => (
-          <span
-            key={index}
-            data-last={index === visible.length - 1 || undefined}
-          >
-            {part}
-          </span>
-        ))}
+      <span className="col-start-1 row-start-1 flex min-w-0 overflow-hidden">
+        {visible.map((part, index) => {
+          const isLast = index === visible.length - 1;
+          return (
+            <span
+              key={index}
+              data-last={isLast || undefined}
+              className={cn(
+                segClass,
+                isLast && "min-w-0 flex-[0_1_auto] truncate text-foreground",
+              )}
+            >
+              {part}
+            </span>
+          );
+        })}
       </span>
     </>
   );

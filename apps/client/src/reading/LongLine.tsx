@@ -210,7 +210,7 @@ export function LongLine({
   return (
     <div
       ref={ref}
-      className="reading-long-line"
+      className="sticky left-(--gutter-width) w-[calc(100cqw-var(--gutter-width))] min-w-40 overflow-x-auto overflow-y-hidden"
       data-iori-scroll="long-line"
       data-iori-window-start={view?.offset}
       data-iori-window-end={view ? view.offset + view.bytes.length : undefined}
@@ -237,7 +237,7 @@ export function LongLine({
     >
       <div
         ref={spacer}
-        className="reading-long-line-spacer"
+        className="relative h-[1.375rem]"
         // The end of the line can scroll to the left edge.
         style={{ width: width + (ref.current?.clientWidth ?? 0) }}
       >
@@ -246,7 +246,7 @@ export function LongLine({
           .map((window) => (
             <span
               key={window.offset}
-              className="reading-line-text"
+              className="reading-line-text absolute top-0 pr-4 whitespace-pre"
               data-text-offset={window.offset}
               style={{
                 left: window.left,
@@ -258,7 +258,10 @@ export function LongLine({
               {window.offset === view?.offset && markStart >= 0 ? (
                 <>
                   {window.text.slice(0, markStart)}
-                  <mark data-iori-part="search-current">
+                  <mark
+                    className="rounded-xs bg-status-waiting/75 text-inherit outline-1 outline-status-waiting"
+                    data-iori-part="search-current"
+                  >
                     {window.text.slice(markStart, markEnd)}
                   </mark>
                   {window.text.slice(markEnd)}

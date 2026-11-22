@@ -1,7 +1,7 @@
-import { SettingsSection } from "./components/page-layout.tsx";
+import { FieldRow, SettingsSection } from "./components/page-layout.tsx";
 import { useRef, useState } from "react";
 import type { PointerEvent } from "react";
-import { Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, GripVertical, Trash2 } from "lucide-react";
 import { Button } from "./components/ui/button.tsx";
 import { Checkbox } from "./components/ui/checkbox.tsx";
 import { Input } from "./components/ui/input.tsx";
@@ -66,6 +66,12 @@ export function KeyboardSettings({
       orderedIds,
       visibleIds: orderedIds.filter((id) => visible.has(id)),
     });
+  };
+
+  const moveKeyBy = (id: string, delta: -1 | 1) => {
+    const index = entries.findIndex((entry) => entry.key.id === id);
+    const target = entries[index + delta];
+    if (target) reorderKeys(id, target.key.id);
   };
 
   const dragStart = (id: string, event: PointerEvent<HTMLButtonElement>) => {
@@ -157,10 +163,8 @@ export function KeyboardSettings({
     <>
       <SettingsSection
         title={t("Key band")}
-        className="v9-key-settings"
-        data-iori-view="keyboard-settings"
-      >
-        <div className="v9-key-heading">
+        description={t("Swipe up on a key to send its assigned key.")}
+        actions={
           <Button
             variant="outline"
             size="sm"
@@ -180,31 +184,35 @@ export function KeyboardSettings({
           >
             {t("Reset to defaults")}
           </Button>
-        </div>
-        <label className="v9-settings-row v9-settings-switch-row">
-          <span>{t("Show button names")}</span>
+        }
+        data-iori-view="keyboard-settings"
+      >
+        <FieldRow label={t("Show button names")}>
           <Switch
             checked={layout.showButtonNames}
             onCheckedChange={(showButtonNames) =>
               onChange({ ...layout, showButtonNames })
             }
+            aria-label={t("Show button names")}
             data-iori-field="keyboard-show-button-names"
           />
-        </label>
-        <p className="text-sm text-muted-foreground">
-          {t("Swipe up on a key to send its assigned key.")}
-        </p>
-        <div className="v9-key-list">
-          {entries.map(({ key, visible, custom }) => (
+        </FieldRow>
+        <div
+          className="section-rows overflow-x-clip"
+          role="list"
+          aria-label={t("Key band")}
+        >
+          {entries.map(({ key, visible, custom }, index) => (
             <div
-              className="v9-key-row"
+              className="flex min-h-10 items-center gap-2 py-2.5"
               key={key.id}
+              role="listitem"
               data-key-id={key.id}
               data-iori-key-row={key.id}
             >
               <button
                 type="button"
-                className="v9-key-drag"
+                className="grid size-7 shrink-0 cursor-grab touch-none place-items-center rounded-md border-0 bg-transparent text-muted-foreground transition-colors outline-none hover:bg-sidebar-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 active:cursor-grabbing"
                 aria-label={`${key.label} ${t("Drag to reorder")}`}
                 title={t("Drag to reorder")}
                 onPointerDown={(event) => dragStart(key.id, event)}
@@ -214,10 +222,47 @@ export function KeyboardSettings({
                 onLostPointerCapture={() => {
                   draggedId.current = null;
                 }}
+                onKeyDown={(event) => {
+                  if (event.key === "ArrowUp") {
+                    event.preventDefault();
+                    moveKeyBy(key.id, -1);
+                  } else if (event.key === "ArrowDown") {
+                    event.preventDefault();
+                    moveKeyBy(key.id, 1);
+                  }
+                }}
               >
-                <span aria-hidden="true">⠿</span>
+                <GripVertical className="size-3.5" aria-hidden="true" />
               </button>
-              <code>{key.label}</code>
+              <code className="min-w-0 flex-1 truncate font-mono text-sm text-foreground">
+                {key.label}
+              </code>
+              <div className="flex shrink-0 items-center gap-0.5">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  disabled={index === 0}
+                  aria-label={`${key.label} ${t("Move up")}`}
+                  title={t("Move up")}
+                  data-iori-action="keyboard-key-move-up"
+                  onClick={() => moveKeyBy(key.id, -1)}
+                >
+                  <ArrowUp className="size-3.5" aria-hidden="true" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  disabled={index === entries.length - 1}
+                  aria-label={`${key.label} ${t("Move down")}`}
+                  title={t("Move down")}
+                  data-iori-action="keyboard-key-move-down"
+                  onClick={() => moveKeyBy(key.id, 1)}
+                >
+                  <ArrowDown className="size-3.5" aria-hidden="true" />
+                </Button>
+              </div>
               {!custom && (
                 <Select
                   value={layout.swipeUp[key.id] ?? "none"}
@@ -232,6 +277,8 @@ export function KeyboardSettings({
                   }
                 >
                   <SelectTrigger
+                    size="sm"
+                    className="w-24 shrink-0"
                     aria-label={`${key.label} ${t("Swipe up")}`}
                     data-iori-swipe-key={key.id}
                   >
@@ -249,6 +296,7 @@ export function KeyboardSettings({
               )}
               {custom && (
                 <Button
+                  type="button"
                   variant="ghost"
                   size="icon-sm"
                   aria-label={`${key.label} ${t("Remove")}`}
@@ -256,7 +304,7 @@ export function KeyboardSettings({
                   data-iori-action="keyboard-key-remove"
                   onClick={() => removeKey(key.id)}
                 >
-                  <Trash2 size={14} />
+                  <Trash2 className="size-3.5" aria-hidden="true" />
                 </Button>
               )}
               <Switch
@@ -269,10 +317,15 @@ export function KeyboardSettings({
         </div>
       </SettingsSection>
       <SettingsSection title={t("Add a key")}>
-        <div className="v9-key-add">
-          <div className="v9-key-add-field">
-            <label htmlFor="keyboard-key-value">{t("Key")}</label>
-            <div className="v9-key-input-row">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
+          <div className="grid min-w-0 gap-1.5">
+            <label
+              htmlFor="keyboard-key-value"
+              className="text-sm font-medium text-foreground"
+            >
+              {t("Key")}
+            </label>
+            <div className="flex min-w-0 gap-2">
               <Input
                 id="keyboard-key-value"
                 value={keyValue}
@@ -282,7 +335,10 @@ export function KeyboardSettings({
                 data-iori-field="keyboard-key"
               />
               <Select value={specialKey} onValueChange={setSpecialKey}>
-                <SelectTrigger aria-label={t("Special key")}>
+                <SelectTrigger
+                  className="w-36 shrink-0 max-md:w-32"
+                  aria-label={t("Special key")}
+                >
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -298,9 +354,15 @@ export function KeyboardSettings({
               </Select>
             </div>
           </div>
-          <div className="v9-key-modifiers" aria-label={t("Modifiers")}>
+          <div
+            className="flex min-h-8 flex-wrap items-center gap-3"
+            aria-label={t("Modifiers")}
+          >
             {(["ctrl", "alt", "shift"] as const).map((name) => (
-              <label key={name}>
+              <label
+                key={name}
+                className="inline-flex items-center gap-1.5 text-xs text-muted-foreground whitespace-nowrap"
+              >
                 <Checkbox
                   checked={modifier[name]}
                   onCheckedChange={(checked) =>
@@ -314,8 +376,13 @@ export function KeyboardSettings({
               </label>
             ))}
           </div>
-          <div className="v9-key-add-field">
-            <label htmlFor="keyboard-key-text">{t("Text")}</label>
+          <div className="grid min-w-0 gap-1.5">
+            <label
+              htmlFor="keyboard-key-text"
+              className="text-sm font-medium text-foreground"
+            >
+              {t("Text")}
+            </label>
             <Input
               id="keyboard-key-text"
               value={textValue}
@@ -324,7 +391,7 @@ export function KeyboardSettings({
               data-iori-field="keyboard-text"
             />
           </div>
-          <label className="v9-key-enter-option">
+          <label className="inline-flex min-h-8 items-center gap-1.5 justify-self-start text-xs text-muted-foreground whitespace-nowrap">
             <Checkbox
               checked={sendEnter}
               data-iori-field="keyboard-send-enter"
@@ -333,18 +400,24 @@ export function KeyboardSettings({
             {t("Send Enter")}
           </label>
           {keyError && (
-            <span className="v9-key-error" role="alert">
+            <span
+              className="col-span-full text-xs text-status-failed-text"
+              role="alert"
+            >
               {keyError}
             </span>
           )}
-          <Button
-            variant="outline"
-            size="sm"
-            data-iori-action="keyboard-key-add"
-            onClick={addKey}
-          >
-            {t("Add")}
-          </Button>
+          <div className="col-span-full flex justify-start">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              data-iori-action="keyboard-key-add"
+              onClick={addKey}
+            >
+              {t("Add")}
+            </Button>
+          </div>
         </div>
       </SettingsSection>
     </>

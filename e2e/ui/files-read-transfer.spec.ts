@@ -21,7 +21,7 @@ function switchWorktree(mobile: boolean) {
       .locator(`[data-iori-worktree-path=${JSON.stringify(child)}]`)
       .click();
     if (mobile) {
-      await page.locator('[data-iori-action="sidebar-open-files"]').click();
+      await page.locator('[data-iori-mobile-view-tab="files"]').click();
     } else {
       await page.getByRole("button", { name: "New tab", exact: true }).click();
       await page.locator('[data-iori-action="workspace-open-files"]').click();
@@ -95,6 +95,34 @@ test(
   { tag: "@desktop" },
   readFiles(false),
 );
+
+test(
+  "Filesの再読み込みに失敗しても本文を読み続け、再試行できる",
+  { tag: "@desktop" },
+  async ({ page, registeredApp: app }) => {
+    await repository(app.folder);
+    await openReading(page, app, false, "files");
+    await page.getByRole("treeitem", { name: "notes.md" }).click();
+    const original = page.getByRole("heading", { name: "Initial notes" });
+    await expect(original).toBeVisible();
+
+    await app.faults.fail("files.info");
+    await app.files({ "notes.md": "# Updated notes\n" });
+    const alert = page
+      .getByRole("alert")
+      .filter({ hasText: "Could not read this." });
+    await expect(alert).toBeVisible();
+    await expect(original).toBeVisible();
+
+    await app.faults.clear();
+    await alert.getByRole("button", { name: "Retry", exact: true }).click();
+    await expect(
+      page.getByRole("heading", { name: "Updated notes" }),
+    ).toBeVisible();
+    await expect(alert).toBeHidden();
+  },
+);
+
 test(
   "スマホでFilesの一覧からMarkdownと画像を開く",
   { tag: "@phone" },
@@ -125,5 +153,67 @@ test(
       .getByRole("menuitem", { name: "Download…", exact: true })
       .click();
     expect((await saved.contents()).toString()).toBe("# Initial notes\n");
+  },
+);
+
+test(
+  "Filesのファイルタブをキーボードで移動して閉じる",
+  { tag: "@desktop" },
+  async ({ page, registeredApp: app }) => {
+    await repository(app.folder);
+    await writeFile(join(app.folder, "alpha.txt"), "Alpha content\n");
+    await writeFile(join(app.folder, "beta.txt"), "Beta content\n");
+    await openReading(page, app, false, "files");
+
+    await page.getByRole("treeitem", { name: "notes.md", exact: true }).click();
+    await page
+      .getByRole("treeitem", { name: "alpha.txt", exact: true })
+      .click();
+    await page.getByRole("treeitem", { name: "beta.txt", exact: true }).click();
+
+    const tabs = page.locator('[data-iori-part="file-tabs"]');
+    const notesTab = tabs.locator('[data-iori-tab="notes.md"]');
+    const alphaTab = tabs.locator('[data-iori-tab="alpha.txt"]');
+    const betaTab = tabs.locator('[data-iori-tab="beta.txt"]');
+
+    await expect(betaTab).toHaveAttribute("role", "tab");
+    await expect(betaTab).toHaveAttribute("aria-selected", "true");
+    await expect(betaTab).toHaveAttribute("tabindex", "0");
+    await expect(betaTab.locator("button")).toHaveCount(0);
+    await expect(notesTab).toHaveAttribute("aria-selected", "false");
+    await expect(notesTab).toHaveAttribute("tabindex", "-1");
+    await expect(alphaTab).toHaveAttribute("aria-selected", "false");
+    await expect(alphaTab).toHaveAttribute("tabindex", "-1");
+
+    await betaTab.focus();
+    await expect(betaTab).toBeFocused();
+
+    await page.keyboard.press("Home");
+    await expect(notesTab).toBeFocused();
+    await expect(notesTab).toHaveAttribute("aria-selected", "true");
+    await expect(notesTab).toHaveAttribute("tabindex", "0");
+    await expect(
+      page.getByRole("heading", { name: "Initial notes" }),
+    ).toBeVisible();
+
+    await page.keyboard.press("ArrowRight");
+    await expect(alphaTab).toBeFocused();
+    await expect(alphaTab).toHaveAttribute("aria-selected", "true");
+    await expect(alphaTab).toHaveAttribute("tabindex", "0");
+    await expect(page.getByText("Alpha content")).toBeVisible();
+
+    await page.keyboard.press("End");
+    await expect(betaTab).toBeFocused();
+    await expect(betaTab).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByText("Beta content")).toBeVisible();
+
+    await page.keyboard.press("ArrowLeft");
+    await expect(alphaTab).toBeFocused();
+    await expect(alphaTab).toHaveAttribute("aria-selected", "true");
+
+    await page.keyboard.press("Delete");
+    await expect(alphaTab).toHaveCount(0);
+    await expect(betaTab).toBeFocused();
+    await expect(betaTab).toHaveAttribute("aria-selected", "true");
   },
 );

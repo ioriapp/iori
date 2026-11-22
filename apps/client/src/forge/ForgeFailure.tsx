@@ -1,10 +1,11 @@
 import type { ComponentProps, ReactNode } from "react";
+import { AlertCircle } from "lucide-react";
 import type { ForgeReadFailure } from "@iori/protocol";
 import { Button } from "../components/ui/button.tsx";
 import { withCode } from "../GitSettings.tsx";
 import { translator } from "../i18n.ts";
+import { cn } from "../lib/utils.ts";
 import { ReadError } from "../reading/transport.ts";
-import "./forge-notice.css";
 
 /** What the View around a failed Forge read lets the reader do about it. */
 export type ForgeRecovery = {
@@ -105,11 +106,19 @@ function explain(
 /** The action of a Forge View's notice: a recovery, or clearing filters. */
 export function ForgeAction({
   compact = false,
+  className,
   ...props
 }: Omit<ComponentProps<typeof Button>, "variant" | "size"> & {
   compact?: boolean;
 }) {
-  return <Button variant="outline" size={compact ? "xs" : "sm"} {...props} />;
+  return (
+    <Button
+      variant="outline"
+      size={compact ? "xs" : "sm"}
+      className={cn(!compact && "[@media(pointer:coarse)]:min-h-10", className)}
+      {...props}
+    />
+  );
 }
 
 /**
@@ -118,12 +127,17 @@ export function ForgeAction({
  */
 export function ForgeNotice({
   failed = false,
-  className = "",
+  className,
   ...props
 }: ComponentProps<"div"> & { failed?: boolean }) {
   return (
     <div
-      className={`forge-notice ${failed ? "is-failure" : ""} ${className}`}
+      className={cn(
+        failed
+          ? "m-4 flex flex-col items-center justify-center gap-3 rounded-md border border-status-failed-border bg-status-failed-bg/35 px-6 py-9 text-center text-sm text-foreground [&_p]:m-0 [&_p]:[overflow-wrap:anywhere]"
+          : "m-0 flex flex-1 flex-col items-center justify-center gap-3 px-6 py-12 text-center text-sm text-muted-foreground [&_p]:m-0 [&_p]:[overflow-wrap:anywhere]",
+        className,
+      )}
       {...props}
     />
   );
@@ -145,6 +159,7 @@ export function ForgeFailure({
   state,
   retryAction,
   form,
+  className,
 }: {
   /** What could not be read, as a sentence. */
   subject: string;
@@ -160,6 +175,7 @@ export function ForgeFailure({
    * content, `inline` inside a log line.
    */
   form: "notice" | "line" | "inline";
+  className?: string;
 }) {
   const t = translator(locale);
   const explained = failure && explain(failure, t, locale);
@@ -196,37 +212,76 @@ export function ForgeFailure({
       {t("Retry")}
     </ForgeAction>
   );
-  const Line = compact ? "span" : "p";
-  const content = (
-    <>
-      <Line className="forge-failure-heading">{subject}</Line>
-      {explained && (
-        <Line className="forge-failure-reason" data-iori-part="forge-failure">
-          {explained.text}
-        </Line>
-      )}
-      {button}
-    </>
-  );
   const marks = {
     "data-iori-state": state,
     "data-iori-forge-failure": failure?.reason,
   };
   if (form === "notice")
     return (
-      <ForgeNotice failed role="alert" {...marks}>
-        {content}
+      <ForgeNotice failed role="alert" className={className} {...marks}>
+        <div className="flex size-9 items-center justify-center rounded-md border border-status-failed-border bg-status-failed-bg text-status-failed-text">
+          <AlertCircle className="size-4" aria-hidden="true" />
+        </div>
+        <div className="flex min-w-0 max-w-md flex-col gap-1">
+          <p className="text-sm font-semibold text-status-failed-text">
+            {subject}
+          </p>
+          {explained && (
+            <p
+              className="text-xs text-foreground/90"
+              data-iori-part="forge-failure"
+            >
+              {explained.text}
+            </p>
+          )}
+        </div>
+        {button}
       </ForgeNotice>
     );
   if (compact)
     return (
-      <span className="forge-failure-inline" {...marks}>
-        {content}
+      <span
+        className={cn(
+          "inline-flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-status-failed-border bg-status-failed-bg/35 px-2 py-0.5 font-sans text-xs whitespace-normal text-foreground",
+          className,
+        )}
+        {...marks}
+      >
+        <AlertCircle
+          className="size-3 shrink-0 text-status-failed-text"
+          aria-hidden="true"
+        />
+        <span className="font-semibold text-status-failed-text">{subject}</span>
+        {explained && (
+          <span className="text-foreground/90" data-iori-part="forge-failure">
+            {explained.text}
+          </span>
+        )}
+        {button}
       </span>
     );
   return (
-    <div className="forge-failure-line" role="alert" {...marks}>
-      {content}
+    <div
+      className={cn(
+        "flex min-w-0 max-w-full flex-wrap items-center gap-x-2.5 gap-y-1.5 rounded-md border border-status-failed-border bg-status-failed-bg/35 px-3 py-2 text-xs text-foreground [&_p]:m-0 [&_p]:min-w-0 [&_p]:max-w-full [&_p]:[overflow-wrap:anywhere]",
+        className,
+      )}
+      role="alert"
+      {...marks}
+    >
+      <AlertCircle
+        className="size-3.5 shrink-0 text-status-failed-text"
+        aria-hidden="true"
+      />
+      <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+        <p className="font-semibold text-status-failed-text">{subject}</p>
+        {explained && (
+          <p className="text-foreground/90" data-iori-part="forge-failure">
+            {explained.text}
+          </p>
+        )}
+      </div>
+      {button}
     </div>
   );
 }

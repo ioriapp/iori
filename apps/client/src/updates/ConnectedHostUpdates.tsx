@@ -26,8 +26,6 @@ import {
   HostMaintenanceProgress,
   HostMaintenanceWork,
 } from "./HostMaintenanceDetails.tsx";
-import "../worktree-creator.css";
-import "./connected-hosts.css";
 
 export function ConnectedHostUpdates({
   t,
@@ -59,7 +57,7 @@ export function ConnectedHostUpdates({
       onOpenChange={(open) => !open && dismiss()}
     >
       <DialogContent
-        className="folder-dialog worktree-create-dialog connected-update-dialog"
+        className="h-[min(43.75rem,calc(100dvh-1.5rem))] max-h-[calc(100dvh-1.5rem)] w-[min(35rem,calc(100vw-1.5rem))] max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-lg border border-border bg-popover text-sm shadow-md sm:max-w-[35rem] max-md:[&_button]:min-h-11 [@media(pointer:coarse)]:[&_button]:min-h-11 [&_[data-slot=dialog-footer]]:flex-wrap"
         showCloseButton={false}
         data-iori-view="connected-host-updates"
         onOpenAutoFocus={(event) => {
@@ -73,7 +71,10 @@ export function ConnectedHostUpdates({
             {t("Update iori Host")}
           </DialogDescription>
         </DialogHeader>
-        <div data-slot="dialog-body" className="connected-update-body">
+        <div
+          data-slot="dialog-body"
+          className="-mx-5 grid min-h-0 flex-1 content-start gap-0 divide-y divide-border overflow-y-auto px-5"
+        >
           {items.map((item) => (
             <HostUpdateRow
               key={item.host.publicKey}
@@ -131,16 +132,21 @@ function HostUpdateRow({
   );
   return (
     <section
-      className="layout-section"
+      className="min-w-0 py-4 first:pt-0 last:pb-0"
       data-iori-update-host={item.host.publicKey}
     >
-      <div className="section-heading">
-        <h2 title={item.host.hostName}>{item.host.hostName}</h2>
+      <div className="pb-3">
+        <h2
+          className="m-0 truncate font-heading text-lg font-semibold text-foreground"
+          title={item.host.hostName}
+        >
+          {item.host.hostName}
+        </h2>
       </div>
-      <div className="host-update-content">
+      <div className="grid gap-3 [overflow-wrap:anywhere]">
         {item.state === "checking" && (
           <p
-            className="inline-flex items-center gap-2"
+            className="m-0 inline-flex items-center gap-2 text-muted-foreground"
             role="status"
             data-iori-state="host-checking"
           >
@@ -149,12 +155,15 @@ function HostUpdateRow({
           </p>
         )}
         {item.state === "current" && (
-          <p role="status" data-iori-state="host-current">
+          <p className="m-0" role="status" data-iori-state="host-current">
             {t("You are up to date")}
           </p>
         )}
         {item.state === "unknown-version" && (
-          <p role="alert" className="connection-error">
+          <p
+            role="alert"
+            className="m-0 text-xs leading-relaxed text-status-failed-text [overflow-wrap:anywhere]"
+          >
             {t(
               "Could not check the iori Host version. Try updating from Version in settings.",
             )}
@@ -162,20 +171,27 @@ function HostUpdateRow({
         )}
         {item.state === "disconnected" && (
           <div
-            className="host-notice is-error"
+            className="grid grid-cols-[1rem_minmax(0,1fr)] items-start gap-2 rounded-md border border-status-failed-border bg-status-failed-bg/35 p-3 text-sm"
             role="alert"
             data-iori-state="host-disconnected"
           >
-            <TriangleAlert aria-hidden="true" />
-            <div className="body">
-              <p className="heading">{t("Could not connect to the Host.")}</p>
-              <p>{t("Check that the Host is running.")}</p>
+            <TriangleAlert
+              className="mt-0.5 size-4 text-status-failed-text"
+              aria-hidden="true"
+            />
+            <div className="grid min-w-0 gap-1">
+              <p className="m-0 font-semibold text-status-failed-text">
+                {t("Could not connect to the Host.")}
+              </p>
+              <p className="m-0 text-foreground">
+                {t("Check that the Host is running.")}
+              </p>
             </div>
           </div>
         )}
         {item.state === "confirmation" && item.plan && (
           <>
-            <p>
+            <p className="m-0">
               {t("{name} will be updated from {from} to {to}.")
                 .replace("{name}", item.host.hostName)
                 .replace("{from}", item.host.version ?? "")
@@ -188,7 +204,7 @@ function HostUpdateRow({
               t={t}
               onOpenTerminal={onOpenTerminal}
             />
-            <div className="host-update-confirm">
+            <div className="flex justify-end">
               <Button
                 variant="destructive"
                 data-iori-action="connected-hosts-confirm"
@@ -202,11 +218,15 @@ function HostUpdateRow({
         {status && (
           <HostMaintenanceProgress status={status} pending={pending} t={t} />
         )}
-        {item.error && <p role="status">{t("Could not update iori Host")}</p>}
+        {item.error && (
+          <p className="m-0" role="status">
+            {t("Could not update iori Host")}
+          </p>
+        )}
         {reason && (
           <p
             role="alert"
-            className="connection-error"
+            className="m-0 text-xs leading-relaxed text-status-failed-text [overflow-wrap:anywhere]"
             data-iori-state="host-maintenance-error"
           >
             {t(failures[reason] ?? failures.request!)}

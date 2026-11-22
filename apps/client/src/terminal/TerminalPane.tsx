@@ -58,6 +58,7 @@ import {
   useState,
   type CSSProperties,
 } from "react";
+import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -2035,7 +2036,7 @@ export function TerminalPane({
         event.stopPropagation();
         pasteImages(files);
       }}
-      className="terminal-workspace terminal-pane cli-view"
+      className="terminal-workspace flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background text-foreground"
       data-iori-view="terminal"
       data-iori-terminal-id={summary.id}
       data-iori-host-key={hostKey}
@@ -2059,18 +2060,21 @@ export function TerminalPane({
       {!summary.setup &&
         summary.state === "error" &&
         typeof summary.exitCode === "number" && (
-          <div className="terminal-exit-label" data-iori-state="terminal-exit">
+          <div
+            className="shrink-0 border-b border-border-subtle px-3 py-1.5 text-xs text-status-failed-text"
+            data-iori-state="terminal-exit"
+          >
             {t("Exited with code")} {summary.exitCode}
           </div>
         )}
 
       {summary.setup?.state === "failed" && (
         <div
-          className="terminal-resume-row"
+          className="flex shrink-0 flex-wrap items-center gap-2 border-b border-status-failed-border bg-status-failed-bg/35 px-3 py-1.5 text-sm text-foreground"
           role="alert"
           data-iori-state="setup-failed"
         >
-          <span>
+          <span className="min-w-0 flex-1 basis-max">
             {summary.setup.exitCode === undefined
               ? t("Setup command was interrupted")
               : t("Setup command failed (exit {code})").replace(
@@ -2079,7 +2083,7 @@ export function TerminalPane({
                 )}
           </span>
           {!child && (
-            <div className="terminal-setup-actions">
+            <div className="ml-auto flex flex-wrap justify-end gap-2">
               <Button
                 variant="outline"
                 size="sm"
@@ -2105,12 +2109,18 @@ export function TerminalPane({
         </div>
       )}
       {actionError && (
-        <p className="terminal-inline-error" role="alert">
+        <p
+          className="m-0 shrink-0 border-b border-status-failed-border bg-status-failed-bg/35 px-3 py-1.5 text-xs text-status-failed-text"
+          role="alert"
+        >
           {actionError}
         </p>
       )}
       {transportError && (
-        <p className="terminal-inline-error" role="alert">
+        <p
+          className="m-0 flex shrink-0 flex-wrap items-center gap-2 border-b border-status-failed-border bg-status-failed-bg/35 px-3 py-1.5 text-xs text-status-failed-text"
+          role="alert"
+        >
           {transportError}
           <Button
             variant="outline"
@@ -2130,7 +2140,10 @@ export function TerminalPane({
         </p>
       )}
       {summary.restartPending && (
-        <div className="terminal-notice" data-iori-state="restart-pending">
+        <div
+          className="m-0 shrink-0 border-b border-border bg-muted/40 px-3 py-1.5 text-xs text-muted-foreground"
+          data-iori-state="restart-pending"
+        >
           {t(
             "The previous shell ended when the Host restarted. A new shell will start when this terminal is opened.",
           )}
@@ -2139,11 +2152,12 @@ export function TerminalPane({
 
       {searchOpen && (
         <div
-          className="terminal-search-bar cli-search-row"
+          className="flex shrink-0 items-center gap-1.5 border-b border-border bg-popover px-2 py-1.5"
           data-iori-panel="terminal-search"
         >
           <Input
             autoFocus
+            className="h-7.5 min-w-24 flex-1"
             aria-label={t("Search terminal output")}
             data-iori-field="terminal-search"
             value={searchText}
@@ -2159,7 +2173,7 @@ export function TerminalPane({
               }
             }}
           />
-          <label className="terminal-search-case">
+          <label className="inline-flex shrink-0 items-center gap-1.5 text-2xs whitespace-nowrap text-muted-foreground">
             <Switch
               checked={searchCaseSensitive}
               onCheckedChange={setSearchCaseSensitive}
@@ -2201,7 +2215,13 @@ export function TerminalPane({
       )}
 
       <div
-        className={`terminal-display cli-screen-frame cli-terminal-screen ${screenWidthClass}`}
+        className={cn(
+          "terminal-display relative flex min-h-0 min-w-0 flex-1 overflow-auto bg-background text-foreground",
+          mobile
+            ? "[touch-action:pan-x_pan-y]"
+            : "[touch-action:pan-x_pan-y_pinch-zoom]",
+          screenWidthClass,
+        )}
         ref={displayRef}
         data-iori-part="terminal-viewport"
         data-iori-mobile={mobile ? "true" : undefined}
@@ -2256,7 +2276,7 @@ export function TerminalPane({
         />
         {mobile && readingHistory && (
           <Button
-            className="terminal-jump-latest"
+            className="absolute right-3 bottom-3 z-(--z-sticky) min-h-10 px-3 shadow-md"
             variant="secondary"
             size="sm"
             data-iori-action="terminal-jump-latest"
@@ -2266,7 +2286,9 @@ export function TerminalPane({
           </Button>
         )}
         {!mounted && !transportError && (
-          <div className="terminal-loading">{t("Opening terminal…")}</div>
+          <div className="pointer-events-none absolute inset-0 grid place-items-center text-xs text-muted-foreground">
+            {t("Opening terminal…")}
+          </div>
         )}
         <DropdownMenu
           open={Boolean(contextMenu)}
@@ -2278,7 +2300,7 @@ export function TerminalPane({
             <Button
               variant="ghost"
               size="icon-sm"
-              className="terminal-context-anchor"
+              className="pointer-events-none absolute top-0 left-0 z-(--z-sticky) size-px min-h-px min-w-px p-0 opacity-0"
               style={
                 contextMenu
                   ? { left: contextMenu.left, top: contextMenu.top }
@@ -2288,11 +2310,7 @@ export function TerminalPane({
               data-iori-action="terminal-context-menu"
             />
           </DropdownMenuTrigger>
-          <DropdownMenuContent
-            className="terminal-context-menu"
-            side="bottom"
-            align="start"
-          >
+          <DropdownMenuContent className="min-w-36" side="bottom" align="start">
             <DropdownMenuItem
               disabled={!terminalRef.current?.hasSelection()}
               onSelect={() => {
@@ -2365,10 +2383,10 @@ export function TerminalPane({
 
       {!child && summary.cliResumePending && (
         <div
-          className="terminal-resume-row"
+          className="flex shrink-0 items-center gap-2 border-t border-border bg-background px-3 py-1.5 text-sm text-foreground"
           data-iori-state="cli-resume-pending"
         >
-          <span>
+          <span className="min-w-0 flex-1">
             {t(
               summary.cliResumeReason === "exit"
                 ? "The CLI has exited"
@@ -2414,7 +2432,10 @@ export function TerminalPane({
         </div>
       )}
       {resumeError && (
-        <p className="terminal-inline-error" role="alert">
+        <p
+          className="m-0 shrink-0 border-t border-status-failed-border bg-status-failed-bg/35 px-3 py-1.5 text-xs text-status-failed-text"
+          role="alert"
+        >
           {t("Could not resume the CLI. Retry.")}
         </p>
       )}
@@ -2429,6 +2450,7 @@ export function TerminalPane({
           modifiers={modifiers}
           attachInput={attachInput}
           showButtonNames={accessoryLayout.showButtonNames}
+          isCli={Boolean(summary.cli)}
           live={liveInput}
           desktopWidth={desktopWidth}
           disabled={disabledInput || !settingsReady}

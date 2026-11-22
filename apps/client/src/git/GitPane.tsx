@@ -1,7 +1,7 @@
 import { translator } from "../i18n.ts";
 import { useNarrowBack } from "../reading/useNarrowBack.ts";
 import { useCallback, useEffect, useRef, useState } from "react";
-import "./git.css";
+import { cn } from "cn";
 import {
   ArrowLeft,
   ChevronDown,
@@ -32,7 +32,7 @@ import { writePathDrag } from "../path-drag.ts";
 import { usePagedList } from "../reading/paged.ts";
 import { readErrorCopy, type ReadingTransport } from "../reading/transport.ts";
 import { formatDate } from "../reading/format.ts";
-import { useRowHeight } from "../reading/rowHeight.ts";
+import { LIST_ROW_PROBE_CLASS, useRowHeight } from "../reading/rowHeight.ts";
 import {
   DiffViewer,
   emptyDiffPosition,
@@ -47,6 +47,7 @@ import {
   parentDirectory,
 } from "./changes.tsx";
 import { ReadingError } from "../reading/ReadingError.tsx";
+import { ReadingEmpty, ReadingLoading } from "../reading/ReadingStates.tsx";
 
 export type GitPaneProps = {
   transport: ReadingTransport;
@@ -302,7 +303,10 @@ function GitWorkspace({
     <Button
       variant="ghost"
       size="icon-sm"
-      className={narrow ? "reading-back" : undefined}
+      className={cn(
+        "aria-pressed:bg-accent aria-pressed:text-accent-foreground [@media(pointer:coarse)]:size-11",
+        narrow && "[.mobile-retained-view_&]:hidden",
+      )}
       data-iori-action={narrow ? "reading-back" : "toggle-git-list"}
       aria-label={
         narrow
@@ -325,131 +329,155 @@ function GitWorkspace({
 
   const changesList = (
     <>
+      {!counts && !status.error && (
+        <ReadingLoading compact label={t("Loading")} rows={5} />
+      )}
       {isRepository === false && (
-        <p className="reading-empty">
-          {t("There is no Git repository in this folder.")}
-        </p>
+        <ReadingEmpty
+          compact
+          title={t("There is no Git repository in this folder.")}
+        />
       )}
       {isRepository && counts && changeRows === 0 && (
-        <p className="reading-empty">{t("There are no changes.")}</p>
+        <ReadingEmpty compact title={t("There are no changes.")} />
       )}
-      <VirtualRows
-        count={changeRows}
-        rowHeight={row.height}
-        dataId="git-changes"
-        className="git-list-rows"
-        label={t("Changes")}
-        onRange={(first, last) => {
-          const a = rowAt(first);
-          const b = rowAt(last);
-          const from =
-            a && "index" in a ? a.index : a ? areaStart[a.section]! : 0;
-          const to =
-            b && "index" in b ? b.index : b ? areaStart[b.section]! : 0;
-          status.ensure(from, Math.max(from, to));
-        }}
-        renderRow={(index) => {
-          const shown = rowAt(index);
-          if (!shown) return null;
-          if ("section" in shown) {
-            const closed = view.closed.includes(shown.section);
-            return (
-              <button
-                type="button"
-                className="git-section-heading"
-                data-area={shown.section}
-                aria-expanded={!closed}
-                onClick={() =>
-                  update({
-                    closed: closed
-                      ? view.closed.filter((area) => area !== shown.section)
-                      : [...view.closed, shown.section],
-                  })
-                }
-              >
-                {closed ? <ChevronRight /> : <ChevronDown />}
-                <span>{areaName(shown.section, ja)}</span>
-                <span className="git-count">{shown.count}</span>
-              </button>
-            );
-          }
-          const entry = status.get(shown.index);
-          if (!entry) return <div className="git-row" data-loading="true" />;
-          const name = entry.path.slice(entry.path.lastIndexOf("/") + 1);
-          const active =
-            view.mode === "changes" &&
-            view.change?.area === entry.area &&
-            view.change.path === entry.path;
-          const issue = entry.error ? t("Unreadable") : undefined;
-          return (
-            <PathMenu path={entry.absolutePath} locale={locale}>
-              <button
-                type="button"
-                className="git-row"
-                aria-current={active || undefined}
-                data-iori-action="git-change-select"
-                data-area={entry.area}
-                data-kind={entry.kind}
-                data-path={entry.path}
-                title={`${entry.oldPath ? `${entry.oldPath} → ` : ""}${entry.path} · ${kindName(entry.kind, ja)}${issue ? ` · ${issue}` : ""}`}
-                draggable
-                onDragStart={(event) =>
-                  writePathDrag(event.dataTransfer, {
-                    hostKey,
-                    root: repository?.root ?? root,
-                    path: entry.path,
-                    absolutePath: entry.absolutePath,
-                  })
-                }
-                onClick={() =>
-                  update({
-                    change: {
-                      area: entry.area,
-                      path: entry.path,
-                      oldPath: entry.oldPath,
-                      kind: entry.kind,
-                      stages: entry.stages,
-                      absolutePath: entry.absolutePath,
-                    },
-                    stage: entry.stages?.includes(2) ? 2 : entry.stages?.[0],
-                    detailOpen: true,
-                    diff: emptyDiffPosition(),
-                  })
-                }
-              >
-                <ChangeIcon kind={entry.kind} ja={ja} />
-                <span className="git-row-name">{name}</span>
-                <span className="git-row-directory">
-                  {parentDirectory(entry.path)}
-                </span>
-                {issue && <span className="git-row-issue">{issue}</span>}
-                {(entry.addedLines !== undefined ||
-                  entry.removedLines !== undefined) && (
-                  <span className="git-row-counts">
-                    {entry.addedLines ? (
-                      <span className="git-added">+{entry.addedLines}</span>
-                    ) : null}
-                    {entry.removedLines ? (
-                      <span className="git-removed">−{entry.removedLines}</span>
-                    ) : null}
+      {changeRows > 0 && (
+        <VirtualRows
+          count={changeRows}
+          rowHeight={row.height}
+          dataId="git-changes"
+          className="py-0.5 [&_.reading-virtual-row]:w-full"
+          label={t("Changes")}
+          onRange={(first, last) => {
+            const a = rowAt(first);
+            const b = rowAt(last);
+            const from =
+              a && "index" in a ? a.index : a ? areaStart[a.section]! : 0;
+            const to =
+              b && "index" in b ? b.index : b ? areaStart[b.section]! : 0;
+            status.ensure(from, Math.max(from, to));
+          }}
+          renderRow={(index) => {
+            const shown = rowAt(index);
+            if (!shown) return null;
+            if ("section" in shown) {
+              const closed = view.closed.includes(shown.section);
+              return (
+                <button
+                  type="button"
+                  className="git-section-heading flex h-full w-full cursor-pointer items-center gap-1 border-0 bg-transparent px-2 text-left text-xs font-semibold text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-inset [@media(hover:hover)]:hover:text-foreground [&_svg]:size-3"
+                  data-area={shown.section}
+                  aria-expanded={!closed}
+                  onClick={() =>
+                    update({
+                      closed: closed
+                        ? view.closed.filter((area) => area !== shown.section)
+                        : [...view.closed, shown.section],
+                    })
+                  }
+                >
+                  {closed ? <ChevronRight /> : <ChevronDown />}
+                  <span>{areaName(shown.section, ja)}</span>
+                  <span className="git-count ml-auto rounded-full bg-muted px-1.5 text-2xs font-medium text-muted-foreground tabular-nums">
+                    {shown.count}
                   </span>
-                )}
-              </button>
-            </PathMenu>
-          );
-        }}
-      />
+                </button>
+              );
+            }
+            const entry = status.get(shown.index);
+            if (!entry) return <div className="h-full" data-loading="true" />;
+            const name = entry.path.slice(entry.path.lastIndexOf("/") + 1);
+            const active =
+              view.mode === "changes" &&
+              view.change?.area === entry.area &&
+              view.change.path === entry.path;
+            const issue = entry.error ? t("Unreadable") : undefined;
+            return (
+              <PathMenu path={entry.absolutePath} locale={locale}>
+                <button
+                  type="button"
+                  className="flex h-full w-full cursor-pointer items-center gap-1.5 border-0 bg-transparent pr-2 pl-5 text-left text-xs whitespace-nowrap text-foreground outline-none group-data-[narrow=false]/split:aria-[current=true]:bg-accent group-data-[narrow=false]/split:aria-[current=true]:text-accent-foreground group-data-[narrow=false]/split:aria-[current=true]:shadow-[inset_2px_0_0_var(--primary)] focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-inset [@media(hover:hover)]:hover:bg-muted/70"
+                  aria-current={active || undefined}
+                  data-iori-action="git-change-select"
+                  data-area={entry.area}
+                  data-kind={entry.kind}
+                  data-path={entry.path}
+                  title={`${entry.oldPath ? `${entry.oldPath} → ` : ""}${entry.path} · ${kindName(entry.kind, ja)}${issue ? ` · ${issue}` : ""}`}
+                  draggable
+                  onDragStart={(event) =>
+                    writePathDrag(event.dataTransfer, {
+                      hostKey,
+                      root: repository?.root ?? root,
+                      path: entry.path,
+                      absolutePath: entry.absolutePath,
+                    })
+                  }
+                  onClick={() =>
+                    update({
+                      change: {
+                        area: entry.area,
+                        path: entry.path,
+                        oldPath: entry.oldPath,
+                        kind: entry.kind,
+                        stages: entry.stages,
+                        absolutePath: entry.absolutePath,
+                      },
+                      stage: entry.stages?.includes(2) ? 2 : entry.stages?.[0],
+                      detailOpen: true,
+                      diff: emptyDiffPosition(),
+                    })
+                  }
+                >
+                  <ChangeIcon kind={entry.kind} ja={ja} />
+                  <span className="min-w-0 flex-[0_1_auto] truncate">
+                    {name}
+                  </span>
+                  <span className="min-w-0 flex-[0_1000_auto] truncate text-xs text-muted-foreground">
+                    {parentDirectory(entry.path)}
+                  </span>
+                  {issue && (
+                    <span className="flex-none text-xs text-status-failed-text">
+                      {issue}
+                    </span>
+                  )}
+                  {(entry.addedLines !== undefined ||
+                    entry.removedLines !== undefined) && (
+                    <span className="ml-auto flex flex-none gap-1 pl-1.5 text-xs tabular-nums">
+                      {entry.addedLines ? (
+                        <span className="text-diff-add-text">
+                          +{entry.addedLines}
+                        </span>
+                      ) : null}
+                      {entry.removedLines ? (
+                        <span className="text-diff-del-text">
+                          −{entry.removedLines}
+                        </span>
+                      ) : null}
+                    </span>
+                  )}
+                </button>
+              </PathMenu>
+            );
+          }}
+        />
+      )}
     </>
   );
 
   const historyList = (
     <>
       {view.filter && (
-        <div className="git-filter" title={view.filter}>
-          <span className="reading-truncate">{view.filter}</span>
+        <div
+          className="git-filter mx-1.5 my-1 flex flex-none items-center gap-1 rounded-sm border border-border-subtle bg-muted/60 py-0.5 pr-1 pl-2 text-xs [@media(pointer:coarse)]:min-h-10"
+          title={view.filter}
+        >
+          <span className="min-w-0 flex-1 truncate text-foreground">
+            {view.filter}
+          </span>
           <Button
             variant="ghost"
             size="icon-xs"
+            className="[@media(pointer:coarse)]:size-10"
             aria-label={t("Clear the file filter")}
             data-iori-action="git-history-clear-filter"
             onClick={() =>
@@ -464,46 +492,63 @@ function GitWorkspace({
           </Button>
         </div>
       )}
-      {history.loaded && history.count === 0 && (
-        <p className="reading-empty">{t("There is no history.")}</p>
+      {history.loaded && history.count === 0 ? (
+        <ReadingEmpty compact title={t("There is no history.")} />
+      ) : (
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          {!history.loaded && !history.error && (
+            <ReadingLoading
+              compact
+              label={t("Loading")}
+              rows={5}
+              className="pointer-events-none absolute inset-x-0 top-0 z-[1]"
+            />
+          )}
+          <VirtualRows
+            count={history.count}
+            rowHeight={row.height * 2 - 4}
+            dataId="git-history"
+            className="py-0.5 [&_.reading-virtual-row]:w-full"
+            label={t("Commit history")}
+            onRange={(first, last) => history.ensure(first, last)}
+            renderRow={(index) => {
+              const commit = history.get(index);
+              if (!commit)
+                return <div className="h-full" data-loading="true" />;
+              return (
+                <button
+                  type="button"
+                  className="flex h-full w-full cursor-pointer flex-col justify-center border-0 bg-transparent px-2.5 py-1 text-left text-xs text-foreground outline-none group-data-[narrow=false]/split:aria-[current=true]:bg-accent group-data-[narrow=false]/split:aria-[current=true]:text-accent-foreground group-data-[narrow=false]/split:aria-[current=true]:shadow-[inset_2px_0_0_var(--primary)] focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-inset [@media(hover:hover)]:hover:bg-muted/70"
+                  aria-current={view.commit === commit.hash || undefined}
+                  data-iori-action="git-commit-select"
+                  data-hash={commit.hash}
+                  onClick={() =>
+                    update({
+                      commit: commit.hash,
+                      commitFile: undefined,
+                      parent: undefined,
+                      detailOpen: true,
+                    })
+                  }
+                >
+                  <span className="truncate font-medium">{commit.subject}</span>
+                  <span className="flex gap-2 overflow-hidden text-xs whitespace-nowrap text-muted-foreground">
+                    <code className="font-mono text-muted-foreground">
+                      {commit.hash.slice(0, 7)}
+                    </code>
+                    <span className="truncate">
+                      {commit.author.replace(/\s*<[^>]*>$/u, "")}
+                    </span>
+                    <time className="shrink-0">
+                      {formatDate(commit.authorTimeMs, locale)}
+                    </time>
+                  </span>
+                </button>
+              );
+            }}
+          />
+        </div>
       )}
-      <VirtualRows
-        count={history.count}
-        rowHeight={row.height * 2 - 4}
-        dataId="git-history"
-        className="git-list-rows"
-        label={t("Commit history")}
-        onRange={(first, last) => history.ensure(first, last)}
-        renderRow={(index) => {
-          const commit = history.get(index);
-          if (!commit)
-            return <div className="git-commit-row" data-loading="true" />;
-          return (
-            <button
-              type="button"
-              className="git-commit-row"
-              aria-current={view.commit === commit.hash || undefined}
-              data-iori-action="git-commit-select"
-              data-hash={commit.hash}
-              onClick={() =>
-                update({
-                  commit: commit.hash,
-                  commitFile: undefined,
-                  parent: undefined,
-                  detailOpen: true,
-                })
-              }
-            >
-              <span className="git-commit-subject">{commit.subject}</span>
-              <span className="git-commit-line">
-                <code>{commit.hash.slice(0, 7)}</code>
-                <span>{commit.author.replace(/\s*<[^>]*>$/u, "")}</span>
-                <time>{formatDate(commit.authorTimeMs, locale)}</time>
-              </span>
-            </button>
-          );
-        }}
-      />
     </>
   );
 
@@ -511,7 +556,7 @@ function GitWorkspace({
   const list = (
     <>
       <div
-        className="reading-header reading-list-header"
+        className="flex h-9 min-w-0 flex-none items-center gap-1 px-1.5 [@media(pointer:coarse)]:h-11"
         data-iori-part="git-list-header"
       >
         <WorktreePicker
@@ -523,7 +568,7 @@ function GitWorkspace({
         />
         {repository && (
           <span
-            className="git-branch-state"
+            className="flex-none px-1 text-xs whitespace-nowrap text-muted-foreground tabular-nums"
             title={repository.upstream ?? t("No upstream")}
             data-iori-part="git-branch-state"
           >
@@ -545,13 +590,24 @@ function GitWorkspace({
       <Tabs
         value={view.mode}
         onValueChange={(mode) => update({ mode: mode as ViewState["mode"] })}
-        className="git-mode"
+        className="mt-1 flex-none border-b border-border px-1.5"
       >
-        <TabsList variant="line">
-          <TabsTrigger value="changes" data-iori-action="git-mode-changes">
+        <TabsList
+          variant="line"
+          className="h-8 border-b-0 [@media(pointer:coarse)]:h-11"
+        >
+          <TabsTrigger
+            value="changes"
+            className="px-3 text-xs [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:px-4"
+            data-iori-action="git-mode-changes"
+          >
             {t("Changes")}
           </TabsTrigger>
-          <TabsTrigger value="history" data-iori-action="git-mode-history">
+          <TabsTrigger
+            value="history"
+            className="px-3 text-xs [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:px-4"
+            data-iori-action="git-mode-history"
+          >
             {t("History")}
           </TabsTrigger>
         </TabsList>
@@ -601,7 +657,7 @@ function GitWorkspace({
           title={
             <PathMenu path={change.absolutePath} locale={locale}>
               <span
-                className="git-detail-title"
+                className="flex min-w-0 items-center gap-1.5 px-1 text-xs text-foreground"
                 data-iori-action="git-detail-path"
                 title={change.path}
               >
@@ -614,7 +670,7 @@ function GitWorkspace({
                   }
                 />
                 <span
-                  className="git-detail-kind"
+                  className="flex-none text-xs text-muted-foreground"
                   data-iori-part="git-detail-area"
                 >
                   {areaName(change.area, ja)}
@@ -626,7 +682,7 @@ function GitWorkspace({
                 </span>
                 {change.area === "conflict" && (
                   <span
-                    className="git-stage-switch"
+                    className="flex flex-none gap-0.5"
                     role="group"
                     aria-label={t("Conflict stage")}
                   >
@@ -637,6 +693,7 @@ function GitWorkspace({
                           conflictStage === stage ? "secondary" : "ghost"
                         }
                         size="sm"
+                        className="[@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:px-3"
                         data-iori-action="git-conflict-stage"
                         data-stage={stage}
                         onClick={() =>
@@ -668,10 +725,10 @@ function GitWorkspace({
         />
       ) : (
         <>
-          <div className="reading-header">{listToggle}</div>
-          <p className="reading-empty">
-            {t("Select a change to see its diff")}
-          </p>
+          <div className="flex h-9 min-w-0 flex-none items-center gap-1 border-b border-border px-1.5 [@media(pointer:coarse)]:h-11">
+            {listToggle}
+          </div>
+          <ReadingEmpty title={t("Select a change to see its diff")} />
         </>
       )
     ) : view.commit && view.commitFile ? (
@@ -701,6 +758,10 @@ function GitWorkspace({
             <Button
               variant="ghost"
               size="icon-sm"
+              className={cn(
+                "[@media(pointer:coarse)]:size-11",
+                narrow && "[.mobile-retained-view_&]:hidden",
+              )}
               data-iori-action={narrow ? "reading-back" : "git-commit-back"}
               aria-label={t("Back to the commit")}
               onClick={() => update({ commitFile: undefined })}
@@ -711,7 +772,7 @@ function GitWorkspace({
         }
         title={
           <span
-            className="git-detail-title"
+            className="flex min-w-0 items-center gap-1.5 px-1 text-xs text-foreground"
             data-iori-action="git-commit-diff-path"
             title={view.commitFile.path}
           >
@@ -723,7 +784,9 @@ function GitWorkspace({
                   : view.commitFile.path
               }
             />
-            <code className="git-hash">{view.commit.slice(0, 7)}</code>
+            <code className="shrink-0 font-mono text-xs text-muted-foreground">
+              {view.commit.slice(0, 7)}
+            </code>
           </span>
         }
         onFileHistory={() => openHistory(view.commitFile!.path)}
@@ -747,17 +810,25 @@ function GitWorkspace({
       />
     ) : (
       <>
-        <div className="reading-header">{listToggle}</div>
-        <p className="reading-empty">
-          {t("Select a commit to see its details")}
-        </p>
+        <div className="flex h-9 min-w-0 flex-none items-center gap-1 border-b border-border px-1.5 [@media(pointer:coarse)]:h-11">
+          {listToggle}
+        </div>
+        <ReadingEmpty title={t("Select a commit to see its details")} />
       </>
     );
 
   const onNarrow = useCallback((value: boolean) => setNarrow(value), []);
   return (
-    <div className="git-pane" data-iori-view="git" hidden={!visible}>
-      <div ref={row.probe} className="reading-row-probe" aria-hidden="true" />
+    <div
+      className="git-pane flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background text-sm [&[hidden]]:hidden"
+      data-iori-view="git"
+      hidden={!visible}
+    >
+      <div
+        ref={row.probe}
+        className={LIST_ROW_PROBE_CLASS}
+        aria-hidden="true"
+      />
       {watchError && (
         <ReadingError
           retryLabel={t("Retry")}
