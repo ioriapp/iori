@@ -143,10 +143,8 @@ export class AutomationManager {
     definition: AutomationDefinition,
   ): Promise<Response<{ automation: Automation }>> {
     return this.#serial(async () => {
-      const previous = this.store.terminalOperationResult<{
-        automation: Automation;
-      }>(context);
-      if (previous) return { ok: true, result: previous };
+      const previous = this.store.replayAutomationOperation(context);
+      if (previous) return previous;
       await this.#drain(false);
       const old = this.store.automations().find((a) => a.id === id);
       if (id && !old) return { ok: false, error: { code: "invalid_request" } };
@@ -162,7 +160,7 @@ export class AutomationManager {
         id: id ?? randomUUID(),
         ...(nextAt === undefined ? {} : { nextAt }),
       };
-      this.store.putAutomation(automation);
+      this.store.putAutomation(automation, context);
       this.#issueErrors.delete(automation.id);
       this.#issueRevisions.set(
         automation.id,
@@ -177,7 +175,6 @@ export class AutomationManager {
         .automations()
         .find((a) => a.id === automation.id)!;
       const result = { automation };
-      this.store.saveTerminalOperationResult(context, result);
       await this.#webhook.sync();
       this.publish({ type: "automation.changed" });
       this.#arm();
@@ -207,19 +204,26 @@ export class AutomationManager {
         context,
       );
       if (previous) return { ok: true, result: previous };
+      const directory = join(this.root, "automation-files", id);
+      const ignoreMissing = (error: unknown) => {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      };
+      try {
+        const files = await readdir(directory).catch(ignoreMissing);
+        for (const file of files ?? [])
+          if (file.endsWith(".received.json") || file.endsWith(".md"))
+            await unlink(join(directory, file)).catch(ignoreMissing);
+      } catch (error) {
+        console.error(
+          "Automation files could not be removed",
+          (error as NodeJS.ErrnoException).code,
+        );
+        return { ok: false, error: { code: "internal_error" } };
+      }
       this.store.deleteAutomation(id);
       this.#issueRevisions.set(id, (this.#issueRevisions.get(id) ?? 0) + 1);
       this.#issueCache.delete(id);
       this.#issueErrors.delete(id);
-      const directory = join(this.root, "automation-files", id);
-      const files = await readdir(directory).catch(() => []);
-      await Promise.all(
-        files
-          .filter(
-            (file) => file.endsWith(".received.json") || file.endsWith(".md"),
-          )
-          .map((file) => unlink(join(directory, file)).catch(() => {})),
-      );
       const result = { id };
       this.store.saveTerminalOperationResult(context, result);
       await this.#webhook.sync();
@@ -233,18 +237,15 @@ export class AutomationManager {
     id: string,
   ): Promise<Response<{ automation: Automation }>> {
     return this.#serial(async () => {
-      const previous = this.store.terminalOperationResult<{
-        automation: Automation;
-      }>(context);
-      if (previous) return { ok: true, result: previous };
+      const previous = this.store.replayAutomationOperation(context);
+      if (previous) return previous;
       const automation = this.store.automations().find((a) => a.id === id);
       if (!automation?.webhook)
         return { ok: false, error: { code: "invalid_request" } };
-      this.store.regenerateAutomationToken(id);
+      this.store.regenerateAutomationToken(id, context);
       const result = {
         automation: this.store.automations().find((a) => a.id === id)!,
       };
-      this.store.saveTerminalOperationResult(context, result);
       this.publish({ type: "automation.changed" });
       return { ok: true, result };
     });

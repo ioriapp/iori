@@ -9,11 +9,19 @@ const requestedRealClient =
   process.argv.some(
     (arg) => arg.includes("windows-client") || arg.includes("android-client"),
   );
+const requestedWorkers = process.env.IORI_PLAYWRIGHT_WORKERS ?? "";
+const workerCount = Number(requestedWorkers);
+const browserWorkers =
+  /^\d+$/.test(requestedWorkers) &&
+  Number.isSafeInteger(workerCount) &&
+  workerCount > 0
+    ? workerCount
+    : 4;
 export default defineConfig<TestOptions>({
   testDir: ".",
   globalSetup: "./fixtures/global-setup.ts",
   fullyParallel: !requestedRealClient,
-  workers: requestedRealClient ? 1 : 4,
+  workers: requestedRealClient ? 1 : browserWorkers,
   retries: process.env.CI ? 1 : 0,
   outputDir: resolve(evidence, "artifacts"),
   reporter: [

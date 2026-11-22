@@ -1,11 +1,11 @@
 import { spawn } from "node:child_process";
 import type { ForgeStatus, GitHubAccounts } from "@iori/protocol";
 import type { HostStore } from "../store.ts";
-import type { ForgeAdapter, ForgeRepository } from "./types.ts";
+import type { ForgeRepository, ForgeStatusRepository } from "./types.ts";
 import { githubReadFailure } from "./github-error.ts";
 import { githubFailureReason } from "./failure.ts";
 import type { ForgeFailureReason } from "@iori/protocol";
-import { githubStatus, readGitHubCi, readGitHubCiLog } from "./github-ci.ts";
+import { githubStatus } from "./github-ci.ts";
 import { markState } from "./ci.ts";
 import {
   array,
@@ -103,8 +103,8 @@ export function command(
                 typeof value === "string" && !!value.trim(),
             );
             let message = messages.join("\n").slice(0, 1000);
-            if (env.GH_TOKEN)
-              message = message.replaceAll(env.GH_TOKEN, "[redacted]");
+            const token = env.GH_TOKEN || env.GITHUB_TOKEN;
+            if (token) message = message.replaceAll(token, "[redacted]");
             if (message) {
               reject(new GhWriteFailure(message));
               return;
@@ -148,16 +148,20 @@ export function githubAccounts(
 async function readAccounts(): Promise<GitHubAccounts> {
   try {
     // Select only account facts in gh itself; never ask it to show a token.
-    const output = await command([
-      "auth",
-      "status",
-      "--hostname",
-      "github.com",
-      "--json",
-      "hosts",
-      "--jq",
-      '(.hosts["github.com"] // []) | map({login,active,state})',
-    ]);
+    const output = await command(
+      [
+        "auth",
+        "status",
+        "--hostname",
+        "github.com",
+        "--json",
+        "hosts",
+        "--jq",
+        '(.hosts["github.com"] // []) | map({login,active,state})',
+      ],
+      undefined,
+      storedAccountEnvironment(),
+    );
     const accounts = array(JSON.parse(output)).map((value) => {
       const account = object(value);
       if (
@@ -182,21 +186,34 @@ async function readAccounts(): Promise<GitHubAccounts> {
   }
 }
 
+/** Environment tokens override gh's stored credentials. */
+export function storedAccountEnvironment(env = process.env): NodeJS.ProcessEnv {
+  const clean = { ...env };
+  for (const name of Object.keys(clean)) {
+    // Environment variable names are case-insensitive on Windows.
+    const key = name.toUpperCase();
+    if (key === "GH_TOKEN" || key === "GITHUB_TOKEN") delete clean[name];
+  }
+  return clean;
+}
+
 export async function accountEnvironment(
   account?: string,
   signal?: AbortSignal,
 ): Promise<NodeJS.ProcessEnv> {
   if (!account) return process.env;
+  const env = storedAccountEnvironment();
   try {
     const token = (
       await command(
         ["auth", "token", "--hostname", "github.com", "--user", account],
         signal,
+        env,
       )
     ).trim();
     if (!token) throw new GhTokenUnavailable();
     // The token exists only in memory and this gh child's environment.
-    return { ...process.env, GH_TOKEN: token };
+    return { ...env, GH_TOKEN: token };
   } catch {
     signal?.throwIfAborted();
     throw new GhTokenUnavailable();
@@ -235,9 +252,10 @@ export async function githubPages(
 }
 
 /**
- * One response as text, as a job's log. gh 2.97 and later refuse its colors
- * without --allow-escape-sequences; older gh pass them and do not know the
- * flag, so its refusal, not a version string, decides to read without it.
+ * A raw job log. The CI View renders its ANSI colors, and Agent commands
+ * strip terminal controls when formatting their output. gh 2.97 and later
+ * need --allow-escape-sequences to read colored logs. Retry without the flag
+ * when older gh does not recognize it.
  */
 export async function githubText(
   endpoint: string,
@@ -266,26 +284,8 @@ export async function githubText(
   }
 }
 
-export const github: ForgeAdapter = {
-  id: "github",
-  label: "GitHub",
-  async detect(origin) {
-    return origin === "https://github.com";
-  },
-  checkUrl: ({ origin, owner, repo, sha }) =>
-    `${origin}/${owner}/${repo}/commit/${sha}/checks`,
-  readChecks,
-  readPullRequest,
-  readCi: readGitHubCi,
-  readCiLog: readGitHubCiLog,
-  forRepository(store, mainPath, onSettingsChange) {
-    return {
-      ...github,
-      readStatus: (target, signal) =>
-        readRepositoryStatus(target, store, mainPath, onSettingsChange, signal),
-    };
-  },
-};
+export const githubCheckUrl = ({ origin, owner, repo, sha }: ForgeTarget) =>
+  `${origin}/${owner}/${repo}/commit/${sha}/checks`;
 
 /**
  * Reads a repository with its GitHub account (settings.md「GitHubのアカウント」):
@@ -304,14 +304,20 @@ export async function withGitHubAccount<T>(
   const selected = store.repositoryGitAccount(mainPath);
   const remembered = store.repositoryGitAutoAccount(mainPath);
   const listing = await githubAccounts(store).catch(() => undefined);
-  const active = listing?.accounts.find((account) => account.active)?.login;
+  const accounts = listing?.accounts ?? [];
+  const active = accounts.find((account) => account.active)?.login;
+  const useEnvironment =
+    !listing ||
+    (listing.available &&
+      !accounts.length &&
+      Boolean(process.env.GH_TOKEN || process.env.GITHUB_TOKEN));
   const find = (name: string) =>
-    listing?.accounts.find(
+    accounts.find(
       (account) => account.login.toLowerCase() === name.toLowerCase(),
     )?.login;
   const candidates: (string | undefined)[] = selected
     ? [selected]
-    : !listing
+    : useEnvironment
       ? [undefined]
       : [
           ...new Set(
@@ -319,7 +325,7 @@ export async function withGitHubAccount<T>(
               find(owner),
               find(remembered),
               active,
-              ...listing.accounts.map((account) => account.login),
+              ...accounts.map((account) => account.login),
             ].filter((login): login is string => login !== undefined),
           ),
         ];
@@ -327,10 +333,10 @@ export async function withGitHubAccount<T>(
   const refusals: (ForgeFailureReason | undefined)[] = [];
   for (const account of candidates) {
     try {
-      const env = await accountEnvironment(
-        account === active ? undefined : account,
-        signal,
-      );
+      const env =
+        !selected && account && account === active
+          ? storedAccountEnvironment()
+          : await accountEnvironment(account, signal);
       const value = await read(env);
       signal?.throwIfAborted();
       if (!selected) remember?.(account ?? "");
@@ -365,13 +371,19 @@ export async function withGitHubAccount<T>(
   );
 }
 
-async function readRepositoryStatus(
+export async function readGitHubStatus(
   target: ForgeTarget,
-  store: HostStore,
-  mainPath: string,
-  onSettingsChange: () => void,
   signal?: AbortSignal,
+  repository?: ForgeStatusRepository,
 ): Promise<ForgeStatus> {
+  if (!repository) {
+    const [checks, pullRequest] = await Promise.all([
+      readChecks(target, signal),
+      readPullRequest(target, signal),
+    ]);
+    return { checks, pullRequest };
+  }
+  const { store, mainPath, onSettingsChange } = repository;
   const remember = (account: string) => {
     signal?.throwIfAborted();
     if (store.repositoryGitAutoAccount(mainPath) === account) return;
@@ -380,7 +392,7 @@ async function readRepositoryStatus(
   };
   try {
     return await withGitHubAccount(
-      { store, mainPath },
+      repository,
       target.owner,
       // Read all marks with one account before remembering it or trying another.
       async (env) => {
@@ -432,7 +444,7 @@ async function readChecks(
   return checksStatus(
     origin,
     [...runChecks, ...statusChecks],
-    github.checkUrl(target).slice(origin.length),
+    githubCheckUrl(target).slice(origin.length),
   );
 }
 async function readPullRequest(

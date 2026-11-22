@@ -28,6 +28,7 @@ function supportsReadOnlyProfile(version?: string): boolean {
 // definition.json; `-c` values are quoted here.
 export const code: CliCode = {
   id: "codex",
+  launchEffort: true,
   deliversInstructions: true,
   waitForBracketedPaste: true,
   modelCatalog: models,

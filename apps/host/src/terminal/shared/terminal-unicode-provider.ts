@@ -2,14 +2,7 @@
 
 import type { IUnicodeHandling, IUnicodeVersionProvider } from "@xterm/xterm";
 
-type XtermTerminalWithUnicodeCore = {
-  unicode: IUnicodeHandling;
-  _core?: {
-    unicodeService?: {
-      _providers?: Record<string, IUnicodeVersionProvider>;
-    };
-  };
-};
+import { unicodeProvider } from "../daemon/xterm-adapter.ts";
 
 const ORCA_UNICODE_VERSION = "orca-11-zwj";
 const UNICODE11_VERSION = "11";
@@ -68,16 +61,15 @@ class OrcaUnicodeProvider implements IUnicodeVersionProvider {
   }
 }
 
-export function activateOrcaTerminalUnicodeProvider(
-  terminal: XtermTerminalWithUnicodeCore,
-): void {
+export function activateOrcaTerminalUnicodeProvider(terminal: {
+  unicode: IUnicodeHandling;
+}): void {
   const { unicode } = terminal;
   if (unicode.activeVersion === ORCA_UNICODE_VERSION) {
     return;
   }
 
-  const baseProvider =
-    terminal._core?.unicodeService?._providers?.[UNICODE11_VERSION];
+  const baseProvider = unicodeProvider(terminal, UNICODE11_VERSION);
   if (!baseProvider) {
     unicode.activeVersion = UNICODE11_VERSION;
     return;

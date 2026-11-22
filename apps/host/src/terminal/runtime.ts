@@ -1,30 +1,45 @@
+import {
+  TerminalSession,
+  type TeamTerminalOptions,
+  type TeamChildIdentity,
+} from "./terminal-session.ts";
+export type { TeamTerminalOptions } from "./terminal-session.ts";
+import {
+  queueFrame,
+  queueOutput,
+  allBehind,
+  resumeIfCaughtUp,
+  detachSubscriber,
+  abortStream,
+  sendTerminalError,
+  OUTPUT_HIGH_WATERMARK,
+  OVERFLOW_RESET_CODE,
+  type TerminalSubscriber,
+  type NativeBiStream,
+  type NativeConnection,
+} from "./output-pump.ts";
 import { ApprovalBroker } from "../cli/approval-broker.ts";
-import { terminalSubmitPaste } from "./terminal-submit.ts";
+import { CliInput, initialPromptReadyWhen } from "./cli-input.ts";
 import { commitAtomicFile } from "../fs/atomic-write.ts";
 import { copyDeliveryFile } from "../fs/delivery-file.ts";
 import { filterKittyKeyReleases } from "./kitty-key-release.ts";
 import { isNonKeyTerminalInput } from "./non-key-input.ts";
-import { stoppedDescendantPidsByRoot } from "./stopped-descendants.ts";
-import { visibleScreenLinesFromSnapshot } from "./visible-screen.ts";
+import { CliStallMonitor } from "./cli-stall-monitor.ts";
 import type { TeamInputKey } from "../teams/commands.ts";
 import { trustTeamWorkspace } from "../teams/workspace-trust.ts";
 import { constants } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { realpath, stat, mkdir, open, rm } from "node:fs/promises";
 import { basename, join } from "node:path";
-import type * as pty from "node-pty";
-import { RemotePtys, type RemotePty } from "./remote-pty.ts";
-import type { PtyScreen, PtyState } from "./daemon/protocol.ts";
+import { RemotePtys } from "./remote-pty.ts";
+import type { PtyScreen } from "./daemon/protocol.ts";
 import type { CliCaller } from "../teams/local-command.ts";
 import {
   encodeFrame,
-  buildTerminalSnapshotRestoreSequence,
   notificationText,
-  MAX_FRAME_BYTES,
   MAX_TERMINAL_SNAPSHOT_LINES,
   terminalClientMessageSchema,
   type Event,
-  type CliSummary,
   type CliStatus,
   type Response,
   type TeamStallReason,
@@ -55,22 +70,14 @@ export function managedCommandArguments(
       : ["-l", "-i", "-c", command];
 }
 
-type NativeConnection = object;
-interface NativeBiStream {
-  write(bytes: Buffer): Promise<void>;
-  finish(): Promise<void>;
-  reset(code: number): Promise<void>;
-  stop(code: number): Promise<void>;
-}
 import type {
   HostStore,
   StoredTerminal,
   StoreContext,
   WorktreeSetup,
-  StoredWorktreeSetup,
 } from "../store.ts";
 
-import type { TerminalSnapshot, TerminalModes } from "./daemon/types.ts";
+import type { TerminalSnapshot } from "./daemon/types.ts";
 import type {
   ParserEvent,
   ParserSubscriptions,
@@ -101,12 +108,8 @@ import { discoverShells, resolveShell } from "./shells.ts";
 
 import { shellActivity, type ShellActivity } from "./shell-activity.ts";
 
-import { ToolActivity, type CliHooks, type HookState } from "../cli/hooks.ts";
-import {
-  cliDefinitions,
-  definitionInfo,
-  withCurrentCliIcon,
-} from "../cli/definitions.ts";
+import { ToolActivity, type HookState } from "../cli/hooks.ts";
+import { cliDefinitions, withCurrentCliIcon } from "../cli/definitions.ts";
 import { osc7501Fields } from "../cli/osc7501.ts";
 import type { CliRegistry } from "../cli/registry.ts";
 import { readCommonHook } from "../cli/common-hook.ts";
@@ -126,7 +129,7 @@ import { shellOwnsForeground } from "./linux-foreground.ts";
 import { ShellIntegration } from "./shell-integration.ts";
 
 const SCROLLBACK_LINES = MAX_TERMINAL_SNAPSHOT_LINES;
-const OVERFLOW_RESET_CODE = 1;
+
 const CHECKPOINT_INTERVAL_MS = 5_000;
 // Automatic permission replies were observed at ~100ms. Only presentation waits;
 // input delivery and submission must see the waiting state immediately.
@@ -135,179 +138,7 @@ const CLI_WAIT_PRESENTATION_MS = 1_000;
 // CLI drew its screen in one chunk (23–25ms). No startup output gaps preceded
 // readiness in those samples. Allow 300ms of quiet for CLIs without a signal.
 const INITIAL_INPUT_QUIET_MS = 300;
-// Idle text-only Claude/Codex samples redraw in <=49ms; allow margin for output gaps.
-const SUBMIT_QUIET_MS = 100;
-const SUBMIT_NO_OUTPUT_MS = 300;
-// Working Claude pauses <=442ms (p90 114ms); cap continuous redraw at 500ms.
-const SUBMIT_MAX_WAIT_MS = 500;
-const DEFAULT_STALL_MS = 120_000;
-const DEFAULT_STALL_POLL_MS = 5_000;
-
-function stallTiming(): { stallMs: number; pollMs: number } {
-  const raw = process.env.IORI_TEST_STALL_MS;
-  const parsed = raw ? Number(raw) : NaN;
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return { stallMs: DEFAULT_STALL_MS, pollMs: DEFAULT_STALL_POLL_MS };
-  }
-  return {
-    stallMs: parsed,
-    pollMs: Math.max(
-      20,
-      Math.min(DEFAULT_STALL_POLL_MS, Math.floor(parsed / 4)),
-    ),
-  };
-}
-
-function terminalInputKeySequence(
-  key: TeamInputKey,
-  applicationCursor: boolean,
-): string {
-  switch (key) {
-    case "enter":
-      return "\r";
-    case "escape":
-      return "\u001b";
-    case "up":
-      return applicationCursor ? "\u001bOA" : "\u001b[A";
-    case "down":
-      return applicationCursor ? "\u001bOB" : "\u001b[B";
-    case "tab":
-      return "\t";
-    case "ctrl-c":
-      return "\u0003";
-  }
-}
-// The PTY is paced by what the Host has not yet handed to the connections:
-// stop reading while every attached view is above the high mark, continue as
-// soon as any one is below the low mark (the marks VS Code's terminal flow
-// control uses). A view that cannot keep up is reset when its queue overflows,
-// so it never holds back the others.
-const OUTPUT_HIGH_WATERMARK = 100_000;
-const OUTPUT_LOW_WATERMARK = 5_000;
-// Output is sent in frames at most this often and this large: one frame per
-// small PTY read costs the receiver a round trip each, which is far slower
-// than the PTY can produce (VS Code batches PTY data at 5 ms too).
-const OUTPUT_FRAME_INTERVAL_MS = 5;
-const OUTPUT_MERGE_LIMIT = 256 * 1024;
-// One merged output item is enough backlog. A slower view resumes from the
-// current saved screen rather than draining several MiB of obsolete output.
-// Snapshot bytes are separate: a large restore must not reset itself.
-const MAX_QUEUED_OUTPUT_BYTES = OUTPUT_MERGE_LIMIT;
 const RESTART_SEPARATOR_TEXT = "Host の再起動で前の shell は終了しました";
-
-/** Output waiting for the connection; later output is merged into it. */
-interface PendingOutput {
-  data: string;
-  bytes: number;
-  sequence: number;
-}
-
-interface TerminalSubscriber {
-  connection: NativeConnection;
-  stream: NativeBiStream;
-  terminalId: string;
-  viewId: string;
-  viewAttributes: TerminalViewAttributes;
-  deviceClass: TerminalOpenStream["deviceClass"];
-  cols: number;
-  rows: number;
-  frames: (Buffer | PendingOutput)[];
-  queuedBytes: number;
-  queuedOutputBytes: number;
-  writing: boolean;
-  finishWhenDrained: boolean;
-  detached: boolean;
-  sizeSuperseded: boolean;
-}
-
-export interface TeamTerminalOptions {
-  initialDelivered?: () => void;
-  initialDeliveryIds?: string[];
-  team: import("../cli/definitions.ts").TeamLaunch;
-  env: Record<string, string>;
-  conversation: string;
-  teamId?: string;
-  role?: string;
-}
-
-interface RuntimeTerminal {
-  setup?: StoredWorktreeSetup;
-  imageSequence: number;
-  observedModel?: string;
-  /** The conversation tokens that a CLI's plugin sent in the common shape;
-   * used when its definition has no tokens script. */
-  hookTokens?: {
-    sessionId?: string;
-    usage: import("@iori/protocol").TokenUsage;
-  };
-  teamOptions?: TeamTerminalOptions;
-  initialInput?: string;
-  initialArgumentDelivered?: () => void;
-  initialDeliveryIds?: string[];
-  delivery?: Promise<void>;
-  submission?: Promise<boolean>;
-  submissionStateChanged?: () => void;
-  cli?: CliSummary;
-  cliStatus?: CliStatus;
-  cliWorkGeneration?: string;
-  toolActivity?: ToolActivity;
-  lastOutputAt?: number;
-  stallResetAt?: number;
-  stallGeneration: number;
-  initialCliStall?: boolean;
-  stoppedDescendantSince?: Map<number, number>;
-  waitPresentation?: {
-    timer: NodeJS.Timeout;
-    previous?: CliStatus;
-  };
-  pendingLines: { line: string; delivered?: () => void; deliveryId?: string }[];
-  cliReady: boolean;
-  inputModeReady: boolean;
-  initialPromptWorking?: boolean;
-  initialPromptSignaled?: boolean;
-  ptyExited: boolean;
-  hooks?: CliHooks;
-  approvalFile?: string;
-  hookRoute?: { url: string; dispose: () => void };
-  /** A CLI typed in this shell puts the `iori` command's location on PATH. */
-  commandPath?: boolean;
-  /** The non-secret command route inherited by this PTY. */
-  commandSession?: string;
-  hookObserver?: ReturnType<NonNullable<CliHooks["observe"]>>;
-  pendingCliCommand?: string;
-  lineEditorReady?: LineEditorReady;
-  cliEnteredForeground?: boolean;
-  userInputSinceActivity?: boolean;
-  cliMarker?: string;
-  shellReady?: boolean;
-  record: StoredTerminal;
-  modes: TerminalModes;
-  showCursor: boolean;
-  cwdReported: boolean;
-  pty?: RemotePty;
-  subscribers: Set<TerminalSubscriber>;
-  sequence: number;
-  sizeOwnerViewId: string;
-  viewAttributes: TerminalViewAttributes | null;
-  serial: Promise<void>;
-  notifications: Promise<void>;
-  ready: Promise<void>;
-  persistScheduled?: NodeJS.Timeout;
-  persistInFlight?: Promise<void>;
-  persistDirty: boolean;
-  stopped: boolean;
-  dataDisposer?: pty.IDisposable;
-  exitDisposer?: pty.IDisposable;
-  /** The PTY is not being read because the shown view is behind. */
-  backpressured: boolean;
-}
-
-function initialPromptReadyWhen(runtime: RuntimeTerminal) {
-  const definition = cliDefinitions.find((item) => item.id === runtime.cli?.id);
-  const prompt =
-    definition && definitionInfo(definition)?.file.launch.initialPrompt;
-  return prompt?.mode === "paste" ? prompt.readyWhen : undefined;
-}
 
 type FrameReader = () => Promise<unknown | undefined>;
 type Publish = (event: Event) => void;
@@ -385,23 +216,6 @@ function toWireSnapshot(snapshot: TerminalSnapshot): WireSnapshot {
   };
 }
 
-function serializedFrame(message: TerminalServerMessage): Buffer {
-  return Buffer.from(encodeFrame(message));
-}
-
-function* splitOutput(data: string, sequence: number): Generator<Buffer> {
-  try {
-    yield serializedFrame({ kind: "terminal.output", data, sequence });
-  } catch {
-    const points = [...data];
-    if (points.length <= 1)
-      throw new Error("Terminal output exceeds frame limit");
-    const middle = Math.floor(points.length / 2);
-    yield* splitOutput(points.slice(0, middle).join(""), sequence);
-    yield* splitOutput(points.slice(middle).join(""), sequence);
-  }
-}
-
 export class TerminalRuntime {
   readonly #store: HostStore;
   readonly #imagesRoot: string;
@@ -411,22 +225,13 @@ export class TerminalRuntime {
   readonly #shells: ShellDefinition[];
   #defaultShell: string;
   readonly #windowsPty: TerminalWindowsPty | undefined;
-  readonly #runtimes = new Map<string, RuntimeTerminal>();
-  readonly #teamChildIdentities = new Map<
-    string,
-    { child: string; conversation: string }
-  >();
+  readonly #runtimes = new Map<string, TerminalSession>();
   readonly #operationChains = new Map<string, Promise<void>>();
   #stopping = false;
   readonly #remote: RemotePtys;
   readonly #approvals: ApprovalBroker;
   onDelivered?: (id: string) => void;
-  readonly #retiringClis = new Map<
-    string,
-    import("../teams/assignment.ts").RunningCli
-  >();
-  readonly #teamOptions = new Map<string, TeamTerminalOptions>();
-  readonly #unrestoredTeamTerminals = new Set<string>();
+  onRestoreTeamTerminal?: (id: string) => Promise<void>;
   onCliExit?: (
     terminalId: string,
     reason: "exit" | "user",
@@ -443,9 +248,25 @@ export class TerminalRuntime {
   ) => void | Promise<void>;
   onCliStallCleared?: (terminalId: string) => void;
   onCliProcessesChanged?: () => void;
-  #stallTimer?: NodeJS.Timeout;
-  #stallChecking?: Promise<void>;
-
+  readonly #stall = new CliStallMonitor(
+    this.#runtimes,
+    (session) => {
+      this.#saveCli(session);
+      this.#publish({
+        type: "terminal.updated",
+        terminal: this.#summary(session.record),
+      });
+    },
+    (items) => this.onCliStalled?.(items),
+  );
+  readonly #input = new CliInput({
+    stopping: () => this.#stopping,
+    noteCliInput: (session, preserve) => this.#noteCliInput(session, preserve),
+    updateCliState: (session, state) => this.#updateCliState(session, state),
+    saveCli: (session) => this.#saveCli(session),
+    reportRuntimeError: (session) => this.#reportRuntimeError(session),
+    delivered: (id) => this.onDelivered?.(id),
+  });
   isCliRunning(id: string): boolean {
     const runtime = this.#runtimes.get(id);
     return Boolean(runtime?.pty && runtime.cli && !runtime.stopped);
@@ -453,19 +274,79 @@ export class TerminalRuntime {
 
   async visibleScreenLines(id: string): Promise<string[] | undefined> {
     const runtime = this.#runtimes.get(id);
-    let snapshot: WireSnapshot | undefined;
     if (runtime?.pty && !runtime.stopped && !this.#stopping) {
-      try {
-        snapshot = await this.#remote.snapshot(id, 0);
-      } catch {
-        snapshot = undefined;
-      }
+      const lines = await this.#remote.channel
+        .call("visibleLines", id)
+        .catch(() => undefined);
+      if (lines) return lines;
     }
-    snapshot ??= this.#store.terminal(id)?.snapshot ?? undefined;
-    if (!snapshot) return undefined;
-    return visibleScreenLinesFromSnapshot(snapshot);
+    const snapshot = this.#store.terminal(id)?.snapshot;
+    if (snapshot)
+      return this.#remote.channel.call("visibleLinesFromSnapshot", snapshot);
   }
 
+  runningClis(): import("../teams/assignment.ts").RunningCli[] {
+    return [...this.#runtimes.values()]
+      .filter((r) => r.pty && r.cli && !r.stopped)
+      .map((r) => ({
+        cli: r.cli!.id,
+        ...(r.observedModel ? { model: r.observedModel } : {}),
+        ...(r.teamOptions
+          ? {
+              model: r.observedModel ?? r.teamOptions.team.candidate.model,
+              conversation: r.teamOptions.conversation,
+              role: r.teamOptions.role,
+            }
+          : {}),
+      }));
+  }
+  markTeamTerminalUnrestored(id: string): void {
+    const runtime = this.#storedSession(id);
+    if (runtime) runtime.teamUnrestored = true;
+  }
+  configureTeamTerminal(id: string, options: TeamTerminalOptions): void {
+    const runtime = this.#storedSession(id);
+    if (runtime) {
+      runtime.configureTeam(options);
+      if (options.role && !runtime.teamChild) {
+        runtime.teamChild = this.#savedChildIdentities().get(id);
+      }
+    }
+  }
+  #storedSession(id: string) {
+    const existing = this.#runtimes.get(id);
+    if (existing) return existing;
+    const record = this.#store.terminal(id);
+    return record && this.#runtimeForStored(record);
+  }
+  /** Only queued messages can survive a reconnection to the same daemon. */
+  *pendingDeliveries() {
+    for (const runtime of this.#runtimes.values()) {
+      for (const { deliveryId, delivered } of runtime.pendingLines) {
+        if (deliveryId && delivered)
+          yield { terminalId: runtime.record.id, id: deliveryId, delivered };
+      }
+      for (const id of runtime.initialDeliveryIds ?? []) {
+        const delivered =
+          runtime.initialArgumentDelivered ?? runtime.initialReceipts?.get(id);
+        if (delivered) yield { terminalId: runtime.record.id, id, delivered };
+      }
+    }
+  }
+  bindDelivery(id: string, delivered: () => void, terminalId?: string) {
+    const sessions = terminalId
+      ? [this.#runtimes.get(terminalId)]
+      : this.#runtimes.values();
+    for (const session of sessions) {
+      if (!session) continue;
+      const line = session.pendingLines.find(
+        (message) => message.deliveryId === id,
+      );
+      if (line) line.delivered = delivered;
+      else if (session.initialDeliveryIds?.includes(id))
+        (session.initialReceipts ??= new Map()).set(id, delivered);
+    }
+  }
   async sendCliInput(
     id: string,
     input:
@@ -473,79 +354,7 @@ export class TerminalRuntime {
       | { key: TeamInputKey }
       | { sequence: string },
   ): Promise<boolean> {
-    const runtime = this.#runtimes.get(id);
-    if (
-      !runtime?.pty ||
-      !runtime.cli ||
-      runtime.stopped ||
-      this.#stopping ||
-      runtime.ptyExited
-    )
-      return false;
-    if ("text" in input && input.enter) {
-      return this.#submit(
-        runtime,
-        input.text,
-        () => this.#noteCliInput(runtime),
-        undefined,
-        { holdOnWait: false, rawSingleLine: true },
-      );
-    }
-    return this.#runSerial(runtime, async () => {
-      if (
-        runtime.stopped ||
-        this.#stopping ||
-        runtime.ptyExited ||
-        !runtime.pty ||
-        !runtime.cli
-      )
-        return false;
-      const data =
-        "sequence" in input
-          ? input.sequence
-          : "key" in input
-            ? terminalInputKeySequence(
-                input.key,
-                runtime.modes.applicationCursor,
-              )
-            : /[\r\n]/u.test(input.text)
-              ? terminalSubmitPaste(input.text, runtime.modes.bracketedPaste)
-              : input.text;
-      await this.#remote.channel.call("write", runtime.record.id, data);
-      this.#noteCliInput(runtime);
-      this.#updateCliState(
-        runtime,
-        runtime.hooks?.onInput?.(data, runtime.cliStatus),
-      );
-      return true;
-    });
-  }
-
-  runningClis(): import("../teams/assignment.ts").RunningCli[] {
-    return [
-      ...this.#retiringClis.values(),
-      ...[...this.#runtimes.values()]
-        .filter((r) => r.pty && r.cli && !r.stopped)
-        .map((r) => ({
-          cli: r.cli!.id,
-          ...(r.observedModel ? { model: r.observedModel } : {}),
-          ...(r.teamOptions
-            ? {
-                model: r.observedModel ?? r.teamOptions.team.candidate.model,
-                conversation: r.teamOptions.conversation,
-                role: r.teamOptions.role,
-              }
-            : {}),
-        })),
-    ];
-  }
-  markTeamTerminalUnrestored(id: string): void {
-    this.#unrestoredTeamTerminals.add(id);
-  }
-  configureTeamTerminal(id: string, options: TeamTerminalOptions): void {
-    this.#teamOptions.set(id, options);
-    const runtime = this.#runtimes.get(id);
-    if (runtime) runtime.teamOptions = options;
+    return this.#input.sendCliInput(this.#runtimes.get(id), input);
   }
   async sendLine(
     id: string,
@@ -553,60 +362,20 @@ export class TerminalRuntime {
     delivered?: () => void,
     deliveryId?: string,
   ): Promise<"queued" | "delivered"> {
-    const runtime = this.#runtimes.get(id);
-    if (!runtime?.pty || !runtime.cli)
-      throw new Error("CLI is stopped. Resume the parent conversation first.");
-    let wasDelivered = false;
-    const message = {
+    return this.#input.sendLine(
+      this.#runtimes.get(id),
       line,
-      delivered: () => {
-        wasDelivered = true;
-        delivered?.();
-      },
+      delivered,
       deliveryId,
-    };
-    await this.#runSerial(runtime, async () => {
-      await runtime.ready;
-      if (!runtime.pty || !runtime.cli || runtime.stopped)
-        throw new Error(
-          "CLI is stopped. Resume the parent conversation first.",
-        );
-      runtime.pendingLines.push(message);
-      this.#saveCli(runtime);
-      this.#sendPendingLines(runtime);
-    });
-    // Output parsing shares the serial queue, so delivery must wait outside it.
-    await runtime.delivery;
-    if (wasDelivered) return "delivered";
-    if (runtime.pendingLines.includes(message)) return "queued";
-    throw new Error(
-      "Input delivery was interrupted. Check the CLI screen before continuing.",
     );
   }
-
   async stopTeamTerminal(id: string): Promise<void> {
     const runtime = this.#runtimes.get(id);
     if (!runtime) return;
-    await this.#runSerial(runtime, async () => {
+    await runtime.runSerial(async () => {
       await this.#persist(runtime);
-      runtime.dataDisposer?.dispose();
-      runtime.exitDisposer?.dispose();
       await this.#killAndWait(runtime);
-      runtime.hookObserver?.dispose();
-      runtime.hookObserver = undefined;
-      this.#approvals.remove(runtime.record.id);
-      runtime.approvalFile = undefined;
-      runtime.hookRoute?.dispose();
-      runtime.hookRoute = undefined;
-      runtime.cli = undefined;
-      this.#clearWaitingPresentation(runtime);
-      runtime.cliStatus = undefined;
-      this.#resetStallTracking(runtime);
-      runtime.lastOutputAt = undefined;
-      runtime.pendingLines = [];
-      runtime.initialInput = undefined;
-      runtime.initialArgumentDelivered = undefined;
-      runtime.cliReady = false;
+      this.#clearCli(runtime, false);
       runtime.record.state = "error";
       runtime.record.restartPending = false;
       runtime.record.exitCode = null;
@@ -659,9 +428,7 @@ export class TerminalRuntime {
       record.cwd,
       this.#store.sidebarOrder(),
     );
-    this.configureTeamTerminal(id, options);
-    let runtime = this.#runtimes.get(id);
-    if (!runtime) runtime = this.#runtimeForStored(record);
+    const runtime = this.#runtimeForStored(record);
     if (!runtime) return false;
     const shell = resolveShell(this.#shells, record.shell)!;
     const teamPrompt =
@@ -680,12 +447,14 @@ export class TerminalRuntime {
       },
       { cwd: record.cwd, waitForVersion: true, arguments: args },
     );
-    await this.#runSerial(runtime, async () => {
+    await runtime.runSerial(async () => {
       // A surviving shell can still carry an earlier command route. Pass the
       // current parent environment only through a newly spawned PTY.
       if (!options.role) {
         await this.#killAndWait(runtime);
       }
+      runtime.configureTeam(options);
+      runtime.cliExitNotified = false;
       runtime.cli = saved.cli;
       runtime.initialArgumentDelivered = initialArgs
         ? options.initialDelivered
@@ -698,15 +467,25 @@ export class TerminalRuntime {
         ...(launch ? { command: launch.storedCommand ?? launch.command } : {}),
         resumePending: false,
       });
-      await this.#spawn(
-        runtime,
-        shell,
-        launch?.command ??
-          (await shellCommand(saved.command, args, shell, {
-            commandLine: true,
-          })),
-        launch?.env,
-      );
+      try {
+        await this.#spawn(
+          runtime,
+          shell,
+          launch?.command ??
+            (await shellCommand(saved.command, args, shell, {
+              commandLine: true,
+            })),
+          launch?.env,
+        );
+      } catch (error) {
+        try {
+          await this.#killAndWait(runtime);
+        } finally {
+          this.#clearCli(runtime, false);
+          this.#store.setTerminalCli(id, saved);
+        }
+        throw error;
+      }
       if (teamPrompt && launch) {
         options.initialDelivered?.();
         runtime.initialDeliveryIds = undefined;
@@ -790,7 +569,7 @@ export class TerminalRuntime {
     return manager;
   }
 
-  #saveCli(runtime: RuntimeTerminal, managed?: boolean) {
+  #saveCli(runtime: TerminalSession, managed?: boolean) {
     const saved = this.#store.terminalCli(runtime.record.id);
     if (!saved) return;
     const next = {
@@ -825,10 +604,10 @@ export class TerminalRuntime {
       record.snapshot = toWireSnapshot(screen.snapshot);
       record.cols = screen.snapshot.cols;
       record.rows = screen.snapshot.rows;
-      record.restartPending = false;
+      if (screen.live || screen.exit) record.restartPending = false;
       const runtime = this.#runtimeForStored(record)!;
       await runtime.ready;
-      this.#applyDaemonState(runtime, screen.state);
+      runtime.applyDaemonState(screen.state);
       if (record.state !== "running" || (!screen.live && !screen.exit))
         continue;
       const saved = this.#store.terminalCli(record.id),
@@ -876,11 +655,6 @@ export class TerminalRuntime {
       runtime.initialInput = state?.initialInput;
       runtime.pendingLines = state?.pendingLines ?? [];
       runtime.initialDeliveryIds = state?.initialDeliveryIds;
-      if (runtime.initialDeliveryIds)
-        runtime.initialArgumentDelivered = () => {
-          for (const id of runtime.initialDeliveryIds ?? [])
-            this.onDelivered?.(id);
-        };
       runtime.shellReady = state?.shellReady || runtime.modes.bracketedPaste;
       if (shellDialect(shell) === "posix") {
         runtime.lineEditorReady = new LineEditorReady();
@@ -904,18 +678,18 @@ export class TerminalRuntime {
         if (atShell === true) this.#clearCli(runtime);
       }
       if (runtime.pendingCliCommand && runtime.shellReady) {
-        runtime.pty.write(runtime.pendingCliCommand + "\r");
+        await runtime.pty.write(runtime.pendingCliCommand + "\r");
         runtime.pendingCliCommand = undefined;
       }
       this.#store.putTerminal(record);
     }
-    this.#scheduleStallCheck();
+    this.#stall.schedule();
   }
 
   flushPending() {
     for (const runtime of this.#runtimes.values()) {
-      this.#sendInitialInput(runtime);
-      this.#sendPendingLines(runtime);
+      this.#input.sendInitialInput(runtime);
+      this.#input.sendPendingLines(runtime);
     }
   }
 
@@ -924,7 +698,8 @@ export class TerminalRuntime {
     child: string,
     conversation: string,
   ): void {
-    this.#teamChildIdentities.set(terminalId, { child, conversation });
+    const runtime = this.#runtimes.get(terminalId);
+    if (runtime?.pty) runtime.teamChild = { child, conversation };
   }
 
   summary(id: string): TerminalSummary | undefined {
@@ -938,11 +713,23 @@ export class TerminalRuntime {
     return (runtime.cliWorkGeneration ??= randomUUID());
   }
 
+  #savedChildIdentities() {
+    const children = new Map<string, TeamChildIdentity>();
+    for (const child of this.#store.teamChildren()) {
+      if (child.terminalId)
+        children.set(child.terminalId, {
+          child: child.id,
+          conversation: child.conversation,
+        });
+    }
+    return children;
+  }
   list(): Response<TerminalListResult> {
+    const children = this.#savedChildIdentities();
     return success({
       terminals: this.#store
         .listTerminals()
-        .map((record) => this.#summary(record)),
+        .map((record) => this.#summary(record, children)),
       shells: this.#shells.map(({ id, label }) => ({ id, label })),
       defaultShell: this.#defaultShell,
       homeDirectory: getHomeDirectory(),
@@ -1046,16 +833,19 @@ export class TerminalRuntime {
           await this.#remote.channel.call("retireRoute", record.id);
           return failed("invalid_request");
         }
-        const runtime = this.#newRuntime(record);
-        if (teamOptions) this.configureTeamTerminal(record.id, teamOptions);
-        runtime.teamOptions = teamOptions;
+        const runtime = new TerminalSession(
+          record,
+          this.#store.terminalSetup(record.id),
+          this.#remote,
+        );
+        if (teamOptions) runtime.configureTeam(teamOptions);
+        this.#runtimes.set(record.id, runtime);
         runtime.initialInput = launch?.initialInput;
         await runtime.ready;
         record.snapshot = toWireSnapshot(
           await this.#remote.snapshot(record.id, 0),
         );
         this.#store.putTerminal(record);
-        this.#runtimes.set(record.id, runtime);
         if (launch) {
           this.#store.setTerminalCli(record.id, {
             cli: launch.cli,
@@ -1083,7 +873,7 @@ export class TerminalRuntime {
         }
         // A view opened before the shell exists waits for it here, instead of
         // starting another shell that drops the pending CLI command.
-        await this.#runSerial(runtime, () =>
+        await runtime.runSerial(() =>
           this.#spawn(
             runtime,
             shell,
@@ -1096,8 +886,13 @@ export class TerminalRuntime {
           terminal: this.#summary(record),
         });
       } catch {
-        this.#runtimes.delete(record.id);
+        const session = this.#runtimes.get(record.id);
+        if (session) {
+          await this.#killAndWait(session).catch(() => {});
+          this.#disposeTerminal(session);
+        }
         this.#store.removeTerminal(record.id);
+        await this.#remote.remove(record.id).catch(() => {});
         await this.#remote.channel
           .call("retireRoute", record.id)
           .catch(() => {});
@@ -1121,7 +916,7 @@ export class TerminalRuntime {
       const record = this.#store.terminal(id);
       const runtime = record && this.#runtimeForStored(record);
       if (!runtime) return failed("invalid_request");
-      return this.#runSerial(runtime, async () => {
+      return runtime.runSerial(async () => {
         const setup = runtime.setup;
         const shell = resolveShell(this.#shells, runtime.record.shell);
         if (!setup || setup.state !== "failed" || !shell)
@@ -1132,28 +927,48 @@ export class TerminalRuntime {
           action === "retry"
             ? { ...setup, state: "running", exitCode: undefined }
             : undefined;
-        this.#store.saveTerminalSetup(id, runtime.setup);
         const saved = this.#store.terminalCli(id);
-        if (saved) {
-          runtime.cli = saved.cli;
-          runtime.initialInput ??= saved.runtime?.initialInput;
-          runtime.pendingLines =
-            saved.runtime?.pendingLines ?? runtime.pendingLines;
-          runtime.hooks = saved.observed
-            ? cliDefinitions.find((d) => d.id === saved.cli.id)?.hooks
-            : undefined;
-          this.#store.setTerminalCli(id, { ...saved, resumePending: false });
+        try {
+          this.#store.saveTerminalSetup(id, runtime.setup);
+          if (saved) {
+            runtime.cliExitNotified = false;
+            runtime.cli = saved.cli;
+            runtime.initialInput ??= saved.runtime?.initialInput;
+            runtime.pendingLines =
+              saved.runtime?.pendingLines ?? runtime.pendingLines;
+            runtime.hooks = saved.observed
+              ? cliDefinitions.find((d) => d.id === saved.cli.id)?.hooks
+              : undefined;
+            this.#store.setTerminalCli(id, { ...saved, resumePending: false });
+          }
+          runtime.record.cwd =
+            this.#store.terminalWorktree(id) ?? runtime.record.cwd;
+          await this.#spawn(
+            runtime,
+            shell,
+            command,
+            action === "skip"
+              ? await this.#launchEnvironment(runtime, shell)
+              : undefined,
+          );
+        } catch {
+          // A post-spawn write can fail after the daemon allocated the PTY.
+          try {
+            await this.#killAndWait(runtime);
+          } finally {
+            runtime.setup = setup;
+            this.#store.saveTerminalSetup(id, setup);
+            if (saved) this.#store.setTerminalCli(id, saved);
+            runtime.record.state = "error";
+            runtime.record.exitCode = setup.exitCode ?? null;
+            this.#store.putTerminalSummary(runtime.record);
+            this.#publish({
+              type: "terminal.updated",
+              terminal: this.#summary(runtime.record),
+            });
+          }
+          return failed("internal_error");
         }
-        runtime.record.cwd =
-          this.#store.terminalWorktree(id) ?? runtime.record.cwd;
-        await this.#spawn(
-          runtime,
-          shell,
-          command,
-          action === "skip"
-            ? await this.#launchEnvironment(runtime, shell)
-            : undefined,
-        );
         this.#store.putTerminalSummary(runtime.record);
         const result = { terminal: this.#summary(runtime.record) };
         this.#store.saveTerminalOperationResult(context, result);
@@ -1184,6 +999,19 @@ export class TerminalRuntime {
     });
   }
 
+  async #restoreParentOptions(runtime: TerminalSession) {
+    if (
+      !runtime.teamOptions &&
+      this.#store
+        .teamConversations()
+        .some((c) => c.terminalId === runtime.record.id)
+    ) {
+      await this.onRestoreTeamTerminal?.(runtime.record.id);
+      return Boolean(runtime.teamOptions) && !runtime.teamUnrestored;
+    }
+    return !runtime.teamUnrestored;
+  }
+
   async resumeCli(
     context: StoreContext,
     terminalId: string,
@@ -1192,29 +1020,32 @@ export class TerminalRuntime {
       const previous =
         this.#store.terminalOperationResult<TerminalCreatedResult>(context);
       if (previous) return success(previous);
-      const runtime = this.#runtimes.get(terminalId);
+      const runtime = this.#storedSession(terminalId);
       if (!runtime) return failed("invalid_request");
-      if (this.#unrestoredTeamTerminals.has(terminalId))
+      const saved = this.#store.terminalCli(terminalId);
+      if (!saved?.resumePending || !(await this.#restoreParentOptions(runtime)))
         return failed("invalid_request");
       if (
         runtime.teamOptions &&
         !runtime.teamOptions.role &&
-        this.#store.terminalCli(terminalId)?.resumePending &&
         (!runtime.pty ||
           !runtime.commandSession ||
           runtime.commandSession !==
             runtime.teamOptions.env.IORI_COMMAND_SESSION)
       ) {
-        const resumed = await this.restartTeamTerminal(
-          terminalId,
-          runtime.teamOptions,
-        );
-        if (!resumed) return failed("invalid_request");
+        try {
+          if (
+            !(await this.restartTeamTerminal(terminalId, runtime.teamOptions))
+          )
+            return failed("invalid_request");
+        } finally {
+          if (!runtime.pty) runtime.clearCli(true);
+        }
         const result = { terminal: this.#summary(runtime.record) };
         this.#store.saveTerminalOperationResult(context, result);
         return success(result);
       }
-      return this.#runSerial(runtime, async () => {
+      return runtime.runSerial(async () => {
         const saved = this.#store.terminalCli(terminalId);
         if (!saved?.resumePending || !runtime.pty)
           return failed("invalid_request");
@@ -1262,6 +1093,7 @@ export class TerminalRuntime {
           (await shellCommand(saved.command, args ?? [], shell, {
             commandLine: true,
           }));
+        runtime.cliExitNotified = false;
         runtime.cli = saved.cli;
         runtime.hooks = saved.observed ? definition?.hooks : undefined;
         runtime.inputModeReady = false;
@@ -1281,7 +1113,7 @@ export class TerminalRuntime {
         );
         if (runtime.lineEditorReady && !runtime.shellReady)
           runtime.pendingCliCommand = input;
-        else runtime.pty.write(input + "\r");
+        else await runtime.pty.write(input + "\r");
         const result = { terminal: this.#summary(runtime.record) };
         this.#store.saveTerminalOperationResult(context, result);
         this.#publish({ type: "terminal.updated", terminal: result.terminal });
@@ -1306,7 +1138,7 @@ export class TerminalRuntime {
   }): Promise<Response<{ path: string }>> {
     const runtime = this.#runtimes.get(params.terminalId);
     if (!runtime) return failed("invalid_request");
-    return this.#runSerial(runtime, async () => {
+    return runtime.runSerial(async () => {
       if (runtime.stopped || !runtime.pty) return failed("invalid_request");
       const directory = join(this.#imagesRoot, runtime.record.id);
       const partial = join(directory, `${params.imageId}.part`);
@@ -1346,6 +1178,18 @@ export class TerminalRuntime {
     return runtime?.pty ? shellActivity(runtime.pty.pid) : { busy: false };
   }
 
+  async #removeTerminal(id: string, processExited = false) {
+    await this.#remote.remove(id);
+    this.#remote.send("retireRoute", id);
+    await this.#removeImages(join(this.#imagesRoot, id));
+    this.#store.removeTerminal(id);
+    this.#publish({
+      type: "terminal.closed",
+      terminalId: id,
+      ...(processExited ? { processExited } : {}),
+    });
+  }
+
   async closeTerminal(
     context: StoreContext,
     terminalId: string,
@@ -1365,7 +1209,7 @@ export class TerminalRuntime {
       let confirmationRequired = false;
       let busyPid: number | undefined;
       if (runtime) {
-        await this.#runSerial(runtime, async () => {
+        await runtime.runSerial(async () => {
           await runtime.ready;
           if (!this.#store.terminalSummary(terminalId)) return;
           if (!confirm && runtime.pty) {
@@ -1378,26 +1222,13 @@ export class TerminalRuntime {
               return;
             }
           }
-          this.#clearPersistTimer(runtime);
-          void Promise.resolve()
-            .then(() => this.onCliExit?.(terminalId, "user"))
-            .catch(() => {
-              console.error("Terminal CLI exit notification failed");
-            });
-          if (runtime.teamOptions) await this.#killAndWait(runtime);
-          this.#retireRuntime(runtime);
-          await this.#removeImages(join(this.#imagesRoot, terminalId));
-          this.#store.removeTerminal(terminalId);
-          this.#remote.send("remove", terminalId);
-          this.#remote.send("retireRoute", terminalId);
-          this.#publish({ type: "terminal.closed", terminalId });
+          await this.#killAndWait(runtime);
+          this.#notifyCliExit(runtime, "user");
+          this.#disposeTerminal(runtime);
+          await this.#removeTerminal(terminalId);
         });
       } else if (this.#store.terminalSummary(terminalId)) {
-        await this.#removeImages(join(this.#imagesRoot, terminalId));
-        this.#store.removeTerminal(terminalId);
-        this.#remote.send("remove", terminalId);
-        this.#remote.send("retireRoute", terminalId);
-        this.#publish({ type: "terminal.closed", terminalId });
+        await this.#removeTerminal(terminalId);
       }
       if (confirmationRequired) {
         const command =
@@ -1420,7 +1251,7 @@ export class TerminalRuntime {
     for (const runtime of this.#runtimes.values()) {
       for (const subscriber of runtime.subscribers) {
         if (subscriber.connection === connection) {
-          this.#detachSubscriber(runtime, subscriber, OVERFLOW_RESET_CODE);
+          detachSubscriber(runtime, subscriber, OVERFLOW_RESET_CODE);
         }
       }
     }
@@ -1434,13 +1265,13 @@ export class TerminalRuntime {
   ): Promise<void> {
     const stored = this.#store.terminal(open.terminalId);
     if (!stored) {
-      await this.#sendTerminalError(stream, "Terminal not found");
+      await sendTerminalError(stream, "Terminal not found");
       return;
     }
     let runtime = this.#runtimes.get(open.terminalId);
     if (!runtime) runtime = this.#runtimeForStored(stored);
     if (!runtime) {
-      await this.#sendTerminalError(stream, "Terminal is unavailable");
+      await sendTerminalError(stream, "Terminal is unavailable");
       return;
     }
 
@@ -1449,7 +1280,7 @@ export class TerminalRuntime {
     try {
       await runtime.ready;
       await this.#remote.frozen(runtime.record.id, () =>
-        this.#runSerial(runtime, async () => {
+        runtime.runSerial(async () => {
           await runtime.ready;
           if (
             this.#stopping ||
@@ -1503,14 +1334,14 @@ export class TerminalRuntime {
           runtime.subscribers.add(subscriber);
           const snapshot = await this.#snapshotForOpen(runtime, open);
           if (!snapshot) {
-            this.#queueFrame(runtime, subscriber, {
+            queueFrame(runtime, subscriber, {
               kind: "terminal.error",
               message: "Terminal snapshot exceeds the receiving device's limit",
             });
             subscriber.finishWhenDrained = true;
             return;
           }
-          this.#queueFrame(runtime, subscriber, {
+          queueFrame(runtime, subscriber, {
             kind: "terminal.snapshot",
             terminal: this.#summary(runtime.record),
             snapshot,
@@ -1523,7 +1354,7 @@ export class TerminalRuntime {
             (runtime.record.state === "error" || !runtime.pty)
           ) {
             if (runtime.record.state === "error") {
-              this.#queueFrame(runtime, subscriber, {
+              queueFrame(runtime, subscriber, {
                 kind: "terminal.exit",
                 code: runtime.record.exitCode ?? null,
                 signal: null,
@@ -1542,11 +1373,11 @@ export class TerminalRuntime {
       await this.#readClientFrames(runtime, subscriber, readFrame);
     } catch {
       if (subscriber)
-        this.#detachSubscriber(runtime, subscriber, OVERFLOW_RESET_CODE);
-      else await this.#abortStream(stream, OVERFLOW_RESET_CODE);
+        detachSubscriber(runtime, subscriber, OVERFLOW_RESET_CODE);
+      else await abortStream(stream, OVERFLOW_RESET_CODE);
     } finally {
       if (subscriber && !subscriber.detached) {
-        this.#detachSubscriber(runtime, subscriber, OVERFLOW_RESET_CODE);
+        detachSubscriber(runtime, subscriber, OVERFLOW_RESET_CODE);
       }
     }
   }
@@ -1554,75 +1385,51 @@ export class TerminalRuntime {
   disconnected(): Promise<void> {
     this.#stopping = true;
     const closed = this.#approvals.close();
-    this.#clearStallTimer();
+    void this.#stall.close();
     for (const runtime of this.#runtimes.values()) {
-      runtime.hookObserver?.dispose();
-      this.#clearWaitingPresentation(runtime);
-      runtime.submissionStateChanged?.();
-      this.#clearPersistTimer(runtime);
-      runtime.dataDisposer?.dispose();
-      runtime.exitDisposer?.dispose();
-      for (const subscriber of runtime.subscribers)
-        this.#detachSubscriber(runtime, subscriber, OVERFLOW_RESET_CODE);
+      this.#disposeTerminal(runtime);
     }
-    this.#runtimes.clear();
+    this.#remote.dispose();
     return closed;
   }
   async close(): Promise<void> {
     this.#stopping = true;
     await this.#approvals.close();
-    this.#clearStallTimer();
-    await this.#stallChecking;
-    for (const runtime of this.#runtimes.values()) {
-      runtime.hookObserver?.dispose();
-      this.#clearWaitingPresentation(runtime);
-      runtime.submissionStateChanged?.();
-      for (const subscriber of runtime.subscribers) {
-        this.#detachSubscriber(runtime, subscriber, OVERFLOW_RESET_CODE);
+    await this.#stall.close();
+    try {
+      for (const runtime of this.#runtimes.values()) {
+        if (!runtime.hasScreen) continue;
+        runtime.submissionStateChanged?.();
+        await runtime.delivery;
+        this.#saveCli(runtime);
+        await runtime.runSerial(() => this.#persist(runtime));
       }
-      this.#clearPersistTimer(runtime);
-      await runtime.delivery;
-      this.#saveCli(runtime);
-      await this.#runSerial(runtime, () => this.#persist(runtime));
-      runtime.persistDirty = false;
-      runtime.dataDisposer?.dispose();
-      runtime.exitDisposer?.dispose();
-      runtime.stopped = true;
+    } finally {
+      for (const runtime of this.#runtimes.values())
+        this.#disposeTerminal(runtime);
+      this.#remote.dispose();
     }
-    this.#runtimes.clear();
   }
 
-  #clearCli(runtime: RuntimeTerminal): void {
-    this.#approvals.remove(runtime.record.id);
-    runtime.approvalFile = undefined;
+  #notifyCliExit(runtime: TerminalSession, reason: "user" | "exit") {
+    if (runtime.cliExitNotified) return;
+    runtime.cliExitNotified = true;
+    runtime.notifications = runtime.notifications
+      .then(() => this.onCliExit?.(runtime.record.id, reason))
+      .catch(() => {
+        console.error("Terminal CLI exit notification failed");
+      });
+  }
+
+  #clearCli(runtime: TerminalSession, notifyExit = true): void {
+    const team = runtime.teamOptions;
     const hadCli = Boolean(runtime.cli);
-    runtime.hookObserver?.dispose();
-    runtime.hookObserver = undefined;
-    runtime.hookRoute?.dispose();
-    runtime.hookRoute = undefined;
-    runtime.hooks = undefined;
-    runtime.toolActivity = undefined;
-    this.#clearWaitingPresentation(runtime);
-    runtime.cliStatus = undefined;
-    this.#resetStallTracking(runtime);
-    runtime.lastOutputAt = undefined;
-    runtime.submissionStateChanged?.();
-    runtime.pendingLines = [];
-    runtime.initialInput = undefined;
-    runtime.cliReady = false;
-    runtime.initialPromptWorking = false;
-    runtime.initialPromptSignaled = false;
-    runtime.cli = undefined;
-    runtime.observedModel = undefined;
+    this.#approvals.remove(runtime.record.id);
+    runtime.clearCli(!this.#stopping);
+    if (!notifyExit || this.#stopping) return;
     this.onCliStallCleared?.(runtime.record.id);
-    if (!this.#stopping && !runtime.teamOptions)
-      this.#store.setTerminalCli(runtime.record.id);
-    if (
-      hadCli &&
-      !this.#stopping &&
-      runtime.teamOptions &&
-      !runtime.teamOptions.role
-    ) {
+    if (hadCli && !team) this.#store.setTerminalCli(runtime.record.id);
+    if (hadCli && team && !team.role) {
       const saved = this.#store.terminalCli(runtime.record.id);
       if (saved)
         this.#store.setTerminalCli(runtime.record.id, {
@@ -1630,74 +1437,25 @@ export class TerminalRuntime {
           resumePending: true,
         });
     }
-    if (hadCli && !this.#stopping) {
-      const reason = runtime.userInputSinceActivity ? "user" : "exit";
-      runtime.notifications = runtime.notifications
-        .then(() => this.onCliExit?.(runtime.record.id, reason))
-        .catch(() => {
-          console.error("Terminal CLI exit notification failed");
-        });
+    if (hadCli) {
+      this.#notifyCliExit(
+        runtime,
+        runtime.userInputSinceActivity ? "user" : "exit",
+      );
       runtime.userInputSinceActivity = false;
       this.onCliProcessesChanged?.();
     }
   }
 
-  #newRuntime(record: StoredTerminal): RuntimeTerminal {
-    const runtime: RuntimeTerminal = {
-      record,
-      setup: this.#store.terminalSetup(record.id),
-      imageSequence: record.imageSequence,
-      pendingLines: [],
-      cliReady: false,
-      inputModeReady: false,
-      ptyExited: false,
-      teamOptions: this.#teamOptions.get(record.id),
-      modes: {
-        bracketedPaste: false,
-        mouseTracking: false,
-        mouseTrackingMode: "none",
-        sgrMouseMode: false,
-        sgrMousePixelsMode: false,
-        applicationCursor: false,
-        alternateScreen: false,
-        kittyKeyboardFlags: 0,
-      },
-      showCursor: true,
-      cwdReported: false,
-      subscribers: new Set(),
-      sequence: 0,
-      sizeOwnerViewId: "",
-      viewAttributes: null,
-      serial: Promise.resolve(),
-      notifications: Promise.resolve(),
-      ready: this.#remote.channel
-        .call<PtyState>(
-          "screen",
-          record.id,
-          record.cols,
-          record.rows,
-          record.snapshot
-            ? buildTerminalSnapshotRestoreSequence(record.snapshot)
-            : "",
-          record.snapshot?.oscLinks,
-        )
-        .then((state) => this.#applyDaemonState(runtime, state)),
-      stallGeneration: 0,
-      persistDirty: false,
-      stopped: false,
-      backpressured: false,
-    };
-    // Launch preparation or a queued operation can delay awaiting this screen.
-    // Observe early failures now; callers still receive the original rejection.
-    void runtime.ready.catch(() => {});
-    return runtime;
-  }
-
-  #runtimeForStored(record: StoredTerminal): RuntimeTerminal | undefined {
+  #runtimeForStored(record: StoredTerminal): TerminalSession | undefined {
     const existing = this.#runtimes.get(record.id);
     if (existing) return existing;
     try {
-      const runtime = this.#newRuntime(record);
+      const runtime = new TerminalSession(
+        record,
+        this.#store.terminalSetup(record.id),
+        this.#remote,
+      );
       this.#runtimes.set(record.id, runtime);
       return runtime;
     } catch {
@@ -1707,15 +1465,22 @@ export class TerminalRuntime {
 
   // The directory is the shell's own only after it reported one (OSC 7);
   // otherwise it is where the shell started and may be out of date.
-  #summary(record: StoredTerminal): TerminalSummary {
+  #summary(
+    record: StoredTerminal,
+    children?: ReadonlyMap<string, TeamChildIdentity>,
+  ): TerminalSummary {
     const runtime = this.#runtimes.get(record.id);
     const recovery = this.#store.terminalCli(record.id);
     const presentedStatus = runtime?.waitPresentation
       ? runtime.waitPresentation.previous
       : runtime?.cliStatus;
     const setup = runtime?.setup ?? this.#store.terminalSetup(record.id);
-    const teamOptions = this.#teamOptions.get(record.id);
-    const childIdentity = this.#teamChildIdentities.get(record.id);
+    const teamOptions = runtime?.teamOptions;
+    const childIdentity =
+      runtime?.teamChild ??
+      (!runtime?.cli && !teamOptions && recovery
+        ? (children ?? this.#savedChildIdentities()).get(record.id)
+        : undefined);
     const resumedConversation =
       !teamOptions && !childIdentity && recovery?.resumePending
         ? this.#store
@@ -1751,9 +1516,7 @@ export class TerminalRuntime {
         ? {
             cli: withCurrentCliIcon(recovery.cli),
             cliResumePending: true,
-            ...(record.state === "error" &&
-            runtime?.teamOptions &&
-            !runtime.teamOptions.role
+            ...(record.state === "error" && isTeamParent
               ? { cliResumeReason: "exit" as const }
               : {}),
           }
@@ -1765,13 +1528,8 @@ export class TerminalRuntime {
     };
   }
 
-  #clearWaitingPresentation(runtime: RuntimeTerminal): void {
-    if (runtime.waitPresentation) clearTimeout(runtime.waitPresentation.timer);
-    runtime.waitPresentation = undefined;
-  }
-
   #deferWaitingPresentation(
-    runtime: RuntimeTerminal,
+    runtime: TerminalSession,
     previous?: CliStatus,
   ): void {
     const elapsed = Date.now() - runtime.cliStatus!.since;
@@ -1790,7 +1548,7 @@ export class TerminalRuntime {
     };
   }
 
-  #notifyCliState(runtime: RuntimeTerminal, state: HookState): void {
+  #notifyCliState(runtime: TerminalSession, state: HookState): void {
     this.onCliNotification?.(this.#summary(runtime.record));
     runtime.notifications = runtime.notifications
       .then(() => this.onCliState?.(runtime.record.id, state))
@@ -1799,13 +1557,7 @@ export class TerminalRuntime {
       });
   }
 
-  #resetStallTracking(runtime: RuntimeTerminal, now = Date.now()): void {
-    runtime.stallResetAt = now;
-    runtime.stallGeneration += 1;
-    runtime.stoppedDescendantSince?.clear();
-  }
-
-  #endBackgroundWait(runtime: RuntimeTerminal): void {
+  #endBackgroundWait(runtime: TerminalSession): void {
     if (!runtime.cliStatus?.backgroundTasks?.length) return;
     const { backgroundTasks: _backgroundTasks, ...status } = runtime.cliStatus;
     runtime.cliStatus = status;
@@ -1817,11 +1569,11 @@ export class TerminalRuntime {
   }
 
   #noteCliInput(
-    runtime: RuntimeTerminal,
+    runtime: TerminalSession,
     preserveBackgroundTasks = false,
   ): void {
     if (!preserveBackgroundTasks) this.#endBackgroundWait(runtime);
-    this.#resetStallTracking(runtime);
+    runtime.resetStallTracking();
     if (runtime.cliStatus?.stalledSince === undefined) return;
     if (runtime.initialCliStall) {
       runtime.initialCliStall = false;
@@ -1838,131 +1590,10 @@ export class TerminalRuntime {
       type: "terminal.updated",
       terminal: this.#summary(runtime.record),
     });
-    this.#scheduleStallCheck();
+    this.#stall.schedule();
   }
 
-  #clearStallTimer(): void {
-    if (this.#stallTimer) {
-      clearTimeout(this.#stallTimer);
-      this.#stallTimer = undefined;
-    }
-  }
-
-  #scheduleStallCheck(): void {
-    if (this.#stopping || this.#stallTimer || this.#stallChecking) return;
-    const hasActiveUnstalled = [...this.#runtimes.values()].some(
-      (runtime) =>
-        !runtime.stopped &&
-        !runtime.ptyExited &&
-        !runtime.setup &&
-        runtime.pty &&
-        runtime.cli &&
-        (runtime.cliStatus?.state === "active" ||
-          (!runtime.cliStatus && runtime.teamOptions)) &&
-        runtime.cliStatus?.stalledSince === undefined,
-    );
-    if (!hasActiveUnstalled) return;
-    const { pollMs } = stallTiming();
-    this.#stallTimer = setTimeout(() => {
-      this.#stallTimer = undefined;
-      if (this.#stopping) return;
-      const running = this.#runStallCheck().finally(() => {
-        if (this.#stallChecking === running) this.#stallChecking = undefined;
-        this.#scheduleStallCheck();
-      });
-      this.#stallChecking = running;
-    }, pollMs);
-    this.#stallTimer.unref();
-  }
-
-  async #runStallCheck(): Promise<void> {
-    if (this.#stopping) return;
-    const candidates = [...this.#runtimes.values()]
-      .filter(
-        (runtime) =>
-          !runtime.stopped &&
-          !runtime.ptyExited &&
-          !runtime.setup &&
-          runtime.pty &&
-          runtime.cli &&
-          (runtime.cliStatus?.state === "active" ||
-            (!runtime.cliStatus && runtime.teamOptions)) &&
-          runtime.cliStatus?.stalledSince === undefined,
-      )
-      .map((runtime) => ({
-        runtime,
-        pid: runtime.pty!.pid,
-        generation: runtime.stallGeneration,
-      }));
-    if (candidates.length === 0) return;
-    const { stallMs } = stallTiming();
-    const stoppedByRoot = await stoppedDescendantPidsByRoot(
-      candidates.map((c) => c.pid),
-    );
-    if (this.#stopping) return;
-    const now = Date.now();
-    const newlyStalled: {
-      id: string;
-      since: number;
-      reason: TeamStallReason;
-    }[] = [];
-    for (const { runtime, pid, generation } of candidates) {
-      if (
-        runtime.stopped ||
-        runtime.ptyExited ||
-        runtime.setup ||
-        runtime.pty?.pid !== pid ||
-        !runtime.cli ||
-        (runtime.cliStatus?.state !== "active" &&
-          (runtime.cliStatus || !runtime.teamOptions)) ||
-        runtime.cliStatus?.stalledSince !== undefined ||
-        runtime.stallGeneration !== generation
-      )
-        continue;
-      const currentStopped = stoppedByRoot.get(pid);
-      const previousStopped =
-        runtime.stoppedDescendantSince ?? new Map<number, number>();
-      const nextStopped = new Map<number, number>();
-      let stoppedStall = false;
-      if (currentStopped) {
-        for (const childPid of currentStopped) {
-          const firstSeen = previousStopped.get(childPid) ?? now;
-          nextStopped.set(childPid, firstSeen);
-          if (now - firstSeen >= stallMs) stoppedStall = true;
-        }
-      }
-      runtime.stoppedDescendantSince = nextStopped;
-      const outputBaseline = Math.max(
-        runtime.lastOutputAt ?? 0,
-        runtime.stallResetAt ?? 0,
-        runtime.cliStatus?.since ?? runtime.record.createdAt,
-      );
-      const outputStall = now - outputBaseline >= stallMs;
-      if (!stoppedStall && !outputStall) continue;
-      const reason: TeamStallReason = stoppedStall ? "stopped" : "output";
-      runtime.initialCliStall = !runtime.cliStatus;
-      runtime.cliStatus = {
-        ...(runtime.cliStatus ?? {
-          state: "active",
-          since: runtime.record.createdAt,
-        }),
-        stalledSince: now,
-      };
-      this.#saveCli(runtime);
-      this.#publish({
-        type: "terminal.updated",
-        terminal: this.#summary(runtime.record),
-      });
-      newlyStalled.push({ id: runtime.record.id, since: now, reason });
-    }
-    if (newlyStalled.length > 0) {
-      Promise.resolve(this.onCliStalled?.(newlyStalled)).catch(() => {
-        console.error("iori-host cli-stall-callback-failed");
-      });
-    }
-  }
-
-  #updateCliState(runtime: RuntimeTerminal, next: HookState | undefined): void {
+  #updateCliState(runtime: TerminalSession, next: HookState | undefined): void {
     if (!next || !runtime.cli || runtime.stopped || this.#stopping) return;
     const pending = runtime.cliStatus?.attention?.approval;
     if (pending && !next.attention?.approval) {
@@ -1970,7 +1601,7 @@ export class TerminalRuntime {
         next = { ...next, attention: runtime.cliStatus!.attention };
       } else this.#approvals.cancel(runtime.record.id);
     }
-    this.#resetStallTracking(runtime);
+    runtime.resetStallTracking();
     const initialStall = runtime.initialCliStall;
     if (initialStall) {
       runtime.initialCliStall = false;
@@ -2031,7 +1662,7 @@ export class TerminalRuntime {
           }
         : {}),
     };
-    if (next.state !== "waiting") this.#clearWaitingPresentation(runtime);
+    if (next.state !== "waiting") runtime.clearWaitingPresentation();
     else if (previous?.state !== "waiting")
       this.#deferWaitingPresentation(runtime, previous);
     if (!activityOnly && !runtime.waitPresentation && !resumedUnseen)
@@ -2043,204 +1674,17 @@ export class TerminalRuntime {
     }
     runtime.submissionStateChanged?.();
     this.#saveCli(runtime);
-    this.#sendPendingLines(runtime);
+    this.#input.sendPendingLines(runtime);
     this.#publish({
       type: "terminal.updated",
       terminal: this.#summary(runtime.record),
     });
-    if (runtime.cliStatus.state === "active") this.#scheduleStallCheck();
-  }
-
-  #submit(
-    runtime: RuntimeTerminal,
-    text: string,
-    beforeWrite?: () => void,
-    onAccepted?: () => void,
-    options?: {
-      holdOnWait?: boolean;
-      rawSingleLine?: boolean;
-      preserveBackgroundTasks?: boolean;
-    },
-  ): Promise<boolean> {
-    const holdOnWait = options?.holdOnWait !== false;
-    const child = runtime.pty;
-    const submission = (runtime.submission ?? Promise.resolve())
-      .catch(() => {})
-      .then(async () => {
-        let timer: NodeJS.Timeout | undefined;
-        let deadline: NodeJS.Timeout | undefined;
-        let output: pty.IDisposable | undefined;
-        let exit: pty.IDisposable | undefined;
-        if (!child) return false;
-        let exited = false;
-        // Text sent to an open question or approval is the user's answer; hold
-        // the Enter only for a prompt that appears after the text was written.
-        let writtenWhileWaiting = false;
-        let writtenCli: CliSummary | undefined;
-        let settle!: () => void;
-        const redrawn = new Promise<void>((resolve) => {
-          settle = resolve;
-        });
-        try {
-          await this.#runSerial(runtime, async () => {
-            if (
-              runtime.stopped ||
-              this.#stopping ||
-              runtime.ptyExited ||
-              runtime.pty !== child
-            )
-              return;
-
-            output = child.onData(() => {
-              if (runtime.stopped || this.#stopping || runtime.ptyExited) {
-                settle();
-                return;
-              }
-              if (timer) clearTimeout(timer);
-              timer = setTimeout(settle, SUBMIT_QUIET_MS);
-            });
-            exit = child.onExit(() => {
-              exited = true;
-              settle();
-              runtime.submissionStateChanged?.();
-            });
-            beforeWrite?.();
-            writtenWhileWaiting = runtime.cliStatus?.state === "waiting";
-            writtenCli = runtime.cli;
-            deadline = setTimeout(settle, SUBMIT_MAX_WAIT_MS);
-            const payload =
-              options?.rawSingleLine && !/[\r\n]/u.test(text)
-                ? text
-                : terminalSubmitPaste(text, runtime.modes.bracketedPaste);
-            await this.#remote.channel.call(
-              "write",
-              runtime.record.id,
-              payload,
-            );
-            this.#noteCliInput(runtime, options?.preserveBackgroundTasks);
-            onAccepted?.();
-            if (!timer) timer = setTimeout(settle, SUBMIT_NO_OUTPUT_MS);
-          });
-          if (!output) return false;
-          await redrawn;
-          if (timer) clearTimeout(timer);
-          if (deadline) clearTimeout(deadline);
-          output.dispose();
-          for (;;) {
-            let changed!: Promise<void>;
-            const sent = await this.#runSerial(runtime, async () => {
-              if (
-                exited ||
-                runtime.stopped ||
-                this.#stopping ||
-                runtime.ptyExited ||
-                runtime.pty !== child ||
-                // The CLI ended while the Enter was held; do not reach the shell.
-                (writtenCli && !runtime.cli)
-              )
-                return false;
-              if (
-                holdOnWait &&
-                !writtenWhileWaiting &&
-                runtime.cliStatus?.state === "waiting"
-              ) {
-                // Hooks and lifecycle changes wake this wait outside the serial queue.
-                changed = new Promise<void>((resolve) => {
-                  runtime.submissionStateChanged = resolve;
-                });
-                return undefined;
-              }
-              await this.#remote.channel.call("write", runtime.record.id, "\r");
-              this.#noteCliInput(runtime, options?.preserveBackgroundTasks);
-              this.#updateCliState(
-                runtime,
-                runtime.hooks?.onInput?.("\r", runtime.cliStatus),
-              );
-              return true;
-            });
-            if (sent !== undefined) return sent;
-            await changed;
-          }
-        } finally {
-          if (timer) clearTimeout(timer);
-          if (deadline) clearTimeout(deadline);
-          output?.dispose();
-          exit?.dispose();
-          runtime.submissionStateChanged = undefined;
-        }
-      });
-    runtime.submission = submission;
-    void submission
-      .finally(() => {
-        if (runtime.submission === submission) runtime.submission = undefined;
-      })
-      .catch(() => {});
-    return submission;
-  }
-
-  #sendInitialInput(runtime: RuntimeTerminal): void {
-    if (runtime.setup || !runtime.cliReady || !runtime.initialInput) return;
-    runtime.pendingLines.unshift({ line: runtime.initialInput });
-    runtime.initialInput = undefined;
-    this.#sendPendingLines(runtime);
-  }
-
-  #sendPendingLines(runtime: RuntimeTerminal): void {
-    const waitForBracketedPaste = cliDefinitions.find(
-      (definition) => definition.id === runtime.cli?.id,
-    )?.waitForBracketedPaste;
-    if (
-      runtime.setup ||
-      runtime.cliStatus?.state === "waiting" ||
-      (runtime.teamOptions &&
-        ((waitForBracketedPaste &&
-          (!runtime.inputModeReady ||
-            // Startup probes can disable paste again before the input UI mounts.
-            !runtime.modes.bracketedPaste)) ||
-          (initialPromptReadyWhen(runtime) && !runtime.cliReady) ||
-          (runtime.hooks?.isSessionStart && !runtime.cliReady))) ||
-      !runtime.pty ||
-      !runtime.cli ||
-      runtime.stopped ||
-      this.#stopping
-    )
-      return;
-    if (runtime.delivery) return;
-    runtime.delivery = (async () => {
-      while (runtime.pendingLines.length) {
-        const message = runtime.pendingLines[0]!;
-        if (
-          !(await this.#submit(
-            runtime,
-            message.line,
-            () => {
-              // Once writing starts, an interrupted delivery must never be replayed.
-              runtime.pendingLines.shift();
-              this.#saveCli(runtime);
-            },
-            undefined,
-            {
-              // Internal reminders repeat until the CLI itself produces an event.
-              preserveBackgroundTasks:
-                message.deliveryId?.startsWith("background-wake:"),
-            },
-          ))
-        )
-          return;
-        message.delivered?.();
-        if (message.deliveryId) this.onDelivered?.(message.deliveryId);
-        this.#saveCli(runtime);
-      }
-    })()
-      .catch(() => this.#reportRuntimeError(runtime))
-      .finally(() => {
-        runtime.delivery = undefined;
-      });
+    if (runtime.cliStatus.state === "active") this.#stall.schedule();
   }
 
   /** A CLI outside a team has its own route; the Host lets it read the Forge only. */
   #commandRoute(id: string, cliId: string): Promise<Record<string, string>> {
-    return this.#remote.channel.call<Record<string, string>>(
+    return this.#remote.channel.call(
       "commandRoute",
       id,
       { terminal: id } satisfies CliCaller,
@@ -2251,7 +1695,7 @@ export class TerminalRuntime {
   }
 
   async #launchEnvironment(
-    runtime: RuntimeTerminal,
+    runtime: TerminalSession,
     shell: ShellDefinition,
   ): Promise<Record<string, string> | undefined> {
     const saved = this.#store.terminalCli(runtime.record.id);
@@ -2294,12 +1738,12 @@ export class TerminalRuntime {
     return this.#approvals.respond(terminalId, approvalId, decision);
   }
 
-  async #registerCliHooks(runtime: RuntimeTerminal): Promise<void> {
+  async #registerCliHooks(runtime: TerminalSession): Promise<void> {
     if (runtime.hooks?.approval && !runtime.approvalFile) {
       runtime.approvalFile = await this.#approvals.register(
         runtime.record.id,
         (payload, id) =>
-          this.#runSerial(runtime, () => {
+          runtime.runSerial(() => {
             if (
               this.#stopping ||
               runtime.stopped ||
@@ -2346,10 +1790,13 @@ export class TerminalRuntime {
     }
     if (runtime.hooks?.observe && !runtime.hookObserver) {
       runtime.hookObserver = runtime.hooks.observe((state) => {
-        void this.#runSerial(runtime, () => {
-          this.#updateCliState(runtime, state);
-          if (state.state === "done") this.#clis.refreshUsage(runtime.cli?.id);
-        }).catch(() => this.#reportRuntimeError(runtime));
+        void runtime
+          .runSerial(() => {
+            this.#updateCliState(runtime, state);
+            if (state.state === "done")
+              this.#clis.refreshUsage(runtime.cli?.id);
+          })
+          .catch(() => this.#reportRuntimeError(runtime));
       });
       await runtime.hookObserver.restore(
         this.#store.terminalCli(runtime.record.id)?.session?.file,
@@ -2361,7 +1808,7 @@ export class TerminalRuntime {
       runtime.hookRoute = await this.#remote.hook(
         runtime.record.id,
         (payload) =>
-          this.#runSerial(runtime, async () => {
+          runtime.runSerial(async () => {
             if (this.#stopping) throw new Error("Terminal Host is stopping");
             if (!runtime.cli || runtime.stopped) return;
             // Not another CLI's hooks: a CLI can also run the hooks that iori
@@ -2412,6 +1859,15 @@ export class TerminalRuntime {
             if (runtime.hooks?.isSessionStart?.(payload)) {
               if (!initialPromptReadyWhen(runtime)) runtime.cliReady = true;
               runtime.initialArgumentDelivered?.();
+              if (runtime.initialReceipts) {
+                for (const callback of new Set(
+                  runtime.initialReceipts.values(),
+                ))
+                  callback();
+                runtime.initialReceipts = undefined;
+              }
+              for (const id of runtime.initialDeliveryIds ?? [])
+                this.onDelivered?.(id);
               runtime.initialArgumentDelivered = undefined;
               runtime.initialDeliveryIds = undefined;
             }
@@ -2434,14 +1890,14 @@ export class TerminalRuntime {
             this.#updateCliState(runtime, next);
             if (next?.state === "done")
               this.#clis.refreshUsage(runtime.cli?.id);
-            this.#sendInitialInput(runtime);
+            this.#input.sendInitialInput(runtime);
             this.#saveCli(runtime);
           }),
       );
   }
 
   async #spawn(
-    runtime: RuntimeTerminal,
+    runtime: TerminalSession,
     shell: ShellDefinition,
     command?: string,
     launchEnvironment?: Record<string, string>,
@@ -2554,20 +2010,14 @@ export class TerminalRuntime {
     runtime.record.exitCode = null;
     runtime.record.restartPending = false;
     this.#observe(runtime, shell, managed);
-    if (runtime.teamOptions && !runtime.cliStatus)
-      this.#resetStallTracking(runtime);
-    this.#scheduleStallCheck();
+    if (runtime.teamOptions && !runtime.cliStatus) runtime.resetStallTracking();
+    this.#stall.schedule();
     this.#saveCli(runtime, managed);
     if (!managed && command && dialect === "posix" && !hasLineEditor)
-      child.write(command + "\r");
+      await child.write(command + "\r");
   }
-  #applyDaemonState(runtime: RuntimeTerminal, state: PtyState): void {
-    runtime.modes = state.modes;
-    runtime.showCursor = state.showCursor;
-  }
-
   #applyParserEvents(
-    runtime: RuntimeTerminal,
+    runtime: TerminalSession,
     shell: ShellDefinition,
     events: ParserEvent[],
     historical = false,
@@ -2631,7 +2081,7 @@ export class TerminalRuntime {
     }
   }
 
-  #observe(runtime: RuntimeTerminal, shell: ShellDefinition, managed: boolean) {
+  #observe(runtime: TerminalSession, shell: ShellDefinition, managed: boolean) {
     const child = runtime.pty!,
       dialect = shellDialect(shell);
     const hasLineEditor = !["sh", "dash"].includes(basename(shell.executable));
@@ -2647,124 +2097,127 @@ export class TerminalRuntime {
       if (data.length > 0) runtime.lastOutputAt = Date.now();
       // Bound pending parser work at the PTY's read boundary, without delaying other terminals.
       child.pause();
-      return this.#runSerial(runtime, async () => {
-        if (runtime.stopped || this.#stopping) return;
-        const previousCli = runtime.cli;
-        const reported = runtime.cwdReported;
-        const previousCwd = runtime.record.cwd,
-          previousTitle = runtime.record.title;
-        if (batch.modes) {
-          runtime.modes = batch.modes.modes;
-          runtime.showCursor = batch.modes.showCursor;
-        }
-        this.#applyParserEvents(runtime, shell, batch.events);
-        // A session-start hook remains authoritative. Otherwise paste mode
-        // announces readiness immediately; plain-input CLIs can also settle.
-        if (
-          !runtime.setup &&
-          (!runtime.hooks?.isSessionStart ||
-            !!initialPromptReadyWhen(runtime)) &&
-          !runtime.pendingCliCommand &&
-          runtime.inputModeReady &&
-          runtime.modes.bracketedPaste &&
-          (!initialPromptReadyWhen(runtime) || runtime.initialPromptSignaled)
-        )
-          runtime.cliReady = true;
-        this.#sendInitialInput(runtime);
-        this.#sendPendingLines(runtime);
-        runtime.sequence += 1;
-
-        const editorReady = runtime.lineEditorReady?.scan(data) ?? false;
-        if (editorReady) runtime.shellReady = true;
-        if (runtime.pendingCliCommand && editorReady) {
-          const input = runtime.pendingCliCommand;
-          runtime.pendingCliCommand = undefined;
-          runtime.inputModeReady = false;
-          child.write(input + "\r");
-        } else if (
-          !managed &&
-          runtime.cli &&
-          !runtime.setup &&
-          dialect === "posix" &&
-          !runtime.pendingCliCommand &&
-          (editorReady || !hasLineEditor)
-        ) {
-          const ownsForeground = isWindowsHost()
-            ? !(await shellActivity(child.pid, { name: false })).busy
-            : await shellOwnsForeground(child.pid);
-          // sh/dash have no editor notification; only those shells need to
-          // observe the child once before their prompt can mean CLI exit.
-          if (!hasLineEditor && ownsForeground === false)
-            runtime.cliEnteredForeground = true;
+      return runtime
+        .runSerial(async () => {
+          if (runtime.stopped || this.#stopping) return;
+          const previousCli = runtime.cli;
+          const reported = runtime.cwdReported;
+          const previousCwd = runtime.record.cwd,
+            previousTitle = runtime.record.title;
+          if (batch.modes) {
+            runtime.modes = batch.modes.modes;
+            runtime.showCursor = batch.modes.showCursor;
+          }
+          this.#applyParserEvents(runtime, shell, batch.events);
+          // A session-start hook remains authoritative. Otherwise paste mode
+          // announces readiness immediately; plain-input CLIs can also settle.
           if (
-            ownsForeground === true &&
-            (runtime.cliEnteredForeground || editorReady)
+            !runtime.setup &&
+            (!runtime.hooks?.isSessionStart ||
+              !!initialPromptReadyWhen(runtime)) &&
+            !runtime.pendingCliCommand &&
+            runtime.inputModeReady &&
+            runtime.modes.bracketedPaste &&
+            (!initialPromptReadyWhen(runtime) || runtime.initialPromptSignaled)
+          )
+            runtime.cliReady = true;
+          this.#input.sendInitialInput(runtime);
+          this.#input.sendPendingLines(runtime);
+          runtime.sequence += 1;
+
+          const editorReady = runtime.lineEditorReady?.scan(data) ?? false;
+          if (editorReady) runtime.shellReady = true;
+          if (runtime.pendingCliCommand && editorReady) {
+            const input = runtime.pendingCliCommand;
+            runtime.pendingCliCommand = undefined;
+            runtime.inputModeReady = false;
+            await child.write(input + "\r");
+          } else if (
+            !managed &&
+            runtime.cli &&
+            !runtime.setup &&
+            dialect === "posix" &&
+            !runtime.pendingCliCommand &&
+            (editorReady || !hasLineEditor)
           ) {
-            this.#clearCli(runtime);
-            runtime.record.title = shell.label;
+            const ownsForeground = isWindowsHost()
+              ? !(await shellActivity(child.pid, { name: false })).busy
+              : await shellOwnsForeground(child.pid);
+            // sh/dash have no editor notification; only those shells need to
+            // observe the child once before their prompt can mean CLI exit.
+            if (!hasLineEditor && ownsForeground === false)
+              runtime.cliEnteredForeground = true;
+            if (
+              ownsForeground === true &&
+              (runtime.cliEnteredForeground || editorReady)
+            ) {
+              this.#clearCli(runtime);
+              runtime.record.title = shell.label;
+            }
           }
-        }
-        const changed =
-          previousCli !== runtime.cli ||
-          previousCwd !== runtime.record.cwd ||
-          previousTitle !== runtime.record.title ||
-          runtime.cwdReported !== reported;
-        for (const subscriber of runtime.subscribers) {
-          this.#queueOutput(runtime, subscriber, data, runtime.sequence);
-        }
-        if (changed) {
-          try {
-            this.#store.putTerminalSummary(runtime.record);
-          } catch {
-            this.#markDirty(runtime);
+          const changed =
+            previousCli !== runtime.cli ||
+            previousCwd !== runtime.record.cwd ||
+            previousTitle !== runtime.record.title ||
+            runtime.cwdReported !== reported;
+          for (const subscriber of runtime.subscribers) {
+            queueOutput(runtime, subscriber, data, runtime.sequence);
           }
-          this.#publish({
-            type: "terminal.updated",
-            terminal: this.#summary(runtime.record),
-          });
-        }
-        this.#saveCli(runtime);
-        this.#markDirty(runtime);
-        if (
-          !runtime.setup &&
-          runtime.cli &&
-          runtime.initialInput &&
-          !runtime.cliReady &&
-          !runtime.pendingCliCommand &&
-          !runtime.hooks?.isSessionStart &&
-          !cliDefinitions.find(
-            (definition) => definition.id === runtime.cli?.id,
-          )?.waitForBracketedPaste
-        ) {
-          const cli = runtime.cli;
-          const timer = setTimeout(() => {
-            void this.#runSerial(runtime, () => {
-              // A later output chunk or disposal cancels even a callback
-              // already queued behind parsing. Never write into another CLI.
-              if (initialInputTimer !== timer) return;
-              initialInputTimer = undefined;
-              if (
-                runtime.stopped ||
-                this.#stopping ||
-                runtime.ptyExited ||
-                runtime.pty !== child ||
-                runtime.cli !== cli ||
-                !runtime.initialInput
-              )
-                return;
-              runtime.cliReady = true;
-              this.#sendInitialInput(runtime);
-              this.#saveCli(runtime);
-            }).catch(() => this.#reportRuntimeError(runtime));
-          }, INITIAL_INPUT_QUIET_MS);
-          initialInputTimer = timer;
-        }
-      })
+          if (changed) {
+            try {
+              this.#store.putTerminalSummary(runtime.record);
+            } catch {
+              this.#markDirty(runtime);
+            }
+            this.#publish({
+              type: "terminal.updated",
+              terminal: this.#summary(runtime.record),
+            });
+          }
+          this.#saveCli(runtime);
+          this.#markDirty(runtime);
+          if (
+            !runtime.setup &&
+            runtime.cli &&
+            runtime.initialInput &&
+            !runtime.cliReady &&
+            !runtime.pendingCliCommand &&
+            !runtime.hooks?.isSessionStart &&
+            !cliDefinitions.find(
+              (definition) => definition.id === runtime.cli?.id,
+            )?.waitForBracketedPaste
+          ) {
+            const cli = runtime.cli;
+            const timer = setTimeout(() => {
+              void runtime
+                .runSerial(() => {
+                  // A later output chunk or disposal cancels even a callback
+                  // already queued behind parsing. Never write into another CLI.
+                  if (initialInputTimer !== timer) return;
+                  initialInputTimer = undefined;
+                  if (
+                    runtime.stopped ||
+                    this.#stopping ||
+                    runtime.ptyExited ||
+                    runtime.pty !== child ||
+                    runtime.cli !== cli ||
+                    !runtime.initialInput
+                  )
+                    return;
+                  runtime.cliReady = true;
+                  this.#input.sendInitialInput(runtime);
+                  this.#saveCli(runtime);
+                })
+                .catch(() => this.#reportRuntimeError(runtime));
+            }, INITIAL_INPUT_QUIET_MS);
+            initialInputTimer = timer;
+          }
+        })
         .catch(() => this.#reportRuntimeError(runtime))
         .finally(() => {
           if (runtime.stopped || this.#stopping || runtime.pty !== child)
             return;
-          if (this.#allBehind(runtime, OUTPUT_HIGH_WATERMARK))
+          if (allBehind(runtime, OUTPUT_HIGH_WATERMARK))
             runtime.backpressured = true;
           else child.resume();
         });
@@ -2777,94 +2230,86 @@ export class TerminalRuntime {
     };
     runtime.exitDisposer = child.onExit(({ exitCode, signal }) => {
       if (runtime.pty === child) runtime.ptyExited = true;
-      return this.#runSerial(runtime, async () => {
-        if (this.#stopping) throw new Error("Terminal Host is stopping");
-        if (runtime.stopped) return;
-        const reportedExitCode =
-          signal !== undefined && signal !== 0 ? 128 + signal : exitCode;
-        this.#clearPersistTimer(runtime);
-        runtime.dataDisposer?.dispose();
-        runtime.exitDisposer?.dispose();
-        runtime.pty = undefined;
-        if (runtime.setup) {
-          if (reportedExitCode === 0) {
-            const command = runtime.setup.cliCommand;
-            runtime.setup = undefined;
-            this.#store.saveTerminalSetup(runtime.record.id, undefined);
-            runtime.record.cwd =
-              this.#store.terminalWorktree(runtime.record.id) ??
-              runtime.record.cwd;
-            await this.#spawn(
-              runtime,
-              shell,
-              command,
-              await this.#launchEnvironment(runtime, shell),
-            );
+      return runtime
+        .runSerial(async () => {
+          if (this.#stopping) throw new Error("Terminal Host is stopping");
+          if (runtime.stopped || runtime.pty !== child) return;
+          const reportedExitCode =
+            signal !== undefined && signal !== 0 ? 128 + signal : exitCode;
+          runtime.clearPersistTimer();
+          runtime.detachPtyObservers();
+          runtime.pty = undefined;
+          if (runtime.setup) {
+            if (reportedExitCode === 0) {
+              const command = runtime.setup.cliCommand;
+              runtime.setup = undefined;
+              this.#store.saveTerminalSetup(runtime.record.id, undefined);
+              runtime.record.cwd =
+                this.#store.terminalWorktree(runtime.record.id) ??
+                runtime.record.cwd;
+              await this.#spawn(
+                runtime,
+                shell,
+                command,
+                await this.#launchEnvironment(runtime, shell),
+              );
+            } else {
+              runtime.setup = {
+                ...runtime.setup,
+                state: "failed",
+                exitCode: reportedExitCode,
+              };
+              this.#store.saveTerminalSetup(runtime.record.id, runtime.setup);
+              runtime.record.state = "error";
+              runtime.record.exitCode = reportedExitCode;
+              await this.#persist(runtime);
+              this.#store.putTerminalSummary(runtime.record);
+              runtime.notifications = runtime.notifications
+                .then(() =>
+                  this.onSetupFailed?.(runtime.record.id, reportedExitCode),
+                )
+                .catch(() => {
+                  console.error("Terminal setup failure notification failed");
+                });
+              this.onCliProcessesChanged?.();
+            }
+            this.#publish({
+              type: "terminal.updated",
+              terminal: this.#summary(runtime.record),
+            });
+            return;
+          }
+          const wasTeam = Boolean(runtime.teamOptions);
+          this.#clearCli(runtime);
+          for (const subscriber of runtime.subscribers) {
+            queueFrame(runtime, subscriber, {
+              kind: "terminal.exit",
+              code: reportedExitCode,
+              signal: signal ?? null,
+            });
+            subscriber.finishWhenDrained = true;
+          }
+          if (reportedExitCode === 0 && !wasTeam) {
+            await this.#removeTerminal(runtime.record.id, true);
+            this.#disposeTerminal(runtime, true);
           } else {
-            runtime.setup = {
-              ...runtime.setup,
-              state: "failed",
-              exitCode: reportedExitCode,
-            };
-            this.#store.saveTerminalSetup(runtime.record.id, runtime.setup);
+            await this.#removeImages(join(this.#imagesRoot, runtime.record.id));
+            await this.#persist(runtime);
+            runtime.persistDirty = false;
             runtime.record.state = "error";
             runtime.record.exitCode = reportedExitCode;
-            await this.#persist(runtime);
-            this.#store.putTerminalSummary(runtime.record);
-            runtime.notifications = runtime.notifications
-              .then(() =>
-                this.onSetupFailed?.(runtime.record.id, reportedExitCode),
-              )
-              .catch(() => {
-                console.error("Terminal setup failure notification failed");
-              });
-            this.onCliProcessesChanged?.();
+            runtime.record.restartPending = false;
+            try {
+              this.#store.putTerminalSummary(runtime.record);
+            } catch {
+              this.#markDirty(runtime);
+            }
+            this.#publish({
+              type: "terminal.updated",
+              terminal: this.#summary(runtime.record),
+            });
           }
-          this.#publish({
-            type: "terminal.updated",
-            terminal: this.#summary(runtime.record),
-          });
-          return;
-        }
-        this.#clearCli(runtime);
-        for (const subscriber of runtime.subscribers) {
-          this.#queueFrame(runtime, subscriber, {
-            kind: "terminal.exit",
-            code: reportedExitCode,
-            signal: signal ?? null,
-          });
-          subscriber.finishWhenDrained = true;
-        }
-        await this.#removeImages(join(this.#imagesRoot, runtime.record.id));
-        if (reportedExitCode === 0 && !runtime.teamOptions) {
-          this.#store.removeTerminal(runtime.record.id);
-          this.#remote.send("remove", runtime.record.id);
-          this.#remote.send("retireRoute", runtime.record.id);
-          this.#publish({
-            type: "terminal.closed",
-            terminalId: runtime.record.id,
-            processExited: true,
-          });
-          runtime.stopped = true;
-          runtime.persistDirty = false;
-          this.#runtimes.delete(runtime.record.id);
-        } else {
-          await this.#persist(runtime);
-          runtime.persistDirty = false;
-          runtime.record.state = "error";
-          runtime.record.exitCode = reportedExitCode;
-          runtime.record.restartPending = false;
-          try {
-            this.#store.putTerminalSummary(runtime.record);
-          } catch {
-            this.#markDirty(runtime);
-          }
-          this.#publish({
-            type: "terminal.updated",
-            terminal: this.#summary(runtime.record),
-          });
-        }
-      })
+        })
         .then(() => runtime.notifications)
         .catch((error: unknown) => {
           this.#reportRuntimeError(runtime);
@@ -2873,16 +2318,16 @@ export class TerminalRuntime {
     });
   }
 
-  async #writeScreen(runtime: RuntimeTerminal, data: string) {
-    const state = await this.#remote.channel.call<PtyState>(
+  async #writeScreen(runtime: TerminalSession, data: string) {
+    const state = await this.#remote.channel.call(
       "screenWrite",
       runtime.record.id,
       data,
     );
-    this.#applyDaemonState(runtime, state);
+    runtime.applyDaemonState(state);
   }
   async #startAfterHostRestart(
-    runtime: RuntimeTerminal,
+    runtime: TerminalSession,
     cols: number,
     rows: number,
   ): Promise<void> {
@@ -2937,14 +2382,13 @@ export class TerminalRuntime {
         runtime,
         buildFreshShellViewportBlankingSequence(
           runtime.record.rows,
-          await this.#remote.channel.call<number>(
-            "screenCursor",
-            runtime.record.id,
-          ),
+          await this.#remote.channel.call("screenCursor", runtime.record.id),
         ),
       );
     }
     const recovery = this.#store.terminalCli(runtime.record.id);
+    // The recovery shell must inherit the same team route as the resumed CLI.
+    if (recovery?.resumePending) await this.#restoreParentOptions(runtime);
     if (recovery?.resumePending && recovery.observed)
       runtime.hooks = cliDefinitions.find(
         (definition) => definition.id === recovery.cli.id,
@@ -2959,7 +2403,7 @@ export class TerminalRuntime {
   }
 
   async #snapshotForOpen(
-    runtime: RuntimeTerminal,
+    runtime: TerminalSession,
     open: TerminalOpenStream,
   ): Promise<WireSnapshot | undefined> {
     let lineLimit = Math.min(open.snapshotMaxLines, SCROLLBACK_LINES);
@@ -2989,7 +2433,7 @@ export class TerminalRuntime {
   }
 
   #setSize(
-    runtime: RuntimeTerminal,
+    runtime: TerminalSession,
     cols: number,
     rows: number,
     subscriber: TerminalSubscriber,
@@ -3046,7 +2490,7 @@ export class TerminalRuntime {
     if (sizeChanged) this.#markDirty(runtime);
     if (sizeChanged || lastDesktopSizeChanged || ownerChanged) {
       for (const subscriber of runtime.subscribers) {
-        this.#queueFrame(runtime, subscriber, {
+        queueFrame(runtime, subscriber, {
           kind: "terminal.size",
           cols: runtime.record.cols,
           rows: runtime.record.rows,
@@ -3064,7 +2508,7 @@ export class TerminalRuntime {
   }
 
   async #readClientFrames(
-    runtime: RuntimeTerminal,
+    runtime: TerminalSession,
     subscriber: TerminalSubscriber,
     readFrame: FrameReader,
   ): Promise<void> {
@@ -3075,11 +2519,11 @@ export class TerminalRuntime {
       try {
         frame = await readFrame();
       } catch {
-        this.#finishSubscriber(runtime, subscriber);
+        detachSubscriber(runtime, subscriber, 0);
         return;
       }
       if (frame === undefined) {
-        this.#finishSubscriber(runtime, subscriber);
+        detachSubscriber(runtime, subscriber, 0);
         return;
       }
       let message: TerminalClientMessage | undefined;
@@ -3087,14 +2531,14 @@ export class TerminalRuntime {
         message = terminalClientMessageSchema.parse(frame);
         if (!message) continue;
       } catch {
-        this.#queueFrame(runtime, subscriber, {
+        queueFrame(runtime, subscriber, {
           kind: "terminal.error",
           message: "Invalid terminal stream message",
         });
         subscriber.finishWhenDrained = true;
         return;
       }
-      await this.#runSerial(runtime, () => {
+      await runtime.runSerial(async () => {
         if (runtime.stopped) return;
         if (message.kind === "terminal.seen") {
           if (
@@ -3159,18 +2603,19 @@ export class TerminalRuntime {
           this.#noteCliInput(runtime);
           this.onCliInput?.(runtime.record.id);
           let accepted = false;
-          void this.#submit(runtime, message.data, undefined, () => {
-            accepted = true;
-            if (message.id)
-              this.#queueFrame(runtime, subscriber, {
-                kind: "terminal.submitted",
-                id: message.id,
-                success: true,
-              });
-          })
+          void this.#input
+            .submit(runtime, message.data, undefined, () => {
+              accepted = true;
+              if (message.id)
+                queueFrame(runtime, subscriber, {
+                  kind: "terminal.submitted",
+                  id: message.id,
+                  success: true,
+                });
+            })
             .then((success) => {
               if (message.id && !accepted)
-                this.#queueFrame(runtime, subscriber, {
+                queueFrame(runtime, subscriber, {
                   kind: "terminal.submitted",
                   id: message.id,
                   success,
@@ -3178,14 +2623,14 @@ export class TerminalRuntime {
             })
             .catch(() => {
               if (message.id && !accepted) {
-                this.#queueFrame(runtime, subscriber, {
+                queueFrame(runtime, subscriber, {
                   kind: "terminal.submitted",
                   id: message.id,
                   success: false,
                 });
                 return;
               }
-              this.#queueFrame(runtime, subscriber, {
+              queueFrame(runtime, subscriber, {
                 kind: "terminal.error",
                 message:
                   "Input could not be sent. Check the connection before continuing.",
@@ -3193,12 +2638,22 @@ export class TerminalRuntime {
             });
           return;
         }
+        try {
+          if (!runtime.pty) throw new Error("CLI is stopped");
+          await runtime.pty.write(data);
+        } catch {
+          queueFrame(runtime, subscriber, {
+            kind: "terminal.error",
+            message:
+              "Input could not be sent. Check the connection before continuing.",
+          });
+          return;
+        }
         if (message.origin !== "scroll" && !isNonKeyTerminalInput(data)) {
           runtime.userInputSinceActivity = true;
           this.#noteCliInput(runtime);
           this.onCliInput?.(runtime.record.id);
         }
-        runtime.pty?.write(data);
         this.#updateCliState(
           runtime,
           runtime.hooks?.onInput?.(data, runtime.cliStatus),
@@ -3207,178 +2662,12 @@ export class TerminalRuntime {
     }
   }
 
-  #queueFrame(
-    runtime: RuntimeTerminal,
-    subscriber: TerminalSubscriber,
-    message: TerminalServerMessage,
-  ): void {
-    try {
-      this.#queueBytes(runtime, subscriber, serializedFrame(message));
-    } catch {
-      this.#detachSubscriber(runtime, subscriber, OVERFLOW_RESET_CODE, true);
-    }
-  }
-
-  #queueBytes(
-    runtime: RuntimeTerminal,
-    subscriber: TerminalSubscriber,
-    frame: Buffer,
-  ): void {
-    if (subscriber.detached) return;
-    if (subscriber.queuedBytes + frame.byteLength > MAX_FRAME_BYTES) {
-      this.#detachSubscriber(runtime, subscriber, OVERFLOW_RESET_CODE, true);
-      return;
-    }
-    subscriber.frames.push(frame);
-    subscriber.queuedBytes += frame.byteLength;
-    void this.#flush(runtime, subscriber);
-  }
-
-  #queueOutput(
-    runtime: RuntimeTerminal,
-    subscriber: TerminalSubscriber,
-    data: string,
-    sequence: number,
-  ): void {
-    if (subscriber.detached) return;
-    const bytes = Buffer.byteLength(data);
-    if (
-      subscriber.queuedBytes + bytes > MAX_FRAME_BYTES ||
-      subscriber.queuedOutputBytes + bytes > MAX_QUEUED_OUTPUT_BYTES
-    ) {
-      this.#detachSubscriber(runtime, subscriber, OVERFLOW_RESET_CODE, true);
-      return;
-    }
-    // The item being written has left the queue; the ones behind it can grow.
-    const last = subscriber.frames.at(-1);
-    if (
-      last &&
-      !Buffer.isBuffer(last) &&
-      last.bytes + bytes <= OUTPUT_MERGE_LIMIT
-    ) {
-      last.data += data;
-      last.bytes += bytes;
-      last.sequence = sequence;
-    } else {
-      subscriber.frames.push({ data, bytes, sequence });
-    }
-    subscriber.queuedBytes += bytes;
-    subscriber.queuedOutputBytes += bytes;
-    void this.#flush(runtime, subscriber);
-  }
-
-  /** Whether every attached view has more than `mark` waiting. */
-  #allBehind(runtime: RuntimeTerminal, mark: number): boolean {
-    if (runtime.subscribers.size === 0) return false;
-    for (const subscriber of runtime.subscribers) {
-      if (subscriber.queuedBytes <= mark) return false;
-    }
-    return true;
-  }
-
-  #resumeIfCaughtUp(runtime: RuntimeTerminal): void {
-    if (
-      !runtime.backpressured ||
-      this.#allBehind(runtime, OUTPUT_LOW_WATERMARK)
-    )
-      return;
-    runtime.backpressured = false;
-    if (!runtime.stopped && !this.#stopping) runtime.pty?.resume();
-  }
-
-  async #flush(
-    runtime: RuntimeTerminal,
-    subscriber: TerminalSubscriber,
-  ): Promise<void> {
-    if (subscriber.writing || subscriber.detached) return;
-    subscriber.writing = true;
-    try {
-      while (subscriber.frames.length > 0 && !subscriber.detached) {
-        const item = subscriber.frames.shift()!;
-        const size = Buffer.isBuffer(item) ? item.byteLength : item.bytes;
-        try {
-          if (Buffer.isBuffer(item)) await subscriber.stream.write(item);
-          else {
-            for (const frame of splitOutput(item.data, item.sequence))
-              await subscriber.stream.write(frame);
-            // Output arriving meanwhile joins the next frame.
-            await new Promise((resolve) =>
-              setTimeout(resolve, OUTPUT_FRAME_INTERVAL_MS),
-            );
-          }
-        } catch {
-          this.#detachSubscriber(
-            runtime,
-            subscriber,
-            OVERFLOW_RESET_CODE,
-            true,
-          );
-          return;
-        } finally {
-          subscriber.queuedBytes = Math.max(0, subscriber.queuedBytes - size);
-          if (!Buffer.isBuffer(item))
-            subscriber.queuedOutputBytes = Math.max(
-              0,
-              subscriber.queuedOutputBytes - size,
-            );
-          this.#resumeIfCaughtUp(runtime);
-        }
-      }
-      if (subscriber.finishWhenDrained && !subscriber.detached) {
-        subscriber.detached = true;
-        runtime.subscribers.delete(subscriber);
-        await subscriber.stream.finish().catch(() => undefined);
-        await subscriber.stream.stop(0).catch(() => undefined);
-      }
-    } finally {
-      subscriber.writing = false;
-    }
-  }
-
-  #detachSubscriber(
-    runtime: RuntimeTerminal,
-    subscriber: TerminalSubscriber,
-    errorCode: number,
-    preserveInput = false,
-  ): void {
-    if (subscriber.detached) return;
-    subscriber.detached = true;
-    subscriber.frames = [];
-    subscriber.queuedBytes = 0;
-    subscriber.queuedOutputBytes = 0;
-    runtime.subscribers.delete(subscriber);
-    this.#resumeIfCaughtUp(runtime);
-    if (preserveInput) {
-      subscriber.sizeSuperseded = true;
-      void subscriber.stream.reset(errorCode).catch(() => undefined);
-    } else void this.#abortStream(subscriber.stream, errorCode);
-  }
-
-  #finishSubscriber(
-    runtime: RuntimeTerminal,
-    subscriber: TerminalSubscriber,
-  ): void {
-    if (subscriber.detached) return;
-    subscriber.detached = true;
-    subscriber.frames = [];
-    subscriber.queuedBytes = 0;
-    subscriber.queuedOutputBytes = 0;
-    runtime.subscribers.delete(subscriber);
-    this.#resumeIfCaughtUp(runtime);
-    void this.#abortStream(subscriber.stream, 0);
-  }
-
-  async #abortStream(stream: NativeBiStream, errorCode: number): Promise<void> {
-    await stream.reset(errorCode).catch(() => undefined);
-    await stream.stop(errorCode).catch(() => undefined);
-  }
-
-  #markDirty(runtime: RuntimeTerminal): void {
+  #markDirty(runtime: TerminalSession): void {
     runtime.persistDirty = true;
     this.#schedulePersist(runtime);
   }
 
-  #schedulePersist(runtime: RuntimeTerminal): void {
+  #schedulePersist(runtime: TerminalSession): void {
     if (
       runtime.persistScheduled ||
       runtime.persistInFlight ||
@@ -3390,7 +2679,7 @@ export class TerminalRuntime {
     // eslint-disable-next-line iori/no-fixed-timeout-failure -- This is the bounded checkpoint cadence, not a timeout that decides whether a user operation failed.
     runtime.persistScheduled = setTimeout(() => {
       runtime.persistScheduled = undefined;
-      const checkpoint = this.#runSerial(runtime, async () => {
+      const checkpoint = runtime.runSerial(async () => {
         if (runtime.stopped || !runtime.persistDirty) return;
         runtime.persistDirty = false;
         try {
@@ -3412,13 +2701,7 @@ export class TerminalRuntime {
     }, CHECKPOINT_INTERVAL_MS);
   }
 
-  #clearPersistTimer(runtime: RuntimeTerminal): void {
-    if (!runtime.persistScheduled) return;
-    clearTimeout(runtime.persistScheduled);
-    runtime.persistScheduled = undefined;
-  }
-
-  async #persist(runtime: RuntimeTerminal): Promise<void> {
+  async #persist(runtime: TerminalSession): Promise<void> {
     if (runtime.stopped) return;
     await runtime.ready;
     const snapshot = await this.#remote.snapshot(
@@ -3434,9 +2717,9 @@ export class TerminalRuntime {
     }
   }
 
-  async #killAndWait(runtime: RuntimeTerminal): Promise<void> {
+  async #killAndWait(runtime: TerminalSession): Promise<void> {
     if (!runtime.pty) return;
-    runtime.exitDisposer?.dispose();
+    runtime.detachPtyObservers();
     await this.#remote.kill(runtime.record.id);
     runtime.ptyExited = true;
     runtime.pty = undefined;
@@ -3444,75 +2727,26 @@ export class TerminalRuntime {
     this.onCliProcessesChanged?.();
   }
 
-  #retireRuntime(runtime: RuntimeTerminal, kill = true): void {
-    // Removal from the UI does not imply the underlying process has exited.
-    // Keep its slot until the actual PTY exit notification arrives.
-    if (kill && runtime.pty && runtime.cli) {
-      this.#retiringClis.set(runtime.record.id, {
-        cli: runtime.cli.id,
-        ...(runtime.observedModel ? { model: runtime.observedModel } : {}),
-        ...(runtime.teamOptions
-          ? {
-              model:
-                runtime.observedModel ??
-                runtime.teamOptions.team.candidate.model,
-              conversation: runtime.teamOptions.conversation,
-              role: runtime.teamOptions.role,
-            }
-          : {}),
-      });
-      const listener = runtime.pty.onExit(() => {
-        listener.dispose();
-        this.#retiringClis.delete(runtime.record.id);
-        this.onCliProcessesChanged?.();
-      });
-    }
-    this.#clearCli(runtime);
-    if (runtime.stopped) return;
-    this.#clearPersistTimer(runtime);
+  #disposeTerminal(runtime: TerminalSession, drainOutput = false): void {
     runtime.stopped = true;
-    runtime.submissionStateChanged?.();
-    runtime.dataDisposer?.dispose();
-    runtime.exitDisposer?.dispose();
-    if (kill && runtime.pty) runtime.pty.kill();
+    runtime.clearPersistTimer();
+    runtime.persistDirty = false;
+    runtime.detachPtyObservers();
     runtime.pty = undefined;
-    for (const subscriber of runtime.subscribers) {
-      this.#detachSubscriber(runtime, subscriber, OVERFLOW_RESET_CODE);
+    this.#clearCli(runtime, false);
+    if (!drainOutput) {
+      for (const subscriber of runtime.subscribers)
+        detachSubscriber(runtime, subscriber, OVERFLOW_RESET_CODE);
     }
     this.#runtimes.delete(runtime.record.id);
   }
 
-  #reportRuntimeError(runtime: RuntimeTerminal): void {
+  #reportRuntimeError(runtime: TerminalSession): void {
     // The PTY and its live subscribers can continue despite an internal failure.
     // A failed checkpoint is retried by the existing checkpoint cadence.
     if (runtime.stopped || this.#stopping) return;
     this.#markDirty(runtime);
-    this.#resumeIfCaughtUp(runtime);
-  }
-
-  async #sendTerminalError(
-    stream: NativeBiStream,
-    message: string,
-  ): Promise<void> {
-    try {
-      await stream.write(serializedFrame({ kind: "terminal.error", message }));
-      await stream.finish();
-      await stream.stop(0);
-    } catch {
-      await stream.reset(OVERFLOW_RESET_CODE).catch(() => undefined);
-    }
-  }
-
-  async #runSerial<T>(
-    runtime: RuntimeTerminal,
-    action: () => Promise<T> | T,
-  ): Promise<T> {
-    const run = runtime.serial.then(action, action);
-    runtime.serial = run.then(
-      () => undefined,
-      () => undefined,
-    );
-    return run;
+    resumeIfCaughtUp(runtime);
   }
 
   async #withOperation<T>(

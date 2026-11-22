@@ -654,6 +654,18 @@ test("iori screenが見えている画面だけを返し別会話を拒み、int
           event.terminal.cliStatus?.stalledSince === undefined,
       );
 
+      const stopped = await parentCommand(parent1, "stop-screen", [
+        "stop",
+        screenChild.childId,
+      ]);
+      assert.equal(stopped.ok, true, JSON.stringify(stopped));
+      const saved = await parentCommand(parent1, "screen-stopped", [
+        "screen",
+        screenChild.childId,
+      ]);
+      assert.equal(saved.ok, true, JSON.stringify(saved));
+      assert.ok(saved.data.lines.some((line) => line.includes("RAW_HEX:1b")));
+
       const cliChecks = [
         { role: "ClaudeWorker", expectedHex: "1b", expectedBody: "escape" },
         { role: "CursorWorker", expectedHex: "03", expectedBody: "ctrl-c" },
@@ -662,22 +674,50 @@ test("iori screenが見えている画面だけを返し別会話を拒み、int
           expectedHex: "1b1b",
           expectedBody: "escape escape",
         },
+        {
+          role: "CursorWorker",
+          override: {},
+          expectedHex: "03",
+          expectedBody: "ctrl-c",
+        },
+        {
+          role: "CursorWorker",
+          override: { interrupt: "esc" },
+          expectedHex: "1b",
+          expectedBody: "escape",
+        },
       ];
-      for (const check of cliChecks) {
+      for (const [index, check] of cliChecks.entries()) {
+        if (check.override) {
+          stage(
+            check.override.interrupt
+              ? "上書きで明示した Esc を送る"
+              : "上書きでキーが未指定なら同梱定義の Ctrl+C を送る",
+          );
+          const saved = await client.request("cli.definition.save", {
+            cliId: "cursor",
+            definition: JSON.stringify({
+              id: "cursor",
+              name: "Cursor",
+              command: "cursor-agent",
+              launch: check.override,
+            }),
+          });
+          assert.equal(saved.cliId, "cursor");
+        }
         const child = await delegateChild(
           parent1,
           client,
           events,
-          `del-${check.role}`,
+          `del-int-${index}`,
           { role: check.role, title: check.role, body: "Interrupt test" },
         );
         await child.terminal.output("RAW_CLI_READY");
-        const intRes = await parentCommand(parent1, `int-${check.role}`, [
+        const intRes = await parentCommand(parent1, `int-${index}`, [
           "interrupt",
           child.childId,
         ]);
         assert.equal(intRes.ok, true, JSON.stringify(intRes));
-        await waitForRawHex(child.terminal, "RAW_CLI_READY", check.expectedHex);
         const history = await client.request("teams.task.history", {
           taskId: child.taskId,
         });
@@ -688,6 +728,7 @@ test("iori screenが見えている画面だけを返し別会話を拒み、int
           ),
           JSON.stringify(history.events),
         );
+        await waitForRawHex(child.terminal, "RAW_CLI_READY", check.expectedHex);
       }
     },
     { environment: { IORI_TEST_STALL_MS: String(STALL_MS) } },
@@ -1023,35 +1064,30 @@ test("checkMinutesがあると作業中の子へ間隔ごとに知らせ、報�
       // Windowsでは到着時刻が同じ見回りに揃わないと考えられるため、OS非依存のまとめをLinuxで確かめる。
       if (process.platform === "linux") {
         stage("同時に間隔に達した複数の子は1行にまとめて知らせる");
+        await restarted.request("teams.save", {
+          teamId: created.saved.id,
+          definition: { ...readAfterRestart.saved, checkMinutes: undefined },
+        });
         const first = await delegateChild(parent, restarted, events, "del-f", {
           title: "First",
-          body: "BEHAVIOR_PASSIVE",
+          body: "BEHAVIOR_WORKING_HEARTBEAT",
         });
-        await first.terminal.output("WATCH_PASSIVE");
+        await first.terminal.output("WATCH_WORKING");
         const firstControl = await extractControlFile(first.terminal);
 
         const second = await delegateChild(parent, restarted, events, "del-s", {
           title: "Second",
-          body: "BEHAVIOR_PASSIVE",
+          body: "BEHAVIOR_WORKING_HEARTBEAT",
         });
-        await second.terminal.output("WATCH_PASSIVE");
+        await second.terminal.output("WATCH_WORKING");
         const secondControl = await extractControlFile(second.terminal);
 
-        await appendFile(firstControl, "BEHAVIOR_WORKING_HEARTBEAT\n");
-        await first.terminal.output("WATCH_WORKING");
-        await appendFile(secondControl, "BEHAVIOR_WORKING_HEARTBEAT\n");
-        await second.terminal.output("WATCH_WORKING");
-
-        // Anchor both baselines mid-poll interval via ask so both reach 15m in the same tick.
-        await new Promise((resolve) => setTimeout(resolve, 200));
-        await Promise.all([
-          appendFile(firstControl, "ASK_PARENT\n"),
-          appendFile(secondControl, "ASK_PARENT\n"),
-        ]);
-        await Promise.all([
-          first.terminal.output("WATCH_CMD:"),
-          second.terminal.output("WATCH_CMD:"),
-        ]);
+        // 両方が15mを超えた後にcheckMinutesを有効化し、300ms見回り境界の位相ずれを防いで同時達成を確かめる。
+        await new Promise((resolve) => setTimeout(resolve, 1300));
+        await restarted.request("teams.save", {
+          teamId: created.saved.id,
+          definition: { ...readAfterRestart.saved, checkMinutes: 15 },
+        });
         const combinedCheck = `NOTICE_RECEIVED:[iori] Worker "First" has been working for 15m. Read its screen with iori screen ${first.childId}; Worker "Second" has been working for 15m. Read its screen with iori screen ${second.childId}. If one repeats itself or works off task, act; otherwise do nothing.`;
         await parent.output(combinedCheck);
         await appendFile(firstControl, "STOP_HEARTBEAT\nHOOK_STOP\n");

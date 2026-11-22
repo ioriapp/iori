@@ -893,10 +893,7 @@ function FilesWorkspace({
                         aria-selected={isSelected}
                         tabIndex={index === focusableTabIndex ? 0 : -1}
                         data-iori-tab={path}
-                        className={cn(
-                          "flex h-full min-w-0 flex-1 cursor-pointer items-center gap-1.5 pr-1 pl-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset",
-                          isSelected ? "font-semibold" : "font-medium",
-                        )}
+                        className="flex h-full min-w-0 flex-1 cursor-pointer items-center gap-1.5 pr-1 pl-2 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset"
                         onClick={() => selectTab(path)}
                         onKeyDown={(event) => {
                           const count = view.tabs.length;

@@ -38,7 +38,7 @@ pub async fn identity(
         Zeroizing::new(item.get_secret().await.map_err(keyring_error)?)
     } else {
         // A missing key with saved data is not a fresh installation.
-        if data.join(super::DATABASE_FILE).exists() {
+        if data.join(super::storage::DATABASE_FILE).exists() {
             return Err(KEYRING_READ_ERROR.into());
         }
         let mut bytes = Zeroizing::new(Vec::with_capacity(64));

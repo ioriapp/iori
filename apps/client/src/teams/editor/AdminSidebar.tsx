@@ -115,9 +115,9 @@ function TeamRoleRow({
         data-iori-role-id={role.id}
         onClick={onOpen}
         className={cn(
-          "flex min-h-8 min-w-0 flex-1 cursor-pointer items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs font-medium transition-colors max-md:min-h-11 max-md:text-sm",
+          "relative flex min-h-8 min-w-0 flex-1 cursor-pointer items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs font-medium transition-colors max-md:min-h-11 max-md:text-sm",
           selected
-            ? "md:rounded-l-none md:border-l-2 md:border-l-primary md:bg-sidebar-accent md:font-semibold md:text-foreground"
+            ? "md:rounded-l-none md:bg-sidebar-accent md:text-foreground md:before:pointer-events-none md:before:absolute md:before:inset-y-0 md:before:left-0 md:before:w-0.5 md:before:bg-primary"
             : "text-sidebar-foreground/85 hover:bg-sidebar-accent/70 hover:text-foreground",
         )}
       >
@@ -178,9 +178,9 @@ export function AdminSidebar({
 
   const navItemClass = (active: boolean) =>
     cn(
-      "flex min-h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs font-medium transition-colors max-md:min-h-11 max-md:text-sm",
+      "relative flex min-h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs font-medium transition-colors max-md:min-h-11 max-md:text-sm",
       active
-        ? "md:rounded-l-none md:border-l-2 md:border-l-primary md:bg-sidebar-accent md:font-semibold md:text-foreground"
+        ? "md:rounded-l-none md:bg-sidebar-accent md:text-foreground md:before:pointer-events-none md:before:absolute md:before:inset-y-0 md:before:left-0 md:before:w-0.5 md:before:bg-primary"
         : "text-sidebar-foreground/85 hover:bg-sidebar-accent/70 hover:text-foreground",
     );
 

@@ -20,7 +20,7 @@ export interface GitProcess {
 }
 
 /**
- * Runs the user's Git without a shell, pager, external diff or textconv.
+ * Runs the user's Git without a shell, pager or filesystem monitor.
  * Pathspecs are literal so a file name is never read as a pattern.
  */
 export function startGit(
@@ -37,6 +37,8 @@ export function startGit(
     [
       "--no-pager",
       "--no-optional-locks",
+      "-c",
+      "core.fsmonitor=false",
       ...(literalPathspecs ? ["--literal-pathspecs"] : []),
       ...args,
     ],

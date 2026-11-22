@@ -16,7 +16,7 @@ Releaseの配布物・バージョンと公開方針を変える時に読む。�
 | `release.json`、`release.json.sig`                        | バージョン、commit、各配布物の名前・サイズ・SHA-256と、`release.json`の元のbyte列へのEd25519署名   |
 | `updater.json`と各Client配布物の `.sig`                   | Tauri updater用のバージョン・Windowsのインストーラーと形式ごとのLinux配布物のURL・署名             |
 
-Release情報、Tauri updater、APK、Windowsのコード署名は別の鍵である。updaterの公開鍵はClientの `tauri.conf.json` に埋め込む。Release情報の署名の公開鍵の正本は [release-public-key.txt](../../release-public-key.txt)。Android Clientはこの署名を自己更新の時に確かめる。人がコマンドで実行する導入スクリプトはHTTPSの取得に任せ、署名を確かめない。ClientからのSSH導入では、ClientがRelease情報の署名を確かめ、そのSHA-256を同梱の導入スクリプトへ渡して接続先の取得物を確かめる。Windowsのコード署名は[公開の準備](#公開の準備)に従う。
+Release情報、Tauri updater、APK、Windowsのコード署名は別の鍵である。updaterの公開鍵はClientの `tauri.conf.json` に埋め込む。Release情報の署名の公開鍵の正本は [release-public-key.txt](../../release-public-key.txt)。Android Clientはこの署名を自己更新の時に確かめる。人がコマンドで実行する導入スクリプト（`install.sh`・`install.ps1`）もRelease情報のEd25519署名と配布物のサイズ・SHA-256を確かめてから展開する（LinuxはOpenSSLを使う）。ClientからのSSH導入では、ClientがRelease情報の署名を確かめ、そのSHA-256を同梱の導入スクリプトへ渡して接続先の取得物を確かめる。Windowsのコード署名は[公開の準備](#公開の準備)に従う。
 
 ## バージョン
 
@@ -24,7 +24,7 @@ Release情報、Tauri updater、APK、Windowsのコード署名は別の鍵で�
 
 ## 届けることと戻すこと
 
-Windows ClientはReleaseから前のインストーラーを入れ直して戻せる。Android Clientは小さい`versionCode`のAPKへ戻せないため、より新しいバージョンの修正版を出す。Hostはバージョンを指定して同じコマンドを実行すると前のバージョンへ戻せる。ClientからのHostの更新で新しいバージョンが起動できなかった時は、[ClientからのHostの更新](host-update.md#進行と結果)のとおり前のバージョンと保存データへ自動で戻す。それ以外に戻すための専用の仕組みは作らない。
+Windows ClientはReleaseから前のインストーラーを入れ直して戻せる。Android Clientは小さい`versionCode`のAPKへ戻せないため、より新しいバージョンの修正版を出す。Hostはバージョンを指定して同じコマンドを実行すると前のバージョンへ戻せる。ClientからのHostの更新で新しいバージョンが起動できなかった時は、[ClientからのHostの更新](host-update.md#進行と結果)のとおり前のバージョンと保存データへ自動で戻す。導入スクリプト（`install.sh`・`install-bundle.ps1`）による手動更新でも、新しいHostの起動に失敗した時は前のバージョンへ戻して再起動を試みる。それ以外に戻すための専用の仕組みは作らない。
 
 ## 公開の準備
 

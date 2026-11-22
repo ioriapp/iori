@@ -1,3 +1,15 @@
+import * as v from "valibot";
+import {
+  decoded,
+  method,
+  emptyParams,
+  hostResult,
+  type Params,
+  type Results,
+  hasMethod,
+  paramsOf,
+  type ResultSchemas,
+} from "./primitives.ts";
 /** Why a Forge could not be read (forge.md「失敗の示し方」). */
 export type ForgeFailureReason =
   | "token-missing"
@@ -41,39 +53,6 @@ export interface ForgeSites {
   sites: ForgeSite[];
 }
 
-export interface ForgeIntegrationParams {
-  "forge.sites": Record<string, never>;
-  "forge.token.set": { origin: string; token: string };
-  "forge.token.remove": { origin: string };
-  "forge.site.check": { origin: string };
-}
-export interface ForgeIntegrationResults {
-  "forge.sites": ForgeSites;
-  "forge.token.set":
-    | { site: ForgeSite }
-    | { rejected: "not-forge" | "token-invalid" | "unreachable" };
-  "forge.token.remove": { origin: string };
-  "forge.site.check": { site: ForgeSite };
-}
-export type ForgeIntegrationMethod = keyof ForgeIntegrationParams;
-const methods: ForgeIntegrationMethod[] = [
-  "forge.sites",
-  "forge.token.set",
-  "forge.token.remove",
-  "forge.site.check",
-];
-export function isForgeIntegrationMethod(
-  value: unknown,
-): value is ForgeIntegrationMethod {
-  return methods.includes(value as ForgeIntegrationMethod);
-}
-
-function object(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value))
-    throw new Error("Expected an object");
-  return value as Record<string, unknown>;
-}
-
 /**
  * Only the origin of an http(s) URL; credentials and paths are dropped. A
  * host name without a scheme means https, as in a browser's address bar.
@@ -100,26 +79,43 @@ export function forgeToken(value: unknown): string {
   return token;
 }
 
+const origin = decoded(forgeSiteOrigin);
+export const forgeIntegrationMethods = {
+  "forge.sites": method(emptyParams, hostResult<ForgeSites>()),
+  "forge.token.set": method(
+    v.object({ origin, token: decoded(forgeToken) }),
+    hostResult<
+      | { site: ForgeSite }
+      | { rejected: "not-forge" | "token-invalid" | "unreachable" }
+    >(),
+  ),
+  "forge.token.remove": method(
+    v.object({ origin }),
+    hostResult<{ origin: string }>(),
+  ),
+  "forge.site.check": method(
+    v.object({ origin }),
+    hostResult<{ site: ForgeSite }>(),
+  ),
+};
+
+export type ForgeIntegrationMethod = keyof typeof forgeIntegrationMethods;
+export type ForgeIntegrationParams = Params<typeof forgeIntegrationMethods>;
+export type ForgeIntegrationResults = Results<typeof forgeIntegrationMethods>;
+export function isForgeIntegrationMethod(
+  value: unknown,
+): value is ForgeIntegrationMethod {
+  return hasMethod(forgeIntegrationMethods, value);
+}
 export function parseForgeIntegrationParams<M extends ForgeIntegrationMethod>(
-  method: M,
+  key: M,
   value: unknown,
 ): ForgeIntegrationParams[M] {
-  const input = object(value);
-  if (method === "forge.sites") return {} as ForgeIntegrationParams[M];
-  const origin = forgeSiteOrigin(input.origin);
-  if (method === "forge.token.set")
-    return {
-      origin,
-      token: forgeToken(input.token),
-    } as ForgeIntegrationParams[M];
-  return { origin } as ForgeIntegrationParams[M];
+  return paramsOf<ForgeIntegrationParams, M>(
+    forgeIntegrationMethods,
+    key,
+    value,
+  );
 }
-
-// Responses are iori's own values; only requests cross a trust boundary.
-export const forgeIntegrationResultSchemas = Object.fromEntries(
-  methods.map((method) => [method, { parse: (value: unknown) => value }]),
-) as {
-  [M in ForgeIntegrationMethod]: {
-    parse: (value: unknown) => ForgeIntegrationResults[M];
-  };
-};
+export const forgeIntegrationResultSchemas: ResultSchemas<ForgeIntegrationResults> =
+  forgeIntegrationMethods;

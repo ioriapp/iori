@@ -89,6 +89,8 @@ const launchItems = [
   "initialPrompt",
 ] as const;
 export type LaunchItem = (typeof launchItems)[number];
+const interruptModes = ["esc", "ctrl-c", "double-esc", "separate-esc"] as const;
+export type InterruptMode = (typeof interruptModes)[number];
 /** The arguments of `command` that list models, or a command line of its
  * own when `command` is one (`shell`). */
 type ModelList = { list: string[] } | { shell: string };
@@ -125,6 +127,7 @@ export interface DefinitionFile {
     initialPrompt?:
       | { mode: "argument"; args: string[] }
       | { mode: "paste"; readyWhen?: "osc7501-idle" };
+    interrupt?: InterruptMode;
     managedArguments: ManagedTeamArgument[];
   };
   resume?: string[];
@@ -545,6 +548,13 @@ function models(value: unknown): DefinitionFile["models"] {
 }
 function launch(value: unknown): DefinitionFile["launch"] {
   const input = value === undefined ? {} : fields(value, "launch");
+  const interrupt = interruptModes.find((mode) => mode === input.interrupt);
+  if (input.interrupt !== undefined && interrupt === undefined)
+    fail({
+      kind: "values",
+      field: "launch.interrupt",
+      values: [...interruptModes],
+    });
   const optional = (key: string) =>
     input[key] === undefined
       ? {}
@@ -600,6 +610,7 @@ function launch(value: unknown): DefinitionFile["launch"] {
     ...optional("instructionFile"),
     ...optional("directories"),
     ...(initialPrompt ? { initialPrompt } : {}),
+    ...(interrupt === undefined ? {} : { interrupt }),
     managedArguments:
       input.managedArguments === undefined
         ? []

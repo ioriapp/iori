@@ -6,6 +6,7 @@
   "icon": { "light": "cursor-light.png", "dark": "cursor-dark.png" },
   "version": { "args": ["--version"] },
   "launch": {
+    "interrupt": "ctrl-c",
     "model": ["--model", "{model}"],
     "permissions": {
       "plan": ["--mode", "plan"],

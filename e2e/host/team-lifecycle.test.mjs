@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { once } from "node:events";
+import { createServer } from "node:net";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -249,6 +251,63 @@ test("別のリポジトリへの委譲は指定先にworktreeを作る", (t) =>
     assert.equal(resolve(main), join(repositories[1], ".git"));
   }));
 
+test("子のworktree作成中にも別の子が親のフォルダーで起動する", (t) =>
+  runHostTest(t, async ({ client, dataRoot, stage }) => {
+    await linkGit(join(dataRoot, "bin"));
+    const repo = join(dataRoot, "repo");
+    await mkdir(repo);
+    const git = (...args) =>
+      execFileSync("git", ["-C", repo, ...args], { stdio: "pipe" });
+    git("init", "-b", "main");
+    git(
+      "-c",
+      "user.name=Worktree E2E",
+      "-c",
+      "user.email=worktree@localhost",
+      "commit",
+      "--allow-empty",
+      "-m",
+      "initial",
+    );
+    const context = await setup(client, dataRoot, ["report-later"], "", repo);
+    const server = createServer();
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    try {
+      await writeFile(
+        join(repo, ".git", "hooks", "post-checkout"),
+        `#!${process.execPath}
+require("node:net").connect(${server.address().port}, "127.0.0.1").resume();
+`,
+        { mode: 0o755 },
+      );
+      const connected = once(server, "connection", { signal: t.signal });
+      const slow = await delegate(
+        context,
+        "slow",
+        "Check the worktree.",
+        "new",
+      );
+      const [socket] = await connected;
+      t.signal.addEventListener("abort", () => socket.destroy(), {
+        once: true,
+      });
+      try {
+        stage("Git のフックが終了する前に別の子が最初の依頼を受け取る");
+        const fast = await delegate(context, "fast");
+        const child = await childTerminal(client, context, fast.child);
+        await child.output("LIFECYCLE_WORKING");
+      } finally {
+        socket.end();
+      }
+      await (
+        await childTerminal(client, context, slow.child)
+      ).output("LIFECYCLE_WORKING");
+    } finally {
+      server.close();
+    }
+  }));
+
 test("存在しないworktree名での委譲は使えるフォルダー名を示す", (t) =>
   runHostTest(t, async ({ client, dataRoot }) => {
     await linkGit(join(dataRoot, "bin"));
@@ -293,7 +352,12 @@ test("存在しないworktree名での委譲は使えるフォルダー名を示
     ]);
     assert.match(JSON.stringify({ failed, tasksResult }), /wt-alpha/);
   }));
-async function delegate(context, id, body = "Do the work.") {
+async function delegate(
+  context,
+  id,
+  body = "Do the work.",
+  worktree = "parent",
+) {
   const result = await actorCommand(context.parent, id, [
     "delegate",
     "--role",
@@ -303,7 +367,7 @@ async function delegate(context, id, body = "Do the work.") {
     "--title",
     id,
     "--worktree",
-    "parent",
+    worktree,
     "--body",
     body,
   ]);
@@ -337,6 +401,25 @@ test("指示ファイルの引数の無い CLI の子は、最初の文で指示
     assert.ok(match, `子の最初の文: ${initial}`);
     assert.match(await readFile(match[1], "utf8"), /iori report/u);
     assert.match(await readFile(match[2], "utf8"), /Do the delegated work\./u);
+  }));
+
+test("親の停止で上限待ちの子から待機情報が消える", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    const context = await setup(client, dataRoot, ["report-later"], "1");
+    const first = await delegate(context, "first", "AUTO_REPORT_COMPLETED");
+    const child = await childTerminal(client, context, first.child);
+    await child.output("LIFECYCLE_WORKING");
+    const queued = await delegate(context, "queued");
+    assert.equal(queued.waiting, "capacity");
+    await actorCommand(context.parent, "stop", ["stop", queued.child]);
+    const tasks = await actorCommand(context.parent, "tasks", ["tasks"]);
+    const stopped = tasks.data.children.find(
+      (entry) => entry.child === queued.child,
+    );
+    assert.equal(stopped.state, "stopped");
+    assert.equal(stopped.stoppedBy, "parent");
+    assert.equal(stopped.waiting, undefined);
+    assert.equal(stopped.waitingReasons, undefined);
   }));
 
 test("親が終了すると上限待ちを取り消し、動いている子は続く", (t) =>

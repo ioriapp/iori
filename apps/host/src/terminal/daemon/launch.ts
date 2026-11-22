@@ -16,12 +16,7 @@ import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { DaemonChannel } from "./channel.ts";
-import {
-  DAEMON_PROTOCOL,
-  type DaemonDescriptor,
-  type DaemonHello,
-} from "./protocol.ts";
-import type { PtyScreen } from "./protocol.ts";
+import { DAEMON_PROTOCOL, type DaemonDescriptor } from "./protocol.ts";
 import terminalNative from "@iori/terminal-native";
 
 const run = promisify(execFile);
@@ -192,7 +187,7 @@ async function connectDaemon(descriptor: DaemonDescriptor) {
   });
   const channel = new DaemonChannel(socket);
   try {
-    const hello = await channel.call<DaemonHello>("hello", descriptor.token);
+    const hello = await channel.call("hello", descriptor.token);
     return { channel, hello };
   } catch (error) {
     channel.close();
@@ -225,41 +220,29 @@ export async function terminalDaemonCanContinue(
 
 async function shutdownTerminalDaemon(
   live: Awaited<ReturnType<typeof connectDaemon>>,
-): Promise<PtyScreen[] | undefined> {
+): Promise<unknown> {
   const pid = live.hello.pid;
   const identity = await captureDaemonProcessIdentity(pid);
-  let result: PtyScreen[] | undefined;
+  let result: unknown;
   try {
-    // Protocols 4–13 share this PTY transport. Earlier daemons expose a
-    // different attach result; later ones already resume output when stopping.
-    if (live.hello.version >= 4 && live.hello.version <= 13) {
-      live.channel.handle = async (method) => {
-        if (method === "data") return;
-        throw new Error("Terminal daemon is stopping");
-      };
-      const sessions = await live.channel.call<PtyScreen[]>("attach");
-      await live.channel.call("activate");
-      // Keep acknowledging output until every PTY exits. On Windows a paused
-      // output socket cannot close, so shutdown's own snapshot would deadlock.
-      await Promise.all(
-        sessions.map((session) => live.channel.call("kill", session.id)),
-      );
-      await live.channel.call("shutdown");
-      result = sessions;
-    } else {
-      result = await live.channel.call<PtyScreen[] | undefined>("shutdown");
+    // Protocols <=13 deadlock on Windows shutdown while PTY output is paused;
+    // terminate those legacy daemons directly and recover from SQLite.
+    if (live.hello.version > 13) {
+      result = await live.channel.call("shutdown");
     }
   } finally {
     live.channel.close();
   }
-  await waitForDaemonExit(pid, identity);
+  await waitForDaemonExit(
+    pid,
+    identity,
+    live.hello.version <= 13 ? 0 : DAEMON_SHUTDOWN_WAIT_MS,
+  );
   return result;
 }
 
 /** Explicit stop for incompatible runtimes, uninstall and owned verification cleanup. */
-export async function stopTerminalDaemon(
-  root: string,
-): Promise<PtyScreen[] | undefined> {
+export async function stopTerminalDaemon(root: string): Promise<unknown> {
   const live = await existing(root);
   if (!live) return undefined;
   return shutdownTerminalDaemon(live);
@@ -290,15 +273,10 @@ async function materialize(root: string) {
   // Live node/native libraries never reference the install directory being replaced.
   const files = JSON.parse(
     await readFile(join(bundle, "terminal-daemon-files.json"), "utf8"),
-  ) as { sources: string[]; packages: string[] };
-  for (const name of [
-    "runtime",
-    "package.json",
-    ...files.sources,
-    ...files.packages.map((name) => `node_modules/${name}`),
-  ]) {
+  ) as string[];
+  for (const name of files) {
     await mkdir(dirname(join(destination, name)), { recursive: true });
-    await cp(join(bundle, name), join(destination, name), { recursive: true });
+    await cp(join(bundle, name), join(destination, name));
   }
   return {
     executable: join(

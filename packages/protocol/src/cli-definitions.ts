@@ -1,3 +1,16 @@
+import * as v from "valibot";
+import {
+  schema,
+  method,
+  hostResult,
+  chunkBase64,
+  integer,
+  type Params,
+  type Results,
+  hasMethod,
+  paramsOf,
+  type ResultSchemas,
+} from "./primitives.ts";
 /** The features in a CLI's support table (cli-definitions.md「行を開いた詳細」). */
 export const CLI_FEATURES = [
   "state",
@@ -12,18 +25,6 @@ export type CliSupport = "available" | "unavailable" | "undefined";
 /** Where the definition in use comes from. `override` is a user's
  * definition that replaces a bundled one with the same `id`. */
 export type CliDefinitionSource = "official" | "bundled" | "user" | "override";
-/** A definition made from the name and launch command fields. */
-export interface CliSimpleDefinition {
-  name: string;
-  /** Read by the shell, as a command the user writes. */
-  command: string;
-  /** Words with `{model}`, such as `--model {model}`. */
-  modelArgument: string;
-  /** A command whose output lists one model per line. */
-  modelCommand?: string;
-  /** Models entered by hand, without a command. */
-  models?: string[];
-}
 /** Why a definition is not read, worded by the Client in its language. */
 export type CliDefinitionReason =
   | { kind: "json"; line?: number; column?: number }
@@ -65,189 +66,105 @@ export interface CliDefinitionSummary {
   requiresConfirmation: boolean;
 }
 
-export interface CliDefinitionAttachment {
-  name: string;
-  uploadId: string;
-}
-export interface CliDefinitionParams {
-  "cli.definition.file.read": { cliId: string; name: string };
-  "cli.definition.file.write": {
-    uploadId: string;
-    data: string;
-    first: boolean;
-  };
-  "cli.definition.files.discard": { uploadIds: string[] };
-  "cli.icon.read": { hash: string; offset: number };
-  "cli.icon.set": {
-    cliId: string;
-    image?: CliDefinitionAttachment;
-  };
-  /** `cliId` is the definition being edited; without it the definition's
-   * own `id` is added. */
-  "cli.definition.check": {
-    definition: string;
-    cliId?: string;
-    files?: CliDefinitionAttachment[];
-  };
-  "cli.definition.save": {
-    definition: string;
-    cliId?: string;
-    files?: CliDefinitionAttachment[];
-  };
-  "cli.definition.simple": { simple: CliSimpleDefinition; cliId?: string };
-  "cli.definition.remove": { cliId: string };
-}
-export interface CliDefinitionResults {
-  "cli.definition.file.read": { text: string } | { unsupported: true };
-  "cli.definition.file.write": { uploadId: string };
-  "cli.definition.files.discard": Record<string, never>;
-  "cli.icon.read": {
-    bytesBase64: string;
-    nextOffset: number;
-    eof: boolean;
-    mimeType: string;
-  };
-  "cli.icon.set": { cliId: string } | { invalidImage: true };
-  "cli.definition.check":
-    | { reason: CliDefinitionReason }
-    | { missing: string[] }
-    | { summary: CliDefinitionSummary };
-  "cli.definition.save":
-    { reason: CliDefinitionReason } | { missing: string[] } | { cliId: string };
-  /** An existing id needs confirmation before saving this JSON. */
-  "cli.definition.simple": { replacement: string } | { cliId: string };
-  "cli.definition.remove": { cliId: string };
-}
-export type CliDefinitionMethod = keyof CliDefinitionParams;
-const methods: CliDefinitionMethod[] = [
-  "cli.definition.file.read",
-  "cli.definition.file.write",
-  "cli.definition.files.discard",
-  "cli.icon.read",
-  "cli.icon.set",
-  "cli.definition.check",
-  "cli.definition.save",
-  "cli.definition.simple",
-  "cli.definition.remove",
-];
+const singleLine = v.pipe(
+  v.string(),
+  v.trim(),
+  v.check((text) => !/[\u0000-\u001f\u007f]/u.test(text)),
+);
+const cliId = v.pipe(singleLine, v.nonEmpty());
+/** A definition made from the name and launch command fields. */
+const simple = v.pipe(
+  v.object({
+    name: cliId,
+    command: cliId,
+    modelArgument: singleLine,
+    modelCommand: v.optional(singleLine),
+    models: v.optional(v.array(cliId)),
+  }),
+  v.transform(({ modelCommand, ...fields }) => ({
+    ...fields,
+    ...(modelCommand ? { modelCommand } : {}),
+  })),
+);
+export type CliSimpleDefinition = v.InferOutput<typeof simple>;
+export const parseCliSimpleDefinition = schema(simple).parse;
+const uploadId = v.pipe(v.string(), v.regex(/^[a-f0-9-]{36}$/u));
+const attachment = v.object({ name: cliId, uploadId });
+export type CliDefinitionAttachment = v.InferOutput<typeof attachment>;
+const saveDefinition = v.object({
+  definition: v.string(),
+  files: v.optional(v.array(attachment)),
+  cliId: v.optional(cliId),
+});
+
+export const cliDefinitionMethods = {
+  "cli.definition.file.read": method(
+    v.object({ cliId, name: v.string() }),
+    hostResult<{ text: string } | { unsupported: true }>(),
+  ),
+  "cli.definition.file.write": method(
+    v.object({ uploadId, data: chunkBase64, first: v.boolean() }),
+    hostResult<{ uploadId: string }>(),
+  ),
+  "cli.definition.files.discard": method(
+    v.object({ uploadIds: v.array(uploadId) }),
+    hostResult<Record<string, never>>(),
+  ),
+  "cli.icon.read": method(
+    v.object({
+      hash: v.pipe(v.string(), v.regex(/^[a-f0-9]{64}$/u)),
+      offset: integer(0),
+    }),
+    hostResult<{
+      bytesBase64: string;
+      nextOffset: number;
+      eof: boolean;
+      mimeType: string;
+    }>(),
+  ),
+  "cli.icon.set": method(
+    v.object({ cliId, image: v.optional(attachment) }),
+    hostResult<{ cliId: string } | { invalidImage: true }>(),
+  ),
+  "cli.definition.check": method(
+    saveDefinition,
+    hostResult<
+      | { reason: CliDefinitionReason }
+      | { missing: string[] }
+      | { summary: CliDefinitionSummary }
+    >(),
+  ),
+  "cli.definition.save": method(
+    saveDefinition,
+    hostResult<
+      | { reason: CliDefinitionReason }
+      | { missing: string[] }
+      | { cliId: string }
+    >(),
+  ),
+  "cli.definition.simple": method(
+    v.object({ simple, cliId: v.optional(cliId) }),
+    hostResult<{ replacement: string } | { cliId: string }>(),
+  ),
+  "cli.definition.remove": method(
+    v.object({ cliId }),
+    hostResult<{ cliId: string }>(),
+  ),
+};
+
+export type CliDefinitionMethod = keyof typeof cliDefinitionMethods;
+export type CliDefinitionParams = Params<typeof cliDefinitionMethods>;
+export type CliDefinitionResults = Results<typeof cliDefinitionMethods>;
 export function isCliDefinitionMethod(
   value: unknown,
 ): value is CliDefinitionMethod {
-  return methods.includes(value as CliDefinitionMethod);
-}
-function object(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value))
-    throw new Error("Expected an object");
-  return value as Record<string, unknown>;
-}
-function text(value: unknown): string {
-  if (typeof value !== "string") throw new Error("Expected text");
-  return value;
-}
-/** One line without control characters, as names and commands are typed. */
-function line(value: unknown): string {
-  const result = text(value).trim();
-  if (!result || /[\u0000-\u001f\u007f]/u.test(result))
-    throw new Error("Expected one line");
-  return result;
-}
-function cliId(value: unknown): string | undefined {
-  return value === undefined ? undefined : line(value);
-}
-export function parseCliSimpleDefinition(value: unknown): CliSimpleDefinition {
-  const input = object(value);
-  if (input.models !== undefined && !Array.isArray(input.models))
-    throw new Error("Expected models");
-  return {
-    name: line(input.name),
-    command: line(input.command),
-    modelArgument: text(input.modelArgument).trim()
-      ? line(input.modelArgument)
-      : "",
-    ...(input.modelCommand === undefined || !text(input.modelCommand).trim()
-      ? {}
-      : { modelCommand: line(input.modelCommand) }),
-    ...(Array.isArray(input.models) ? { models: input.models.map(line) } : {}),
-  };
-}
-function uploadId(value: unknown): string {
-  const id = text(value);
-  if (!/^[a-f0-9-]{36}$/u.test(id)) throw new Error("Invalid upload id");
-  return id;
+  return hasMethod(cliDefinitionMethods, value);
 }
 export function parseCliDefinitionParams<M extends CliDefinitionMethod>(
-  method: M,
+  key: M,
   value: unknown,
 ): CliDefinitionParams[M] {
-  const v = object(value);
-  const attachment = (input: unknown): CliDefinitionAttachment => {
-    const item = object(input);
-    return { name: line(item.name), uploadId: uploadId(item.uploadId) };
-  };
-  if (method === "cli.definition.file.write") {
-    if (
-      typeof v.first !== "boolean" ||
-      !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(
-        text(v.data),
-      )
-    )
-      throw new Error("Invalid file chunk");
-    return {
-      uploadId: uploadId(v.uploadId),
-      data: v.data,
-      first: v.first,
-    } as CliDefinitionParams[M];
-  }
-  if (method === "cli.definition.files.discard") {
-    if (!Array.isArray(v.uploadIds)) throw new Error("Expected uploads");
-    return { uploadIds: v.uploadIds.map(uploadId) } as CliDefinitionParams[M];
-  }
-  if (method === "cli.icon.read") {
-    if (
-      !/^[a-f0-9]{64}$/u.test(text(v.hash)) ||
-      !Number.isSafeInteger(v.offset) ||
-      (v.offset as number) < 0
-    )
-      throw new Error("Invalid image read");
-    return { hash: v.hash, offset: v.offset } as CliDefinitionParams[M];
-  }
-  const id = cliId(v.cliId);
-  if (method === "cli.definition.file.read")
-    return {
-      cliId: line(v.cliId),
-      name: text(v.name),
-    } as CliDefinitionParams[M];
-  if (method === "cli.icon.set") {
-    return {
-      cliId: line(v.cliId),
-      ...(v.image === undefined ? {} : { image: attachment(v.image) }),
-    } as CliDefinitionParams[M];
-  }
-  if (method === "cli.definition.remove")
-    return { cliId: line(v.cliId) } as CliDefinitionParams[M];
-  if (method === "cli.definition.simple")
-    return {
-      simple: parseCliSimpleDefinition(v.simple),
-      ...(id ? { cliId: id } : {}),
-    } as CliDefinitionParams[M];
-  return {
-    definition: text(v.definition),
-    ...(v.files === undefined
-      ? {}
-      : {
-          files: Array.isArray(v.files)
-            ? v.files.map(attachment)
-            : (() => {
-                throw new Error("Expected files");
-              })(),
-        }),
-    ...(id ? { cliId: id } : {}),
-  } as CliDefinitionParams[M];
+  return paramsOf<CliDefinitionParams, M>(cliDefinitionMethods, key, value);
 }
-export const cliDefinitionResultSchemas = Object.fromEntries(
-  methods.map((method) => [method, { parse: (value: unknown) => value }]),
-) as {
-  [M in CliDefinitionMethod]: {
-    parse: (value: unknown) => CliDefinitionResults[M];
-  };
-};
+export const cliDefinitionResultSchemas: ResultSchemas<CliDefinitionResults> =
+  cliDefinitionMethods;

@@ -47,6 +47,7 @@ import {
   MIME_BY_EXTENSION,
 } from "./files-reading.ts";
 import type { Repository } from "./git-reading.ts";
+import { createConcurrencyLimiter } from "./resource-limits.ts";
 
 type Signal = AbortSignal | undefined;
 type LineState = { old: number; new: number };
@@ -88,6 +89,8 @@ type DiffDocument = {
   revision: string;
   file?: string;
   size: number;
+  scratchBytes: number;
+  readers: number;
   /** Lines in the row file. */
   lines: number;
   /** Rows of the whole diff, gaps included. */
@@ -111,6 +114,8 @@ const MIN_COLLAPSED_ROWS = 3;
 const MAX_COLLAPSED_RUNS = 16_384;
 // Recent diffs kept on disk for scrolling and searching; older ones are deleted.
 const MAX_DOCUMENTS = 16;
+const MAX_SCRATCH_BYTES = 64 * 1024 * 1024;
+const runDiff = createConcurrencyLimiter(4);
 const WRITE_BUFFER_BYTES = 256 * 1024;
 const BINARY_PROBE_BYTES = 8000;
 const LINK_MODES = new Set(["120000", "160000"]);
@@ -121,10 +126,13 @@ const MARK_DELETED = 0x2d;
 const MARK_NOTE = 0x5c;
 
 let cacheDirectory: Promise<string> | undefined;
-const documents = new Map<string, DiffDocument>();
-const pending = new Map<string, Promise<DiffDocument>>();
-const started = new Map<string, number>();
-let generations = 0;
+type CachedDiff = {
+  document?: DiffDocument;
+  pending?: Promise<DiffDocument>;
+  lookups: number;
+  replaced: Set<DiffDocument>;
+};
+const documents = new Map<string, CachedDiff>();
 
 /** Clears the Host's previous diff files and keeps new ones under `directory`. */
 export async function configureDiffCache(directory: string): Promise<void> {
@@ -335,10 +343,11 @@ async function writeBlob(
   spec: string,
   file: string,
   signal?: Signal,
-): Promise<LineIndex> {
+): Promise<{ index: LineIndex; size: number }> {
   const output = await open(file, "w+", 0o600);
-  const git = startGit(repository.root, ["cat-file", "blob", spec], signal);
+  let git: ReturnType<typeof startGit> | undefined;
   try {
+    git = startGit(repository.root, ["cat-file", "blob", spec], signal);
     let size = 0;
     for await (const value of git.child.stdout) {
       throwIfAborted(signal);
@@ -347,10 +356,11 @@ async function writeBlob(
       size += chunk.length;
     }
     await finishGit(git, signal, [0]);
-    return await indexLines(output, size, signal);
+    return { index: await indexLines(output, size, signal), size };
   } catch (error) {
-    await stopGit(git);
-    await rm(file, { force: true }).catch(() => undefined);
+    if (git) await stopGit(git);
+    await output.close().catch(() => undefined);
+    await removeScratch(file);
     throw gitFailure(error);
   } finally {
     await output.close().catch(() => undefined);
@@ -384,17 +394,18 @@ async function newSideFor(
   return {
     lines,
     load: (requestSignal) => {
-      loaded ??= (async () => {
+      loaded ??= runDiff(async () => {
         const file = join(await directory(), `${document.revision}.new`);
-        document.newFile = file;
-        const index = await writeBlob(
+        const { index, size } = await writeBlob(
           repository,
           source.spec,
           file,
           requestSignal,
         );
+        document.newFile = file;
+        document.scratchBytes += size;
         return { file, index };
-      })().catch((error: unknown) => {
+      }, requestSignal).catch((error: unknown) => {
         loaded = undefined;
         throw error;
       });
@@ -412,6 +423,8 @@ async function generate(
   const document: DiffDocument = {
     revision: randomUUID(),
     size: 0,
+    scratchBytes: 0,
+    readers: 0,
     lines: 0,
     rows: 0,
     index: newLineIndex(256),
@@ -427,7 +440,7 @@ async function generate(
   }
   const file = join(await directory(), `${document.revision}.diff`);
   const output = await open(file, "w", 0o600);
-  const git = startGit(repository.root, command.args, signal);
+  let git: ReturnType<typeof startGit> | undefined;
   let buffered: Buffer[] = [];
   let bufferedBytes = 0;
   const write = async (bytes: Buffer) => {
@@ -522,6 +535,7 @@ async function generate(
   };
 
   try {
+    git = startGit(repository.root, command.args, signal);
     for await (const value of git.child.stdout) {
       throwIfAborted(signal);
       const chunk = value as Buffer;
@@ -571,6 +585,7 @@ async function generate(
       await output.write(Buffer.concat(buffered, bufferedBytes));
     document.index.lines = document.lines;
     document.file = file;
+    document.scratchBytes = document.size;
     if (document.info.binary) {
       document.rows = document.lines = document.index.lines = 0;
       document.parts = [];
@@ -600,67 +615,128 @@ async function generate(
     }
     return document;
   } catch (error) {
-    await stopGit(git);
-    await rm(file, { force: true }).catch(() => undefined);
+    if (git) await stopGit(git);
+    await output.close().catch(() => undefined);
+    await removeScratch(file);
     throw gitFailure(error);
   } finally {
     await output.close().catch(() => undefined);
   }
 }
 
-function release(document: DiffDocument | undefined): void {
-  if (document) {
-    for (const file of document.imageFiles?.values() ?? [])
-      void file
-        .then((path) => rm(path, { force: true }))
-        .catch(() => undefined);
+async function removeScratch(file: string): Promise<void> {
+  try {
+    await rm(file, { force: true });
+  } catch (error) {
+    console.error(
+      "Git diff scratch file could not be removed",
+      errorCode(error),
+    );
   }
-  for (const file of [document?.file, document?.newFile])
-    if (file) void rm(file, { force: true }).catch(() => undefined);
 }
 
-async function documentFor(
+async function release(document: DiffDocument): Promise<void> {
+  const images = await Promise.allSettled(document.imageFiles?.values() ?? []);
+  const files = [document.file, document.newFile];
+  for (const result of images)
+    if (result.status === "fulfilled") files.push(result.value);
+  await Promise.all(files.map((file) => file && removeScratch(file)));
+}
+
+async function trimDiffCache(): Promise<void> {
+  const cached = [...documents].filter(([, entry]) => entry.document);
+  let count = cached.length;
+  let bytes = cached.reduce(
+    (sum, [, entry]) => sum + entry.document!.scratchBytes,
+    0,
+  );
+  const evicted: DiffDocument[] = [];
+  for (const [key, entry] of cached) {
+    // Retain one recent diff so even a single file larger than the entire
+    // cache can keep its revision between requests for rows, search and copy.
+    if (
+      count <= MAX_DOCUMENTS &&
+      (bytes <= MAX_SCRATCH_BYTES || entry === cached.at(-1)?.[1])
+    )
+      break;
+    const document = entry.document!;
+    if (entry.lookups > 0 || document.readers > 0) continue;
+    documents.delete(key);
+    evicted.push(document);
+    count -= 1;
+    bytes -= document.scratchBytes;
+  }
+  await Promise.all(evicted.map(release));
+}
+
+function documentFor(
+  entry: CachedDiff,
   repository: Repository,
   source: GitDiffSource,
   refresh: boolean,
   signal?: Signal,
 ): Promise<DiffDocument> {
-  const key = JSON.stringify([repository.root, source]);
   if (!refresh) {
-    const cached = documents.get(key);
-    if (cached) {
-      documents.delete(key);
-      documents.set(key, cached);
-      return cached;
-    }
-    const inFlight = pending.get(key);
-    if (inFlight) return inFlight;
+    if (entry.document) return Promise.resolve(entry.document);
+    if (entry.pending) return entry.pending;
   }
-  const order = ++generations;
-  started.set(key, order);
-  const generation = generate(repository, source, signal).then((document) => {
-    // A newer refresh of the same diff wins even if this one finishes later.
-    if (started.get(key) !== order) {
-      release(document);
-      return documentFor(repository, source, false, signal);
-    }
-    const previous = documents.get(key);
-    documents.delete(key);
-    if (previous !== document) release(previous);
-    documents.set(key, document);
-    while (documents.size > MAX_DOCUMENTS) {
-      const oldest = documents.keys().next().value!;
-      release(documents.get(oldest));
-      documents.delete(oldest);
-      started.delete(oldest);
-    }
-    return document;
-  });
-  pending.set(key, generation);
+  const generation: Promise<DiffDocument> = runDiff(
+    () => generate(repository, source, signal),
+    signal,
+  )
+    .then(async (document) => {
+      // A newer refresh wins even if this generation finishes later.
+      if (entry.pending !== generation) {
+        await release(document);
+        return (
+          entry.pending ?? documentFor(entry, repository, source, false, signal)
+        );
+      }
+      if (entry.document) entry.replaced.add(entry.document);
+      entry.document = document;
+      return document;
+    })
+    .finally(() => {
+      if (entry.pending === generation) entry.pending = undefined;
+    });
+  entry.pending = generation;
+  return generation;
+}
+
+async function withDocument<T>(
+  repository: Repository,
+  source: GitDiffSource,
+  refresh: boolean,
+  signal: Signal,
+  read: (document: DiffDocument) => T | Promise<T>,
+): Promise<T> {
+  const key = JSON.stringify([repository.root, source]);
+  const entry = documents.get(key) ?? {
+    lookups: 0,
+    replaced: new Set<DiffDocument>(),
+  };
+  documents.delete(key);
+  documents.set(key, entry);
+  entry.lookups += 1;
+  let document: DiffDocument | undefined;
   try {
-    return await generation;
+    try {
+      document = await documentFor(entry, repository, source, refresh, signal);
+      document.readers += 1;
+    } finally {
+      entry.lookups -= 1;
+    }
+    throwIfAborted(signal);
+    return await read(document);
   } finally {
-    if (pending.get(key) === generation) pending.delete(key);
+    if (document) document.readers -= 1;
+    if (entry.lookups === 0) {
+      const unused = [...entry.replaced].filter((diff) => diff.readers === 0);
+      for (const diff of unused) entry.replaced.delete(diff);
+      if (!entry.document && !entry.pending) documents.delete(key);
+      await Promise.all(unused.map(release));
+    }
+    await trimDiffCache();
   }
 }
 
@@ -679,28 +755,27 @@ export async function handleDiffRead<M extends ReadMethod>(
       signal,
     ) as Promise<ReadResultByMethod[M]>;
   if (method === "git.diffOpen") {
-    const document = await documentFor(
+    return withDocument(
       repository,
       source,
       (params as ReadParamsByMethod["git.diffOpen"]).refresh === true,
       signal,
+      (document) =>
+        ({
+          revision: document.revision,
+          totalRows: document.rows,
+          info: document.info,
+          collapsed: document.collapsed,
+        }) as ReadResultByMethod[M],
     );
-    return {
-      revision: document.revision,
-      totalRows: document.rows,
-      info: document.info,
-      collapsed: document.collapsed,
-    } as ReadResultByMethod[M];
   }
-  let document = await documentFor(repository, source, false, signal);
-  try {
-    return await readDocument(document, method, params, signal);
-  } catch (error) {
-    // A newer refresh replaced this file while the request was starting.
-    if (errorCode(error) !== "ENOENT") throw toFailure(error);
-    document = await documentFor(repository, source, false, signal);
-    return readDocument(document, method, params, signal);
-  }
+  return withDocument(repository, source, false, signal, async (document) => {
+    try {
+      return await readDocument(document, method, params, signal);
+    } catch (error) {
+      throw toFailure(error);
+    }
+  });
 }
 
 /** Resolve each side from the comparison, keeping paths relative to the repository. */
@@ -806,39 +881,71 @@ async function handleImageRead(
       sizeBytes,
       revision,
     };
-  const document = await documentFor(repository, value.source, false, signal);
-  document.imageFiles ??= new Map();
-  let file = document.imageFiles.get(revision);
+  const length = Math.min(value.length, Math.max(0, sizeBytes - value.offset));
+  return withDocument(
+    repository,
+    value.source,
+    false,
+    signal,
+    async (document) => {
+      const bytes = await readImage(
+        document,
+        repository,
+        revision,
+        sizeBytes,
+        value.offset,
+        length,
+        signal,
+      );
+      return {
+        offset: value.offset,
+        nextOffset: value.offset + bytes.length,
+        bytesBase64: bytes.toString("base64"),
+        eof: value.offset + bytes.length >= sizeBytes,
+        sizeBytes,
+        revision,
+      };
+    },
+  );
+}
+
+async function readImage(
+  document: DiffDocument,
+  repository: Repository,
+  revision: string,
+  size: number,
+  offset: number,
+  length: number,
+  signal?: Signal,
+): Promise<Buffer> {
+  if (length === 0) return Buffer.alloc(0);
+  const images = (document.imageFiles ??= new Map());
+  let file = images.get(revision);
+  // A diff normally reads at most two immutable image sides. A live index
+  // can resolve to a newer blob before the diff itself is refreshed.
+  const retain = file !== undefined || images.size < 2;
   if (!file) {
-    file = (async () => {
+    file = runDiff(async () => {
       const path = join(await directory(), `${randomUUID()}.image`);
       await writeImageBlob(repository, revision, path, signal);
+      if (retain) document.scratchBytes += size;
       return path;
-    })();
-    document.imageFiles.set(revision, file);
-    void file.catch(() => {
-      if (document.imageFiles?.get(revision) === file)
-        document.imageFiles?.delete(revision);
-    });
+    }, signal);
+    if (retain) {
+      images.set(revision, file);
+      void file.catch(() => images.delete(revision));
+    }
   }
   const path = await file;
-  const handle = await open(path, "r");
   try {
-    const bytes = await readAt(
-      handle,
-      value.offset,
-      Math.min(value.length, Math.max(0, sizeBytes - value.offset)),
-    );
-    return {
-      offset: value.offset,
-      nextOffset: value.offset + bytes.length,
-      bytesBase64: bytes.toString("base64"),
-      eof: value.offset + bytes.length >= sizeBytes,
-      sizeBytes,
-      revision,
-    };
+    const handle = await open(path, "r");
+    try {
+      return await readAt(handle, offset, length);
+    } finally {
+      await handle.close();
+    }
   } finally {
-    await handle.close();
+    if (!retain) await removeScratch(path);
   }
 }
 
@@ -849,16 +956,18 @@ async function writeImageBlob(
   signal?: Signal,
 ): Promise<void> {
   const output = await open(file, "w", 0o600);
-  const git = startGit(repository.root, ["cat-file", "blob", revision], signal);
+  let git: ReturnType<typeof startGit> | undefined;
   try {
+    git = startGit(repository.root, ["cat-file", "blob", revision], signal);
     for await (const value of git.child.stdout) {
       throwIfAborted(signal);
       await output.write(value as Buffer);
     }
     await finishGit(git, signal);
   } catch (error) {
-    await stopGit(git);
-    await rm(file, { force: true }).catch(() => undefined);
+    if (git) await stopGit(git);
+    await output.close().catch(() => undefined);
+    await removeScratch(file);
     throw gitFailure(error);
   } finally {
     await output.close().catch(() => undefined);

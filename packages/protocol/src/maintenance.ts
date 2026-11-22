@@ -1,5 +1,16 @@
+import * as v from "valibot";
+import {
+  identifier,
+  decoded,
+  method,
+  emptyParams,
+  type Params,
+  type Results,
+  hasMethod,
+  paramsOf,
+} from "./primitives.ts";
 import type { ChildWorkState } from "./teams.ts";
-import { ProtocolValidationError } from "./index.ts";
+import { ProtocolValidationError } from "./primitives.ts";
 
 export type MaintenanceKind = "update" | "restart" | "uninstall";
 export type MaintenancePhase =
@@ -45,58 +56,6 @@ export interface MaintenanceStatus {
   /** Sites whose token stayed in the OS credential store after uninstall. */
   forgeTokensRemaining?: string[];
 }
-export interface MaintenanceParams {
-  "host.update.prepare": { version: string };
-  "host.restart.prepare": Record<string, never>;
-  "host.uninstall.prepare": Record<string, never>;
-  "host.uninstall": {
-    canContinue: boolean;
-    targets: string[];
-    hasOpenTerminals?: boolean;
-    generations?: Record<string, string>;
-    deleteData: boolean;
-  };
-  "host.update": {
-    version: string;
-    canContinue: boolean;
-    targets: string[];
-    hasOpenTerminals?: boolean;
-    generations?: Record<string, string>;
-  };
-  "host.restart": {
-    canContinue: boolean;
-    targets: string[];
-    hasOpenTerminals?: boolean;
-    generations?: Record<string, string>;
-  };
-  "host.maintenance.status": { operationId: string };
-}
-export interface MaintenanceResults {
-  "host.update.prepare": MaintenancePlan;
-  "host.restart.prepare": MaintenancePlan;
-  "host.uninstall.prepare": MaintenancePlan;
-  "host.uninstall": MaintenanceStatus;
-  "host.update": MaintenanceStatus;
-  "host.restart": MaintenanceStatus;
-  "host.maintenance.status": { status?: MaintenanceStatus };
-}
-export type MaintenanceMethod = keyof MaintenanceParams;
-export function isMaintenanceMethod(
-  value: unknown,
-): value is MaintenanceMethod {
-  return (
-    typeof value === "string" &&
-    [
-      "host.update.prepare",
-      "host.restart.prepare",
-      "host.uninstall.prepare",
-      "host.uninstall",
-      "host.update",
-      "host.restart",
-      "host.maintenance.status",
-    ].includes(value)
-  );
-}
 function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new ProtocolValidationError(
@@ -134,46 +93,60 @@ export function releaseVersion(value: unknown): string {
     );
   return version;
 }
-export function parseMaintenanceParams(
-  method: MaintenanceMethod,
+
+const confirmation = {
+  canContinue: v.boolean(),
+  targets: v.array(identifier),
+  hasOpenTerminals: v.optional(v.boolean()),
+  generations: v.optional(
+    decoded((value) =>
+      Object.fromEntries(
+        Object.entries(object(value)).map(([key, id]) => [key, string(id)]),
+      ),
+    ),
+  ),
+};
+
+export const maintenanceMethods = {
+  "host.update.prepare": method(
+    v.object({ version: decoded(releaseVersion) }),
+    { parse: parseMaintenancePlan },
+  ),
+  "host.restart.prepare": method(emptyParams, { parse: parseMaintenancePlan }),
+  "host.uninstall.prepare": method(emptyParams, {
+    parse: parseMaintenancePlan,
+  }),
+  "host.uninstall": method(
+    v.object({ ...confirmation, deleteData: v.boolean() }),
+    { parse: parseMaintenanceStatus },
+  ),
+  "host.update": method(
+    v.object({ ...confirmation, version: decoded(releaseVersion) }),
+    { parse: parseMaintenanceStatus },
+  ),
+  "host.restart": method(v.object({ ...confirmation }), {
+    parse: parseMaintenanceStatus,
+  }),
+  "host.maintenance.status": method(v.object({ operationId: identifier }), {
+    parse: parseMaintenanceLookup,
+  }),
+};
+
+export type MaintenanceMethod = keyof typeof maintenanceMethods;
+export type MaintenanceParams = Params<typeof maintenanceMethods>;
+export type MaintenanceResults = Results<typeof maintenanceMethods>;
+export function isMaintenanceMethod(
   value: unknown,
-): MaintenanceParams[MaintenanceMethod] {
-  const input = object(value);
-  if (method === "host.restart.prepare" || method === "host.uninstall.prepare")
-    return {};
-  if (method === "host.maintenance.status")
-    return { operationId: string(input.operationId) };
-  if (method === "host.update.prepare")
-    return { version: releaseVersion(input.version) };
-  if (!Array.isArray(input.targets))
-    throw new ProtocolValidationError(
-      "invalid_request",
-      "Expected maintenance targets",
-    );
-  return {
-    canContinue: boolean(input.canContinue),
-    targets: input.targets.map(string),
-    ...(input.hasOpenTerminals === undefined
-      ? {}
-      : { hasOpenTerminals: boolean(input.hasOpenTerminals) }),
-    ...(input.generations === undefined
-      ? {}
-      : {
-          generations: Object.fromEntries(
-            Object.entries(object(input.generations)).map(([key, value]) => [
-              key,
-              string(value),
-            ]),
-          ),
-        }),
-    ...(method === "host.uninstall"
-      ? { deleteData: boolean(input.deleteData) }
-      : {}),
-    ...(method === "host.update"
-      ? { version: releaseVersion(input.version) }
-      : {}),
-  };
+): value is MaintenanceMethod {
+  return hasMethod(maintenanceMethods, value);
 }
+export function parseMaintenanceParams<M extends MaintenanceMethod>(
+  key: M,
+  value: unknown,
+): MaintenanceParams[M] {
+  return paramsOf<MaintenanceParams, M>(maintenanceMethods, key, value);
+}
+
 export function parseMaintenancePlan(value: unknown): MaintenancePlan {
   const input = object(value);
   if (!Array.isArray(input.targets))

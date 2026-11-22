@@ -100,7 +100,8 @@ export async function buildHost(destination, runtime = process.execPath) {
     );
     if (name === "@iori/protocol") {
       await source(path.join(root, "src"), path.join(target, "src"));
-      manifest.exports["."] = "./src/index.js";
+      for (const [key, value] of Object.entries(manifest.exports))
+        manifest.exports[key] = value.replace(/\.ts$/u, ".js");
       await writeFile(
         path.join(target, "package.json"),
         JSON.stringify(manifest),
@@ -145,10 +146,7 @@ export async function buildHost(destination, runtime = process.execPath) {
   const closure = await daemonClosure(destination);
   await writeFile(
     path.join(destination, "terminal-daemon-files.json"),
-    JSON.stringify({
-      sources: closure.sources,
-      packages: Object.keys(closure.packages),
-    }) + "\n",
+    JSON.stringify([...closure.files, ...closure.nativeFiles]) + "\n",
   );
   for (const name of [
     "release-source.txt",
@@ -183,6 +181,7 @@ export async function buildHost(destination, runtime = process.execPath) {
     );
     await chmod(path.join(destination, "iori-host"), 0o755);
   }
+  return closure;
 }
 if (process.argv[1] === import.meta.filename)
   await buildHost(path.resolve(process.argv[2]));

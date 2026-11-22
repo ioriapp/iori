@@ -1,7 +1,5 @@
 // Derived from Orca terminal helpers. Copyright (c) 2026 Lovecast Inc.; see ../ORCA-LICENSE.txt for the MIT license.
 
-import { toWindowsWslPath } from "../shared/wsl-paths.ts";
-
 export type ParsedFileUriPath = {
   path: string;
   hostname: string;
@@ -10,7 +8,6 @@ export type ParsedFileUriPath = {
 export type ParseFileUriPathOptions = {
   pathFlavor?: "posix" | "win32";
   remotePosixAuthority?: boolean;
-  wslDistro?: string;
 };
 
 export function parseFileUriPath(
@@ -32,12 +29,6 @@ export function parseFileUriPathParts(
 
     const decodedPath = decodeURIComponent(url.pathname);
     const hostname = url.hostname.toLowerCase();
-    if (options.wslDistro) {
-      return {
-        path: toWindowsWslPath(decodedPath, options.wslDistro),
-        hostname,
-      };
-    }
     const pathFlavor =
       options.pathFlavor ?? (process.platform === "win32" ? "win32" : "posix");
     if (pathFlavor !== "win32") {

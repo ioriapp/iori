@@ -1,18 +1,37 @@
+import * as v from "valibot";
 import { cliNotificationId, notificationText } from "./cli.ts";
 import type { CliNotification } from "./cli.ts";
-import type { FolderHistoryItem } from "./index.ts";
+import type { FolderHistoryItem } from "./host-values.ts";
 import type { TerminalSummary } from "./terminal.ts";
 
-export interface PushSubscription {
-  endpoint: string;
-  keys: { p256dh: string; auth: string };
-}
-export interface PushNotificationSettings {
-  subscription?: PushSubscription;
-  language: "ja" | "en";
-  waiting: boolean;
-  done: boolean;
-}
+const pushSubscription = v.object({
+  endpoint: v.pipe(
+    v.string(),
+    v.maxLength(2048),
+    v.check((text) => new URL(text).protocol === "https:"),
+  ),
+  keys: v.object({
+    // Unpadded canonical base64url for an uncompressed P-256 point and a 16-byte secret.
+    p256dh: v.pipe(
+      v.string(),
+      v.regex(/^[A-Za-z0-9_-]{86}[AEIMQUYcgkosw048]$/u),
+      v.check(
+        (key) =>
+          atob(key.replaceAll("-", "+").replaceAll("_", "/")).charCodeAt(0) ===
+          4,
+      ),
+    ),
+    auth: v.pipe(v.string(), v.regex(/^[A-Za-z0-9_-]{21}[AQgw]$/u)),
+  }),
+});
+export const pushSettings = v.object({
+  language: v.picklist(["ja", "en"]),
+  waiting: v.boolean(),
+  done: v.boolean(),
+  subscription: v.optional(pushSubscription),
+});
+export type PushSubscription = v.InferOutput<typeof pushSubscription>;
+export type PushNotificationSettings = v.InferOutput<typeof pushSettings>;
 export interface PushNotificationPayload extends CliNotification {
   v: 1;
   target: { hostKey: string; terminalId: string };

@@ -589,9 +589,9 @@ export function Navigation({
           <SidebarMenuItem>
             <SidebarMenuButton
               className={cn(
-                "nav-pending flex h-auto min-h-8 items-center gap-2 rounded-md px-2 py-1 text-sm font-normal [@media(pointer:coarse)]:min-h-10",
+                "nav-pending flex h-auto min-h-8 items-center gap-2 rounded-md border border-transparent px-2 py-1 text-sm font-medium [@media(pointer:coarse)]:min-h-10",
                 attentionCount > 0 &&
-                  "border border-status-waiting-border bg-status-waiting-bg/50 font-medium text-foreground",
+                  "border-status-waiting-border bg-status-waiting-bg/50 text-foreground",
               )}
               data-iori-action="attention-open"
               data-iori-attention-count={attentionCount}

@@ -1,14 +1,15 @@
+import { globSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
 // Stop: a known CLI name is compared, switched, included, or used as a static
 // key outside apps/host/src/cli/<adapter>/. Pass: merely declaring/displaying
 // a CLI name, ordinary IDs, and non-CLI settings.
+const cliDirectory = new URL("../../../apps/host/src/cli/", import.meta.url);
 const cliNames = new Set([
-  "antigravity",
-  "claude",
   "claude-code",
-  "codex",
-  "cursor",
-  "opencode",
-  "pi",
+  ...globSync("*/definition.json", { cwd: fileURLToPath(cliDirectory) }).map(
+    (path) => JSON.parse(readFileSync(new URL(path, cliDirectory), "utf8")).id,
+  ),
 ]);
 const comparisonOperators = new Set(["==", "===", "!=", "!==", "in"]);
 const settingIdName = /setting[-_]?id/iu;
@@ -184,7 +185,14 @@ export default {
         if (hasCliNamedProperty(node)) report(node);
       },
       NewExpression(node) {
-        if (isMapWithCliKey(node)) report(node);
+        const entries = unwrap(node.arguments[0]);
+        if (
+          isMapWithCliKey(node) ||
+          (identifierName(node.callee) === "Set" &&
+            entries?.type === "ArrayExpression" &&
+            entries.elements.some(isCliName))
+        )
+          report(node);
       },
       Property(node) {
         if (node.parent?.type !== "ObjectExpression") return;

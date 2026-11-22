@@ -10,7 +10,6 @@ import type {
 import type { HostStore, StoreContext } from "../store.ts";
 import type { NativeBiStream, NativeConnection } from "../native.ts";
 import { CliRegistry } from "../cli/registry.ts";
-import { cliTitle } from "../cli/title.ts";
 import { applyTerminalMetadata } from "./terminal-metadata.ts";
 import { cliDefinitions } from "../cli/definitions.ts";
 import type { HookState } from "../cli/hooks.ts";
@@ -21,7 +20,9 @@ import { RemotePtys } from "./remote-pty.ts";
 import { attachTerminalDaemon, stopTerminalDaemon } from "./daemon/launch.ts";
 import { TERMINAL_PARSER_SUBSCRIPTIONS } from "./runtime.ts";
 import type { DaemonChannel } from "./daemon/channel.ts";
-import type { PtyScreen, PtyEvent, PtyOutput } from "./daemon/protocol.ts";
+import type { HostRpc } from "./daemon/protocol.ts";
+import type { Handlers } from "./daemon/channel.ts";
+import type { OscEvent } from "./daemon/parser-events.ts";
 import {
   executeRawCommand,
   type Caller,
@@ -50,12 +51,10 @@ export class TerminalManager {
   #ready = Promise.resolve();
   #closing = false;
   #eventsReady = false;
-  readonly #deliveries = new Map<string, () => void>();
   readonly #operationChains = new Map<string, Promise<void>>();
-  readonly #unrestoredTeamTerminals = new Set<string>();
   continuedTerminals = false;
   onTerminalsLost?: () => void;
-  onRestoreTeamTerminals?: () => Promise<void>;
+  onRestoreTeamTerminals?: (terminalId?: string) => Promise<void>;
   onCliExit?: (id: string, reason: "exit" | "user") => void | Promise<void>;
   onSetupFailed?: (id: string, exitCode: number) => void | Promise<void>;
   onCliNotification?: (terminal: TerminalSummary) => void;
@@ -66,6 +65,7 @@ export class TerminalManager {
   ) => void | Promise<void>;
   onCliStallCleared?: (id: string) => void;
   onCliProcessesChanged?: () => void;
+  onDelivered?: (id: string) => void;
   onUsageChanged?: () => void;
   onTeamCommand?: (
     caller: Caller,
@@ -105,64 +105,32 @@ export class TerminalManager {
     await manager.#connect();
     return manager;
   }
-  async #connect() {
+  async #connect(
+    deliveries: Iterable<{
+      terminalId: string;
+      id: string;
+      delivered: () => void;
+    }> = [],
+  ) {
     const attached = await attachTerminalDaemon(this.#root);
     this.#channel = attached.channel;
     this.continuedTerminals = attached.continued;
-    if (Array.isArray(attached.previous))
-      for (const screen of attached.previous) {
-        // Older daemons can stop even when their final screen is no longer readable.
-        // Keep SQLite's last screen for those entries and continue cold recovery.
-        try {
-          const record = this.#store.terminal(screen.id);
-          if (!record) continue;
-          const restored = {
-            ...record,
-            cwd: typeof screen.cwd === "string" ? screen.cwd : record.cwd,
-            title:
-              typeof screen.title === "string"
-                ? cliTitle(
-                    screen.title,
-                    this.#store.terminalCli(screen.id)?.cli.name ??
-                      this.#shells.find((shell) => shell.id === record.shell)
-                        ?.label ??
-                      record.title,
-                    process.platform === "win32",
-                  )
-                : record.title,
-            snapshot: parseTerminalSnapshot(screen.snapshot),
-          };
-          if (screen.state)
-            applyTerminalMetadata(
-              restored,
-              screen.state.osc,
-              this.#store.terminalCli(screen.id)?.cli.name ??
-                this.#shells.find((shell) => shell.id === record.shell)
-                  ?.label ??
-                record.title,
-            );
-          this.#store.putTerminal(restored);
-        } catch {
-          /* Use the previously saved screen. */
-        }
-      }
+    this.#saveShutdownScreens(attached.previous);
     if (!attached.continued) this.#store.markTerminalsForRestart();
     const remote = new RemotePtys(this.#channel);
-    this.#channel.handle = async (method, args) => {
-      if (method === "data")
-        return remote.data(...(args as [number, PtyOutput]));
-      if (method === "event") {
+    this.#channel.handle = {
+      data: (pid, output) => remote.data(pid, output),
+      event: async (event) => {
         if (this.#closing) throw new Error("Terminal Host is stopping");
         try {
-          await remote.event(args[0] as PtyEvent);
+          await remote.event(event);
         } catch (error) {
           if (this.#closing || this.#channel !== attached.channel) throw error;
           console.error("Terminal event processing failed");
         }
-        return;
-      }
-      if (method === "command")
-        return executeRawCommand(
+      },
+      command: (caller, argv) =>
+        executeRawCommand(
           {
             team: (caller, command) => {
               if (!this.onTeamCommand)
@@ -171,12 +139,11 @@ export class TerminalManager {
             },
             forge: (caller, command) => this.#readForge(caller, command),
           },
-          args[0] as CommandCaller,
-          args[1],
-        );
-      throw new Error("Unknown terminal request");
-    };
-    const screens = await this.#channel.call<PtyScreen[]>(
+          caller,
+          argv,
+        ),
+    } satisfies Handlers<HostRpc>;
+    const screens = await this.#channel.call(
       "attach",
       TERMINAL_PARSER_SUBSCRIPTIONS,
     );
@@ -188,8 +155,8 @@ export class TerminalManager {
       remote,
       attached.continued,
     );
-    for (const id of this.#unrestoredTeamTerminals)
-      this.#runtime.markTeamTerminalUnrestored(id);
+    this.#runtime.onRestoreTeamTerminal = async (id) =>
+      this.onRestoreTeamTerminals?.(id);
     this.#runtime.onCliExit = (id, reason) => {
       return this.onCliExit?.(id, reason);
     };
@@ -203,18 +170,20 @@ export class TerminalManager {
     this.#runtime.onCliStalled = (stalled) => this.onCliStalled?.(stalled);
     this.#runtime.onCliStallCleared = (id) => this.onCliStallCleared?.(id);
     this.#runtime.onCliProcessesChanged = () => this.onCliProcessesChanged?.();
-    this.#runtime.onDelivered = (id) => {
-      this.#deliveries.get(id)?.();
-      this.#deliveries.delete(id);
-    };
+    this.#runtime.onDelivered = (id) => this.onDelivered?.(id);
     await this.#runtime.restore(screens);
+    if (attached.continued) {
+      for (const { id, terminalId, delivered } of deliveries)
+        this.bindDelivery(id, delivered, terminalId);
+    }
     await this.onRestoreTeamTerminals?.();
     await this.#channel.call("activate");
     this.#channel.disconnected = () => {
       if (!this.#closing) {
+        const pending = [...this.#runtime.pendingDeliveries()];
         this.#ready = this.#runtime
           .disconnected()
-          .then(() => this.#connect())
+          .then(() => this.#connect(pending))
           .then(async () => {
             for (const terminal of this.#store.listTerminals())
               this.#publish({
@@ -247,8 +216,8 @@ export class TerminalManager {
     this.#eventsReady = false;
     await this.#channel.call("pauseCommands").catch(() => {});
   }
-  bindDelivery(id: string, delivered: () => void) {
-    this.#deliveries.set(id, delivered);
+  bindDelivery(id: string, delivered: () => void, terminalId?: string) {
+    this.#runtime.bindDelivery(id, delivered, terminalId);
   }
   retireCommand(key: string) {
     void this.#channel.call("retireRoute", key).catch(() => {});
@@ -386,17 +355,10 @@ export class TerminalManager {
   }
   async registerCommand(caller: Caller, base?: string) {
     const key = caller.child ?? caller.conversation;
-    const env = await this.#channel.call<Record<string, string>>(
-      "commandRoute",
-      key,
-      caller,
-      base,
-    );
+    const env = await this.#channel.call("commandRoute", key, caller, base);
     return { env, dispose: () => this.retireCommand(key) };
   }
   markTeamTerminalUnrestored(id: string) {
-    // Keep startup restoration failures when the daemon connection is rebuilt.
-    this.#unrestoredTeamTerminals.add(id);
     this.#runtime.markTeamTerminalUnrestored(id);
   }
   configureTeamTerminal(id: string, options: TeamTerminalOptions) {
@@ -414,8 +376,7 @@ export class TerminalManager {
     deliveryId?: string,
   ): Promise<"queued" | "delivered"> {
     const delivery = delivered ? (deliveryId ?? randomUUID()) : undefined;
-    if (delivery) this.#deliveries.set(delivery, delivered!);
-    return this.#runtime.sendLine(id, line, undefined, delivery);
+    return this.#runtime.sendLine(id, line, delivered, delivery);
   }
   async sessionTokens(
     id: string,
@@ -515,9 +476,6 @@ export class TerminalManager {
   async restartTeamTerminal(
     ...args: Parameters<TerminalRuntime["restartTeamTerminal"]>
   ): Promise<Awaited<ReturnType<TerminalRuntime["restartTeamTerminal"]>>> {
-    for (const id of args[1].initialDeliveryIds ?? [])
-      if (args[1].initialDelivered)
-        this.#deliveries.set(id, args[1].initialDelivered);
     return this.#call("restartTeamTerminal", ...args);
   }
   async stopTeamTerminal(
@@ -548,30 +506,47 @@ export class TerminalManager {
     await this.#ready;
     return this.#runtime.openStream(connection, stream, open, readFrame);
   }
+  #saveShutdownScreens(screens: unknown) {
+    if (!Array.isArray(screens)) return;
+    for (const screen of screens) {
+      if (typeof screen?.id !== "string") continue;
+      const record = this.#store.terminal(screen.id);
+      if (!record) continue;
+      const restored = { ...record };
+      try {
+        restored.snapshot = parseTerminalSnapshot(screen.snapshot);
+      } catch {
+        // A different daemon version may only supply usable OSC metadata.
+      }
+      if (Array.isArray(screen.state?.osc)) {
+        const osc = screen.state.osc.filter(
+          (event: unknown): event is OscEvent =>
+            typeof event === "object" &&
+            event !== null &&
+            "kind" in event &&
+            event.kind === "osc" &&
+            "number" in event &&
+            typeof event.number === "number" &&
+            "data" in event &&
+            typeof event.data === "string",
+        );
+        applyTerminalMetadata(
+          restored,
+          osc,
+          this.#store.terminalCli(screen.id)?.cli.name ??
+            this.#shells.find((shell) => shell.id === record.shell)?.label ??
+            record.title,
+        );
+      }
+      this.#store.putTerminal(restored);
+    }
+  }
   async stopForUninstall() {
     await this.#ready;
     this.#closing = true;
     await this.#clis.close();
     await this.#runtime.close();
-    const screens = await stopTerminalDaemon(this.#root);
-    for (const screen of screens ?? []) {
-      const record = this.#store.terminal(screen.id);
-      if (record) {
-        const restored = {
-          ...record,
-          snapshot: parseTerminalSnapshot(screen.snapshot),
-        };
-        if (screen.state)
-          applyTerminalMetadata(
-            restored,
-            screen.state.osc,
-            this.#store.terminalCli(screen.id)?.cli.name ??
-              this.#shells.find((shell) => shell.id === record.shell)?.label ??
-              record.title,
-          );
-        this.#store.putTerminal(restored);
-      }
-    }
+    this.#saveShutdownScreens(await stopTerminalDaemon(this.#root));
     this.#store.markTerminalsForRestart();
     this.#channel.close();
   }

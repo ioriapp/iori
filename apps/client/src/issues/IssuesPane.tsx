@@ -518,14 +518,14 @@ function IssuesView({
           >
             <ToggleGroupItem
               value="open"
-              className="h-7 px-2.5 text-xs data-[state=on]:border-primary/55 data-[state=on]:bg-primary/18 data-[state=on]:font-semibold data-[state=on]:text-foreground [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:px-3"
+              className="h-7 px-2.5 text-xs data-[state=on]:border-primary/55 data-[state=on]:bg-primary/18 data-[state=on]:text-foreground [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:px-3"
               data-iori-action="issues-open"
             >
               Open
             </ToggleGroupItem>
             <ToggleGroupItem
               value="closed"
-              className="h-7 px-2.5 text-xs data-[state=on]:border-primary/55 data-[state=on]:bg-primary/18 data-[state=on]:font-semibold data-[state=on]:text-foreground [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:px-3"
+              className="h-7 px-2.5 text-xs data-[state=on]:border-primary/55 data-[state=on]:bg-primary/18 data-[state=on]:text-foreground [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:px-3"
               data-iori-action="issues-closed"
             >
               Closed
@@ -538,7 +538,7 @@ function IssuesView({
                 type="button"
                 className={cn(
                   toggleVariants({ variant: "outline", size: "sm" }),
-                  "h-7 min-w-0 max-w-full px-2.5 text-xs data-[filtered=true]:border-primary/55 data-[filtered=true]:bg-primary/18 data-[filtered=true]:font-semibold data-[filtered=true]:text-foreground [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:px-3",
+                  "h-7 min-w-0 max-w-full px-2.5 text-xs data-[filtered=true]:border-primary/55 data-[filtered=true]:bg-primary/18 data-[filtered=true]:text-foreground [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:px-3",
                 )}
                 data-filtered={chosen.length > 0}
                 data-iori-action="issues-labels"

@@ -6,6 +6,7 @@
   "icon": { "light": "codebuddy.svg" },
   "version": { "args": ["--version"] },
   "launch": {
+    "interrupt": "ctrl-c",
     "model": ["--model", "{model}"],
     "effort": ["--effort", "{effort}"],
     "permissions": {

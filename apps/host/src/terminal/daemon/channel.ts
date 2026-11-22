@@ -1,22 +1,30 @@
 import { randomUUID } from "node:crypto";
 import type { Socket } from "node:net";
 
+import type { DaemonRpc, HostRpc } from "./protocol.ts";
+
+type Rpc = Record<string, (...args: never[]) => unknown>;
+export type Handlers<R extends Rpc> = {
+  [K in keyof R]: (
+    ...args: Parameters<R[K]>
+  ) => ReturnType<R[K]> | Promise<ReturnType<R[K]>>;
+};
 type Message =
   | { kind: "request"; id: string; method: string; args: unknown[] }
-  | { kind: "response"; id: string; value?: unknown; error?: string }
-  | { kind: "event"; value: unknown };
+  | { kind: "response"; id: string; value?: unknown; error?: string };
 
 /** One authenticated local connection; a write's reply also carries backpressure. */
-export class DaemonChannel {
+export class DaemonChannel<
+  Outgoing extends Rpc = DaemonRpc,
+  Incoming extends Rpc = HostRpc,
+> {
   readonly socket: Socket;
   readonly pending = new Map<
     string,
     { resolve: (value: unknown) => void; reject: (error: Error) => void }
   >();
-  handle: (method: string, args: unknown[]) => Promise<unknown> = async () => {
-    throw new Error("Host is disconnected");
-  };
-  event: (value: unknown) => void = () => {};
+  handle: Partial<Handlers<Incoming>> = {};
+  authorize?: (method: string) => void;
   disconnected: () => void = () => {};
   #header = Buffer.alloc(4);
   #headerBytes = 0;
@@ -70,9 +78,8 @@ export class DaemonChannel {
       this.pending.delete(message.id);
       if (message.error) pending?.reject(new Error(message.error));
       else pending?.resolve(message.value);
-    } else if (message.kind === "event") this.event(message.value);
-    else if (message.kind === "request") {
-      void this.handle(message.method, message.args).then(
+    } else if (message.kind === "request") {
+      void this.#dispatch(message.method, message.args).then(
         (value) => this.#send({ kind: "response", id: message.id, value }),
         () =>
           this.#send({
@@ -83,6 +90,14 @@ export class DaemonChannel {
       );
     } else this.socket.destroy();
   }
+  async #dispatch(method: string, args: unknown[]) {
+    this.authorize?.(method);
+    if (!Object.hasOwn(this.handle, method))
+      throw new Error("Unknown terminal request");
+    // The method and argument tuple cross the JSON boundary together.
+    const handler = this.handle[method] as (...args: unknown[]) => unknown;
+    return handler(...args);
+  }
   #send(message: Message) {
     if (!this.socket.destroyed) {
       const payload = Buffer.from(JSON.stringify(message));
@@ -91,17 +106,17 @@ export class DaemonChannel {
       this.socket.write(Buffer.concat([header, payload]));
     }
   }
-  call<T>(method: string, ...args: unknown[]): Promise<T> {
+  call<K extends keyof Outgoing & string>(
+    method: K,
+    ...args: Parameters<Outgoing[K]>
+  ): Promise<ReturnType<Outgoing[K]>> {
     if (this.socket.destroyed)
       return Promise.reject(new Error("Terminal daemon connection closed"));
     const id = randomUUID();
     return new Promise<unknown>((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
       this.#send({ kind: "request", id, method, args });
-    }) as Promise<T>;
-  }
-  send(value: unknown) {
-    this.#send({ kind: "event", value });
+    }) as Promise<ReturnType<Outgoing[K]>>;
   }
   close() {
     this.socket.destroy();

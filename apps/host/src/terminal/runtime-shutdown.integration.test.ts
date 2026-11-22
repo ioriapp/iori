@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import test, { type TestContext } from "node:test";
+import {
+  decodeFrame,
+  terminalServerMessageSchema,
+  type TerminalOpenStream,
+} from "@iori/protocol";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
@@ -72,6 +77,30 @@ async function stopOwnedDaemons(root: string) {
   }
   if (descriptor)
     await rm(dirname(descriptor.endpoint), { recursive: true, force: true });
+}
+
+function openScreen(id: string): TerminalOpenStream {
+  return {
+    kind: "terminal",
+    action: "open",
+    operationId: randomUUID(),
+    terminalId: id,
+    viewId: randomUUID(),
+    cols: 80,
+    rows: 24,
+    deviceClass: "desktop",
+    snapshotMaxLines: 5000,
+    snapshotMaxBytes: 1024 * 1024,
+    viewAttributes: {
+      foreground: [255, 255, 255],
+      background: [0, 0, 0],
+      cursor: [255, 255, 255],
+      ansi: Array.from({ length: 16 }, () => [0, 0, 0]),
+      colorSchemeMode: "dark",
+      cursorStyle: "block",
+      cursorBlink: false,
+    },
+  };
 }
 
 // E2E cannot place Host shutdown between opening a saved terminal and the real
@@ -151,27 +180,7 @@ test("opening a saved terminal during shutdown never requests a missing daemon s
   const opening = runtime.openStream(
     hostConnection,
     hostStream,
-    {
-      kind: "terminal",
-      action: "open",
-      operationId: randomUUID(),
-      terminalId: id,
-      viewId: randomUUID(),
-      cols: 80,
-      rows: 24,
-      deviceClass: "desktop",
-      snapshotMaxLines: 5000,
-      snapshotMaxBytes: 1024 * 1024,
-      viewAttributes: {
-        foreground: [255, 255, 255],
-        background: [0, 0, 0],
-        cursor: [255, 255, 255],
-        ansi: Array.from({ length: 16 }, () => [0, 0, 0]),
-        colorSchemeMode: "dark",
-        cursorStyle: "block",
-        cursorBlink: false,
-      },
-    },
+    openScreen(id),
     async () => undefined,
   );
   const closing = runtime.close();
@@ -278,4 +287,100 @@ test("failed team CLI restoration never leaves an unhandled screen rejection", a
   await nextTurn();
   runtime.disconnected();
   runtime = undefined;
+});
+
+async function connectedRuntime(t: TestContext) {
+  const root = await mkdtemp(join(tmpdir(), "iori-terminal-setup-"));
+  const store = new HostStore(join(root, "host.sqlite"));
+  const clis = new CliRegistry(store, () => {});
+  const { channel } = await attachTerminalDaemon(root);
+  const remote = new RemotePtys(channel);
+  channel.handle = {
+    data: (pid, output) => remote.data(pid, output),
+    event: (event) => remote.event(event),
+  };
+  await channel.call("attach", TERMINAL_PARSER_SUBSCRIPTIONS);
+  const runtime = await TerminalRuntime.create(
+    store,
+    () => {},
+    root,
+    clis,
+    remote,
+  );
+  t.after(async () => {
+    channel.close();
+    await runtime.disconnected();
+    await clis.close();
+    await stopOwnedDaemons(root);
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  await channel.call("activate");
+  await channel.call("commandsReady");
+  return { runtime, root, store, channel };
+}
+
+test("a failed request to start setup leaves the saved setup available to retry or skip", async (t) => {
+  const { runtime, root, store, channel } = await connectedRuntime(t);
+  const failed = Promise.withResolvers<void>();
+  runtime.onSetupFailed = () => failed.resolve();
+  const context = () => ({
+    clientPublicKey: "test",
+    operationId: randomUUID(),
+  });
+  const created = await runtime.createTerminal(
+    context(),
+    root,
+    undefined,
+    undefined,
+    undefined,
+    { command: "exit 23", rootPath: root },
+  );
+  assert.ok(created.ok);
+  await failed.promise;
+  const id = created.result.terminal.id;
+  channel.close();
+  for (const action of ["retry", "skip"] as const) {
+    const result = await runtime.resolveSetup(context(), id, action);
+    assert.deepEqual(result, { ok: false, error: { code: "internal_error" } });
+    assert.equal(store.terminalSetup(id)?.state, "failed");
+    assert.equal(runtime.summary(id)?.setup?.state, "failed");
+  }
+});
+
+// Close the real daemon socket after the view has opened and before its next
+// key is written, while the Client stream itself remains connected.
+test("a rejected key write reaches the attached view as an input error", async (t) => {
+  const { runtime, root, channel } = await connectedRuntime(t);
+  const created = await runtime.createTerminal(
+    { clientPublicKey: "test", operationId: randomUUID() },
+    root,
+  );
+  assert.ok(created.ok);
+  const errors: string[] = [];
+  let sent = false;
+  await runtime.openStream(
+    {},
+    {
+      async write(bytes) {
+        const message = terminalServerMessageSchema.parse(
+          decodeFrame(bytes.subarray(4)),
+        );
+        if (message?.kind === "terminal.error") errors.push(message.message);
+      },
+      async finish() {},
+      async reset() {},
+      async stop() {},
+    },
+    openScreen(created.result.terminal.id),
+    async () => {
+      if (sent) return;
+      sent = true;
+      channel.close();
+      return { kind: "terminal.input", data: "x" };
+    },
+  );
+  assert.deepEqual(errors, [
+    "Input could not be sent. Check the connection before continuing.",
+  ]);
 });

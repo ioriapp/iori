@@ -2,6 +2,7 @@ import { local as verificationLocal } from "../native/local.mjs";
 import { startRelay, isolateDirectConnection } from "./relay.mjs";
 import { openFolder } from "../../e2e/workspace/scenario.mjs";
 import {
+  cliRowToggle,
   openAgents,
   returnToWorktree,
 } from "../../e2e/web/agents-navigation.mjs";
@@ -105,7 +106,7 @@ async function relayCli(client, cwd, prompt) {
     await openAgents(screen);
     const row = '[data-iori-cli-row="pi"]';
     if ((await screen.attribute(row, "data-state")) !== "open")
-      await screen.click(`${row} .team-agent-toggle`);
+      await screen.click(cliRowToggle(row));
     const argumentsField = `${row} [data-iori-field="cli-arguments"]`;
     const argumentsValue = '--model "openai/gpt-6-luna"';
     if ((await screen.value(argumentsField)) !== argumentsValue) {

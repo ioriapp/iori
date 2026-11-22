@@ -1,6 +1,13 @@
 import { createHash, createPublicKey, verify } from "node:crypto";
 import { readFile, open, mkdir } from "node:fs/promises";
 import { join } from "node:path";
+import {
+  ByteLimitError,
+  readBoundedResponseBytes,
+} from "../resource-limits.ts";
+
+const MANIFEST_BYTES = 1024 * 1024;
+const SIGNATURE_BYTES = 64 * 1024;
 
 export interface HostRelease {
   version: string;
@@ -58,14 +65,18 @@ export class ReleaseSource {
     }
   }
   async manifest(version: string): Promise<HostRelease> {
-    const [response, signatureResponse] = await Promise.all([
-      this.get(version, "release.json"),
-      this.get(version, "release.json.sig"),
-    ]);
     const [bytes, signature] = await Promise.all([
-      response.arrayBuffer(),
-      signatureResponse.arrayBuffer(),
-    ]);
+      this.get(version, "release.json").then((response) =>
+        readBoundedResponseBytes(response, MANIFEST_BYTES),
+      ),
+      this.get(version, "release.json.sig").then((response) =>
+        readBoundedResponseBytes(response, SIGNATURE_BYTES),
+      ),
+    ]).catch((error: unknown) => {
+      if (error instanceof ByteLimitError)
+        throw new ReleaseFailure("verification");
+      throw error;
+    });
     try {
       const key = Buffer.from(
         (
@@ -81,9 +92,9 @@ export class ReleaseSource {
         format: "der",
         type: "spki",
       });
-      if (!verify(null, Buffer.from(bytes), publicKey, Buffer.from(signature)))
+      if (!verify(null, bytes, publicKey, signature))
         throw new Error("signature");
-      const manifest = JSON.parse(Buffer.from(bytes).toString("utf8"));
+      const manifest = JSON.parse(bytes.toString("utf8"));
       const name =
         process.platform === "win32"
           ? "iori-host-windows-x64.zip"

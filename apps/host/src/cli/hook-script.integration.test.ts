@@ -159,7 +159,7 @@ test("ioriの外のhookで応答欠落・大きい入力のEPIPE・撤去後の�
 
 // A browser scenario cannot exercise a user's dotfile symlink or deletion of
 // config.toml during uninstall. Use the real installers and removal tool.
-test("symlinkの設定と利用者のコメントを保ち、Codexの設定が無くても撤去を続ける", async () => {
+test("Codexの信頼解除でユーザーの設定とコメントを保ち、設定が無くても撤去を続ける", async () => {
   const home = await mkdtemp(join(tmpdir(), "iori-hook-files-"));
   const names = [
     "HOME",
@@ -194,16 +194,26 @@ test("symlinkの設定と利用者のコメントを保ち、Codexの設定が�
     const codex = join(home, ".codex");
     await mkdir(codex);
     const key = join(codex, "hooks.json") + ":Stop:0";
+    const onlyTrustKey = join(codex, "hooks.json") + ":Stop:1";
     await writeFile(
       join(codex, "iori-hook-trust.json"),
-      JSON.stringify([{ key, hash: "iori-hash" }]),
+      JSON.stringify([
+        { key, hash: "iori-hash" },
+        { key: onlyTrustKey, hash: "iori-other-hash" },
+      ]),
     );
     const user =
       '# user comment\n[hooks.state."user-hook"]\ntrusted_hash = "user-hash"\n';
+    const header = `[hooks.state.${JSON.stringify(key)}]\n`;
+    const settings =
+      'enabled = false # keep false\ntrusted_content_hash = "user-content#hash"\n';
     await writeFile(
       join(codex, "config.toml"),
       user +
-        `[hooks.state.${JSON.stringify(key)}]\n# retain this comment\ntrusted_hash = "iori-hash" # and this comment\n`,
+        header +
+        '# retain this comment\ntrusted_hash = "iori-hash" # and this comment\n\n' +
+        settings +
+        `[hooks.state.${JSON.stringify(onlyTrustKey)}]\ntrusted_hash = "iori-other-hash"\n`,
     );
     await removeCliHooks(shell, home);
     assert.equal((await lstat(path)).isSymbolicLink(), true);
@@ -212,7 +222,10 @@ test("symlinkの設定と利用者のコメントを保ち、Codexの設定が�
     });
     assert.equal(
       await readFile(join(codex, "config.toml"), "utf8"),
-      user + "# retain this comment\n# and this comment\n",
+      user +
+        header +
+        "# retain this comment\n# and this comment\n\n" +
+        settings,
     );
     await assert.rejects(readFile(join(home, ".cursor/hooks.json")), {
       code: "ENOENT",

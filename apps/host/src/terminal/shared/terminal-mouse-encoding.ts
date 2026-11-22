@@ -3,13 +3,7 @@
 /** Mouse report encoding armed by DECSET 1006 (SGR) or 1016 (SGR pixels); independent of the tracking protocol. */
 export type TerminalMouseEncoding = "default" | "sgr" | "sgr-pixels";
 
-/** Private xterm surface read below; optional because an xterm upgrade can move or drop it. */
-type TerminalWithMouseStateCore = {
-  // Why: required public members keep this from being a weak type, so xterm Terminals assign uncast.
-  readonly cols: number;
-  readonly rows: number;
-  _core?: { mouseStateService?: { activeEncoding?: unknown } };
-};
+import { activeMouseEncoding } from "../daemon/xterm-adapter.ts";
 
 /**
  * Reads the encoding xterm itself parsed. Its public `modes` exposes the
@@ -18,9 +12,9 @@ type TerminalWithMouseStateCore = {
  * types into the app as text (#23818).
  */
 export function readTerminalMouseEncoding(
-  terminal: TerminalWithMouseStateCore,
+  terminal: object,
 ): TerminalMouseEncoding {
-  const encoding = terminal._core?.mouseStateService?.activeEncoding;
+  const encoding = activeMouseEncoding(terminal);
   if (encoding === "SGR") {
     return "sgr";
   }

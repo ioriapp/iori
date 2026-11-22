@@ -6,6 +6,7 @@ import { createSocket, type Socket as DatagramSocket } from "node:dgram";
 import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import {
   FrameDecoder,
@@ -16,8 +17,14 @@ import {
   parseResponse,
   responseSchema,
 } from "@iori/protocol";
+import type {
+  AutomationDefinition,
+  RequestMethod,
+  RequestParamsByMethod,
+} from "@iori/protocol";
 import { loadNativeAddon } from "./native.ts";
 import { startHost } from "./host.ts";
+import type { DaemonRpc, HostRpc } from "./terminal/daemon/protocol.ts";
 import { DaemonChannel } from "./terminal/daemon/channel.ts";
 import { DAEMON_PROTOCOL } from "./terminal/daemon/protocol.ts";
 import type {
@@ -172,6 +179,178 @@ async function pair(
   assert.equal(response.ok, true);
 }
 
+function operationResults(database: DatabaseSync, publicKey: string): string[] {
+  return (
+    database
+      .prepare(
+        "SELECT result_json FROM operation_results WHERE client_public_key = ?",
+      )
+      .all(publicKey) as { result_json: string }[]
+  ).map((row) => row.result_json);
+}
+
+type RegisteredRequest = <M extends RequestMethod>(
+  method: M,
+  params: RequestParamsByMethod[M],
+  operationId?: string,
+) => Promise<ReturnType<typeof parseResponse<M>>>;
+
+async function withRegisteredClient(
+  body: (
+    request: RegisteredRequest,
+    database: DatabaseSync,
+    publicKey: string,
+  ) => Promise<void>,
+): Promise<void> {
+  const addon = loadNativeAddon();
+  const dataHome = await mkdtemp(join(tmpdir(), "iori-operation-results-"));
+  const port = await availablePort();
+  const dataVariable =
+    process.platform === "win32" ? "LOCALAPPDATA" : "XDG_DATA_HOME";
+  const previousDataHome = process.env[dataVariable];
+  const previousPort = process.env.IORI_HOST_PORT;
+  process.env[dataVariable] = dataHome;
+  process.env.IORI_HOST_PORT = String(port);
+  let host: Awaited<ReturnType<typeof startHost>> | undefined;
+  try {
+    host = await startHost(addon);
+    const client = await connectClient(addon, host.endpoint, port);
+    try {
+      await pair(client, (await readLocalInvite(dataHome)).secret, "Admin");
+      using database = new DatabaseSync(
+        join(dataHome, "iori-host", "host.sqlite"),
+      );
+      await body(
+        async (method, params, operationId = randomUUID()) =>
+          parseResponse(
+            method,
+            await sendRequest(client.connection, {
+              kind: "request",
+              method,
+              params,
+              operationId,
+            }),
+          ),
+        database,
+        client.publicKey,
+      );
+    } finally {
+      client.connection.close(0, Buffer.from("test cleanup"));
+      await client.endpoint.close();
+    }
+  } finally {
+    await host?.close();
+    await stopTerminalDaemon(join(dataHome, "iori-host"));
+    if (previousDataHome === undefined) delete process.env[dataVariable];
+    else process.env[dataVariable] = previousDataHome;
+    if (previousPort === undefined) delete process.env.IORI_HOST_PORT;
+    else process.env.IORI_HOST_PORT = previousPort;
+    await rm(dataHome, { recursive: true, force: true });
+  }
+}
+
+test("有効な招待は同じ操作の再送で返し、操作結果に招待コードの秘密を残さない", () =>
+  withRegisteredClient(async (request, database, publicKey) => {
+    const operationId = randomUUID();
+    const first = await request("invite.create", {}, operationId);
+    assert.ok(first.ok);
+    const retry = await request("invite.create", {}, operationId);
+    assert.ok(retry.ok);
+    assert.ok(retry.result.invite.secret === first.result.invite.secret);
+    assert.equal(retry.result.invite.expiresAt, first.result.invite.expiresAt);
+    assert.ok(
+      !operationResults(database, publicKey).some((row) =>
+        row.includes(first.result.invite.secret),
+      ),
+    );
+    const replacementId = randomUUID();
+    const replacement = await request("invite.create", {}, replacementId);
+    assert.ok(replacement.ok);
+    assert.ok(!(await request("invite.create", {}, operationId)).ok);
+    const currentRetry = await request("invite.create", {}, replacementId);
+    assert.ok(currentRetry.ok);
+    assert.ok(
+      currentRetry.result.invite.secret === replacement.result.invite.secret,
+    );
+  }));
+
+async function webhookDefinition(
+  request: RegisteredRequest,
+): Promise<AutomationDefinition> {
+  const team = await request("teams.create", {
+    template: "development",
+    language: "en",
+  });
+  assert.ok(team.ok);
+  return {
+    name: "Webhook automation",
+    cwd: tmpdir(),
+    instruction: "Handle the received data.",
+    target: { kind: "team", teamId: team.result.saved.id },
+    schedule: { kind: "manual" },
+    missed: "skip",
+    enabled: false,
+    webhook: { scope: "local" },
+  };
+}
+
+test("自動化の操作結果にWebhookトークンを残さず、再送で現在のトークンを返す", () =>
+  withRegisteredClient(async (request, database, publicKey) => {
+    const saveId = randomUUID();
+    const params = { definition: await webhookDefinition(request) };
+    const saved = await request("automation.save", params, saveId);
+    assert.ok(saved.ok);
+    const { id, webhookToken } = saved.result.automation;
+    assert.ok(webhookToken);
+    const retriedSave = await request("automation.save", params, saveId);
+    assert.ok(retriedSave.ok);
+    assert.equal(retriedSave.result.automation.id, id);
+    assert.ok(retriedSave.result.automation.webhookToken === webhookToken);
+
+    const rotateId = randomUUID();
+    const rotated = await request(
+      "automation.regenerateToken",
+      { id },
+      rotateId,
+    );
+    assert.ok(rotated.ok);
+    const rotatedToken = rotated.result.automation.webhookToken;
+    assert.ok(rotatedToken && rotatedToken !== webhookToken);
+    const retriedRotation = await request(
+      "automation.regenerateToken",
+      { id },
+      rotateId,
+    );
+    assert.ok(retriedRotation.ok);
+    assert.ok(retriedRotation.result.automation.webhookToken === rotatedToken);
+
+    const rows = operationResults(database, publicKey);
+    assert.ok(
+      !rows.some(
+        (row) => row.includes(webhookToken) || row.includes(rotatedToken),
+      ),
+    );
+    const savedBeforeRotation = await request(
+      "automation.save",
+      params,
+      saveId,
+    );
+    assert.ok(savedBeforeRotation.ok);
+    assert.ok(
+      savedBeforeRotation.result.automation.webhookToken === rotatedToken,
+    );
+    const listed = await request("automation.list", {});
+    assert.ok(listed.ok);
+    assert.deepEqual(
+      listed.result.automations.map((item) => item.id),
+      [id],
+    );
+    assert.ok((await request("automation.delete", { id })).ok);
+    const deletedRetry = await request("automation.save", params, saveId);
+    assert.ok(!deletedRetry.ok);
+    assert.equal(deletedRetry.error.code, "invalid_request");
+  }));
+
 async function consumeUntilClosed(stream: NativeBiStream): Promise<void> {
   const decoder = new FrameDecoder();
   try {
@@ -203,9 +382,8 @@ test("events購読でHost情報の待機中に登録した端末は最初のsnap
   const helloReceived = Promise.withResolvers<void>();
   const releaseHello = Promise.withResolvers<void>();
   const server = createServer((socket) => {
-    const channel = new DaemonChannel(socket);
-    channel.handle = async (method) => {
-      assert.equal(method, "hello");
+    const channel = new DaemonChannel<HostRpc, DaemonRpc>(socket);
+    channel.handle.hello = async () => {
       helloReceived.resolve();
       await releaseHello.promise;
       return { version: DAEMON_PROTOCOL, pid: process.pid };
@@ -423,6 +601,15 @@ test("Hostは未登録の端末管理・Host情報・フォルダー管理・Ter
 
     revoked = await connectClient(addon, host.endpoint, port);
     await pair(revoked, secondInvite.secret, "Revoked client");
+    using database = new DatabaseSync(
+      join(dataHome, "iori-host", "host.sqlite"),
+      { readOnly: true },
+    );
+    assert.ok(operationResults(database, revoked.publicKey).length > 0);
+    const administratorResults = operationResults(
+      database,
+      administrator.publicKey,
+    );
     const subscription = await revoked.connection.openBi();
     const subscriptionDecoder = new FrameDecoder();
     await subscription.write(
@@ -452,6 +639,14 @@ test("Hostは未登録の端末管理・Host情報・フォルダー管理・Ter
       }),
     );
     assert.equal(revokeResponse.ok, true);
+    assert.equal(operationResults(database, revoked.publicKey).length, 0);
+    const remainingResults = operationResults(
+      database,
+      administrator.publicKey,
+    );
+    assert.ok(
+      administratorResults.every((row) => remainingResults.includes(row)),
+    );
 
     const [closeReason] = await Promise.all([
       revoked.connection.closed(),

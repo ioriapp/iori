@@ -1,8 +1,9 @@
-import { otherHostUses } from "../hook-hosts.ts";
-import { removeHookFile } from "../hook-files.ts";
+import {
+  removeOwnedPluginFile,
+  writeOwnedPluginFile,
+} from "../definition-hooks.ts";
 // Derived from Orca status-plugin-lifecycle-source.ts.
 // Copyright (c) 2026 Lovecast Inc.; MIT license: ../ORCA-LICENSE.txt.
-import { mkdir, writeFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
 import {
@@ -132,6 +133,7 @@ export default {
     const questions = new Set();
     const interrupted = new Set();
     const approvals = new Map();
+    let nextApproval = Promise.resolve();
     const controller = new AbortController();
     const emit = (type, properties) => legacy.event({event:{type, properties}});
     void (async () => {
@@ -164,6 +166,7 @@ export default {
         }
         if (e === 'session.status' && !interrupted.has(sessionID)) emit(e, {sessionID, status:{type:p.status?.type}});
         if (e === 'permission.asked') {
+          if (waiting.has(p.id)) continue;
           waiting.add(p.id);
           const command = p.action === 'shell' ? commands.get(p.source?.id) : undefined;
           const payload = {hook_event_name:e, iori_cli:'opencode', id:p.id, sessionID:p.sessionID, permission:p.action,
@@ -171,7 +174,11 @@ export default {
           if (process.env.IORI_CLI_APPROVAL_FILE) {
             const abort = new AbortController();
             approvals.set(p.id, abort);
-            void approvalRequest(payload, abort.signal).then(async result => {
+            // Attention presents one permission per terminal. Keep reading OpenCode
+            // events while the current request waits for a user decision.
+            nextApproval = nextApproval.then(async () => {
+              if (abort.signal.aborted) return;
+              const result = await approvalRequest(payload, abort.signal);
               if (abort.signal.aborted) return;
               if (result?.decision === 'allow' || result?.decision === 'deny') {
                 await ctx.permission.reply({sessionID:p.sessionID, requestID:p.id, decision:result.decision === 'allow' ? 'once' : 'reject'});
@@ -215,28 +222,18 @@ export const hooks: CliHooks = {
           payload.resources,
         )
       : undefined,
-  async install(ctx) {
-    const target = path(ctx.home);
-    await mkdir(dirname(target), { recursive: true });
-    await writeFile(
-      target,
+  install: (ctx) =>
+    writeOwnedPluginFile(
+      ctx,
+      path(ctx.home),
       source.replace(
         "APPROVAL_CLIENT",
         JSON.stringify(
           pathToFileURL(join(dirname(ctx.script), "approval-client.mjs")).href,
         ),
       ),
-      { mode: 0o600 },
-    );
-  },
-  async remove(ctx) {
-    if (
-      ctx.writtenPath &&
-      (await otherHostUses(dirname(ctx.writtenPath), ctx.id))
-    )
-      return;
-    await removeHookFile(path(ctx.home));
-  },
+    ),
+  remove: (ctx) => removeOwnedPluginFile(ctx, path(ctx.home)),
   normalize(payload, previous, cwd) {
     const event = payload.hook_event_name;
     if (event === "permission.asked")

@@ -1,3 +1,7 @@
+import {
+  TerminalStreamController,
+  terminalFitScheduler,
+} from "./terminal-stream-controller.ts";
 import { terminalFontFamily } from "./terminal-font-family.ts";
 import {
   terminalPathLinks,
@@ -25,13 +29,8 @@ import {
   sendTerminalImages,
 } from "./terminal-images.ts";
 import {
-  MAX_FRAME_BYTES,
-  MOBILE_TERMINAL_SNAPSHOT_BYTES,
-  MOBILE_TERMINAL_SNAPSHOT_LINES,
-  MAX_TERMINAL_SNAPSHOT_BYTES,
   MAX_TERMINAL_SNAPSHOT_LINES,
   buildTerminalSnapshotRestoreSequence,
-  terminalServerMessageSchema,
   type TerminalViewAttributes,
   type TerminalServerMessage,
   type TerminalSummary,
@@ -56,6 +55,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type CSSProperties,
 } from "react";
 import { cn } from "cn";
@@ -174,35 +174,6 @@ function viewAttributes(
 
 function desktopDimensions(summary: TerminalSummary): TerminalDimensions {
   return summary.lastDesktopSize ?? { cols: summary.cols, rows: summary.rows };
-}
-
-function splitTerminalInput(data: string, origin?: "scroll") {
-  const encoder = new TextEncoder();
-  const maxDataBytes =
-    MAX_FRAME_BYTES -
-    encoder.encode(
-      JSON.stringify({
-        kind: "terminal.input",
-        data: "",
-        ...(origin ? { origin } : {}),
-      }),
-    ).byteLength;
-  const chunks: string[] = [];
-  let current = "";
-  let currentBytes = 0;
-  for (const character of data) {
-    const characterBytes =
-      encoder.encode(JSON.stringify(character)).byteLength - 2;
-    if (current && currentBytes + characterBytes > maxDataBytes) {
-      chunks.push(current);
-      current = "";
-      currentBytes = 0;
-    }
-    current += character;
-    currentBytes += characterBytes;
-  }
-  if (current) chunks.push(current);
-  return chunks;
 }
 
 function validLink(value: string) {
@@ -335,10 +306,6 @@ export function TerminalPane({
   const mountRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | undefined>(undefined);
   const fitRef = useRef<FitAddon | undefined>(undefined);
-  const fitTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(
-    undefined,
-  );
-  const fitWaitersRef = useRef(new Set<(fitted: boolean) => void>());
   const paneResizingRef = useRef(false);
   const searchRef = useRef<SearchAddon | undefined>(undefined);
   const claimSizeOnOpenRef = useRef(claimSizeOnOpen);
@@ -354,13 +321,9 @@ export function TerminalPane({
   receivingRef.current = receiving;
   claimSizeOnOpenRef.current = claimSizeOnOpen;
   onOpenClaimConsumedRef.current = onOpenClaimConsumed;
-  const sizeOwnerViewIdRef = useRef<string | undefined>(undefined);
   const viewAttributesRef = useRef<TerminalViewAttributes | undefined>(
     undefined,
   );
-  const streamIdRef = useRef<string | undefined>(undefined);
-  const streamOpenedRef = useRef(false);
-  const streamOpeningRef = useRef<Promise<void>>(Promise.resolve());
   const connectedRef = useRef(connected);
   const pendingDroppedPathsRef = useRef<string[]>([]);
   if (!connected) pendingDroppedPathsRef.current = [];
@@ -376,23 +339,17 @@ export function TerminalPane({
   const fullHistoryLoadedRef = useRef(!mobile);
   const hasSnapshotRef = useRef(false);
   const pendingHistorySearchRef = useRef<boolean | undefined>(undefined);
-  const sendQueueRef = useRef<Promise<void>>(Promise.resolve());
-  const incomingQueueRef = useRef<Promise<void>>(Promise.resolve());
   const terminalEndedRef = useRef(false);
   const searchTextRef = useRef("");
   const searchCaseSensitiveRef = useRef(false);
   const tRef = useRef(t);
-  const openStreamRef = useRef<(fullHistory: boolean) => void>(() => undefined);
   const fullHistoryReloadRef = useRef<() => void>(() => undefined);
   // Whether the Host kept scrollback that the last snapshot left out, and
   // whether a snapshot is being restored (its reset and writes scroll too).
   const historyTruncatedRef = useRef(false);
   const restoringRef = useRef(false);
   const [mounted, setMounted] = useState(false);
-  const [streamOpened, setStreamOpened] = useState(false);
-  const [streamReady, setStreamReady] = useState(false);
   const [terminalEnded, setTerminalEnded] = useState(false);
-  const readyStreamIdRef = useRef<string | undefined>(undefined);
   const [transportError, setTransportError] = useState<string>();
   const [actionError, setActionError] = useState<string>();
   const mobileInputRef = useRef<MobileInputHandle>(null);
@@ -602,84 +559,44 @@ export function TerminalPane({
     summary.rows,
   ]);
 
-  const sendMessage = useCallback(
-    (
-      value: object | Promise<object[]>,
-      allowStopped = false,
-      input = false,
-      onFailure?: () => void,
-    ) => {
-      const streamId = streamIdRef.current;
-      const kind = (value as { kind?: string }).kind;
-      const claimsSize =
-        input ||
-        kind === "terminal.focus" ||
-        kind === "terminal.resize" ||
-        kind === "terminal.input" ||
-        kind === "terminal.submit";
-      if (
-        !streamId ||
-        !receivingRef.current ||
-        !connectedRef.current ||
-        (!allowStopped && !allowedInputRef.current)
-      ) {
-        return false;
-      }
-      if (claimsSize) sizeOwnerViewIdRef.current = viewId;
-      const opening = streamOpeningRef.current;
-      const sizingOnOpen =
-        kind === "terminal.focus" && !streamOpenedRef.current;
-      sendQueueRef.current = sendQueueRef.current
-        .then(async () => {
-          await opening;
-          const messages = value instanceof Promise ? await value : [value];
-          // Once handed to native, delivery is unknown on failure: never replay.
-          for (const message of messages) {
-            const size =
-              mobileRef.current && desktopWidthRef.current
-                ? desktopDimensionsRef.current
-                : localDimensionsRef.current;
-            await native.terminalWrite(
-              streamId,
-              JSON.stringify(sizingOnOpen ? { ...message, ...size } : message),
-            );
-          }
-          if (claimsSize && streamIdRef.current === streamId)
-            sizeOwnerViewIdRef.current = viewId;
-        })
-        .catch(() => {
-          onFailure?.();
-          if (streamIdRef.current === streamId) {
-            if (claimsSize && sizeOwnerViewIdRef.current === viewId)
-              sizeOwnerViewIdRef.current = undefined;
-            setTransportError(
-              tRef.current(
-                "Input could not be sent. Check the connection before continuing.",
-              ),
-            );
-          }
-        });
-      return true;
-    },
+  const stream = useMemo(
+    () =>
+      new TerminalStreamController(
+        viewId,
+        (allowStopped) =>
+          receivingRef.current &&
+          connectedRef.current &&
+          (allowStopped || allowedInputRef.current),
+        () =>
+          mobileRef.current && desktopWidthRef.current
+            ? desktopDimensionsRef.current
+            : localDimensionsRef.current,
+        (reason) => {
+          const copy = {
+            input:
+              "Input could not be sent. Check the connection before continuing.",
+            display: "Could not display this terminal. Reopen it to continue.",
+            listen: "Could not listen for terminal updates.",
+            open: "Could not open this terminal. Refresh the list to check its state.",
+            reopen:
+              "Could not reopen this terminal. Refresh the list to check its state.",
+          };
+          setTransportError(tRef.current(copy[reason]));
+        },
+      ),
     [viewId],
   );
-
-  const detachAfterInput = useCallback((streamId: string | undefined) => {
-    // Opening itself must finish before detach, even with no accepted input:
-    // native has to register this stream before it can be closed.
-    if (streamId)
-      void Promise.allSettled([streamOpeningRef.current, sendQueueRef.current])
-        .then(() => native.terminalDetach(streamId))
-        .catch(() => undefined);
-  }, []);
+  const {
+    id: streamId,
+    opened: streamOpened,
+    ready: streamReady,
+  } = useSyncExternalStore(stream.subscribe, stream.snapshot);
+  const sendMessage = stream.send;
 
   const focusTerminal = useCallback(
     (forceClaim = false) => {
       const terminal = terminalRef.current;
-      const size =
-        mobileRef.current && desktopWidthRef.current
-          ? desktopDimensionsRef.current
-          : localDimensionsRef.current;
+      const size = stream.dimensions;
       if (
         terminal &&
         (terminal.cols !== size.cols || terminal.rows !== size.rows)
@@ -688,7 +605,7 @@ export function TerminalPane({
         terminal.resize(size.cols, size.rows);
         applyingHostSizeRef.current = false;
       }
-      if (forceClaim || sizeOwnerViewIdRef.current !== viewId) {
+      if (forceClaim || !stream.ownsSize) {
         sendMessage({
           kind: "terminal.focus",
           cols: size.cols,
@@ -696,7 +613,7 @@ export function TerminalPane({
         });
       }
     },
-    [sendMessage],
+    [sendMessage, stream],
   );
 
   const fitNow = useCallback(() => {
@@ -723,7 +640,7 @@ export function TerminalPane({
     // A passive layout measurement must not take the shared PTY's size away
     // from another pane. The current owner still follows its measured size;
     // opening, focusing, and user input claim size through their explicit paths.
-    if (streamOpenedRef.current && sizeOwnerViewIdRef.current !== viewId) {
+    if (stream.snapshot().opened && !stream.ownsSize) {
       return true;
     }
     if (mobileRef.current && desktopWidthRef.current && terminal) {
@@ -742,61 +659,31 @@ export function TerminalPane({
       // The next measurable layout notification will retry this fit.
       return false;
     }
-  }, [viewId]);
+  }, [stream]);
 
-  const flushFit = useCallback(() => {
-    clearTimeout(fitTimerRef.current);
-    fitTimerRef.current = undefined;
-    const fitted = fitNow();
-    if (fitted || !visibleRef.current || !receivingRef.current) {
-      for (const resolve of fitWaitersRef.current) resolve(fitted);
-      fitWaitersRef.current.clear();
-    }
-  }, [fitNow]);
-
-  const fitTerminal = useCallback(
-    (immediate = false) =>
-      new Promise<boolean>((resolve) => {
-        fitWaitersRef.current.add(resolve);
-        clearTimeout(fitTimerRef.current);
-        if (immediate) flushFit();
-        else fitTimerRef.current = setTimeout(flushFit, 100);
-      }),
-    [flushFit],
+  const fitSchedule = useMemo(
+    () =>
+      terminalFitScheduler(
+        fitNow,
+        () => visibleRef.current && receivingRef.current,
+      ),
+    [fitNow],
   );
-
+  const fitTerminal = fitSchedule.request;
   useEffect(() => {
-    if (!visible || !receiving) flushFit();
-  }, [visible, receiving, flushFit]);
+    if (!visible || !receiving) fitSchedule.flush();
+  }, [visible, receiving, fitSchedule]);
 
   const sendInput = useCallback(
     (data: string | Promise<string>, origin?: "scroll") => {
-      if (
-        !data ||
-        !streamIdRef.current ||
-        !receivingRef.current ||
-        !connectedRef.current ||
-        !allowedInputRef.current
-      ) {
-        return false;
-      }
+      if (!data || !stream.acceptsInput) return false;
       focusTerminal();
       if (mobileRef.current && origin !== "scroll")
         terminalRef.current?.scrollToBottom();
-      const messages = (text: string) =>
-        splitTerminalInput(text, origin).map((part) => ({
-          kind: "terminal.input",
-          data: part,
-          ...(origin ? { origin } : {}),
-        }));
-      if (typeof data === "string") {
-        for (const message of messages(data)) sendMessage(message);
-      } else {
-        sendMessage(data.then(messages), false, true);
-      }
+      stream.input(data, origin);
       return true;
     },
-    [focusTerminal, sendMessage],
+    [focusTerminal, stream],
   );
 
   const { modifiers, sendKey, attachInput, modifyInput } = useTerminalModifiers(
@@ -808,7 +695,7 @@ export function TerminalPane({
     () =>
       registerTerminalInput(summary.id, (text) => {
         if (!connectedRef.current || !allowedInputRef.current) return false;
-        if (visibleRef.current && streamOpenedRef.current)
+        if (visibleRef.current && stream.snapshot().opened)
           return sendInput(text);
         pendingDroppedPathsRef.current.push(text);
         return true;
@@ -834,12 +721,11 @@ export function TerminalPane({
   }, []);
 
   const applyServerMessage = useCallback(
-    async (message: TerminalServerMessage) => {
+    async (message: TerminalServerMessage, id: string) => {
       const terminal = terminalRef.current;
       if (!terminal) return;
       if (message.kind === "terminal.snapshot") {
         submitResultRef.current = message.submitResult === true;
-        sizeOwnerViewIdRef.current = message.sizeOwnerViewId;
         const desktopSize = desktopDimensions(message.terminal);
         desktopDimensionsRef.current = desktopSize;
         setDesktopHostDimensions(desktopSize);
@@ -912,8 +798,7 @@ export function TerminalPane({
         } finally {
           restoringRef.current = false;
         }
-        readyStreamIdRef.current = streamIdRef.current;
-        setStreamReady(true);
+        if (stream.snapshot().id !== id) return;
         setTransportError(undefined);
         setActionError(undefined);
         if (pendingHistorySearchRef.current !== undefined) {
@@ -944,7 +829,6 @@ export function TerminalPane({
         return;
       }
       if (message.kind === "terminal.size") {
-        sizeOwnerViewIdRef.current = message.sizeOwnerViewId;
         const desktopSize = message.lastDesktopSize;
         desktopDimensionsRef.current = desktopSize;
         setDesktopHostDimensions(desktopSize);
@@ -969,6 +853,7 @@ export function TerminalPane({
       );
     },
     [
+      stream,
       flushBatchText,
       runSearch,
       restorePendingBatches,
@@ -977,81 +862,6 @@ export function TerminalPane({
       summary.teamConversation,
     ],
   );
-
-  const openStream = useCallback(
-    async (streamId: string, fullHistory: boolean, claimSize: boolean) => {
-      // The first open must use the same settled, measurable layout as later fits.
-      const fitted =
-        visibleRef.current && receivingRef.current
-          ? await fitTerminal()
-          : false;
-      // A passive fit must use the owner from this stream's snapshot, not the
-      // old owner from before the phone went into the background/disconnected.
-      sizeOwnerViewIdRef.current = undefined;
-      const dimensions =
-        mobile && desktopWidthRef.current
-          ? desktopDimensionsRef.current
-          : localDimensionsRef.current;
-      const open = {
-        kind: "terminal",
-        operationId: crypto.randomUUID(),
-        action: "open",
-        viewId,
-        claimSize:
-          claimSize && fitted && visibleRef.current && receivingRef.current,
-        viewAttributes:
-          viewAttributesRef.current ??
-          terminalTheme(mountRef.current!).viewAttributes,
-        deviceClass: mobile ? "mobile" : "desktop",
-        terminalId: summary.id,
-        cols: dimensions.cols,
-        rows: dimensions.rows,
-        snapshotMaxLines:
-          mobile && !fullHistory
-            ? MOBILE_TERMINAL_SNAPSHOT_LINES
-            : MAX_TERMINAL_SNAPSHOT_LINES,
-        snapshotMaxBytes:
-          mobile && !fullHistory
-            ? MOBILE_TERMINAL_SNAPSHOT_BYTES
-            : MAX_TERMINAL_SNAPSHOT_BYTES,
-      };
-      await native.terminalOpen(connectionId, streamId, JSON.stringify(open));
-    },
-    [connectionId, mobile, summary.id, viewId, fitTerminal],
-  );
-  const markStreamOpened = useCallback((streamId: string) => {
-    if (streamIdRef.current !== streamId) return;
-    streamOpenedRef.current = true;
-    setStreamOpened(true);
-  }, []);
-
-  openStreamRef.current = (fullHistory) => {
-    const streamId = crypto.randomUUID();
-    streamIdRef.current = streamId;
-    streamOpenedRef.current = false;
-    setStreamOpened(false);
-    setStreamReady(false);
-    const opening = streamOpeningRef.current
-      .catch(() => undefined)
-      .then(() => openStream(streamId, fullHistory, false));
-    streamOpeningRef.current = opening;
-    void opening
-      .then(() => markStreamOpened(streamId))
-      .catch(() => {
-        if (streamIdRef.current === streamId) {
-          streamIdRef.current = undefined;
-          streamOpenedRef.current = false;
-          setStreamOpened(false);
-          setStreamReady(false);
-          setTransportError(
-            tRef.current(
-              "Could not open this terminal. Refresh the list to check its state.",
-            ),
-          );
-        }
-        void native.terminalDetach(streamId).catch(() => undefined);
-      });
-  };
 
   // A hidden retained view keeps no stream (see the stream effect). Showing it
   // is opening it: it measures again and its new stream takes the shared size.
@@ -1094,14 +904,8 @@ export function TerminalPane({
     if (!terminal) return;
     fullHistoryRef.current = true;
     fullHistoryLoadedRef.current = false;
-    const previous = streamIdRef.current;
-    streamIdRef.current = undefined;
-    streamOpenedRef.current = false;
-    setStreamOpened(false);
-    setStreamReady(false);
-    detachAfterInput(previous);
-    openStreamRef.current(true);
-  }, [detachAfterInput]);
+    stream.reopen();
+  }, [stream]);
   fullHistoryReloadRef.current = reloadFullHistory;
 
   // Width is a device preference; each open view keeps its own width choice.
@@ -1207,9 +1011,7 @@ export function TerminalPane({
     const clipboardPolicy = terminal.parser.registerOscHandler(
       52,
       (data) =>
-        data.split(";")[1] === "?" ||
-        restoringRef.current ||
-        sizeOwnerViewIdRef.current !== viewId,
+        data.split(";")[1] === "?" || restoringRef.current || !stream.ownsSize,
     );
     terminal.open(mount);
     // Native copy shortcuts (such as Ctrl+Insert) reach xterm's DOM listener
@@ -1339,14 +1141,14 @@ export function TerminalPane({
       setRows(rows);
       if (applyingHostSizeRef.current) return;
       localDimensionsRef.current = { cols, rows };
-      if (streamOpenedRef.current && sizeOwnerViewIdRef.current === viewId) {
+      if (stream.snapshot().opened && stream.ownsSize) {
         sendMessage({ kind: "terminal.resize", cols, rows });
       }
     });
     const textarea = terminal.textarea;
     if (textarea) textarea.dataset.ioriField = "terminal-input";
     const onFocus = () => {
-      if (streamOpenedRef.current) focusTerminal();
+      if (stream.snapshot().opened) focusTerminal();
     };
     textarea?.addEventListener("focus", onFocus);
     // xterm turns a finger's touch into its own gesture events and cancels the
@@ -1414,7 +1216,7 @@ export function TerminalPane({
         target instanceof Element &&
         target.closest(".dv-sash, .workspace-resize-handle")
       ) {
-        clearTimeout(fitTimerRef.current);
+        fitSchedule.cancelTimer();
         paneResizingRef.current = true;
         sidebarResizing = Boolean(target.closest(".sidebar-resize-handle"));
         restorePaneFocus = Boolean(
@@ -1458,9 +1260,7 @@ export function TerminalPane({
     return () => {
       refreshFontRef.current = undefined;
       setMounted(false);
-      clearTimeout(fitTimerRef.current);
-      for (const resolve of fitWaitersRef.current) resolve(false);
-      fitWaitersRef.current.clear();
+      fitSchedule.close();
       resizeObserver.disconnect();
       document.removeEventListener("pointerdown", beginPaneResize, true);
       document.removeEventListener("pointerup", finishPaneResize);
@@ -1610,6 +1410,10 @@ export function TerminalPane({
   useEffect(() => {
     // Only a view on screen streams: hidden tabs would otherwise keep receiving
     // every Terminal's output and slow the shown one and the Host.
+    const restore = () => {
+      restorePendingBatches();
+      submitResultRef.current = false;
+    };
     if (
       !mounted ||
       !connected ||
@@ -1618,173 +1422,54 @@ export function TerminalPane({
       !visible ||
       !receiving
     ) {
-      restorePendingBatches();
-      submitResultRef.current = false;
-      streamIdRef.current = undefined;
-      streamOpenedRef.current = false;
-      setStreamOpened(false);
-      setStreamReady(false);
+      restore();
       return;
     }
-    let active = true;
-    let frameStop: (() => void) | undefined;
-    let endedStop: (() => void) | undefined;
-    const onFrame = (frame: {
-      connectionId: string;
-      streamId: string;
-      json: string;
-    }) => {
-      if (
-        !active ||
-        frame.connectionId !== connectionId ||
-        frame.streamId !== streamIdRef.current
-      )
-        return;
-      incomingQueueRef.current = incomingQueueRef.current
-        .then(async () => {
-          if (!active || frame.streamId !== streamIdRef.current) return;
-          const message = terminalServerMessageSchema.parse(
-            JSON.parse(frame.json),
-          );
-          if (message) await applyServerMessage(message);
-        })
-        .catch(() => {
-          if (
-            active &&
-            frame.streamId === streamIdRef.current &&
-            readyStreamIdRef.current !== frame.streamId
-          )
-            setTransportError(
-              tRef.current(
-                "Could not display this terminal. Reopen it to continue.",
-              ),
-            );
-        })
-        .finally(async () => {
-          await native
-            .terminalAcknowledge(frame.streamId)
-            .catch(() => undefined);
-        });
-    };
-    const onEnded = (frame: {
-      connectionId: string;
-      streamId: string;
-      reason?: string | null;
-    }) => {
-      if (!active || frame.connectionId !== connectionId) return;
-      if (frame.streamId !== streamIdRef.current) return;
-      restorePendingBatches();
-      submitResultRef.current = false;
-      detachAfterInput(frame.streamId);
-      streamIdRef.current = undefined;
-      streamOpenedRef.current = false;
-      setStreamOpened(false);
-      setStreamReady(false);
-      if (!connectedRef.current || terminalEndedRef.current) return;
-      // Reopening from a saved screen is normal flow control, not a failure.
-      // Only the failed reopen below needs an alert.
-      const nextId = crypto.randomUUID();
-      streamIdRef.current = nextId;
-      const opening = streamOpeningRef.current
-        .catch(() => undefined)
-        .then(() => openStream(nextId, fullHistoryRef.current, false));
-      streamOpeningRef.current = opening;
-      void opening
-        .then(() => {
-          if (active) markStreamOpened(nextId);
-        })
-        .catch(() => {
-          if (active && streamIdRef.current === nextId) {
-            streamIdRef.current = undefined;
-            streamOpenedRef.current = false;
-            setStreamOpened(false);
-            setStreamReady(false);
-            setTransportError(
-              tRef.current(
-                "Could not reopen this terminal. Refresh the list to check its state.",
-              ),
-            );
-          }
-          void native.terminalDetach(nextId).catch(() => undefined);
-        });
-    };
-    const initialStreamId = crypto.randomUUID();
-    streamIdRef.current = initialStreamId;
-    const listening = Promise.all([
-      native.onTerminalFrame(onFrame),
-      native.onTerminalEnded(onEnded),
-      // Keep open requests in intent order, including an opening cancelled
-      // before its listeners were registered. A later view supersedes it.
-      streamOpeningRef.current.catch(() => undefined),
-    ]).catch((error: unknown) => {
-      if (active && streamIdRef.current === initialStreamId) {
-        streamIdRef.current = undefined;
-        streamOpenedRef.current = false;
-        setStreamOpened(false);
-        setStreamReady(false);
-        setTransportError(
-          tRef.current("Could not listen for terminal updates."),
-        );
-      }
-      throw error;
+    const stop = stream.attach({
+      connectionId,
+      mobile,
+      terminalId: summary.id,
+      fullHistory: () => fullHistoryRef.current,
+      measure: async (id) => {
+        const shown = () =>
+          visibleRef.current &&
+          receivingRef.current &&
+          stream.snapshot().id === id;
+        const fitted = shown() && (await fitTerminal());
+        return {
+          fitted: fitted && shown(),
+          attributes:
+            viewAttributesRef.current ??
+            terminalTheme(mountRef.current!).viewAttributes,
+        };
+      },
+      apply: applyServerMessage,
+      claimOnOpen: () => {
+        const claim = claimSizeOnOpenRef.current || claimOnShowRef.current;
+        claimOnShowRef.current = false;
+        if (claimSizeOnOpenRef.current) {
+          claimSizeOnOpenRef.current = false;
+          onOpenClaimConsumedRef.current(summary.id);
+        }
+        return claim;
+      },
+      ended: () => {
+        restore();
+        return connectedRef.current && !terminalEndedRef.current;
+      },
     });
-    const opening = listening.then(([stopFrames, stopEnds]) => {
-      if (!active) {
-        stopFrames();
-        stopEnds();
-      }
-      frameStop = stopFrames;
-      endedStop = stopEnds;
-      const claimSize =
-        active && (claimSizeOnOpenRef.current || claimOnShowRef.current);
-      if (active) claimOnShowRef.current = false;
-      if (active && claimSizeOnOpenRef.current) {
-        claimSizeOnOpenRef.current = false;
-        onOpenClaimConsumedRef.current(summary.id);
-      }
-      return openStream(initialStreamId, fullHistoryRef.current, claimSize)
-        .then(() => {
-          if (active) markStreamOpened(initialStreamId);
-        })
-        .catch(() => {
-          if (active && streamIdRef.current === initialStreamId) {
-            streamIdRef.current = undefined;
-            streamOpenedRef.current = false;
-            setStreamOpened(false);
-            setStreamReady(false);
-            setTransportError(
-              tRef.current(
-                "Could not open this terminal. Refresh the list to check its state.",
-              ),
-            );
-          }
-          void native.terminalDetach(initialStreamId).catch(() => undefined);
-          throw new Error("terminal stream could not open");
-        });
-    });
-    streamOpeningRef.current = opening;
-    void opening.catch(() => undefined);
     return () => {
-      active = false;
-      restorePendingBatches();
-      submitResultRef.current = false;
-      const streamId = streamIdRef.current;
-      streamIdRef.current = undefined;
-      streamOpenedRef.current = false;
-      setStreamOpened(false);
-      setStreamReady(false);
-      frameStop?.();
-      endedStop?.();
-      detachAfterInput(streamId);
+      restore();
+      stop();
     };
   }, [
+    stream,
     applyServerMessage,
     connectionId,
     connected,
-    detachAfterInput,
-    markStreamOpened,
     mounted,
-    openStream,
+    mobile,
+    fitTerminal,
     settingsReady,
     summary.id,
     visible,
@@ -2044,7 +1729,7 @@ export function TerminalPane({
       data-iori-state={summary.state}
       data-iori-cols={cols}
       data-iori-rows={rows}
-      data-iori-stream-id={streamIdRef.current}
+      data-iori-stream-id={streamId}
       data-iori-stream-state={
         !connected
           ? "disconnected"
@@ -2130,9 +1815,7 @@ export function TerminalPane({
               setTransportError(undefined);
               terminalEndedRef.current = false;
               setTerminalEnded(false);
-              const previous = streamIdRef.current;
-              detachAfterInput(previous);
-              openStreamRef.current(fullHistoryRef.current);
+              stream.reopen();
             }}
           >
             {t("Reopen")}
@@ -2410,8 +2093,7 @@ export function TerminalPane({
                 .then((ok) => {
                   setResumeError(!ok);
                   if (ok) {
-                    if (summary.teamConversation)
-                      openStreamRef.current(fullHistoryRef.current);
+                    if (summary.teamConversation) stream.reopen();
                     focusTerminal();
                   }
                 })

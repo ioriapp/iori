@@ -10,15 +10,8 @@ import type { ForgeDetection } from "./forge/adapters.ts";
 import { collectGit } from "./git-process.ts";
 import { parseRemoteUrl } from "./forge-remote.ts";
 import { repositoryMainPath } from "./repository-git-settings.ts";
-import { githubIssues } from "./forge/github-issues.ts";
-import { forgejoIssues } from "./forge/forgejo-issues.ts";
 import { forgeReadFailure } from "./forge/failure.ts";
 import type { IssueContext, IssueReader, IssueTarget } from "./forge/issues.ts";
-
-const readers: Record<string, IssueReader | undefined> = {
-  github: githubIssues,
-  forgejo: forgejoIssues,
-};
 
 async function git(
   path: string,
@@ -119,7 +112,7 @@ export async function repositoryIssues(
     redetect,
     reportDetectionFailure,
   );
-  const reader = adapter ? readers[adapter.id] : undefined;
+  const reader = adapter?.issues;
   if (!adapter || !reader) return { ok: false, reason: "no-forge" };
   const [owner, repo] = location.parts as [string, string];
   return {

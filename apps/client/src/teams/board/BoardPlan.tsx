@@ -82,7 +82,7 @@ export function BoardPlan({
               : "Orchestrator updated the plan",
         )}
         {event.task !== undefined && ` · ${taskNumber(event.task)}`} ·{" "}
-        {translateActivityText(event.text, t)}
+        {activityDetails(event, t)}
       </span>
     </p>
   );
@@ -374,18 +374,24 @@ export function BoardPlan({
   );
 }
 
-const ACTIVITY_STATUS_TOKENS: Record<string, string> = {
-  Pending: "Waiting",
-  Running: "Running",
-  Done: "Done",
-  Cancelled: "Cancelled",
-  Blocked: "Blocked",
-  Failed: "Failed",
-  Stopped: "Stopped",
-  "In progress": "Running",
+const planActivityStateLabels: Record<
+  NonNullable<PlanActivity["state"]>,
+  string
+> = {
+  pending: "Waiting",
+  in_progress: "Running",
+  done: "Done",
+  cancelled: "Cancelled",
 };
 
-function translateActivityText(text: string, t: (key: string) => string) {
-  const mapped = ACTIVITY_STATUS_TOKENS[text];
-  return mapped ? t(mapped) : text;
+function activityDetails(event: PlanActivity, t: (key: string) => string) {
+  const parts = [
+    event.title,
+    event.state === undefined
+      ? undefined
+      : t(planActivityStateLabels[event.state]),
+    event.checkpoint,
+    event.reason,
+  ].filter((part) => part !== undefined);
+  return parts.length > 0 ? parts.join(" · ") : event.text;
 }

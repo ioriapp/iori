@@ -48,6 +48,31 @@ ruleTester.run("no-cli-name-branch", rule, {
       errors: [{ messageId: "cliBranch" }],
     },
     {
+      code: 'if (cli === "claude-code") startAdapter();',
+      filename: "/repo/apps/host/src/session.ts",
+      errors: [{ messageId: "cliBranch" }],
+    },
+    {
+      code: 'if (cli === "hermes") startAdapter();',
+      filename: "/repo/apps/host/src/session.ts",
+      errors: [{ messageId: "cliBranch" }],
+    },
+    {
+      code: 'switch (cli) { case "amp": startAdapter(); }',
+      filename: "/repo/apps/host/src/session.ts",
+      errors: [{ messageId: "cliBranch" }],
+    },
+    {
+      code: '["codebuddy"].includes(cli);',
+      filename: "/repo/apps/host/src/session.ts",
+      errors: [{ messageId: "cliBranch" }],
+    },
+    {
+      code: 'new Set(["qoder"]).has(cli);',
+      filename: "/repo/apps/host/src/teams/manager.ts",
+      errors: [{ messageId: "cliBranch" }],
+    },
+    {
       code: 'switch (name) { case "pi": startAdapter(); }',
       filename: "/repo/apps/host/src/registry.ts",
       errors: [{ messageId: "cliBranch" }],

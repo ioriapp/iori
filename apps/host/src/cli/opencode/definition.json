@@ -6,6 +6,7 @@
   "icon": { "light": "opencode-light.svg", "dark": "opencode-dark.svg" },
   "version": { "args": ["--version"] },
   "launch": {
+    "interrupt": "separate-esc",
     "permissions": { "Auto-approve permissions": ["--auto"] },
     "model": ["--model", "{model}"],
     "initialPrompt": { "mode": "argument", "args": ["--prompt", "{prompt}"] },

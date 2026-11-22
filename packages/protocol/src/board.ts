@@ -31,8 +31,13 @@ export type PlanActivity = {
   /** Host changed the plan itself (a delegated task started); absent means the parent. */
   by?: "host";
   task?: number;
-  text: string;
+  /** Goal text or the original text of an older activity entry. */
+  text?: string;
   previousGoal?: string;
+  title?: string;
+  state?: PlanTask["state"];
+  checkpoint?: string;
+  reason?: string;
 };
 export type ConversationPlan = {
   goal?: string;

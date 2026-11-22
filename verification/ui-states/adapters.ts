@@ -30,6 +30,7 @@ const snapshot = {
 export const connection = {
   subscribe: () => () => {},
   subscribeHostEvents: () => () => {},
+  clearError: () => {},
   requestHost: async (_host: string, method: string) => ({
     ok: true,
     result:

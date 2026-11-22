@@ -12,6 +12,7 @@ import {
 import { advancePartialEscapeTail } from "../shared/terminal-partial-escape-tail.ts";
 import type { TerminalViewAttributes } from "../shared/terminal-view-attributes.ts";
 import { collectHeadlessOscLinkRanges } from "./headless-osc-link-ranges.ts";
+import { writeSynchronously } from "./xterm-adapter.ts";
 import { readTerminalModes } from "./headless-emulator-modes.ts";
 import { buildRehydrateSequences } from "./terminal-mode-rehydrate-sequences.ts";
 import { ParserEvents } from "./parser-events.ts";
@@ -43,12 +44,6 @@ export type HeadlessEmulatorWriteOptions = {
   forwardQueryReplies?: boolean;
 };
 
-type TerminalWithSynchronousWrite = Terminal & {
-  _core?: {
-    writeSync?: (data: string) => void;
-  };
-};
-
 const DEFAULT_SCROLLBACK = 5000;
 // Keep in sync with the renderer twin terminal-capability-replies.ts (main must not import renderer modules).
 const CONPTY_DA1_RESPONSE = "\x1b[?61;4c";
@@ -59,6 +54,7 @@ export class HeadlessEmulator {
   readonly parserEvents: ParserEvents;
   private restoredOscLinks: TerminalOscLinkRange[] = [];
   private disposed = false;
+  private cachedSnapshot?: { rows?: number; value: TerminalSnapshot };
   private onQueryReply: ((reply: string) => void) | null;
   private conptyDa1OverrideInstalled = false;
   private viewAttributeResponder: TerminalViewAttributeResponder | null = null;
@@ -130,6 +126,7 @@ export class HeadlessEmulator {
     if (this.disposed) {
       return;
     }
+    this.cachedSnapshot = undefined;
     this.terminal.options.cursorStyle = attributes.cursorStyle;
     this.terminal.options.cursorBlink = attributes.cursorBlink;
     this.viewAttributeResponder?.clearColorOverrides();
@@ -146,6 +143,7 @@ export class HeadlessEmulator {
       return Promise.resolve();
     }
 
+    this.cachedSnapshot = undefined;
     const forwardQueryReplies = opts.forwardQueryReplies === true;
     if (this.tryWriteSync(data, { forwardQueryReplies })) {
       return Promise.resolve();
@@ -158,6 +156,7 @@ export class HeadlessEmulator {
     }
     return new Promise<void>((resolve) => {
       this.terminal.write(data, () => {
+        this.cachedSnapshot = undefined;
         if (forwardQueryReplies) {
           this.queryReplyForwardingDepth -= 1;
         }
@@ -174,21 +173,13 @@ export class HeadlessEmulator {
     data: string,
     opts: HeadlessEmulatorWriteOptions = {},
   ): boolean {
-    const writeSync = (this.terminal as TerminalWithSynchronousWrite)._core
-      ?.writeSync;
-    if (typeof writeSync !== "function") {
-      return false;
-    }
     const forwardQueryReplies = opts.forwardQueryReplies === true;
     if (forwardQueryReplies) {
       this.queryReplyForwardingDepth += 1;
     }
     // Why: restore snapshots are requested right after PTY bursts; queued writes could snapshot half-cleared TUI rows.
     try {
-      writeSync.call(
-        (this.terminal as TerminalWithSynchronousWrite)._core,
-        data,
-      );
+      if (!writeSynchronously(this.terminal, data)) return false;
     } finally {
       if (forwardQueryReplies) {
         this.queryReplyForwardingDepth -= 1;
@@ -214,11 +205,14 @@ export class HeadlessEmulator {
     if (this.terminal.cols === cols && this.terminal.rows === rows) {
       return;
     }
+    this.cachedSnapshot = undefined;
     this.restoredOscLinks = [];
     this.terminal.resize(cols, rows);
   }
 
   getSnapshot(opts: { scrollbackRows?: number } = {}): TerminalSnapshot {
+    if (this.cachedSnapshot && this.cachedSnapshot.rows === opts.scrollbackRows)
+      return this.cachedSnapshot.value;
     const modes = this.getModes();
     // Why absolute: relative cursor restore is off by a column after a wrap-pending final row; saved-cursor rides along for DECRC.
     const serializedAnsi = serializeWithAbsoluteCursor(
@@ -250,6 +244,7 @@ export class HeadlessEmulator {
         ? { pendingEscapeTailAnsi: this.partialEscapeTail }
         : {}),
     };
+    this.cachedSnapshot = { rows: opts.scrollbackRows, value: snapshot };
     return snapshot;
   }
 
@@ -263,6 +258,7 @@ export class HeadlessEmulator {
     ) {
       lines.push(buffer.getLine(row)?.translateToString(true) ?? "");
     }
+    while (lines.at(-1) === "") lines.pop();
     return lines;
   }
 
@@ -276,6 +272,7 @@ export class HeadlessEmulator {
   }
 
   setRestoredOscLinks(links: TerminalOscLinkRange[] | undefined): void {
+    this.cachedSnapshot = undefined;
     this.restoredOscLinks = links?.slice() ?? [];
   }
 

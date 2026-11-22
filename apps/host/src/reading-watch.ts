@@ -3,7 +3,7 @@ import { realpath } from "node:fs/promises";
 import { isAbsolute, join, relative, sep } from "node:path";
 import { ReadingFailure, errorCode, toFailure } from "./reading-failure.ts";
 import { collectGit } from "./git-process.ts";
-import { discoverRepository } from "./git-reading.ts";
+import { discoverRepository, invalidateGitStatus } from "./git-reading.ts";
 import { watchDirectory } from "./directory-watch.ts";
 
 type Failure = (error: unknown) => void;
@@ -128,7 +128,11 @@ export async function watchReading(
         return paths;
       }
     };
-    const changed = coalesce(send, reported);
+    const refresh = (paths: string[] | undefined) => {
+      invalidateGitStatus(base);
+      return send(paths);
+    };
+    const changed = coalesce(refresh, reported);
     stops.push(changed.close);
     // Metadata changes are marked with a leading NUL so the filter can tell them apart.
     const metadataChanged = () => changed("\0metadata");
@@ -176,7 +180,7 @@ export async function watchReading(
         ),
       );
     }
-    await send(undefined);
+    await refresh(undefined);
     return stop;
   } catch (error) {
     stop();

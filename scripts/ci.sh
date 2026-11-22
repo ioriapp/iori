@@ -23,7 +23,7 @@ done
 # Host API tests time out (#330). Run them one at a time; a lock that cannot be
 # opened (a restricted sandbox) does not stop the check.
 if [[ -z "$check_args" ]] && command -v flock >/dev/null &&
-  exec {ci_lock}>>/tmp/iori-ci-full.lock 2>/dev/null; then
+  { exec {ci_lock}>>/tmp/iori-ci-full.lock; } 2>/dev/null; then
   if ! flock -n "$ci_lock"; then
     printf 'Waiting for another bash scripts/ci.sh on this machine\n' >&2
     flock "$ci_lock"
@@ -38,6 +38,8 @@ stage=$(mktemp -d "$root/.local/ci-XXXXXXXX")
 out=$(mktemp -d "$evidence_root/run-XXXXXXXX")
 if [[ -n "$check_args" ]]; then printf "docs-only\n" >"$out/mode.txt"; else printf "full\n" >"$out/mode.txt"; fi
 cid=""
+logs_pid=""
+wait_pid=""
 build_seconds=0
 copy_seconds=0
 run_seconds=0
@@ -46,9 +48,14 @@ cleanup() {
   trap - EXIT
   if [[ -n "$cid" ]]; then
     docker logs "$cid" >"$out/container.log" 2>&1 || true
+    if ! docker cp "$cid:/work/.local/ci-steps/." "$out/"; then
+      if (( code == 0 )); then code=1; fi
+    fi
     mkdir -p "$root/.local/evidence/ui"
     docker cp "$cid:/work/.local/evidence/ui/." "$root/.local/evidence/ui/" 2>/dev/null || true
     docker rm -f "$cid" >/dev/null
+    if [[ -n "$logs_pid" ]]; then wait "$logs_pid" || true; fi
+    if [[ -n "$wait_pid" ]]; then wait "$wait_pid" || true; fi
   fi
   rm -rf "$stage"
   printf '{"exit":%s,"totalSeconds":%s,"imageSeconds":%s,"copySeconds":%s,"checkSeconds":%s}\n' \
@@ -71,6 +78,10 @@ cp scripts/ci.Dockerfile "$stage/context/Dockerfile"
 timeout --kill-after=20s 900 docker build "${image_cache_args[@]}" --build-arg "NODE_VERSION=$node_ver" \
   --build-arg "PNPM_VERSION=$pnpm_ver" --build-arg "RUST_VERSION=$rust_ver" --build-arg "PLAYWRIGHT_VERSION=$playwright_ver" \
   -t "$tag" "$stage/context"
+image_id=$(docker image inspect --format '{{.Id}}' "$tag")
+# BuildKit's image ID can change when only build metadata changes.
+image_runtime=$(docker image inspect --format '{{.Os}}/{{.Architecture}} {{json .RootFS.Layers}} {{json .Config}}' "$image_id")
+image_fingerprint=$(printf '%s' "$image_runtime" | sha256sum | cut -d' ' -f1)
 build_seconds=$(( $(date +%s) - started ))
 copy_started=$(date +%s)
 git rev-parse HEAD >"$out/source-sha.txt"
@@ -286,22 +297,29 @@ cleanup_cargo_targets() {
 if ! seed_cargo_target; then
   printf 'CI Cargo target seed: warning: copy failed\n'
 fi
-if ! cleanup_cargo_targets; then
+if [[ -z "$check_args" ]] && ! cleanup_cargo_targets; then
   printf 'CI Cargo target cleanup: warning: cleanup failed\n'
 fi
-cid=$(docker create --label org.iori.ci.workspace=bounded-check --memory 8g --memory-swap 8g \
+resources=$(node scripts/ci-resources.mjs)
+read -r memory_gib cargo_jobs parallel_suites test_concurrency playwright_workers <<< "$resources"
+memory_limit="${IORI_CI_MEMORY:-${memory_gib}g}"
+cid=$(docker create --init --label org.iori.ci.workspace=bounded-check --memory "$memory_limit" --memory-swap "$memory_limit" \
   -w /work -e CI=true -e npm_config_store_dir=/pnpm/store -e pnpm_config_store_dir=/pnpm/store \
-  -e CARGO_TARGET_DIR="/cargo-target/$workspace_cache_key" -e CARGO_BUILD_JOBS=2 \
+  -e CARGO_TARGET_DIR="/cargo-target/$workspace_cache_key" -e CARGO_BUILD_JOBS="$cargo_jobs" -e IORI_CI_IMAGE_FINGERPRINT="$image_fingerprint" \
+  -e IORI_CI_PARALLEL_SUITES="$parallel_suites" -e IORI_TEST_CONCURRENCY="$test_concurrency" -e IORI_PLAYWRIGHT_WORKERS="$playwright_workers" \
   -v iori-ci-pnpm-store:/pnpm/store \
   -v iori-ci-cargo-registry:/opt/cargo/registry \
   -v iori-ci-cargo-target:/cargo-target \
-  "$tag" bash -Eeuo pipefail -c "git config --global --add safe.directory /work; if [[ -z '$check_args' ]]; then node scripts/clean-copied-cargo.mjs; fi; timeout --kill-after=20s 900 bash scripts/ci-check.sh$check_args")
+  "$image_id" bash -Eeuo pipefail -c "git config --global --add safe.directory /work; exec timeout --kill-after=20s 900 bash scripts/ci-check.sh$check_args")
 docker cp "$stage/src/." "$cid:/work/"
 copy_seconds=$(( $(date +%s) - copy_started ))
 run_started=$(date +%s)
 docker start "$cid" >/dev/null
+docker logs --follow "$cid" &
+logs_pid=$!
 docker wait "$cid" >"$stage/exit-code" &
-wait $!
+wait_pid=$!
+wait "$wait_pid"
 run_seconds=$(( $(date +%s) - run_started ))
-docker logs "$cid"
+wait "$logs_pid"
 exit "$(cat "$stage/exit-code")"

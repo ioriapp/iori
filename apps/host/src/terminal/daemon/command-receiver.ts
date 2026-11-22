@@ -45,9 +45,9 @@ async function commandBase(base?: string): Promise<string> {
     return tmpdir();
   }
 }
-interface CommandRoute {
+interface CommandRoute<C> {
   secret: Buffer;
-  caller: Caller;
+  caller: C;
   directory: string;
   watcher: FSWatcher;
   pending: Set<Promise<void>>;
@@ -58,14 +58,12 @@ interface CommandRoute {
 }
 /** A per-session mailbox in the CLI's writable temp area. Credentials never
  * enter argv, stored team records, terminal input/output, or error messages. */
-export class CommandReceiver {
-  readonly #routes = new Map<string, CommandRoute>();
+export class CommandReceiver<C = Caller> {
+  readonly #routes = new Map<string, CommandRoute<C>>();
   readonly #cleanup = new Set<Promise<void>>();
   #commands?: CommandDirectories;
-  readonly execute: (caller: Caller, argv: unknown) => Promise<CommandResult>;
-  constructor(
-    execute: (caller: Caller, argv: unknown) => Promise<CommandResult>,
-  ) {
+  readonly execute: (caller: C, argv: unknown) => Promise<CommandResult>;
+  constructor(execute: (caller: C, argv: unknown) => Promise<CommandResult>) {
     this.execute = execute;
   }
   async listen(root: string): Promise<void> {
@@ -73,7 +71,7 @@ export class CommandReceiver {
     await this.#commands.initialize();
   }
   async register(
-    caller: Caller,
+    caller: C,
     base?: string,
   ): Promise<{ env: Record<string, string>; dispose: () => void }> {
     const directory = await mkdtemp(
@@ -89,7 +87,7 @@ export class CommandReceiver {
         : dirname(fileURLToPath(import.meta.resolve("@iori/terminal-native")));
     const session = randomUUID();
     const secret = randomBytes(32);
-    const route: CommandRoute = {
+    const route: CommandRoute<C> = {
       caller,
       secret,
       directory,
@@ -118,7 +116,7 @@ export class CommandReceiver {
       },
     };
   }
-  #scan(route: CommandRoute): Promise<void> {
+  #scan(route: CommandRoute<C>): Promise<void> {
     route.changed = true;
     if (route.scan) return route.scan;
     const scan = this.#scanDirectory(route);
@@ -128,7 +126,7 @@ export class CommandReceiver {
     });
     return scan;
   }
-  async #scanDirectory(route: CommandRoute): Promise<void> {
+  async #scanDirectory(route: CommandRoute<C>): Promise<void> {
     try {
       do {
         route.changed = false;
@@ -163,7 +161,7 @@ export class CommandReceiver {
       // Session retirement removes the directory while a scan may be active.
     }
   }
-  async #authenticate(route: CommandRoute, name: string): Promise<boolean> {
+  async #authenticate(route: CommandRoute<C>, name: string): Promise<boolean> {
     const request = join(route.directory, name);
     const info = await lstat(request);
     if (!info.isFile() || info.isSymbolicLink()) return false;
@@ -197,7 +195,7 @@ export class CommandReceiver {
     });
     await rename(response + ".tmp", response);
   }
-  async #respond(route: CommandRoute, file: string): Promise<void> {
+  async #respond(route: CommandRoute<C>, file: string): Promise<void> {
     const request = join(route.directory, file);
     try {
       const info = await lstat(request);
@@ -234,7 +232,7 @@ export class CommandReceiver {
   #authenticatedRoute(envelope: {
     session?: unknown;
     auth?: unknown;
-  }): CommandRoute | undefined {
+  }): CommandRoute<C> | undefined {
     if (
       !envelope ||
       typeof envelope.session !== "string" ||
@@ -250,7 +248,7 @@ export class CommandReceiver {
       return undefined;
     return route;
   }
-  #retire(route: CommandRoute): void {
+  #retire(route: CommandRoute<C>): void {
     route.retired = true;
     route.watcher.close();
     const cleanup = (async () => {

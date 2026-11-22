@@ -6,6 +6,7 @@
   "icon": { "light": "qoder.svg" },
   "version": { "args": ["--version"] },
   "launch": {
+    "interrupt": "ctrl-c",
     "model": ["--model", "{model}"],
     "effort": ["--reasoning-effort", "{effort}"],
     "permissions": {

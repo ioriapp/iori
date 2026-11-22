@@ -127,9 +127,11 @@ export class ConnectionController {
   };
   getSnapshot = () => this.state;
   private setConnected(
-    record: { host: HostInfo; connected: boolean },
+    record: { host: HostInfo; connected: boolean; disconnectedAt?: number },
     value: boolean,
   ) {
+    if (record.connected && !value) record.disconnectedAt = Date.now();
+    if (value) record.disconnectedAt = undefined;
     record.connected = value;
     const key = record.host.publicKey;
     if (this.state.connectedHosts.includes(key) === value) return;
@@ -305,7 +307,7 @@ export class ConnectionController {
           this.update({
             connectionId: undefined,
             connected: false,
-            disconnectedAt: this.state.disconnectedAt ?? Date.now(),
+            disconnectedAt: record?.disconnectedAt,
           });
           this.scheduleReconnect();
         }),
@@ -320,7 +322,7 @@ export class ConnectionController {
           if (this.state.host?.publicKey === hostKey && !this.state.revoked)
             this.update({
               connected: false,
-              disconnectedAt: this.state.disconnectedAt ?? Date.now(),
+              disconnectedAt: record?.disconnectedAt,
             });
           if (record && !this.pairing && !record.revoked)
             this.scheduleHostReconnect(hostKey);
@@ -347,7 +349,10 @@ export class ConnectionController {
         initial.hosts[0];
       if (host) {
         this.recordFor(host);
-        this.update({ host, disconnectedAt: Date.now() });
+        this.update({
+          host,
+          disconnectedAt: this.recordFor(host).disconnectedAt,
+        });
         this.setForeground(this.foreground);
       }
     } catch (error) {
@@ -454,6 +459,7 @@ export class ConnectionController {
         connected: false,
         revoked: false,
         devices: [],
+        disconnectedAt: Date.now(),
         backoff: 1000,
       };
       this.connections.set(host.publicKey, record);
@@ -482,7 +488,7 @@ export class ConnectionController {
       connected: record.connected,
       revoked: record.revoked,
       devices: record.devices,
-      disconnectedAt: record.disconnectedAt ?? Date.now(),
+      disconnectedAt: record.connected ? undefined : record.disconnectedAt,
       error: undefined,
       ...(this.state.host?.publicKey !== publicKey
         ? {
@@ -568,6 +574,7 @@ export class ConnectionController {
       connected: false,
       revoked: true,
       connectionId: undefined,
+      disconnectedAt: record?.disconnectedAt,
       error: undefined,
     });
     if (connectionId) this.connectionHosts.delete(connectionId);
@@ -604,7 +611,9 @@ export class ConnectionController {
       this.update({
         connectionId: undefined,
         connected: false,
-        disconnectedAt: Date.now(),
+        disconnectedAt: this.state.host
+          ? this.connections.get(this.state.host.publicKey)?.disconnectedAt
+          : undefined,
       });
     } else if (!this.pairing) {
       for (const record of this.connections.values())
@@ -654,7 +663,6 @@ export class ConnectionController {
         throw new Error("Host is unavailable");
       }
       record.connectionId = connectionId;
-      record.disconnectedAt = undefined;
       this.connectionHosts.set(connectionId, host.publicKey);
       if (this.state.host?.publicKey === host.publicKey)
         this.update({ connectionId });
@@ -859,7 +867,7 @@ export class ConnectionController {
         host,
         revoked: false,
         connected: false,
-        disconnectedAt: Date.now(),
+        disconnectedAt: record.disconnectedAt,
         devices: [result.device],
         invitation: undefined,
         invitationStatus: undefined,

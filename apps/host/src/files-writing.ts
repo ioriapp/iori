@@ -1,3 +1,4 @@
+import { execFile } from "node:child_process";
 import { constants } from "node:fs";
 import { fileUploadTemporaries } from "./files-upload-temporaries.ts";
 import { randomUUID } from "node:crypto";
@@ -15,6 +16,7 @@ import {
 } from "node:fs/promises";
 import type { FileHandle } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
+import { promisify } from "node:util";
 import type {
   FilesTransferMethod,
   FilesTransferParams,
@@ -23,6 +25,18 @@ import type {
 } from "@iori/protocol";
 import { isWithin } from "./files-reading.ts";
 import { errorCode } from "./reading-failure.ts";
+
+function defaultUploadMode(): Promise<number> {
+  // Reading the umask in the Host would briefly clear it for other threads.
+  return promisify(execFile)(
+    process.execPath,
+    ["-e", "process.stdout.write(String(process.umask()))"],
+    { env: {} },
+  ).then(
+    ({ stdout }) => 0o666 & ~Number(stdout),
+    () => 0o600,
+  );
+}
 
 export class FilePutFailure extends Error {
   readonly code: ProtocolErrorCode;
@@ -96,6 +110,7 @@ export class FileUploads {
   readonly #journalFile: string;
   readonly #ready: Promise<void>;
   #journalQueue = Promise.resolve();
+  #defaultMode?: Promise<number>;
   constructor(storageRoot: string) {
     this.#journalFile = join(storageRoot, "files-uploads.json");
     this.#ready = this.#recover();
@@ -238,7 +253,7 @@ export class FileUploads {
       fileUploadTemporaries.add(temp);
       let file: FileHandle;
       try {
-        file = await open(temp, "wx");
+        file = await open(temp, "wx", 0o600);
       } catch (error) {
         fileUploadTemporaries.delete(temp);
         this.#journal.delete(temp);
@@ -291,9 +306,12 @@ export class FileUploads {
         if (target !== upload.target)
           throw new FilePutFailure("path_outside_root");
         if (exists && !upload.replace) throw new FilePutFailure("put_exists");
-        if (upload.replace && mode !== undefined)
-          await upload.file!.chmod(mode & 0o777);
         await upload.file!.sync();
+        if (mode !== undefined) await upload.file!.chmod(mode & 0o777);
+        else if (process.platform !== "win32") {
+          this.#defaultMode ??= defaultUploadMode();
+          await upload.file!.chmod(await this.#defaultMode);
+        }
         await upload.file!.close();
         upload.file = undefined;
         if (upload.replace) await rename(upload.temp, target);

@@ -73,7 +73,8 @@ export function useCliNotifications(
       .then((listener) => {
         if (disposed) listener();
         else stop = listener;
-      });
+      })
+      .catch(() => undefined);
     return () => {
       disposed = true;
       stop?.();

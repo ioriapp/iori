@@ -15,7 +15,6 @@ test("日本語の状態とラベルは Board と共通の翻訳で一致する"
     Running: "実行中",
     Starting: "起動中",
     Waiting: "待機中",
-    Thinking: "考え中",
     Approval: "承認待ち",
     Question: "質問",
     Reported: "報告済み",

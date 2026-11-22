@@ -6,8 +6,6 @@ import { repositoryMainPath } from "../repository-git-settings.ts";
 import type { ForgeDetection } from "./adapters.ts";
 import type { IssueContext, IssueTarget } from "./issues.ts";
 import { forgeReadFailure } from "./failure.ts";
-import { githubPullRequests } from "./github-pull-requests.ts";
-import { forgejoPullRequests } from "./forgejo-pull-requests.ts";
 
 export type PullRequestInput = { title: string; body: string; issue?: number };
 export type PullRequestSession = {
@@ -50,12 +48,13 @@ async function git(path: string, args: string[], accepted = [0]) {
 /** Git's push destination, including a branch that has never been pushed. */
 async function destination(path: string, branch: string) {
   const row = (
-    await git(path, [
+    await collectGit(path, [
       "for-each-ref",
       "--format=%(refname)%00%(push:remotename)%00%(push:remoteref)",
       branch,
     ])
-  )
+  ).stdout
+    .toString("utf8")
     .split("\n")
     .map((line) => line.split("\0"))
     .find(([ref]) => ref === branch);
@@ -137,6 +136,19 @@ export async function createPullRequest(
       "This worktree has a detached HEAD. Switch to a branch before creating a Pull request.",
     );
   const { remote, ref, location } = await destination(path, branch);
+  const remoteBranch = ref.slice("refs/heads/".length);
+  if (
+    !ref.startsWith("refs/heads/") ||
+    !remoteBranch ||
+    (await git(
+      path,
+      ["check-ref-format", "--branch", remoteBranch],
+      [0, 128],
+    )) !== remoteBranch
+  )
+    throw new PullRequestFailure(
+      "The Git push destination must be a valid branch. Check this branch's push mapping, then try again.",
+    );
   if (
     !location ||
     location.parts.length !== 2 ||
@@ -150,12 +162,7 @@ export async function createPullRequest(
     repo: location.parts[1]!,
   };
   const adapter = await detection.resolve(target.origin, undefined, true);
-  const writer =
-    adapter?.id === "github"
-      ? githubPullRequests
-      : adapter?.id === "forgejo"
-        ? forgejoPullRequests
-        : undefined;
+  const writer = adapter?.pullRequests;
   if (!writer)
     throw new PullRequestFailure("Forge unavailable", undefined, true);
   try {
@@ -164,7 +171,6 @@ export async function createPullRequest(
       mainPath: await repositoryMainPath(path),
     });
     const localBranch = branch.slice("refs/heads/".length);
-    const remoteBranch = ref.slice("refs/heads/".length);
     if (
       localBranch === session.defaultBranch ||
       remoteBranch === session.defaultBranch

@@ -43,6 +43,67 @@ export type Repository = {
 const MESSAGE_CHUNK_BYTES = 256 * 1024;
 const NUMSTAT_ARGUMENT_CHARS = 8000;
 const areas: GitChangeArea[] = ["staged", "unstaged", "untracked", "conflict"];
+const STATUS_SNAPSHOT_MS = 2_000;
+const MAX_STATUS_SNAPSHOTS = 4;
+const MAX_STATUS_SNAPSHOT_ENTRIES = 16_384;
+const MAX_STATUS_SNAPSHOT_BYTES = 4 * 1024 * 1024;
+
+type StatusSnapshot = {
+  branch: GitRepositoryStatus;
+  counts: ReadResultByMethod["git.status"]["counts"];
+  ordered: GitChangeEntry[];
+};
+const statusSnapshots = new Map<
+  string,
+  { snapshot?: StatusSnapshot; expires?: number; timer?: NodeJS.Timeout }
+>();
+
+export function invalidateGitStatus(root: string): void {
+  clearTimeout(statusSnapshots.get(root)?.timer);
+  statusSnapshots.delete(root);
+}
+
+async function statusSnapshot(
+  repository: Repository,
+  start: number,
+  signal?: Signal,
+): Promise<StatusSnapshot> {
+  const { root } = repository;
+  const cached = statusSnapshots.get(root);
+  if (start !== 0 && cached?.snapshot && cached.expires! > performance.now())
+    return cached.snapshot;
+
+  invalidateGitStatus(root);
+  if (statusSnapshots.size >= MAX_STATUS_SNAPSHOTS)
+    invalidateGitStatus(statusSnapshots.keys().next().value!);
+  const entry: NonNullable<ReturnType<typeof statusSnapshots.get>> = {};
+  statusSnapshots.set(root, entry);
+  try {
+    const snapshot = await readStatus(repository, signal);
+    // An invalidation or a newer read might have superseded this one.
+    if (statusSnapshots.get(root) === entry) {
+      let bytes = 0;
+      if (
+        snapshot.ordered.length <= MAX_STATUS_SNAPSHOT_ENTRIES &&
+        snapshot.ordered.every((change) => {
+          bytes += Buffer.byteLength(JSON.stringify(change), "utf8");
+          return bytes <= MAX_STATUS_SNAPSHOT_BYTES;
+        })
+      ) {
+        entry.snapshot = snapshot;
+        entry.expires = performance.now() + STATUS_SNAPSHOT_MS;
+        entry.timer = setTimeout(
+          () => invalidateGitStatus(root),
+          STATUS_SNAPSHOT_MS,
+        ).unref();
+      } else invalidateGitStatus(root);
+    }
+    return snapshot;
+  } catch (error) {
+    if (statusSnapshots.get(root) === entry) invalidateGitStatus(root);
+    throw error;
+  }
+}
 
 export async function discoverRepository(
   root: string,
@@ -306,12 +367,10 @@ async function readNumstat(
   }
 }
 
-async function gitStatus(
+async function readStatus(
   repository: Repository,
-  start: number,
-  count: number,
   signal?: Signal,
-): Promise<ReadResultByMethod["git.status"]> {
+): Promise<StatusSnapshot> {
   const git = startGit(
     repository.root,
     ["status", "--porcelain=v2", "-z", "--branch", "--untracked-files=all"],
@@ -400,12 +459,36 @@ async function gitStatus(
   const ordered = areas.flatMap((area) =>
     byArea[area].sort((a, b) => a.path.localeCompare(b.path)),
   );
+  return {
+    branch,
+    counts: {
+      staged: byArea.staged.length,
+      unstaged: byArea.unstaged.length,
+      untracked: byArea.untracked.length,
+      conflict: byArea.conflict.length,
+    },
+    ordered,
+  };
+}
+
+async function gitStatus(
+  repository: Repository,
+  start: number,
+  count: number,
+  signal?: Signal,
+): Promise<ReadResultByMethod["git.status"]> {
+  const { branch, counts, ordered } = await statusSnapshot(
+    repository,
+    start,
+    signal,
+  );
+  throwIfAborted(signal);
   const entries: GitChangeEntry[] = [];
   let bytes = 0;
   for (const entry of ordered.slice(start, start + count)) {
     bytes += Buffer.byteLength(JSON.stringify(entry), "utf8") + 64;
     if (entries.length > 0 && bytes > MAX_PAGE_RESPONSE_BYTES) break;
-    entries.push(entry);
+    entries.push({ ...entry });
   }
   for (const area of ["staged", "unstaged"] as const) {
     const listed = entries.filter(
@@ -417,12 +500,7 @@ async function gitStatus(
   return {
     isRepository: true,
     repository: branch,
-    counts: {
-      staged: byArea.staged.length,
-      unstaged: byArea.unstaged.length,
-      untracked: byArea.untracked.length,
-      conflict: byArea.conflict.length,
-    },
+    counts,
     entries,
   };
 }

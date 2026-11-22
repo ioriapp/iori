@@ -80,6 +80,17 @@ export function startupArgumentWords(
     ) {
       quote = char;
     } else {
+      // The value of an unquoted expansion can supply a role option.
+      if (
+        !quote &&
+        ((dialect === "cmd" &&
+          (char === "%" || char === "!") &&
+          /^(?:%[^%\r\n]+%|![^!\r\n]+!)/u.test(source.slice(i))) ||
+          (dialect !== "cmd" &&
+            char === "$" &&
+            /[\p{L}\p{N}_{(@*#?$!-]/u.test(source[i + 1] ?? "")))
+      )
+        return undefined;
       if (
         quote !== "'" &&
         dialect !== "cmd" &&

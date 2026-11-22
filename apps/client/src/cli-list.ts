@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
-import type { CliListResult, CliSummary } from "@iori/protocol";
+import type { CliListResult, CliSummary, Event } from "@iori/protocol";
 import { updateCliIconDefinitions } from "./cli-icon-images.ts";
 import { connection } from "./connection.ts";
 import { refreshUsage as refreshCliUsage } from "./usage/refresh.ts";
@@ -9,15 +9,106 @@ export function pickerClis<T extends CliSummary>(clis: T[]): T[] {
   return clis.filter((cli) => !cli.hidden && !cli.missing);
 }
 
+type CliListEvent = Extract<
+  Event,
+  {
+    type:
+      | "cli.order.changed"
+      | "cli.usage"
+      | "cli.hidden.changed"
+      | "terminal.created";
+  }
+>;
+
+function applyChange(list: CliListResult, event: CliListEvent): CliListResult {
+  if (event.type === "terminal.created")
+    return event.terminal.cli
+      ? { ...list, lastUsedId: event.terminal.cli.id }
+      : list;
+  if (event.type === "cli.order.changed") {
+    const positions = new Map(event.order.map((id, index) => [id, index]));
+    return {
+      ...list,
+      clis: [...list.clis].sort(
+        (a, b) =>
+          (positions.get(a.id) ?? event.order.length) -
+          (positions.get(b.id) ?? event.order.length),
+      ),
+    };
+  }
+  const fields =
+    event.type === "cli.usage"
+      ? { usage: event.usage }
+      : { hidden: event.hidden };
+  return {
+    ...list,
+    clis: list.clis.map((cli) =>
+      cli.id === event.cliId ? { ...cli, ...fields } : cli,
+    ),
+  };
+}
+
+type ListState = {
+  hostKey: string;
+  list: CliListResult;
+  error: boolean;
+  pendingChanges?: CliListEvent[];
+};
+type ListUpdate =
+  | { type: "reading" | "failed" }
+  | { type: "received"; list: CliListResult }
+  | { type: "changed"; event: CliListEvent };
+
+/** Only events received during a scan take precedence over that snapshot. */
+export function updateCliList(
+  current: ListState,
+  hostKey: string,
+  update: ListUpdate,
+): ListState {
+  switch (update.type) {
+    case "reading":
+      return {
+        ...(current.hostKey === hostKey
+          ? current
+          : { hostKey, list: empty, error: false }),
+        pendingChanges: [],
+      };
+    case "received":
+      return {
+        hostKey,
+        list: (current.pendingChanges ?? []).reduce(applyChange, update.list),
+        error: false,
+      };
+    case "failed":
+      return {
+        hostKey,
+        list: current.hostKey === hostKey ? current.list : empty,
+        error: true,
+      };
+    case "changed":
+      if (current.hostKey !== hostKey) return current;
+      return {
+        ...current,
+        list: applyChange(current.list, update.event),
+        pendingChanges: current.pendingChanges?.concat(update.event),
+      };
+  }
+}
+
 /** The Host's CLIs. `list` has the CLIs that can be launched; `all` also
  * has the user's definitions whose command the Host does not find, for the
  * AI agents screen. */
 export function useCliList(hostKey: string, revision?: unknown) {
-  const [value, setValue] = useState<{
-    hostKey: string;
-    list: CliListResult;
-    error: boolean;
-  }>({ hostKey, list: { clis: [] }, error: false });
+  const [value, setValue] = useState<ListState>({
+    hostKey,
+    list: empty,
+    error: false,
+  });
+  const updateList = useCallback(
+    (action: ListUpdate) =>
+      setValue((current) => updateCliList(current, hostKey, action)),
+    [hostKey],
+  );
   // A different Host or revision needs a fresh snapshot. Ignore the old
   // response even if it arrives after the new list has been displayed.
   const request = useMemo<{
@@ -26,18 +117,13 @@ export function useCliList(hostKey: string, revision?: unknown) {
     pending?: Promise<void>;
   }>(() => ({ active: true }), [hostKey, revision]);
   const [loading, setLoading] = useState(false);
-  const hiddenChanges = useRef(
-    new Map<string, { hidden: boolean; version: number }>(),
-  );
-  const hiddenVersion = useRef(0);
   const versions = useRef(
     new Map<string, { version: string; launchEffort?: boolean }>(),
   );
   const read = useCallback(
     async (refreshUsage: boolean) => {
-      const currentHiddenVersion = hiddenVersion.current;
-      lastUsed.current = { hostKey: "", id: "" };
       if (!hostKey) return;
+      updateList({ type: "reading" });
       try {
         const response = await connection.requestHost(
           hostKey,
@@ -47,47 +133,24 @@ export function useCliList(hostKey: string, revision?: unknown) {
         if (!request.active) return;
         if (response?.ok) {
           updateCliIconDefinitions(hostKey, response.result.clis);
-          setValue({
-            hostKey,
+          updateList({
+            type: "received",
             list: {
               ...response.result,
-              clis: response.result.clis.map((cli) => {
-                const version = versions.current.get(
+              clis: response.result.clis.map((cli) => ({
+                ...cli,
+                ...versions.current.get(
                   `${hostKey}:${response.result.shell}:${cli.id}`,
-                );
-                const hidden = hiddenChanges.current.get(
-                  `${hostKey}:${cli.id}`,
-                );
-                return {
-                  ...cli,
-                  ...version,
-                  ...(hidden && hidden.version > currentHiddenVersion
-                    ? { hidden: hidden.hidden }
-                    : {}),
-                };
-              }),
-              ...(lastUsed.current?.hostKey === hostKey
-                ? { lastUsedId: lastUsed.current.id }
-                : {}),
+                ),
+              })),
             },
-            error: false,
           });
-        } else
-          setValue((current) => ({
-            hostKey,
-            list: current.hostKey === hostKey ? current.list : { clis: [] },
-            error: true,
-          }));
+        } else updateList({ type: "failed" });
       } catch {
-        if (!request.active) return;
-        setValue((current) => ({
-          hostKey,
-          list: current.hostKey === hostKey ? current.list : { clis: [] },
-          error: true,
-        }));
+        if (request.active) updateList({ type: "failed" });
       }
     },
-    [hostKey, request],
+    [hostKey, request, updateList],
   );
   const reload = useCallback(
     (refreshUsage = false): Promise<void> => {
@@ -113,73 +176,24 @@ export function useCliList(hostKey: string, revision?: unknown) {
     await request.pending;
     await reload();
   };
-  const lastUsed = useRef<{ hostKey: string; id: string }>({
-    hostKey: "",
-    id: "",
-  });
   const applyHidden = useCallback(
-    (cliId: string, hidden: boolean) => {
-      hiddenChanges.current.set(`${hostKey}:${cliId}`, {
-        hidden,
-        version: ++hiddenVersion.current,
-      });
-      setValue((current) =>
-        current.hostKey === hostKey
-          ? {
-              ...current,
-              list: {
-                ...current.list,
-                clis: current.list.clis.map((cli) =>
-                  cli.id === cliId ? { ...cli, hidden } : cli,
-                ),
-              },
-            }
-          : current,
-      );
-    },
-    [hostKey],
+    (cliId: string, hidden: boolean) =>
+      updateList({
+        type: "changed",
+        event: { type: "cli.hidden.changed", cliId, hidden },
+      }),
+    [updateList],
   );
   useEffect(() => {
     const unsubscribe = connection.subscribeHostEvents((eventHost, event) => {
-      if (eventHost === hostKey && event.type === "cli.hidden.changed") {
-        applyHidden(event.cliId, event.hidden);
-        return;
-      }
-      if (eventHost === hostKey && event.type === "cli.order.changed") {
-        const positions = new Map(event.order.map((id, index) => [id, index]));
-        setValue((current) =>
-          current.hostKey === hostKey
-            ? {
-                ...current,
-                list: {
-                  ...current.list,
-                  clis: [...current.list.clis].sort(
-                    (a, b) =>
-                      (positions.get(a.id) ?? event.order.length) -
-                      (positions.get(b.id) ?? event.order.length),
-                  ),
-                },
-              }
-            : current,
-        );
-        return;
-      }
-      if (eventHost === hostKey && event.type === "cli.usage") {
-        setValue((current) =>
-          current.hostKey === hostKey
-            ? {
-                ...current,
-                list: {
-                  ...current.list,
-                  clis: current.list.clis.map((cli) =>
-                    cli.id === event.cliId
-                      ? { ...cli, usage: event.usage }
-                      : cli,
-                  ),
-                },
-              }
-            : current,
-        );
+      if (
+        eventHost === hostKey &&
+        (event.type === "cli.hidden.changed" ||
+          event.type === "cli.order.changed" ||
+          event.type === "cli.usage" ||
+          (event.type === "terminal.created" && event.terminal.cli))
+      ) {
+        updateList({ type: "changed", event });
         return;
       }
       if (eventHost === hostKey && event.type === "cli.version") {
@@ -212,26 +226,11 @@ export function useCliList(hostKey: string, revision?: unknown) {
         );
         return;
       }
-      if (
-        eventHost !== hostKey ||
-        event.type !== "terminal.created" ||
-        !event.terminal.cli
-      )
-        return;
-      lastUsed.current = { hostKey, id: event.terminal.cli.id };
-      setValue((current) =>
-        current.hostKey === hostKey
-          ? {
-              ...current,
-              list: { ...current.list, lastUsedId: event.terminal.cli!.id },
-            }
-          : current,
-      );
     });
     return () => {
       unsubscribe();
     };
-  }, [hostKey, applyHidden]);
+  }, [hostKey, updateList]);
   useEffect(() => {
     request.active = true;
     void reload();

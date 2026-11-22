@@ -6,6 +6,7 @@
   "icon": { "light": "amp.svg" },
   "version": { "args": ["version"] },
   "launch": {
+    "interrupt": "double-esc",
     "model": ["--model", "{model}"],
     "effort": ["--effort", "{effort}"],
     "permissions": {

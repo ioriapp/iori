@@ -1,22 +1,18 @@
-import { definitionOrder, roleOrder, creationOrder } from "@iori/protocol";
+import { creationOrder } from "@iori/protocol";
 import { discoverRepository, hasHead } from "../git-reading.ts";
-import { worktreeSetup, worktreeOptions } from "../worktree-creation.ts";
+import {
+  inventory,
+  worktreeSetup,
+  worktreeOptions,
+} from "../worktree-creation.ts";
 import type { WorktreeSetup } from "../store.ts";
 import { randomUUID } from "node:crypto";
 import { appendFileSync } from "node:fs";
 import { lstat, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import {
-  belowUsageMinimum,
   type CliStatus,
-  type BoardData,
-  type BoardSummary,
-  type BoardAgent,
   type RecordsFilter,
-  type RecordsData,
-  type TaskRecord,
-  type TaskHistoryData,
-  type ConversationPlan,
   childTeamText,
   childRequestText,
   parentTeamText,
@@ -36,7 +32,7 @@ import {
   type TerminalCreatedResult,
 } from "@iori/protocol";
 import type { HostStore, StoreContext } from "../store.ts";
-import { cliDefinitions, withCurrentCliIcon } from "../cli/definitions.ts";
+import { cliDefinitions } from "../cli/definitions.ts";
 import type { HookState } from "../cli/hooks.ts";
 import {
   TerminalManager,
@@ -44,7 +40,20 @@ import {
 } from "../terminal/manager.ts";
 import { collectGit } from "../git-process.ts";
 import { copyDeliveryFile } from "../fs/delivery-file.ts";
-import { chooseCandidate, roleCandidates } from "./assignment.ts";
+import {
+  childAfterExit,
+  childHasEnded,
+  responseAfterCliState,
+  childAfterStart,
+  needsResume,
+} from "./child-lifecycle.ts";
+import { TeamQueries } from "./queries.ts";
+import { applyPlanCommand, startPlanTask } from "./plan.ts";
+import {
+  assignmentRole,
+  chooseCandidate,
+  roleCandidates,
+} from "./assignment.ts";
 import { PendingCliStates } from "./pending-cli-states.ts";
 import {
   assignedCandidate,
@@ -66,7 +75,6 @@ import {
   childWorktree,
   isResidualChildWorktree,
   removeChildWorktree,
-  worktreeBranch,
   worktreeChanges,
 } from "./worktrees.ts";
 import {
@@ -82,16 +90,12 @@ const ok = (text: string, data?: unknown): CommandResult => ({
   ...(data === undefined ? {} : { data }),
 });
 
-// Cursor, Hermes, CodeBuddy, and Qoder use Ctrl+C for turn interruption
-// (e.g. Hermes maps Esc to /rewind); Amp requires double Escape; others use Esc.
-const CTRL_C_INTERRUPT_CLIS = new Set([
-  "cursor",
-  "hermes",
-  "codebuddy",
-  "qoder",
-]);
-const DOUBLE_ESC_INTERRUPT_CLIS = new Set(["amp"]);
-const SEPARATE_ESC_INTERRUPT_CLIS = new Set(["opencode"]);
+const interruptKeys = {
+  esc: { sequence: "\u001b", keyName: "escape" },
+  "ctrl-c": { sequence: "\u0003", keyName: "ctrl-c" },
+  "double-esc": { sequence: "\u001b\u001b", keyName: "escape escape" },
+  "separate-esc": { sequence: "\u001b", keyName: "escape escape" },
+};
 const DEFAULT_CHECK_MINUTE_MS = 60_000;
 const DEFAULT_CHECK_POLL_MS = 5_000;
 
@@ -113,18 +117,6 @@ function checkInTiming(): { minuteMs: number; pollMs: number } {
   };
 }
 
-function cliInterruptKey(cliId: string | undefined): {
-  sequence: string;
-  keyName: string;
-} {
-  if (cliId && CTRL_C_INTERRUPT_CLIS.has(cliId))
-    return { sequence: "\u0003", keyName: "ctrl-c" };
-  if (cliId && DOUBLE_ESC_INTERRUPT_CLIS.has(cliId))
-    return { sequence: "\u001b\u001b", keyName: "escape escape" };
-  if (cliId && SEPARATE_ESC_INTERRUPT_CLIS.has(cliId))
-    return { sequence: "\u001b", keyName: "escape escape" };
-  return { sequence: "\u001b", keyName: "escape" };
-}
 export class TeamManager {
   readonly #conversations = new Map<string, TeamConversation>();
   readonly #children = new Map<string, TeamChild>();
@@ -134,6 +126,7 @@ export class TeamManager {
   readonly #tasks = new Map<string, TeamTask>();
   readonly #storedChildren = new Map<string, string>();
   readonly #publishedChildren = new Map<string, string>();
+  readonly #queries: TeamQueries;
   readonly #gitReadings = new Map<
     string,
     Promise<import("@iori/protocol").Changes>
@@ -144,12 +137,9 @@ export class TeamManager {
   >();
   readonly #serials = new Map<string, Promise<void>>();
   #allocation = Promise.resolve();
-  #startup = Promise.resolve();
-  #pendingChild?: {
-    child: TeamChild;
-    states: PendingCliStates<HookState>;
-  };
-  readonly #starting = new Set<string>();
+  readonly #startups = new Map<TeamChild, Promise<void>>();
+  readonly #creatingTerminals = new Set<TeamChild>();
+  readonly #pendingCliStates = new PendingCliStates<HookState>();
   // Allocation runs before delegate can report its result to the caller.
   readonly #delegating = new Set<string>();
   readonly #workStarted = new Map<string, number>();
@@ -181,6 +171,16 @@ export class TeamManager {
     this.store = store;
     this.terminals = terminals;
     this.root = root;
+    this.#queries = new TeamQueries({
+      store,
+      terminals,
+      conversations: this.#conversations,
+      children: this.#children,
+      tasks: this.#tasks,
+      conversationChildren: this.#conversationChildren,
+      workStarted: this.#workStarted,
+      replyState: (child) => this.#replyState(child),
+    });
     terminals.onTeamCommand = (caller, command) => {
       const child = caller.child
         ? this.#children.get(caller.child)
@@ -232,7 +232,16 @@ export class TeamManager {
     publish: (event: Event) => void = () => {},
   ): Promise<TeamManager> {
     const manager = new TeamManager(store, terminals, root, publish);
-    terminals.onRestoreTeamTerminals = () => manager.#restoreTerminals();
+    for (const child of manager.#children.values()) {
+      if (!child.pendingWorktree) continue;
+      if (child.state === "waiting") {
+        child.state = "stopped";
+        child.stoppedBy = "host_restart";
+      }
+      await manager.#recoverChildWorktree(child);
+      manager.#saveChild(child);
+    }
+    terminals.onRestoreTeamTerminals = (id) => manager.#restoreTerminals(id);
     await manager.#restoreTerminals();
     if (!terminals.continuedTerminals) manager.#markLostTerminals();
     terminals.onTerminalsLost = () => {
@@ -250,21 +259,11 @@ export class TeamManager {
             manager.#dispose(child.id);
             manager.#saveChild(child);
           }
-          if (
-            child &&
-            !["finished", "stopped", "failed"].includes(child.state)
-          ) {
-            if (reason === "user") {
-              child.state = "stopped";
-              child.stoppedBy = "user";
-            } else if (child.state === "reported") {
-              child.state = "stopped";
-              delete child.stoppedBy;
-            } else {
-              child.state = "failed";
-              child.failure = "CLI exited without a report.";
+          const transition = child && childAfterExit(child.state, reason);
+          if (child && transition) {
+            Object.assign(child, transition);
+            if (transition.state === "failed")
               await manager.#notice(child, "failed");
-            }
             manager.#dispose(child.id);
             manager.#saveChild(child);
           }
@@ -294,19 +293,16 @@ export class TeamManager {
         });
     };
     terminals.onCliState = (id, state) => {
-      const pending = manager.#pendingChild;
       const registered = manager.#terminalChildren.get(id);
       // Capture before choosing a serial key: registration changes it to child ID.
-      if (
-        !registered &&
-        pending?.child.state === "waiting" &&
-        manager.terminals.summary(id)?.teamConversation ===
-          pending.child.conversation &&
-        manager.#conversations.get(pending.child.conversation)?.terminalId !==
-          id
-      ) {
-        pending.states.add(id, state);
-        return;
+      if (!registered && manager.#creatingTerminals.size) {
+        const conversationId = manager.terminals.summary(id)?.teamConversation;
+        const parent =
+          conversationId && manager.#conversations.get(conversationId);
+        if (parent && parent.terminalId !== id) {
+          manager.#pendingCliStates.add(id, state);
+          return;
+        }
       }
       const childKey = registered?.id ?? id;
       return manager
@@ -332,8 +328,7 @@ export class TeamManager {
       manager.#run(
         async () => {
           const child = manager.#terminalChildren.get(id);
-          if (!child || ["finished", "stopped", "failed"].includes(child.state))
-            return;
+          if (!child || childHasEnded(child.state)) return;
           child.state = "failed";
           child.failure = `Setup command failed (exit ${exitCode})`;
           manager.#elapsed(child);
@@ -428,10 +423,19 @@ export class TeamManager {
       }
     };
     terminals.onCliProcessesChanged = () => manager.conditionsChanged();
+    terminals.onDelivered = (file) => {
+      for (const child of manager.#children.values())
+        if (child.pendingMessageFiles?.includes(file))
+          manager.#delivered(child, file);
+    };
     terminals.onUsageChanged = () => manager.conditionsChanged();
     for (const child of manager.#children.values())
       for (const file of child.pendingMessageFiles ?? [])
-        terminals.bindDelivery(file, () => manager.#delivered(child, file));
+        terminals.bindDelivery(
+          file,
+          () => manager.#delivered(child, file),
+          child.terminalId,
+        );
     // A continuing CLI can finish while Host is restarting, before team handlers
     // are attached. Reconcile the adapter's recovered failure once here.
     for (const child of manager.#children.values()) {
@@ -440,7 +444,7 @@ export class TeamManager {
       if (state?.outcome === "failure")
         await terminals.onCliState(child.terminalId, state);
       if (
-        !["finished", "stopped", "failed"].includes(child.state) &&
+        !childHasEnded(child.state) &&
         (terminals.summary(child.terminalId)?.cliStatus?.state === "active" ||
           (!state && child.state === "running"))
       ) {
@@ -473,10 +477,7 @@ export class TeamManager {
       delete child.failure;
       delete child.cliError;
     }
-    if (
-      state.state === "active" &&
-      !["finished", "stopped", "failed"].includes(child.state)
-    ) {
+    if (state.state === "active" && !childHasEnded(child.state)) {
       if (!this.#checkBaselines.has(child.id)) {
         this.#checkBaselines.set(
           child.id,
@@ -491,16 +492,12 @@ export class TeamManager {
     this.#cliStates.set(child.id, state.state);
     this.#saveChild(child);
     await this.#measureChild(child);
-    if (state.state === "active" && child.parentResponse === "pending")
-      child.parentResponse = "active";
+    const previous = child.parentResponse;
+    child.parentResponse = responseAfterCliState(child, state);
     if (
-      ["idle", "done"].includes(state.state) &&
-      !state.backgroundTasks?.length &&
-      state.outcome !== "failure" &&
-      child.state === "running" &&
-      child.parentResponse === "active"
+      child.parentResponse === "unreported" &&
+      child.parentResponse !== previous
     ) {
-      child.parentResponse = "unreported";
       this.#saveChild(child);
       await this.#notice(child, "is idle without a report or question");
     }
@@ -566,55 +563,6 @@ export class TeamManager {
       );
     }
   }
-  #childSummary(
-    child: TeamChild,
-    teams: Map<string, ReturnType<HostStore["readTeam"]>>,
-  ): ChildSummary {
-    const parent = this.#conversation(child.conversation);
-    const terminal = child.terminalId
-      ? this.terminals.summary(child.terminalId)
-      : undefined;
-    const cli =
-      terminal?.cli ??
-      (child.terminalId
-        ? this.store.terminalCli(child.terminalId)?.cli
-        : undefined);
-    if (!child.role?.name && !teams.has(parent.teamId))
-      teams.set(parent.teamId, this.store.readTeam(parent.teamId));
-    return {
-      id: child.id,
-      createdAt: child.createdAt,
-      conversation: child.conversation,
-      parentTerminalId: parent.terminalId,
-      parentCwd: parent.cwd,
-      teamId: parent.teamId,
-      role:
-        child.role?.name ??
-        teams.get(parent.teamId)?.saved.roles.find((r) => r.id === child.roleId)
-          ?.name ??
-        child.roleName,
-      title: child.title,
-      terminalId: child.terminalId,
-      cwd: child.cwd,
-      worktreeRemoved: child.worktreeRemoved,
-      repositoryName: child.repository?.external
-        ? child.repository.name
-        : undefined,
-      branch: child.branch,
-      cli: cli ? withCurrentCliIcon(cli) : undefined,
-      model: child.candidate?.model,
-      cliStatus: terminal?.cliStatus,
-      state: this.#replyState(child),
-      waiting: child.waiting,
-      stoppedBy: child.stoppedBy,
-      decision: child.decision,
-      reason: child.reason,
-      failure: child.failure,
-      startedAt: child.startedAt,
-      elapsedMs: child.elapsedMs,
-      notified: child.notified,
-    };
-  }
   listChildren(query: { conversation?: string; cwd?: string } = {}): {
     children: ChildSummary[];
   } {
@@ -628,7 +576,7 @@ export class TeamManager {
     return {
       children: [...ids]
         .map((id) => this.#children.get(id)!)
-        .map((child) => this.#childSummary(child, teams)),
+        .map((child) => this.#queries.childSummary(child, teams)),
     };
   }
   #isWorking(child: TeamChild): boolean {
@@ -654,7 +602,7 @@ export class TeamManager {
     if (this.#isWorking(child)) this.#workStarted.set(child.id, now);
     else this.#workStarted.delete(child.id);
   }
-  #saveChild(child: TeamChild): void {
+  #storeChild(child: TeamChild): void {
     this.#measureWork(child);
     this.#indexChild(child);
     const stored = JSON.stringify(child);
@@ -662,149 +610,18 @@ export class TeamManager {
       this.store.putTeamChild(child);
       this.#storedChildren.set(child.id, stored);
     }
-    const summary = this.#childSummary(child, new Map());
+  }
+  #saveChild(child: TeamChild): void {
+    this.#storeChild(child);
+    this.#publishChild(child);
+  }
+  #publishChild(child: TeamChild): void {
+    const summary = this.#queries.childSummary(child, new Map());
     const published = JSON.stringify(summary);
     if (this.#publishedChildren.get(child.id) !== published) {
       this.publish({ type: "teams.child.updated", child: summary });
       this.#publishedChildren.set(child.id, published);
     }
-  }
-  #plan(
-    conversation: TeamConversation,
-    command: Extract<TeamCommand, { kind: "plan" }>,
-  ): CommandResult {
-    if (command.action === "show")
-      return ok(
-        JSON.stringify(
-          conversation.plan ?? { tasks: [], activity: [] },
-          null,
-          2,
-        ),
-        conversation.plan ?? { tasks: [], activity: [] },
-      );
-    const plan: ConversationPlan = (conversation.plan ??= {
-      tasks: [],
-      activity: [],
-    });
-    const at = Date.now();
-    const order = () => plan.tasks.map((task) => task.number).join(", ");
-    let responseText: string;
-    if (command.action === "goal") {
-      plan.activity.push({
-        at,
-        kind: "goal",
-        request: command.request,
-        text: command.body,
-        ...(plan.goal === undefined ? {} : { previousGoal: plan.goal }),
-      });
-      plan.goal = command.body;
-      responseText = "Goal updated.";
-    } else if (command.action === "add") {
-      const number = Math.max(0, ...plan.tasks.map((task) => task.number)) + 1;
-      const task = {
-        number,
-        title: command.title,
-        state: "pending" as const,
-        added:
-          command.request ||
-          plan.tasks.some((task) => task.state !== "pending"),
-        updatedAt: at,
-      };
-      let index: number;
-      if (command.first) {
-        index = 0;
-      } else if (command.after !== undefined) {
-        const afterIndex = plan.tasks.findIndex(
-          (entry) => entry.number === command.after,
-        );
-        if (afterIndex === -1)
-          throw new Error("Plan task does not exist. Read iori plan show.");
-        index = afterIndex + 1;
-      } else {
-        index = plan.tasks.length;
-      }
-      plan.tasks.splice(index, 0, task);
-      plan.activity.push({
-        at,
-        kind: "add",
-        request: command.request,
-        task: number,
-        text: command.title,
-      });
-      responseText = `Plan task ${number}: added. Order: ${order()}.`;
-    } else if (command.action === "move") {
-      const fromIndex = plan.tasks.findIndex(
-        (entry) => entry.number === command.number,
-      );
-      if (fromIndex === -1)
-        throw new Error("Plan task does not exist. Read iori plan show.");
-      if (command.after !== undefined) {
-        if (command.after === command.number)
-          throw new Error("Cannot move a plan task after itself.");
-        if (!plan.tasks.some((entry) => entry.number === command.after))
-          throw new Error("Plan task does not exist. Read iori plan show.");
-      }
-      const [moved] = plan.tasks.splice(fromIndex, 1);
-      if (command.first) {
-        plan.tasks.unshift(moved!);
-      } else {
-        const insertAt =
-          plan.tasks.findIndex((entry) => entry.number === command.after) + 1;
-        plan.tasks.splice(insertAt, 0, moved!);
-      }
-      responseText = `Plan task ${command.number}: moved. Order: ${order()}.`;
-    } else {
-      const task = plan.tasks.find((task) => task.number === command.number);
-      if (!task)
-        throw new Error("Plan task does not exist. Read iori plan show.");
-      if (command.action === "cancel") {
-        task.state = "cancelled";
-        task.reason = command.reason;
-      } else {
-        if (
-          (command.state === undefined || command.state === task.state) &&
-          (command.checkpoint === undefined ||
-            command.checkpoint === task.checkpoint) &&
-          (command.title === undefined || command.title === task.title)
-        )
-          return ok(`Plan task ${task.number}: unchanged.`, plan);
-        if (command.state !== undefined) task.state = command.state;
-        if (command.checkpoint !== undefined)
-          task.checkpoint = command.checkpoint;
-        if (command.title !== undefined) task.title = command.title;
-      }
-      task.updatedAt = at;
-      plan.activity.push({
-        at,
-        kind: command.action,
-        request: false,
-        task: task.number,
-        text:
-          command.action === "cancel"
-            ? command.reason
-            : [
-                command.title,
-                command.state === undefined
-                  ? undefined
-                  : {
-                      pending: "Pending",
-                      in_progress: "Running",
-                      done: "Done",
-                    }[command.state],
-                command.checkpoint,
-              ]
-                .filter((value) => value !== undefined)
-                .join(" · "),
-      });
-      responseText = `Plan task ${task.number}: ${command.action === "cancel" ? "cancelled" : "updated"}.`;
-    }
-    plan.updatedAt = at;
-    this.#planRevisions.set(
-      conversation.id,
-      (this.#planRevisions.get(conversation.id) ?? 0) + 1,
-    );
-    this.store.putTeamConversation(conversation);
-    return ok(responseText, plan);
   }
   async #measureChild(child: TeamChild): Promise<void> {
     await this.#measureChildren([child], false, true);
@@ -896,384 +713,25 @@ export class TeamManager {
       }),
     );
   }
-  boards(): { boards: BoardSummary[] } {
-    const groups = new Map<
-      string,
-      {
-        summary: BoardSummary;
-        parentActivity: number;
-        createdAt: number;
-      }
-    >();
-    for (const conversation of this.#conversations.values()) {
-      const terminal = this.store.terminalSummary(conversation.terminalId);
-      if (!terminal) continue;
-      const parentActivity = conversation.lastActiveAt ?? 0;
-      const parentStatus = this.terminals.summary(
-        conversation.terminalId,
-      )?.cliStatus;
-      const lastActivityAt = Math.max(
-        terminal.createdAt,
-        parentActivity,
-        parentStatus?.since ?? 0,
-      );
-      let group = groups.get(conversation.cwd);
-      if (!group) {
-        group = {
-          summary: {
-            createdAt: terminal.createdAt,
-            cwd: conversation.cwd,
-            conversation: conversation.id,
-            terminalId: conversation.terminalId,
-            hasActive: parentStatus?.state === "active",
-            lastActivityAt,
-            children: [],
-          },
-          parentActivity,
-          createdAt: terminal.createdAt,
-        };
-        groups.set(conversation.cwd, group);
-      } else {
-        group.summary.createdAt = Math.min(
-          group.summary.createdAt,
-          terminal.createdAt,
-        );
-        group.summary.hasActive ||= parentStatus?.state === "active";
-        group.summary.lastActivityAt = Math.max(
-          group.summary.lastActivityAt,
-          lastActivityAt,
-        );
-        if (
-          parentActivity > group.parentActivity ||
-          (parentActivity === group.parentActivity &&
-            terminal.createdAt > group.createdAt)
-        ) {
-          group.summary.conversation = conversation.id;
-          group.summary.terminalId = conversation.terminalId;
-          group.parentActivity = parentActivity;
-          group.createdAt = terminal.createdAt;
-        }
-      }
-      for (const id of this.#conversationChildren.get(conversation.id) ?? []) {
-        const child = this.#children.get(id)!;
-        const cliStatus = child.terminalId
-          ? this.terminals.summary(child.terminalId)?.cliStatus
-          : undefined;
-        group.summary.hasActive ||= cliStatus?.state === "active";
-        group.summary.children.push({
-          state: this.#replyState(child),
-          cliStatus,
-          waiting: child.waiting,
-          stoppedBy: child.stoppedBy,
-        });
-        group.summary.lastActivityAt = Math.max(
-          group.summary.lastActivityAt,
-          child.createdAt,
-          child.startedAt ?? 0,
-          child.reportedAt ?? 0,
-          child.questionedAt ?? 0,
-          child.endedAt ?? 0,
-          child.decidedAt ?? 0,
-          cliStatus?.since ?? 0,
-        );
-      }
-    }
-    return { boards: [...groups.values()].map(({ summary }) => summary) };
+  boards() {
+    return this.#queries.boards();
   }
-  async board(cwd: string): Promise<BoardData> {
-    const conversations = [...this.#conversations.values()]
-      .flatMap((conversation) => {
-        const terminal = this.store.terminalSummary(conversation.terminalId);
-        return conversation.cwd === cwd && terminal
-          ? [
-              {
-                ...conversation,
-                createdAt: terminal.createdAt,
-                title: terminal.title,
-              },
-            ]
-          : [];
-      })
-      .sort(creationOrder);
-    const ids = new Set(conversations.map((conversation) => conversation.id));
-    const children = [...this.#children.values()].filter((child) =>
-      ids.has(child.conversation),
-    );
-    const active = children.filter((child) =>
-      this.terminals.isCliRunning(child.terminalId ?? ""),
-    );
-    await this.#run(
-      () => this.#measureChildren(active, true, true),
-      `board:${cwd}`,
-    );
-    const teams = new Map<string, ReturnType<HostStore["readTeam"]>>();
-    const agents: BoardAgent[] = children.map((child) => ({
-      ...this.#childSummary(child, teams),
-      roleId: child.roleId,
-      difficulty: (
-        child.role ??
-        teams
-          .get(this.#conversation(child.conversation).teamId)
-          ?.saved.roles.find((role) => role.id === child.roleId)
-      )?.split
-        ? child.difficulty
-        : undefined,
-      task: child.task,
-      plan: this.#tasks.get(child.task)?.plan,
-      createdAt: child.createdAt,
-      firstStartedAt: child.firstStartedAt,
-      endedAt: child.endedAt,
-      reportedAt: child.reportedAt,
-      questionedAt: child.questionedAt,
-      changes: child.changes,
-      tokens: child.tokens,
-      effort: child.candidate?.effort,
-      revisions: this.#tasks.get(child.task)?.revisions.length ?? 0,
-      waitingReasons: child.waitingReasons,
-    }));
-    const running = this.terminals.runningClis();
-    const compareClis = definitionOrder(cliDefinitions.map((cli) => cli.id));
-    return {
-      defaultConversation:
-        conversations
-          .filter((entry) => entry.lastActiveAt !== undefined)
-          .sort((a, b) => b.lastActiveAt! - a.lastActiveAt!)[0]?.id ??
-        conversations.at(-1)?.id,
-      conversations: conversations.map((conversation) => ({
-        id: conversation.id,
-        terminalId: conversation.terminalId,
-        teamId: conversation.teamId,
-        name:
-          conversation.title ??
-          this.store.readTeam(conversation.teamId)?.saved.name ??
-          conversation.teamName,
-        createdAt: conversation.createdAt,
-        lastActiveAt: conversation.lastActiveAt,
-        plan: conversation.plan,
-      })),
-      agents,
-      roles: conversations.flatMap((conversation) =>
-        (this.store.readTeam(conversation.teamId)?.saved.roles ?? []).map(
-          (role) => ({
-            conversation: conversation.id,
-            name: role.name,
-            limit: role.limit,
-            used: running.filter(
-              (cli) =>
-                cli.conversation === conversation.id && cli.role === role.id,
-            ).length,
-            waiting: children.filter(
-              (child) =>
-                child.conversation === conversation.id &&
-                child.roleId === role.id &&
-                child.state === "waiting" &&
-                child.waiting === "capacity",
-            ).length,
-          }),
-        ),
+  board(cwd: string) {
+    return this.#queries.board(cwd, (active) =>
+      this.#run(
+        () => this.#measureChildren(active, true, true),
+        `board:${cwd}`,
       ),
-      usage: [...this.terminals.cliUsage()]
-        .sort(([a], [b]) => compareClis(a, b))
-        .filter(([cli]) =>
-          children.some((child) => child.candidate?.cli === cli),
-        )
-        .map(([cli, usage]) => ({
-          cli,
-          name:
-            cliDefinitions.find((definition) => definition.id === cli)?.name ??
-            cli,
-          usage,
-        })),
-    };
-  }
-  records(filter: RecordsFilter): RecordsData {
-    const now = Date.now();
-    const childrenByTask = new Map<string, TeamChild[]>();
-    for (const child of this.#children.values()) {
-      const children = childrenByTask.get(child.task) ?? [];
-      children.push(child);
-      childrenByTask.set(child.task, children);
-    }
-    for (const children of childrenByTask.values())
-      children.sort((a, b) => a.createdAt - b.createdAt);
-    const tasks: TaskRecord[] = [...this.#tasks.values()].flatMap((task) => {
-      const children = childrenByTask.get(task.id) ?? [];
-      const first = children[0];
-      if (!first) return [];
-      const conversation = this.#conversation(task.conversation);
-      const last =
-        this.#children.get(task.currentChild ?? "") ?? children.at(-1)!;
-      return [
-        {
-          id: task.id,
-          conversation: task.conversation,
-          parentTerminalId: this.store.terminal(conversation.terminalId)
-            ? conversation.terminalId
-            : undefined,
-          title: first.title,
-          teamId: conversation.teamId,
-          team:
-            this.store.readTeam(conversation.teamId)?.saved.name ??
-            conversation.teamName,
-          version: first.teamVersion ?? conversation.teamVersion,
-          role: first.role?.name ?? first.roleName,
-          difficulty: first.difficulty,
-          plan: task.plan,
-          createdAt: first.createdAt,
-          decision: task.decision,
-          reason: task.reason,
-          decidedAt: task.decidedAt,
-          revisions: task.revisions.length,
-          elapsedMs: task.elapsedMs,
-          changes: task.changes ?? last.changes,
-          agents: children.map((child) => ({
-            id: child.id,
-            role: child.role?.name ?? child.roleName,
-            candidate: child.candidate
-              ? {
-                  ...child.candidate,
-                  cliName: child.terminalId
-                    ? this.store.terminalCli(child.terminalId)?.cli.name
-                    : undefined,
-                }
-              : undefined,
-            createdAt: child.createdAt,
-            startedAt: child.firstStartedAt,
-            endedAt: child.endedAt,
-            elapsedMs: child.elapsedMs,
-            workMs:
-              child.firstStartedAt === undefined || child.workMs === undefined
-                ? undefined
-                : child.workMs +
-                  (this.#workStarted.has(child.id)
-                    ? Math.max(0, now - this.#workStarted.get(child.id)!)
-                    : 0),
-            tokens: child.tokens,
-            changes: child.changes,
-            terminalId: child.terminalId,
-            revisions: task.revisions.filter(
-              (revision) => revision.child === child.id,
-            ).length,
-            teamVersion: child.teamVersion,
-          })),
-        },
-      ];
-    });
-    const teams = new Map<
-      string,
-      { id: string; name?: string; versions: number[] }
-    >();
-    for (const task of tasks) {
-      let team = teams.get(task.teamId);
-      if (!team) {
-        team = { id: task.teamId, name: task.team, versions: [] };
-        teams.set(team.id, team);
-      }
-      if (!team.versions.includes(task.version))
-        team.versions.push(task.version);
-    }
-    return {
-      roleNames: roleOrder(
-        this.store
-          .listTeams()
-          .teams.filter(
-            (team) => !filter.teamId || team.saved.id === filter.teamId,
-          )
-          .map((team) => team.saved),
-      ),
-      tasks: tasks.filter(
-        (task) =>
-          (filter.days === undefined ||
-            task.createdAt >= Date.now() - filter.days * 86400000) &&
-          (filter.startAt === undefined || task.createdAt >= filter.startAt) &&
-          (filter.endAt === undefined || task.createdAt <= filter.endAt) &&
-          (filter.teamId === undefined || task.teamId === filter.teamId) &&
-          (filter.version === undefined || task.version === filter.version) &&
-          (filter.difficulty === undefined ||
-            task.difficulty === filter.difficulty),
-      ),
-      teams: [...teams.values()]
-        .sort(
-          (a, b) =>
-            (a.name ?? "").localeCompare(b.name ?? "") ||
-            a.id.localeCompare(b.id),
-        )
-        .map((team) => ({
-          ...team,
-          versions: team.versions.sort((a, b) => b - a),
-        })),
-    };
-  }
-  async taskHistory(id: string): Promise<TaskHistoryData> {
-    const task = this.#tasks.get(id);
-    if (!task) return { events: [] };
-    const children = [...this.#children.values()]
-      .filter((child) => child.task === id)
-      .sort((a, b) => a.createdAt - b.createdAt);
-    const events: TaskHistoryData["events"] = children.flatMap(
-      (child, index) => [
-        {
-          at: child.createdAt,
-          kind: index ? ("Handoff" as const) : ("Delegated" as const),
-          child: child.id,
-          role: child.role?.name ?? child.roleName,
-          candidate: child.candidate,
-          difficulty: child.difficulty,
-        },
-        ...(child.decision && child.decidedAt !== undefined
-          ? [
-              {
-                at: child.decidedAt,
-                kind:
-                  child.decision === "accept"
-                    ? ("Accepted" as const)
-                    : ("Rejected" as const),
-                child: child.id,
-                candidate: child.candidate,
-                body: child.reason,
-              },
-            ]
-          : []),
-        ...(child.inputs ?? []).map((entry) => ({
-          at: entry.at,
-          kind: "Input" as const,
-          child: child.id,
-          candidate: child.candidate,
-          body: entry.body,
-        })),
-      ],
     );
-    for (const revision of task.revisions) {
-      let body: string | undefined;
-      if (revision.file)
-        try {
-          body = await readFile(revision.file, "utf8");
-        } catch {
-          /* A missing body is absent, not an error. */
-        }
-      events.push({
-        at: revision.at,
-        kind: "Revise",
-        child: revision.child,
-        candidate: revision.candidate,
-        body,
-      });
-    }
-    events.sort((a, b) => a.at - b.at);
-    const parent = this.#conversation(task.conversation).terminalId;
-    const last = children.at(-1);
-    return {
-      events,
-      childTerminalId:
-        last?.terminalId && this.store.terminalSummary(last.terminalId)
-          ? last.terminalId
-          : undefined,
-      parentTerminalId: this.store.terminal(parent) ? parent : undefined,
-    };
   }
-
+  records(filter: RecordsFilter) {
+    return this.#queries.records(filter);
+  }
+  taskHistory(id: string) {
+    return this.#queries.taskHistory(id);
+  }
   #replyState(child: TeamChild): TeamChild["state"] | "starting" {
-    return this.#starting.has(child.id) && child.state === "waiting"
+    return this.#startups.has(child) && child.state === "waiting"
       ? "starting"
       : child.state;
   }
@@ -1339,15 +797,7 @@ export class TeamManager {
       const child = this.#children.get(id);
       if (!child) return { ok: false, error: { code: "invalid_request" } };
       if (child.state !== "finished") {
-        child.state = "stopped";
-        child.stoppedBy = "user";
-        delete child.waiting;
-        await this.#measureChild(child);
-        this.#elapsed(child);
-        this.#saveChild(child);
-        if (child.terminalId)
-          await this.terminals.stopTeamTerminal(child.terminalId);
-        this.#dispose(child.id);
+        await this.#stopChild(child, "user");
         this.conditionsChanged();
       }
       const result = { childId: id };
@@ -1391,9 +841,15 @@ export class TeamManager {
         /* A later change retries assignment; commands remain usable. */
       });
   }
-  async #restoreTerminals(): Promise<void> {
+  async #restoreTerminals(terminalId?: string): Promise<void> {
     for (const c of this.#conversations.values()) {
+      if (terminalId && c.terminalId !== terminalId) continue;
       if (!this.store.terminal(c.terminalId)) continue;
+      const running = this.terminals.isCliRunning(c.terminalId);
+      const configure =
+        Boolean(terminalId) ||
+        running ||
+        Boolean(this.store.terminalSetup(c.terminalId));
       try {
         let instructions: string | ((directory: string) => string);
         try {
@@ -1421,23 +877,26 @@ export class TeamManager {
           });
           await writeFile(c.instructionFile, "", { mode: 0o600, flag: "wx" });
         }
-        this.terminals.configureTeamTerminal(
-          c.terminalId,
-          await this.#options(
-            { conversation: c.id },
-            c.parent,
-            c.instructionFile,
-            instructions,
-            undefined,
-            this.terminals.isCliRunning(c.terminalId),
-          ),
+        // Rebuild a missing instruction file at startup. A stopped parent
+        // receives its launch environment when its Terminal is reopened.
+        if (!configure && typeof instructions === "string") continue;
+        const options = await this.#options(
+          { conversation: c.id },
+          c.parent,
+          c.instructionFile,
+          instructions,
+          undefined,
+          Boolean(terminalId) || running,
         );
+        if (configure)
+          this.terminals.configureTeamTerminal(c.terminalId, options);
       } catch {
         this.terminals.markTeamTerminalUnrestored(c.terminalId);
       }
     }
     for (const child of this.#children.values()) {
       if (
+        (terminalId && child.terminalId !== terminalId) ||
         !child.terminalId ||
         !child.candidate ||
         !child.instructionFile ||
@@ -1524,7 +983,7 @@ export class TeamManager {
     let hasEligible = false;
     for (const childId of [...this.#checkBaselines.keys()]) {
       const child = this.#children.get(childId);
-      if (!child || ["finished", "stopped", "failed"].includes(child.state)) {
+      if (!child || childHasEnded(child.state)) {
         this.#checkBaselines.delete(childId);
         continue;
       }
@@ -1638,7 +1097,7 @@ export class TeamManager {
     >();
     for (const [childId, baseline] of [...this.#checkBaselines.entries()]) {
       const child = this.#children.get(childId);
-      if (!child || ["finished", "stopped", "failed"].includes(child.state)) {
+      if (!child || childHasEnded(child.state)) {
         this.#checkBaselines.delete(childId);
         continue;
       }
@@ -1684,8 +1143,7 @@ export class TeamManager {
       void this.#run(async () => {
         const pending = entries.filter((entry) => {
           if (this.#closed) return false;
-          if (["finished", "stopped", "failed"].includes(entry.child.state))
-            return false;
+          if (childHasEnded(entry.child.state)) return false;
           if (this.#checkBaselines.get(entry.child.id) !== entry.sentAt)
             return false;
           const terminal = entry.child.terminalId
@@ -1713,7 +1171,6 @@ export class TeamManager {
     }
   }
   #dispose(key: string): void {
-    if (this.#pendingChild?.child.id === key) this.#pendingChild.states.clear();
     this.#cliFailures.delete(key);
     this.#notifiedStalls.delete(key);
     this.#checkBaselines.delete(key);
@@ -1848,7 +1305,19 @@ export class TeamManager {
     }
     if (command.kind === "report" || command.kind === "ask")
       throw new Error("Only a child can use this command.");
-    if (command.kind === "plan") return this.#plan(conversation, command);
+    if (command.kind === "plan") {
+      const current = conversation.plan ?? { tasks: [], activity: [] };
+      const { plan, text } = applyPlanCommand(current, command, Date.now());
+      if (plan !== current) {
+        conversation.plan = plan;
+        this.#planRevisions.set(
+          conversation.id,
+          (this.#planRevisions.get(conversation.id) ?? 0) + 1,
+        );
+        this.store.putTeamConversation(conversation);
+      }
+      return ok(text, plan);
+    }
     if (command.kind === "delegate") {
       let repository: TeamChild["repository"];
       if (command.repo !== undefined) {
@@ -1910,7 +1379,7 @@ export class TeamManager {
         if (current) {
           await this.#run(async () => {
             if (current.state !== "finished" && current.state !== "stopped")
-              await this.#stopByParent(current);
+              await this.#stopChild(current, "parent");
           }, current.id);
         }
       } else {
@@ -1940,21 +1409,9 @@ export class TeamManager {
         repository,
         handoff?.id,
       );
-      const planTask = conversation.plan?.tasks.find(
-        (entry) => entry.number === command.plan,
-      );
-      if (planTask?.state === "pending") {
-        const at = Date.now();
-        planTask.state = "in_progress";
-        planTask.updatedAt = at;
-        conversation.plan!.activity.push({
-          at,
-          kind: "update",
-          request: false,
-          by: "host",
-          task: planTask.number,
-          text: "Running",
-        });
+      const plan = startPlanTask(conversation.plan, command.plan, Date.now());
+      if (plan !== conversation.plan) {
+        conversation.plan = plan;
         this.store.putTeamConversation(conversation);
       }
       this.#delegating.add(child.id);
@@ -2065,7 +1522,7 @@ export class TeamManager {
         "Child is finished. Delegate a continuation using its task ID.",
       );
     if (command.kind === "stop") {
-      await this.#stopByParent(child);
+      await this.#stopChild(child, "parent");
       this.conditionsChanged();
       return ok("Child stopped by parent.");
     }
@@ -2080,17 +1537,20 @@ export class TeamManager {
       const cliId =
         child.candidate?.cli ??
         this.terminals.summary(child.terminalId)?.cli?.id;
-      const { sequence, keyName } = cliInterruptKey(cliId);
+      const mode =
+        cliDefinitions.find((definition) => definition.id === cliId)
+          ?.interrupt ?? "esc";
+      const { sequence, keyName } = interruptKeys[mode];
       const sent = await this.terminals.sendCliInput(child.terminalId, {
         sequence,
       });
       if (!sent) throw new Error("Child is not running.");
-      if (cliId && SEPARATE_ESC_INTERRUPT_CLIS.has(cliId)) {
+      if (mode === "separate-esc") {
         // OpenCode merged consecutive writes; 50ms separated them in the
         // compatibility monitor. Leave margin for a slower terminal.
         await new Promise((resolve) => setTimeout(resolve, 100));
         const secondSent = await this.terminals.sendCliInput(child.terminalId, {
-          sequence: "\u001b",
+          sequence,
         });
         if (!secondSent) throw new Error("Child is not running.");
       }
@@ -2129,9 +1589,13 @@ export class TeamManager {
       return this.#send(child, command.type, command.body);
     if (command.kind === "finish") {
       const task = this.#tasks.get(child.task)!;
+      if (child.pendingWorktree && !this.#startups.has(child)) {
+        await this.#recoverChildWorktree(child);
+        this.#saveChild(child);
+      }
       await this.#measureChild(child);
       let branchNote: string | undefined;
-      if (command.worktree === "remove") {
+      if (command.worktree === "remove" && !child.worktreeRemoved) {
         if (!child.cwd || child.createdWorktree !== child.cwd)
           throw new Error(
             "Only a worktree created by iori for this child can be removed. Use --worktree keep.",
@@ -2257,6 +1721,7 @@ export class TeamManager {
         }
         for (const finish of finishWatches) finish(false);
         child.worktreeRemoved = true;
+        this.#saveChild(child);
       }
       if (child.terminalId)
         await this.terminals.stopTeamTerminal(child.terminalId);
@@ -2280,32 +1745,40 @@ export class TeamManager {
           .catch(() => "");
         if (head) await recordWorktreeAccepted(child.cwd, head);
       }
-      child.state = "finished";
       this.#elapsed(child);
-      child.decision = command.decision;
-      child.reason = command.reason;
-      child.decidedAt = Date.now();
-      const decidingTask = task.currentChild === child.id;
-      if (decidingTask) {
-        task.decision = command.decision;
-        task.reason = command.reason;
-        task.decidedAt = child.decidedAt;
-        if (child.changes) task.changes = child.changes;
-        else delete task.changes;
+      this.#measureWork(child);
+      const finished: TeamChild = {
+        ...child,
+        state: "finished",
+        decision: command.decision,
+        reason: command.reason,
+        decidedAt: Date.now(),
+      };
+      const decided = { ...task };
+      if (task.currentChild === child.id) {
+        decided.decision = finished.decision;
+        decided.reason = finished.reason;
+        decided.decidedAt = finished.decidedAt;
+        decided.changes = child.changes;
+        const runs = [...this.#children.values()].filter(
+          (c) => c.task === task.id,
+        );
+        const measured = runs.flatMap((c) =>
+          c.elapsedMs === undefined ? [] : [c.elapsedMs],
+        );
+        decided.elapsedMs =
+          !runs.some((c) => c.elapsedUnavailable) && measured.length
+            ? measured.reduce((sum, value) => sum + value, 0)
+            : undefined;
       }
-      const runs = [...this.#children.values()].filter(
-        (c) => c.task === task.id,
-      );
-      const measured = runs.flatMap((c) =>
-        c.elapsedMs === undefined ? [] : [c.elapsedMs],
-      );
-      if (decidingTask) {
-        if (!runs.some((c) => c.elapsedUnavailable) && measured.length)
-          task.elapsedMs = measured.reduce((sum, value) => sum + value, 0);
-        else delete task.elapsedMs;
-      }
-      this.#saveChild(child);
-      this.store.putTeamTask(task);
+      this.store.transaction(() => {
+        this.store.putTeamChild(finished);
+        this.store.putTeamTask(decided);
+      });
+      Object.assign(child, finished);
+      Object.assign(task, decided);
+      this.#storedChildren.set(child.id, JSON.stringify(child));
+      this.#publishChild(child);
       this.#dispose(child.id);
       this.conditionsChanged();
       const planTask = conversation.plan?.tasks.find(
@@ -2323,9 +1796,14 @@ export class TeamManager {
     }
     throw new Error("Unsupported command.");
   }
-  async #stopByParent(child: TeamChild): Promise<void> {
+  async #stopChild(
+    child: TeamChild,
+    stoppedBy: "parent" | "user",
+  ): Promise<void> {
     child.state = "stopped";
-    child.stoppedBy = "parent";
+    child.stoppedBy = stoppedBy;
+    delete child.waiting;
+    delete child.waitingReasons;
     await this.#measureChild(child);
     this.#elapsed(child);
     this.#saveChild(child);
@@ -2377,7 +1855,7 @@ export class TeamManager {
   async #drain(): Promise<void> {
     if (this.#closed) return;
     const queued = [...this.#children.values()]
-      .filter((c) => c.state === "waiting" && !this.#starting.has(c.id))
+      .filter((c) => c.state === "waiting" && !this.#startups.has(c))
       .sort(creationOrder);
     if (!queued.length) return;
     const clis = await this.terminals.listClis();
@@ -2387,7 +1865,7 @@ export class TeamManager {
     );
     for (const child of queued) {
       if (this.#closed) return;
-      if (child.state !== "waiting" || this.#starting.has(child.id)) continue;
+      if (child.state !== "waiting" || this.#startups.has(child)) continue;
       const conversation = this.#conversation(child.conversation);
       if (!this.terminals.isCliRunning(conversation.terminalId)) {
         child.state = "stopped";
@@ -2397,35 +1875,17 @@ export class TeamManager {
         continue;
       }
       const team = this.store.readTeam(conversation.teamId)?.saved;
-      let role = team?.roles.find((r) => r.id === child.roleId);
-      if (child.resumeFile && child.role && child.candidate) {
-        const assigned = child.candidate;
-        const original = Object.values(child.role.candidates)
-          .flat()
-          .find((candidate) => candidate.id === assigned.id);
-        role = {
-          ...child.role,
-          split: false,
-          candidates: {
-            high: [],
-            medium: [
-              {
-                ...launchCandidate(assigned),
-                minimum: original?.minimum ?? "",
-                minimumWindow: original?.minimumWindow,
-              },
-            ],
-            low: [],
-          },
-        };
-      }
+      const role = assignmentRole(
+        child,
+        team?.roles.find((r) => r.id === child.roleId),
+      );
       // Reserve slots as soon as assignment succeeds, before worktree/CLI IO.
       // Once the PTY exists runningClis already counts it.
       const running = this.terminals.runningClis();
-      for (const id of this.#starting.keys()) {
-        const starting = this.#children.get(id)!;
+      for (const starting of this.#startups.keys()) {
         if (
-          starting.state === "waiting" &&
+          (starting.state === "waiting" ||
+            this.#creatingTerminals.has(starting)) &&
           starting.candidate &&
           !this.terminals.isCliRunning(starting.terminalId ?? "")
         ) {
@@ -2471,38 +1931,13 @@ export class TeamManager {
             this.terminals.initialUsagePending(),
             team?.parent,
           )
-        : { waiting: "candidates" as const };
+        : {
+            waiting: "candidates" as const,
+            waitingReasons: [{ reason: "role_removed" as const }],
+          };
       if (!allocation.candidate || !role || !team) {
         child.waiting = allocation.waiting;
-        child.waitingReasons = !role
-          ? [{ reason: "role_removed" }]
-          : candidates.flatMap<import("@iori/protocol").CandidateWaitingReason>(
-              (candidate) =>
-                !available.has(candidate.cli)
-                  ? [{ cli: candidate.cli, reason: "not_installed" }]
-                  : (candidate.minimum !== "" &&
-                        this.terminals
-                          .initialUsagePending()
-                          .has(candidate.cli)) ||
-                      belowUsageMinimum(
-                        candidate.minimum,
-                        this.terminals.cliUsage().get(candidate.cli),
-                        candidate.model,
-                        candidate.minimumWindow,
-                      )
-                    ? [
-                        {
-                          cli: candidate.cli,
-                          reason: "usage",
-                          minimum: candidate.minimum,
-                        },
-                      ]
-                    : failed.has(candidate.id)
-                      ? [{ cli: candidate.cli, reason: "failed" }]
-                      : [],
-            );
-        if (!child.waitingReasons.length && child.waiting === "candidates")
-          child.waitingReasons = [{ reason: "no_candidates" }];
+        child.waitingReasons = allocation.waitingReasons ?? [];
         if (child.waiting === "candidates") {
           const alreadySentToParent =
             child.parentCandidateNoticeSent ?? child.notified === true;
@@ -2536,19 +1971,49 @@ export class TeamManager {
       delete child.waiting;
       delete child.waitingReasons;
       this.#cliStates.delete(child.id);
-      this.#starting.add(child.id);
-      this.#saveChild(child);
-      // Keep startup order, while assignment and command replies stay independent.
-      const startup = this.#startup
+      this.#storeChild(child);
+      // Reserve before publishing or starting IO. Only the allocation pass is serial.
+      const startup = Promise.resolve()
         .then(() => this.#startChild(child))
         .catch(() => {})
         .finally(() => {
-          this.#starting.delete(child.id);
+          this.#startups.delete(child);
           this.conditionsChanged();
         });
-      this.#startup = startup;
+      this.#startups.set(child, startup);
+      this.#publishChild(child);
     }
   }
+  async #recoverChildWorktree(
+    child: TeamChild,
+    creationFailed = false,
+  ): Promise<void> {
+    const plan = child.pendingWorktree;
+    if (!plan) return;
+    const repository =
+      child.repository?.mainPath ?? this.#conversation(child.conversation).cwd;
+    const entries = await inventory(repository).catch(() => undefined);
+    if (!entries) return;
+    if (
+      entries
+        .slice(1)
+        .some(
+          (entry) =>
+            relative(entry.path, plan.path) === "" &&
+            entry.branch === plan.branch,
+        )
+    ) {
+      child.cwd = plan.path;
+      child.createdWorktree = plan.path;
+      child.createdBranch = plan.branch;
+      delete child.pendingWorktree;
+    } else if (creationFailed) {
+      // Git returned and did not register the planned worktree. After a
+      // restart it may still be running, so retain the plan until verified.
+      delete child.pendingWorktree;
+    }
+  }
+
   async #startChild(child: TeamChild): Promise<void> {
     if (this.#closed || child.state !== "waiting") return;
     const conversation = this.#conversation(child.conversation);
@@ -2566,12 +2031,16 @@ export class TeamManager {
           child.worktree,
           child.title,
           child.repository?.mainPath,
+          (plan) => {
+            child.pendingWorktree = plan;
+            this.#saveChild(child);
+          },
         );
-        if (child.worktree === "new" && child.cwd !== conversation.cwd) {
+        if (child.pendingWorktree) {
           child.createdWorktree = child.cwd;
-          child.createdBranch = await worktreeBranch(child.cwd).catch(
-            () => undefined,
-          );
+          child.createdBranch = child.pendingWorktree.branch;
+          delete child.pendingWorktree;
+          this.#saveChild(child);
           setup = await worktreeSetup(child.cwd, this.store);
         } else {
           const previousCreated = [...this.#children.values()].find(
@@ -2716,8 +2185,11 @@ export class TeamManager {
         async (directory) =>
           `Open the file ${await copyDeliveryFile(requestFile, directory)} with your file-reading tool (it is a normal file, not an iori command) and follow the delegated request.`,
       );
-      const pendingStates = new PendingCliStates<HookState>();
-      this.#pendingChild = { child, states: pendingStates };
+      if (this.#closed || child.state !== "waiting") {
+        this.#dispose(child.id);
+        return;
+      }
+      this.#creatingTerminals.add(child);
       const response = await this.terminals.createTerminal(
         {
           clientPublicKey: `team:${child.conversation}`,
@@ -2747,24 +2219,20 @@ export class TeamManager {
             ? "Setup command was interrupted"
             : `Setup command failed (exit ${preparation.exitCode})`,
         );
-      child.state = "running";
+      const startedAt = Date.now();
+      Object.assign(child, childAfterStart(child, startedAt));
       child.parentResponse = "pending";
-      child.startedAt = Date.now();
-      child.firstStartedAt ??= child.startedAt;
       if (!this.terminals.summary(child.terminalId)?.cliStatus) {
-        this.#checkBaselines.set(child.id, child.startedAt);
+        this.#checkBaselines.set(child.id, startedAt);
         this.#scheduleCheckIn();
       }
-      delete child.endedAt;
-      delete child.waiting;
-      delete child.stoppedBy;
       const revision = task.revisions.find((r) => r.child === child.id);
       if (revision) {
         revision.candidate = child.candidate;
         this.store.putTeamTask(task);
       }
       this.#saveChild(child);
-      const states = pendingStates.take(child.terminalId);
+      const states = this.#pendingCliStates.take(child.terminalId);
       if (states.length) {
         // Queue replay before any later observation can use the child ID key.
         await this.#run(async () => {
@@ -2774,6 +2242,10 @@ export class TeamManager {
       for (const file of [...(child.pendingMessageFiles ?? [])])
         await this.#deliverMessage(child, file);
     } catch (error) {
+      if (child.pendingWorktree) {
+        await this.#recoverChildWorktree(child, true);
+        this.#saveChild(child);
+      }
       if (child.state !== "waiting") return;
       child.state = "failed";
       child.failure =
@@ -2782,10 +2254,11 @@ export class TeamManager {
       this.#saveChild(child);
       await this.#notice(child, "failed");
     } finally {
-      if (this.#pendingChild?.child === child) {
-        this.#pendingChild.states.clear();
-        this.#pendingChild = undefined;
-      }
+      if (
+        this.#creatingTerminals.delete(child) &&
+        !this.#creatingTerminals.size
+      )
+        this.#pendingCliStates.clear();
     }
   }
   #elapsed(child: TeamChild): void {
@@ -2892,7 +2365,7 @@ export class TeamManager {
         task: task.id,
       });
     }
-    if (child.state === "waiting" && this.#starting.has(child.id)) {
+    if (child.state === "waiting" && this.#startups.has(child)) {
       child.pendingMessageFiles ??= [];
       child.pendingMessageFiles.push(file);
       this.#saveChild(child);
@@ -2911,8 +2384,10 @@ export class TeamManager {
     child.pendingMessageFiles.push(file);
     this.#saveChild(child);
     if (
-      ["stopped", "failed"].includes(child.state) &&
-      !this.terminals.isCliRunning(child.terminalId ?? "")
+      needsResume(
+        child.state,
+        this.terminals.isCliRunning(child.terminalId ?? ""),
+      )
     ) {
       if (!child.candidate || !child.instructionFile || !child.terminalId)
         throw new Error(
@@ -3035,7 +2510,7 @@ export class TeamManager {
           ].map((f) => readFile(f, "utf8")),
         )
       ).join("\n\n");
-      const next = await this.#enqueue(
+      await this.#enqueue(
         task,
         child.title,
         child.roleId,
@@ -3052,12 +2527,7 @@ export class TeamManager {
       this.conditionsChanged();
       return;
     }
-    child.startedAt = Date.now();
-    child.firstStartedAt ??= child.startedAt;
-    delete child.endedAt;
-    child.state = "running";
-    delete child.waiting;
-    delete child.stoppedBy;
+    Object.assign(child, childAfterStart(child, Date.now()));
     delete child.failure;
     delete child.cliError;
     this.#saveChild(child);
@@ -3076,10 +2546,9 @@ export class TeamManager {
     await this.terminals.pauseTeamEvents();
     this.#closed = true;
     this.#clearCheckTimer();
-    this.#pendingChild?.states.clear();
     await Promise.all(this.#serials.values());
     await this.#allocation;
-    await this.#startup;
+    await Promise.all(this.#startups.values());
     for (const child of this.#children.values()) {
       this.#saveChild(child);
       if (

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  ProtocolValidationError,
   FrameDecoder,
   FrameError,
   MAX_FRAME_BYTES,
@@ -194,4 +195,65 @@ test("古いClientは将来のconnectionScopeを省略と同じに扱い接続�
   });
   assert.equal(parsed.ok, true);
   if (parsed.ok) assert.deepEqual(parsed.result, result);
+});
+
+test("チームの作成と保存で確認間隔の範囲外を拒否する", () => {
+  const definition = {
+    name: "Team",
+    description: "",
+    instruction: "",
+    roles: [],
+    parent: { id: "primary", cli: "", model: "", tools: [], minimum: "" },
+  };
+  for (const method of ["teams.create", "teams.save"]) {
+    const parse = (intervals: object) =>
+      parseRequest({
+        kind: "request",
+        operationId: "team",
+        method,
+        params: { teamId: "team", definition: { ...definition, ...intervals } },
+      });
+    for (const intervals of [
+      { checkMinutes: 0 },
+      { checkMinutes: 1441 },
+      { backgroundWakeMinutes: -1 },
+      { backgroundWakeMinutes: 1441 },
+      { checkMinutes: 1.5 },
+    ])
+      assert.throws(() => parse(intervals), ProtocolValidationError);
+    for (const intervals of [
+      { checkMinutes: 1, backgroundWakeMinutes: 0 },
+      { checkMinutes: 1440, backgroundWakeMinutes: 1440 },
+    ]) {
+      const request = parse(intervals);
+      if (request.method !== "teams.save" && request.method !== "teams.create")
+        assert.fail();
+      assert.deepEqual(request.params.definition, {
+        ...definition,
+        ...intervals,
+      });
+    }
+  }
+});
+
+test("CLI 定義の保存要求から未知の項目を取り除く", () => {
+  const file = { name: "icon", uploadId: "a".repeat(36) };
+  const request = {
+    kind: "request",
+    operationId: "save",
+    method: "cli.definition.save",
+    params: { definition: "{}", files: [file] },
+  };
+  assert.deepEqual(
+    parseRequest({
+      ...request,
+      extra: true,
+      params: {
+        ...request.params,
+        extra: true,
+        files: [{ ...file, extra: true }],
+      },
+    }),
+    request,
+  );
 });

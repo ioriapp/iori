@@ -28,9 +28,9 @@ export function TeamHistoryEntry({
     <div
       data-iori-history-version={entry.team.version}
       className={cn(
-        "flex flex-col gap-1 py-2.5 transition-colors",
-        selected && "border-l-2 border-l-primary bg-accent/55 pl-2.5",
-        !selected && "px-2",
+        "relative flex flex-col gap-1 px-2.5 py-2.5 transition-colors",
+        selected &&
+          "bg-accent/55 before:pointer-events-none before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-primary",
       )}
     >
       <button

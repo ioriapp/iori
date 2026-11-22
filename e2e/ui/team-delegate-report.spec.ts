@@ -55,6 +55,16 @@ test(
     await childRow.click();
     const childTerminalId = await terminalId(visibleTerminal(page));
     await app.terminalText(childTerminalId, "ACTOR_PROMPT:");
+    await page.getByRole("button", { name: "New tab", exact: true }).click();
+    await page.locator('[data-iori-action="workspace-open-board"]').click();
+    const result = page.locator(`[data-iori-board-agent="${childId}"]`);
+    await expect(result).toContainText("Running");
+    await expect(result).not.toContainText("Orchestrator:");
+    await childRow.click();
+    await expect(visibleTerminal(page)).toHaveAttribute(
+      "data-iori-terminal-id",
+      childTerminalId,
+    );
     await sendLine(
       visibleTerminal(page),
       JSON.stringify({
@@ -73,9 +83,7 @@ test(
       JSON.stringify({ id: "read", command: ["read", childId] }),
     );
     await app.terminalText(parentId, "UI_REPORT_COMPLETE");
-    await page.getByRole("button", { name: "New tab", exact: true }).click();
-    await page.locator('[data-iori-action="workspace-open-board"]').click();
-    const result = page.locator(`[data-iori-board-agent="${childId}"]`);
+    await page.locator('[data-iori-tab-kind="board"]').click();
     await expect(result).toContainText("Reported");
     await expect(result).toContainText("Orchestrator: Pending");
     await page

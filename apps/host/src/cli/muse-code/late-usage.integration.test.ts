@@ -37,7 +37,7 @@ for (const [kind, monitor] of [
         label: "bash",
         args: [],
         executable: fileURLToPath(
-          new URL("./late-usage-shell.mjs", import.meta.url),
+          new URL("./late-usage-shell.test.fixture.mjs", import.meta.url),
         ),
       },
       `${port} ${kind}`,

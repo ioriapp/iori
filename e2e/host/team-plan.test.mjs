@@ -31,6 +31,56 @@ async function launchParent(client, dataRoot) {
   return parent;
 }
 
+test("Board の計画履歴に目標・タスクの状態・題名・チェックポイント・キャンセル理由を渡す", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    const parent = await launchParent(client, dataRoot);
+    const commands = [
+      ["goal", "goal", "--body", "Ship the release"],
+      ["new-goal", "goal", "--body", "Verify the release", "--request"],
+      ["add", "add", "--title", "Test the release"],
+      [
+        "update",
+        "update",
+        "1",
+        "--title",
+        "Test the package",
+        "--state",
+        "done",
+        "--checkpoint",
+        "Installation succeeded",
+      ],
+      ["cancel", "cancel", "1", "--reason", "Package recalled"],
+    ];
+    for (const [id, ...args] of commands) {
+      const result = await automationCommand(parent, id, ["plan", ...args]);
+      assert.equal(result.code, 0, result.stdout);
+    }
+
+    const board = await client.request("teams.board", { cwd: dataRoot });
+    assert.deepEqual(
+      board.conversations[0].plan.activity.map(({ at, ...entry }) => entry),
+      [
+        { kind: "goal", request: false, text: "Ship the release" },
+        {
+          kind: "goal",
+          request: true,
+          text: "Verify the release",
+          previousGoal: "Ship the release",
+        },
+        { kind: "add", request: false, task: 1, title: "Test the release" },
+        {
+          kind: "update",
+          request: false,
+          task: 1,
+          title: "Test the package",
+          state: "done",
+          checkpoint: "Installation succeeded",
+        },
+        { kind: "cancel", request: false, task: 1, reason: "Package recalled" },
+      ],
+    );
+  }));
+
 test("plan add --first と plan move で計画の順を変え、番号を保ったまま Board へ渡す", (t) =>
   runHostTest(t, async ({ client, dataRoot, stage }) => {
     const parent = await launchParent(client, dataRoot);

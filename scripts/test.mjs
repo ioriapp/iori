@@ -19,9 +19,17 @@ const files = globSync(
   },
 ).sort();
 if (files.length > 0) {
+  const requestedConcurrency = process.env.IORI_TEST_CONCURRENCY ?? "";
+  const concurrency = Number(requestedConcurrency);
+  const concurrencyArgs =
+    /^\d+$/.test(requestedConcurrency) &&
+    Number.isSafeInteger(concurrency) &&
+    concurrency > 0
+      ? [`--test-concurrency=${concurrency}`]
+      : [];
   const result = spawnSync(
     process.execPath,
-    ["--test", "--test-timeout=60000", ...files],
+    ["--test", "--test-timeout=60000", ...concurrencyArgs, ...files],
     {
       stdio: "inherit",
       // Tests create their own Hosts and routes, not the invoking iori session.

@@ -408,9 +408,9 @@ function DockTabHeader(panel: IDockviewPanelHeaderProps<{ tabId: string }>) {
             title={tab.file?.absolutePath ?? accessibleTitle}
             aria-label={accessibleTitle}
             className={cn(
-              "flex h-full min-w-0 max-w-[13.75rem] flex-initial cursor-pointer items-center gap-1.5 overflow-hidden border-0 bg-transparent py-0 pr-2 pl-3 text-left text-xs whitespace-nowrap outline-none focus-visible:outline-none",
-              "data-[state=active]:font-semibold data-[state=active]:text-foreground",
-              "data-[state=inactive]:font-normal data-[state=inactive]:text-muted-foreground hover:text-foreground",
+              "flex h-full min-w-0 max-w-[13.75rem] flex-initial cursor-pointer items-center gap-1.5 overflow-hidden border-0 bg-transparent py-0 pr-2 pl-3 text-left text-xs font-medium whitespace-nowrap outline-none focus-visible:outline-none",
+              "data-[state=active]:text-foreground",
+              "data-[state=inactive]:text-muted-foreground hover:text-foreground",
               "[&_.cli-elapsed]:ml-1 [&_.cli-elapsed]:shrink-0 [&_.cli-elapsed]:whitespace-nowrap [&_.cli-elapsed]:text-2xs [&_.cli-elapsed]:tabular-nums [&_.cli-elapsed]:text-muted-foreground",
             )}
             onClick={() => panel.api.setActive()}

@@ -1,16 +1,14 @@
 import type { HostStore } from "./store.ts";
 import type { ForgeStatus } from "@iori/protocol";
-import { readForgeStatus, readPushTarget } from "./forge-status.ts";
+import { readPushTarget } from "./forge-remote.ts";
 import { ForgeDetection } from "./forge/adapters.ts";
 import { repositoryMainPath } from "./repository-git-settings.ts";
 
 type Visibility = { paths: string[]; selected?: string };
 type Entry = {
-  active: boolean;
   remoteHost?: string;
   origin?: string;
   mainPath?: string;
-  force?: boolean;
   status?: ForgeStatus;
   target?: string;
   identity?: string;
@@ -40,12 +38,7 @@ export class ForgeWatcher {
   }
   mappingsChanged(hosts: string[]): void {
     for (const [path, entry] of this.#entries) {
-      if (
-        !entry.remoteHost ||
-        !hosts.includes(entry.remoteHost) ||
-        !entry.active
-      )
-        continue;
+      if (!entry.remoteHost || !hosts.includes(entry.remoteHost)) continue;
       entry.controller?.abort();
       this.#refresh(path, entry, true);
     }
@@ -57,7 +50,7 @@ export class ForgeWatcher {
    */
   siteChanged(origin: string, tokenChanged: boolean): void {
     for (const [path, entry] of this.#entries) {
-      if (entry.active && entry.origin === origin) {
+      if (entry.origin === origin) {
         if (tokenChanged) {
           entry.status = undefined;
           this.#publish(path, {});
@@ -69,7 +62,7 @@ export class ForgeWatcher {
   }
   repositoryChanged(mainPath: string): void {
     for (const [path, entry] of this.#entries) {
-      if (entry.active && entry.mainPath === mainPath) {
+      if (entry.mainPath === mainPath) {
         entry.status = undefined;
         this.#publish(path, {});
         entry.controller?.abort();
@@ -80,21 +73,22 @@ export class ForgeWatcher {
   }
 
   watch(client: object, visibility: Visibility): void {
-    this.#clients.set(client, visibility);
+    if (visibility.paths.length) this.#clients.set(client, visibility);
+    else this.#clients.delete(client);
     const visible = new Set(
       [...this.#clients.values()].flatMap((value) => value.paths),
     );
+    // The union of the current subscriptions bounds the cache.
     for (const [path, entry] of this.#entries) {
-      entry.active = visible.has(path);
-      if (entry.active) continue;
+      if (visible.has(path)) continue;
+      this.#entries.delete(path);
       clearTimeout(entry.timer);
-      entry.timer = undefined;
       entry.controller?.abort();
     }
     for (const path of visible) {
       let entry = this.#entries.get(path);
       if (!entry) {
-        entry = { active: true, attempted: 0 };
+        entry = { attempted: 0 };
         this.#entries.set(path, entry);
       }
       if (visibility.paths.includes(path) && entry.status)
@@ -106,20 +100,17 @@ export class ForgeWatcher {
     }
   }
   remove(client: object): void {
-    this.#clients.delete(client);
-    this.watch(this, { paths: [] });
-    this.#clients.delete(this);
+    this.watch(client, { paths: [] });
   }
   changed(paths: string[]): void {
     for (const path of paths) {
       const entry = this.#entries.get(path);
-      if (entry?.active) this.#refresh(path, entry, false);
+      if (entry) this.#refresh(path, entry, false);
     }
   }
   close(): void {
     for (const entry of this.#entries.values()) {
       clearTimeout(entry.timer);
-      entry.timer = undefined;
       entry.controller?.abort();
     }
     this.#entries.clear();
@@ -142,11 +133,11 @@ export class ForgeWatcher {
   }
   #refresh(path: string, entry: Entry, force: boolean): void {
     if (entry.controller) {
-      entry.pending = true;
-      entry.force ||= force;
+      entry.pending ||= force;
       return;
     }
     clearTimeout(entry.timer);
+    entry.timer = undefined;
     const controller = new AbortController();
     entry.controller = controller;
     void (async () => {
@@ -176,11 +167,11 @@ export class ForgeWatcher {
               target.branch,
             ])
           : undefined;
-        if (identity !== entry.identity) {
-          entry.identity = identity;
+        if (entry.identity !== undefined && identity !== entry.identity) {
           entry.status = undefined;
           this.#publish(path, {});
         }
+        entry.identity = identity;
         entry.target = key;
         if (force || changed || !entry.status) {
           entry.attempted = Date.now();
@@ -194,16 +185,16 @@ export class ForgeWatcher {
           if (target && !adapter) throw new Error("Forge unavailable");
           const status =
             target && adapter
-              ? await readForgeStatus(
+              ? await adapter.status(
                   target,
-                  mainPath
-                    ? (adapter.forRepository?.(
-                        this.#store,
-                        mainPath,
-                        this.#onSettingsChange,
-                      ) ?? adapter)
-                    : adapter,
                   controller.signal,
+                  mainPath
+                    ? {
+                        store: this.#store,
+                        mainPath,
+                        onSettingsChange: this.#onSettingsChange,
+                      }
+                    : undefined,
                 )
               : {};
           if (controller.signal.aborted) return;
@@ -215,11 +206,10 @@ export class ForgeWatcher {
         entry.attempted = Date.now();
       } finally {
         entry.controller = undefined;
-        if (!entry.active || this.#entries.get(path) !== entry) return;
-        if (entry.pending) {
-          entry.pending = false;
-          const force = entry.force ?? false;
-          entry.force = false;
+        if (this.#entries.get(path) !== entry) return;
+        if (entry.pending !== undefined) {
+          const force = entry.pending;
+          entry.pending = undefined;
           this.#refresh(path, entry, force);
         } else {
           this.#schedule(path, entry);

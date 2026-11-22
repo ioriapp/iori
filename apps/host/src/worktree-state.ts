@@ -1,7 +1,14 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { collectGit } from "./git-process.ts";
+import { collectGit, finishGit, startGit, stopGit } from "./git-process.ts";
 import { inventory } from "./worktree-creation.ts";
+import {
+  createConcurrencyLimiter,
+  mapWithConcurrency,
+} from "./resource-limits.ts";
+
+const WORKTREE_GIT_CONCURRENCY = 4;
+const runWorktreeGit = createConcurrencyLimiter(WORKTREE_GIT_CONCURRENCY);
 
 export async function worktreeDirectory(path: string): Promise<string> {
   const dotGit = join(path, ".git");
@@ -183,20 +190,14 @@ export async function worktreeStateReader(
           const hasMerges =
             !merges ||
             !(
-              await Promise.all(
-                merges.map(async (line) => {
+              await mapWithConcurrency(
+                merges,
+                WORKTREE_GIT_CONCURRENCY,
+                async (line) => {
                   const [sha, ...parents] = line.split(" ");
                   if (parents.length !== 2) return false;
-                  return collectGit(path, [
-                    "show",
-                    "--format=",
-                    "--remerge-diff",
-                    "--no-ext-diff",
-                    sha!,
-                  ])
-                    .then((result) => result.stdout.length === 0)
-                    .catch(() => false);
-                }),
+                  return runWorktreeGit(() => hasEmptyRemergeDiff(path, sha!));
+                },
               )
             ).every(Boolean);
           for (const target of targets)
@@ -234,6 +235,31 @@ export async function worktreeStateReader(
     }
   };
 }
+
+async function hasEmptyRemergeDiff(
+  path: string,
+  sha: string,
+): Promise<boolean> {
+  const git = startGit(path, [
+    "show",
+    "--format=",
+    "--remerge-diff",
+    "--no-ext-diff",
+    "--no-textconv",
+    sha,
+  ]);
+  try {
+    for await (const chunk of git.child.stdout)
+      if (chunk.length > 0) return false;
+    await finishGit(git);
+    return true;
+  } catch {
+    return false;
+  } finally {
+    await stopGit(git);
+  }
+}
+
 /**
  * Whether a worktree's own commits are all in the target: either a trial merge
  * leaves the target unchanged (merge commit, squash merge, rebase), or every
@@ -321,15 +347,17 @@ async function pairsWithTarget(
       if (!paths.has(commit))
         paths.set(
           commit,
-          collectGit(path, [
-            "diff-tree",
-            "--no-commit-id",
-            "--no-renames",
-            "--name-only",
-            "-r",
-            "-z",
-            commit,
-          ]).then((result) => {
+          runWorktreeGit(() =>
+            collectGit(path, [
+              "diff-tree",
+              "--no-commit-id",
+              "--no-renames",
+              "--name-only",
+              "-r",
+              "-z",
+              commit,
+            ]),
+          ).then((result) => {
             const names = result.stdout.toString("utf8").split("\0");
             names.pop();
             return new Set(names);
@@ -337,20 +365,27 @@ async function pairsWithTarget(
         );
       return paths.get(commit)!;
     };
-    const candidates = await Promise.all(
-      children.map(async (child) => {
+    const targetsByIdentity = new Map<string, number[]>();
+    for (const [index, target] of targets.entries()) {
+      const matching = targetsByIdentity.get(target.identity);
+      if (matching) matching.push(index);
+      else targetsByIdentity.set(target.identity, [index]);
+    }
+    const candidates = await mapWithConcurrency(
+      children,
+      WORKTREE_GIT_CONCURRENCY,
+      async (child) => {
+        const matching = targetsByIdentity.get(child.identity);
+        if (!matching) return [];
         const childPaths = await changedPaths(child.sha);
-        const matches = await Promise.all(
-          targets.map(async (target, index) => {
-            if (child.identity !== target.identity) return -1;
-            const targetPaths = await changedPaths(target.sha);
-            return [...childPaths].some((name) => targetPaths.has(name))
-              ? index
-              : -1;
-          }),
-        );
-        return matches.filter((index) => index !== -1);
-      }),
+        const names = [...childPaths];
+        const matches: number[] = [];
+        for (const index of matching) {
+          const targetPaths = await changedPaths(targets[index]!.sha);
+          if (names.some((name) => targetPaths.has(name))) matches.push(index);
+        }
+        return matches;
+      },
     );
     const owners = new Map<number, number>();
     const pair = (child: number, visited: Set<number>): boolean => {

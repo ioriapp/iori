@@ -202,7 +202,7 @@ export const native = {
   },
   backgroundConnection: (enabled: boolean, title: string, body: string) =>
     invoke<void>("native_background_connection", { enabled, title, body }),
-  onNotification: (
+  onNotification: async (
     fn: (target: import("@iori/protocol").CliNotificationTarget) => void,
   ) => {
     const receive = async () => {
@@ -211,12 +211,17 @@ export const native = {
       >("native_take_notifications");
       for (const target of targets) fn(target);
     };
-    return listen("native://notification-pending", () => void receive()).then(
-      async (stop) => {
-        await receive();
-        return stop;
-      },
+    const stop = await listen(
+      "native://notification-pending",
+      () => void receive().catch(() => undefined),
     );
+    try {
+      await receive();
+      return stop;
+    } catch (error) {
+      stop();
+      throw error;
+    }
   },
   terminalOpen: (connectionId: string, streamId: string, json: string) =>
     invoke<void>("native_terminal_open", { connectionId, streamId, json }),

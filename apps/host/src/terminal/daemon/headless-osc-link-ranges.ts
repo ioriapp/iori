@@ -1,36 +1,9 @@
 // Derived from Orca terminal helpers. Copyright (c) 2026 Lovecast Inc.; see ../ORCA-LICENSE.txt for the MIT license.
 
-import type {
-  IBuffer,
-  IBufferCell,
-  IBufferLine,
-  Terminal,
-} from "@xterm/headless";
+import type { IBuffer, Terminal } from "@xterm/headless";
 import type { TerminalOscLinkRange } from "../shared/terminal-osc-link-ranges.ts";
 
-type TerminalWithOscLinks = Terminal & {
-  _core?: {
-    _oscLinkService?: {
-      getLinkData: (linkId: number) => { uri?: string } | undefined;
-      // Why read it: xterm registers every OSC 8 id here, so an empty registry
-      // proves the buffer holds no hyperlink and the per-cell scan can be skipped.
-      // Optional because it is private — an xterm that renames it just scans.
-      _dataByLinkId?: { size?: number };
-    };
-  };
-};
-
-type CellWithOscLink = {
-  extended?: { urlId?: number };
-  hasExtendedAttrs?: () => boolean;
-};
-
-/** True when xterm holds no OSC 8 registration at all, so no cell can carry one. */
-function hasNoRegisteredOscLinks(service: {
-  _dataByLinkId?: { size?: number };
-}): boolean {
-  return service._dataByLinkId?.size === 0;
-}
+import { oscLinkId, oscLinkLookup } from "./xterm-adapter.ts";
 
 export function collectHeadlessOscLinkRanges(
   terminal: Terminal,
@@ -73,18 +46,9 @@ function collectOscLinkRangesInRows(
   endRow: number,
   restoredLinks: TerminalOscLinkRange[],
 ): TerminalOscLinkRange[] {
-  // Why: headless xterm exposes OSC 8 metadata only via this private service.
-  // Keep this boundary explicit so xterm upgrades are audited here.
-  const service = (terminal as TerminalWithOscLinks)._core?._oscLinkService;
-  if (!service) {
-    return [];
-  }
-  // Why before the scan: the walk below reads every cell of every row, and a
-  // session that never emitted a hyperlink — the overwhelming majority — would
-  // pay that for a guaranteed-empty result. `restoredLinks` still needs mapping.
-  if (hasNoRegisteredOscLinks(service) && restoredLinks.length === 0) {
-    return [];
-  }
+  // Empty registries need no per-cell scan.
+  const uriFor = oscLinkLookup(terminal, restoredLinks.length > 0);
+  if (!uriFor) return [];
   const ranges: TerminalOscLinkRange[] = [];
   // Why one cell for the whole walk: xterm's getCell allocates a fresh CellData
   // per call unless handed a target, which is a per-cell allocation across the
@@ -99,13 +63,12 @@ function collectOscLinkRangesInRows(
     let currentUrlId = 0;
     let currentStart = -1;
     for (let col = 0; col <= lineLength; col += 1) {
-      const urlId =
-        col < lineLength ? getOscLinkIdAtCell(line, col, scratchCell) : 0;
+      const urlId = col < lineLength ? oscLinkId(line, col, scratchCell) : 0;
       if (urlId === currentUrlId) {
         continue;
       }
       if (currentUrlId && currentStart >= 0) {
-        const uri = service.getLinkData(currentUrlId)?.uri;
+        const uri = uriFor(currentUrlId);
         if (uri) {
           ranges.push({
             row: row - startRow,
@@ -150,17 +113,4 @@ function dedupeOscLinkRanges(
     seen.add(key);
     return true;
   });
-}
-
-function getOscLinkIdAtCell(
-  line: IBufferLine,
-  col: number,
-  scratchCell: IBufferCell,
-): number {
-  const cell = line.getCell(col, scratchCell) as
-    (IBufferCell & CellWithOscLink) | undefined;
-  // Why: OSC link IDs live in extended cell attrs; missing attrs means no link.
-  return cell?.hasExtendedAttrs?.() && cell.extended?.urlId
-    ? cell.extended.urlId
-    : 0;
 }

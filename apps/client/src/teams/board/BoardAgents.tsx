@@ -43,8 +43,8 @@ function CurrentOperation({
   );
   const label =
     activity?.kind === "tool"
-      ? [activity.tool, activity.summary].filter(Boolean).join(" ")
-      : t(activity?.kind === "thinking" ? "Thinking" : state);
+      ? [activity.tool, activity.summary].filter(Boolean).join(" ") || t(state)
+      : t(state);
   const stalledElapsed =
     state === "Not responding" && isStalledCliStatus(agent.cliStatus)
       ? elapsedTime(now - agent.cliStatus.stalledSince)
@@ -68,7 +68,7 @@ function CurrentOperation({
   return (
     <span
       title={description}
-      className="max-w-44 truncate text-2xs text-muted-foreground"
+      className="block w-full truncate text-2xs leading-4 min-h-4 text-muted-foreground"
     >
       {description}
     </span>
@@ -163,6 +163,13 @@ function BoardAgentRow({
     agent.revisions > 0
       ? t("Revisions {count}").replace("{count}", String(agent.revisions))
       : undefined;
+  const orchestratorDecision = agent.decision
+    ? agent.decision === "accept"
+      ? "Accepted"
+      : "Rejected"
+    : agent.state === "reported"
+      ? "Pending"
+      : undefined;
   const metaParts = [
     agent.model,
     agent.effort,
@@ -186,7 +193,8 @@ function BoardAgentRow({
             />
           </span>
           <div className="min-w-0 flex-1">
-            {/* Row 1: Role + Title + Status + Elapsed */}
+            {/* Row 1: Role + Title + Elapsed */}
+            {/* Row 2: Current operation (fixed 1 line) */}
             <button
               type="button"
               aria-expanded={finished ? expanded : undefined}
@@ -209,41 +217,43 @@ function BoardAgentRow({
                     {agent.title}
                   </span>
                 </span>
-                <span className="flex shrink-0 items-center gap-1.5">
-                  {agent.state !== "failed" && (
-                    <CurrentOperation
-                      agent={agent}
-                      language={language}
-                      now={now}
-                      t={t}
-                    />
-                  )}
-                  {durationText && (
-                    <time className="text-2xs tabular-nums text-muted-foreground">
-                      {durationText}
-                    </time>
-                  )}
-                  {finished &&
-                    (expanded ? (
-                      <ChevronDown
-                        className="size-3.5 text-muted-foreground"
-                        aria-hidden="true"
-                      />
-                    ) : (
-                      <ChevronRight
-                        className="size-3.5 text-muted-foreground"
-                        aria-hidden="true"
-                      />
-                    ))}
-                </span>
+                {(durationText || finished) && (
+                  <span className="flex shrink-0 items-center gap-1.5">
+                    {durationText && (
+                      <time className="text-2xs tabular-nums text-muted-foreground">
+                        {durationText}
+                      </time>
+                    )}
+                    {finished &&
+                      (expanded ? (
+                        <ChevronDown
+                          className="size-3.5 text-muted-foreground"
+                          aria-hidden="true"
+                        />
+                      ) : (
+                        <ChevronRight
+                          className="size-3.5 text-muted-foreground"
+                          aria-hidden="true"
+                        />
+                      ))}
+                  </span>
+                )}
               </span>
+              {agent.state !== "failed" && (
+                <CurrentOperation
+                  agent={agent}
+                  language={language}
+                  now={now}
+                  t={t}
+                />
+              )}
             </button>
 
             {agent.state === "failed" && (
               <AgentFailureDetail failure={agent.failure} t={t} />
             )}
 
-            {/* Row 2: CLI/model/task/difficulty + ChangeAmount + Tokens + Orchestrator verdict */}
+            {/* Row 3: CLI/model/task/difficulty + ChangeAmount + Tokens + Orchestrator verdict */}
             <div className="mt-1.5 flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-1 text-2xs tabular-nums text-muted-foreground">
               <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
                 {agent.cli && (
@@ -283,17 +293,17 @@ function BoardAgentRow({
                     )}
                   </span>
                 )}
-                <span>
-                  Orchestrator:{" "}
-                  {t(
-                    agent.decision
-                      ? agent.decision === "accept"
-                        ? "Accepted"
-                        : "Rejected"
-                      : "Pending",
-                  )}
-                  {revisionsText && ` · ${revisionsText}`}
-                </span>
+                {(orchestratorDecision || revisionsText) && (
+                  <span>
+                    {orchestratorDecision && (
+                      <>
+                        Orchestrator: {t(orchestratorDecision)}
+                        {revisionsText && " · "}
+                      </>
+                    )}
+                    {revisionsText}
+                  </span>
+                )}
               </div>
             </div>
 

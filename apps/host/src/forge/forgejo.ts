@@ -1,5 +1,4 @@
-import type { ForgeAdapter } from "./types.ts";
-import { readForgejoCi, readForgejoCiLog } from "./forgejo-ci.ts";
+import type { ForgeStatus } from "@iori/protocol";
 import {
   object,
   string,
@@ -9,6 +8,7 @@ import {
   checksStatus,
   pullStatus,
   SIGN_IN_ONLY_MESSAGE,
+  type ForgeTarget,
 } from "./response.ts";
 import { ForgeReadError, forgejoFailure } from "./failure.ts";
 import { forgeSites } from "./sites.ts";
@@ -168,49 +168,51 @@ export async function pullRequestsByHead(
   return [...firstPage, ...single];
 }
 
-export const forgejo: ForgeAdapter = {
-  id: "forgejo",
-  label: "Forgejo",
-  async detect(origin, signal) {
-    try {
-      // Identify the site before any token is sent to it.
-      string(
-        object((await http(`${origin}/api/v1/version`, signal, false)).value)
-          .version,
-      );
-    } catch (error) {
-      if (!(error instanceof ForgeReadError && error.signInOnly)) throw error;
-    }
-    return true;
-  },
-  checkUrl: ({ origin, owner, repo, sha }) =>
-    `${origin}/${owner}/${repo}/commit/${sha}`,
-  readCi: (target, _repository, signal) => readForgejoCi(target, signal),
-  readCiLog: (target, job, before, _repository, signal) =>
-    readForgejoCiLog(target, job, before, signal),
-  async readChecks(target, signal) {
-    const { origin, owner, repo, sha } = target;
-    const statuses = await pages(
+export async function detectForgejo(origin: string, signal?: AbortSignal) {
+  try {
+    // Identify the site before any token is sent to it.
+    string(
+      object((await http(`${origin}/api/v1/version`, signal, false)).value)
+        .version,
+    );
+  } catch (error) {
+    if (!(error instanceof ForgeReadError && error.signInOnly)) throw error;
+  }
+  return true;
+}
+
+export const forgejoCheckUrl = ({ origin, owner, repo, sha }: ForgeTarget) =>
+  `${origin}/${owner}/${repo}/commit/${sha}`;
+
+export async function readForgejoStatus(
+  target: ForgeTarget,
+  signal?: AbortSignal,
+): Promise<ForgeStatus> {
+  const [checks, pullRequest] = await Promise.all([
+    readChecks(target, signal),
+    pullRequestsByHead({ ...target, state: "all" }, signal).then((pulls) =>
+      pullStatus(target, pulls),
+    ),
+  ]);
+  return { checks, pullRequest };
+}
+
+async function readChecks(target: ForgeTarget, signal?: AbortSignal) {
+  const { origin, owner, repo, sha } = target;
+  const statuses = await pages(
+    origin,
+    `/api/v1/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/commits/${encodeURIComponent(sha)}/status`,
+    signal,
+  );
+  return checksStatus(
+    origin,
+    commitChecks(
       origin,
-      `/api/v1/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/commits/${encodeURIComponent(sha)}/status`,
-      signal,
-    );
-    return checksStatus(
-      origin,
-      commitChecks(
-        origin,
-        statuses.flatMap((page) => {
-          const values = object(page).statuses;
-          return values === null ? [] : array(values);
-        }),
-      ),
-      forgejo.checkUrl(target).slice(origin.length),
-    );
-  },
-  async readPullRequest(target, signal) {
-    return pullStatus(
-      target,
-      await pullRequestsByHead({ ...target, state: "all" }, signal),
-    );
-  },
-};
+      statuses.flatMap((page) => {
+        const values = object(page).statuses;
+        return values === null ? [] : array(values);
+      }),
+    ),
+    forgejoCheckUrl(target).slice(origin.length),
+  );
+}

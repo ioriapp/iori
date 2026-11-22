@@ -1,6 +1,6 @@
 import { hostHookItems, otherHostUses } from "./hook-hosts.ts";
 import { createHash } from "node:crypto";
-import { mkdir, readFile } from "node:fs/promises";
+import { lstat, readFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import {
@@ -51,7 +51,7 @@ type Written = Record<
   {
     file: string;
     own?: Record<string, unknown>;
-    copy?: { sha256: string };
+    copy?: { sha256: string; formal?: true };
     link?: HookLink & { created: boolean };
   }
 >;
@@ -82,7 +82,7 @@ export function hooksLink(
     set: fill(hooks.link.set) as Record<string, unknown>,
   };
 }
-const digest = (content: string) =>
+const digest = (content: string | Buffer) =>
   createHash("sha256").update(content).digest("hex");
 const copyName = (file: string) => file.split(/[\\/]/u).at(-1)!;
 /** The file that a definition's hooks change or add, under `home`. */
@@ -202,6 +202,31 @@ async function readText(path: string): Promise<string | undefined> {
     throw error;
   }
 }
+const LEGACY_FORMAL_BRIDGE_HEADER =
+  "// Copyright (c) 2026 Lovecast Inc.; MIT license accompanies iori Host (cli/ORCA-LICENSE.txt).\n";
+
+async function pluginHash(path: string): Promise<string | null | undefined> {
+  try {
+    if (!(await lstat(path)).isFile()) return null;
+    return digest(await readFile(path));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+}
+async function isLegacyFormalBridge(path: string): Promise<boolean> {
+  try {
+    if (!(await lstat(path)).isFile()) return false;
+    const text = await readFile(path, "utf8");
+    return (
+      text.startsWith(LEGACY_FORMAL_BRIDGE_HEADER) &&
+      text.includes("IORI_CLI_HOOK_URL")
+    );
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+}
 async function removeFrom(
   id: string,
   entry: Written[string],
@@ -210,10 +235,13 @@ async function removeFrom(
   // A copied plugin file goes only when it is still the file iori placed.
   if (entry.copy) {
     await hostHookItems(record, id, entry.file);
-    if (record && (await otherHostUses(dirname(record), undefined, entry.file)))
+    if (
+      record &&
+      ((await otherHostUses(dirname(record), undefined, entry.file)) ||
+        (entry.copy.formal && (await otherHostUses(dirname(record), id))))
+    )
       return;
-    const content = await readText(entry.file);
-    if (content !== undefined && digest(content) === entry.copy.sha256)
+    if ((await pluginHash(entry.file)) === entry.copy.sha256)
       await removeHookFile(entry.file);
     return;
   }
@@ -247,52 +275,100 @@ async function removeFrom(
     await removeOwnHookFile(entry.file, syntax, id, entry.own, record);
   else await editHookFile(entry.file, syntax, id, undefined, [], record);
 }
-/** Copy a definition's bridge into its installation folder. A file of the same
- * name that iori did not place is not overwritten
- * (cli-definitions.md「上書きしない」). */
-function writePlugin(
+/** Keep a user's existing plugin. Built-in bridges from before ownership
+ * was recorded can be claimed when their bytes match the bundled bridge. */
+export function writeOwnedPluginFile(
+  ctx: HookInstallContext,
+  target: string,
+  content: string,
+  formal = true,
+): Promise<void> {
+  return serially(async () => {
+    const { id } = ctx;
+    const record = ctx.writtenPath;
+    // A copy that is never recorded could never be removed.
+    if (!record) return;
+    const written = await readWritten(record);
+    const previous = written[id];
+    const owned = previous?.file === target ? previous.copy : undefined;
+    const current = await pluginHash(target);
+    const sha256 = digest(content);
+    // Only iori's own earlier copy is replaced.
+    if (
+      current !== undefined &&
+      current !== owned?.sha256 &&
+      !(
+        current === sha256 &&
+        ((formal && !owned) ||
+          (await otherHostUses(dirname(record), undefined, target)))
+      ) &&
+      !(formal && !owned && (await isLegacyFormalBridge(target)))
+    ) {
+      if (!formal) console.error(`iori-host cli-definition-part-kept: ${id}`);
+      return;
+    }
+    const next: Written[string] = {
+      file: target,
+      copy: { sha256, ...(formal ? { formal: true } : {}) },
+    };
+    const recordChanged = JSON.stringify(previous) !== JSON.stringify(next);
+    if (recordChanged) {
+      written[id] = next;
+      await saveWritten(record, written);
+    }
+    try {
+      if (current !== sha256) await writeText(target, content);
+    } catch (error) {
+      if (recordChanged) {
+        if (previous) written[id] = previous;
+        else delete written[id];
+        await saveWritten(record, written);
+      }
+      throw error;
+    }
+    if (previous && previous.file !== target)
+      await removeFrom(id, previous, record);
+    await hostHookItems(record, id, target, []);
+  });
+}
+export async function removeOwnedPluginFile(
+  ctx: HookInstallContext,
+  target?: string,
+) {
+  if (!ctx.writtenPath) return;
+  let removedRecorded = false;
+  await removeWrittenHooks(ctx.writtenPath, (id, entry) => {
+    const match = id === ctx.id && entry.copy?.formal === true;
+    if (match) removedRecorded = true;
+    return match;
+  });
+  if (
+    !removedRecorded &&
+    target &&
+    !(await otherHostUses(dirname(ctx.writtenPath), ctx.id)) &&
+    !(await otherHostUses(dirname(ctx.writtenPath), undefined, target)) &&
+    (await isLegacyFormalBridge(target))
+  )
+    await removeHookFile(target);
+}
+async function writePlugin(
   id: string,
   hooks: DefinitionPluginHooks,
   folder: string,
   ctx: HookInstallContext,
 ): Promise<void> {
-  return serially(async () => {
-    const record = ctx.writtenPath;
-    // A copy that is never recorded could never be removed.
-    if (!record) return;
-    const source = join(folder, hooks.install.copy);
-    const target = hooksTarget(hooks, ctx.home, id);
-    const content = await readText(source);
-    if (content === undefined) {
-      console.error(`iori-host cli-definition-part-missing: ${id}`);
-      return;
-    }
-    const written = await readWritten(record);
-    const previous = written[id];
-    const current = await readText(target);
-    // Only iori's own earlier copy is replaced.
-    if (
-      current !== undefined &&
-      previous?.copy?.sha256 !== digest(current) &&
-      !(
-        digest(current) === digest(content) &&
-        (await otherHostUses(dirname(record), undefined, target))
-      )
-    ) {
-      console.error(`iori-host cli-definition-part-kept: ${id}`);
-      return;
-    }
-    const next = { file: target, copy: { sha256: digest(content) } };
-    if (JSON.stringify(previous) !== JSON.stringify(next)) {
-      written[id] = next;
-      await saveWritten(record, written);
-      if (previous && previous.file !== target)
-        await removeFrom(id, previous, record);
-    }
-    await hostHookItems(record, id, target, []);
-    await mkdir(dirname(target), { recursive: true });
-    await writeText(target, content);
-  });
+  if (!ctx.writtenPath) return;
+  const content = await readText(join(folder, hooks.install.copy));
+  if (content === undefined) {
+    console.error(`iori-host cli-definition-part-missing: ${id}`);
+    return;
+  }
+  await writeOwnedPluginFile(
+    ctx,
+    hooksTarget(hooks, ctx.home, id),
+    content,
+    false,
+  );
 }
 /** Write `ctx.id`'s items for `events`. Only `ctx.id`'s items change, so
  * the other CLIs and definitions that write the same file keep theirs.

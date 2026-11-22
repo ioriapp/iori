@@ -35,13 +35,13 @@ Terminalのデーモン（Host本体と別のNodeプロセス）
   └ ioriコマンドの受け口（Host本体へ渡す）
 ```
 
-| 部分     | 採用                                                                                        |
-| -------- | ------------------------------------------------------------------------------------------- |
-| Host     | Node.js LTS・TypeScript。node-ptyを直接使える。ClientにNodeを要求しない                     |
-| Client   | Tauri 2・React。PCとAndroidで同じ画面を使う。部品・見た目は画面のモックアップv8・v9から作る |
-| 通信     | iroh。HostもClientもRustの`iroh`を使い、Hostは自前の小さいNode addonで呼ぶ                  |
-| 保存     | Hostは小さいSQLite、Clientはnativeの暗号化したSQLite                                        |
-| Terminal | 別のデーモンのnode-ptyとheadlessのterminal emulator、Clientのxterm.js                       |
+| 部分     | 採用                                                                                                      |
+| -------- | --------------------------------------------------------------------------------------------------------- |
+| Host     | Node.js LTS・TypeScript。node-ptyを直接使える。ClientにNodeを要求しない                                   |
+| Client   | Tauri 2・React。PCとAndroidで同じ画面を使う。Tailwind CSS v4とshadcn/uiのフラット・ヘアラインUIで構成する |
+| 通信     | iroh。HostもClientもRustの`iroh`を使い、Hostは自前の小さいNode addonで呼ぶ                                |
+| 保存     | HostとClientはSQLiteを使う。Clientで暗号化する値は[保存](#保存)を参照                                     |
+| Terminal | 別のデーモンのnode-ptyとheadlessのterminal emulator、Clientのxterm.js                                     |
 
 資源の使い方と性能の目標は[HostとClientの資源の使い方](design/resource-use.md)が定める。
 
@@ -143,15 +143,15 @@ TerminalのデーモンがPTYを持ち、入力・サイズ変更・出力をTer
 
 Terminalごとに専用の双方向streamを使い、snapshotと後続出力の境界をデーモンが確定し、Host本体が中継する。Clientのnative側は画面が一つのframeを適用してから次を読み、受け手が遅い時は通信へ待ちを伝える。Hostは出力を短い間隔でまとめて1つのframeにして送る（PTYの細かい読み取りごとにframeを作ると、受け手のframeごとのラウンドトリップが上限になり、止めた後の出力が長く続く）。接続している全ての受け手に送信待ちが溜まっている間だけPTYの読み取りを止め、どれか一つでも追いついたら読み続ける（スマホを置いてPCで見ている時に、スマホの受信が止まってもPCの出力を止めない）。入力はこの待ちを通らず先にPTYへ届く。追いつけない受け手は更新の出力が1つのまとまり分を超えて待つ時にそのstreamだけを閉じ、保存画面から開き直す。更新の出力と復元用の保存画面のbytesは別に数え、大きな保存画面そのものを理由に開き直しを繰り返さない。Hostは現在のPTY寸法とは別に直近のPCの寸法を保存し、スマホの縮小表示へ渡す。受け付けた入力はstreamの付け替え（幅の変更・全履歴の再読み込み・開き直し・タブを閉じる）をまたいでも捨てない。Clientは開通を待つ間の入力も列に受け付けてそのstreamの開通後に順に送り、列を送り終えてから古いstreamを解除する。送信はRESETでなくFINで閉じる。Hostは出力を打ち切った受け手からもFINまで入力を読み、置き換えられた古いstreamの入力では寸法を変えない。PTYへ渡した入力は結果が不明でも自動で再送しない。
 
-デーモンとHost本体は保存先ごとに分かれたローカル接続を使う。Linuxは本人だけが読めるUnix socket、Windowsは実行ユーザーのSIDだけを許すnamed pipeを使う。接続の最初にデーモンが生成したトークンとやり取りのバージョンを確かめる。要求・応答・PTYの生出力を同じ接続で中継する。Hostが出力を処理した応答と受け手の送信待ちをデーモンへ返し、PTYの読み取りを制御する。画面を開く時はデーモンの出力を順序どおりに一時保留してsnapshotを取り、後続出力へ戻す。デーモンはSQLiteを開かず、Host本体が現在のTerminalと画面の保存を担う。同じバージョンのデーモンへ再接続した時はデーモンの現在の状態を取り込み、バージョンが違う時は画面を受け取ってデーモンを止め、既存の再開経路へ戻す。Windowsのnode-ptyはPTYの終了を出力のsocketの`close`で知らせるので、出力の読み取りを止めたまま止めると終了が届かない。デーモンは同じsessionの停止を1回だけ始めて後の要求に共有し、停止中は読み取りの一時停止を解いて出力を捨てる。バージョン4〜13の古いデーモンはshutdownの中で読み取りを止めたまま終了を待つため、新しいHostは古いデーモンを止める時、`attach`・`activate`で出力を流しながら全sessionを`kill`し、終わってから`shutdown`を送る（復元にはkillの前の画面を使う）。デーモンの異常終了も同じ再開経路を使う。
+デーモンとHost本体は保存先ごとに分かれたローカル接続を使う。Linuxは本人だけが読めるUnix socket、Windowsは実行ユーザーのSIDだけを許すnamed pipeを使う。接続の最初にデーモンが生成したトークンとやり取りのバージョンを確かめる。要求・応答・PTYの生出力を同じ接続で中継する。Hostが出力を処理した応答と受け手の送信待ちをデーモンへ返し、PTYの読み取りを制御する。画面を開く時はデーモンの出力を順序どおりに一時保留してsnapshotを取り、後続出力へ戻す。デーモンはSQLiteを開かず、Host本体が現在のTerminalと画面の保存を担う。同じバージョンのデーモンへ再接続した時はデーモンの現在の状態を取り込み、バージョンが違う時は画面を受け取ってデーモンを止め、既存の再開経路へ戻す。Windowsのnode-ptyはPTYの終了を出力のsocketの`close`で知らせるので、出力の読み取りを止めたまま止めると終了が届かない。デーモンは同じsessionの停止を1回だけ始めて後の要求に共有し、停止中は読み取りの一時停止を解いて出力を捨てる。デーモンの異常終了も同じ再開経路を使う。
 
-デーモンのバージョンをまたぐ停止用の約束は変更しない。`<保存先>/terminal-daemon/connection.json` の場所と、`endpoint`・`token` の名前・型・意味は変えない。ローカル接続のframeは4 byteのbig-endian長さとUTF-8 JSONで、要求は `{kind:"request", id, method, args}`、応答は `{kind:"response", id, value}`（失敗時は `error`）とする。最初の `hello` は `args:[token]`、応答は `{version:number, pid:number}`。認証後の `shutdown` は `args:[]` で、PTYを止めて最後の画面の配列を返し、応答を送ってから接続を閉じる。これらの名前・型・意味を、`DAEMON_PROTOCOL` を上げても変えてはいけない。
+デーモンのバージョンをまたぐ停止用の約束は変更しない。`<保存先>/terminal-daemon/connection.json` の場所と、`endpoint`・`token` の名前・型・意味は変えない。ローカル接続のframeは4 byteのbig-endian長さとUTF-8 JSONで、要求は `{kind:"request", id, method, args}`、応答は `{kind:"response", id, value}`（失敗時は `error`）とする。最初の `hello` は `args:[token]`、応答は `{version:number, pid:number}`。認証後の `shutdown` は `args:[]` でPTYを止め、応答を送って接続を閉じる。
 
-停止応答の各画面は `{id, pid, live, exit?, snapshot, cwd, state}` を返す。`cwd` は `null`、`title` は省略し、生のOSCを `state.osc` に含める。Hostは再接続と同じ処理でOSCからタイトルと作業ディレクトリを復元する。古いデーモンが返す `title`・`cwd` も引き継ぐ。`snapshot` はANSI文字列の `snapshotAnsi`・`scrollbackAnsi`・`rehydrateSequences`、`cols`・`rows`、`modes` を必須とし、`pendingEscapeTailAnsi`・`frameRestoreAnsi`・`oscLinks` とデーモン用のメタデータを任意とする。`id`・`pid`・`live`・`exit`・`snapshot` の型と意味を維持し、以後のバージョンでも `state.osc` からタイトルと作業ディレクトリを引き継ぐ。Hostが読み込めない画面は捨て、SQLiteの保存画面で再開を続ける。connection.jsonが読み込めない時もデーモンなしとして起動する。Unix socketのdirectoryとWindows named pipe名は起動ごとの乱数を含み、古い口と衝突させない。connection.jsonは書込みをfsyncしてからrenameする。
+停止応答の画面配列と各画面のフィールドは任意とする。HostはTerminalの `id` で保存済みの記録を探し、読み取れた `snapshot` を保存する。`state.osc` にあるタイトルと作業ディレクトリの情報も取り込む。画面がない時や形式を読み取れない時はSQLiteの保存画面で再開する。connection.jsonが読み込めない時もデーモンなしとして起動する。Unix socketのdirectoryとWindows named pipe名は起動ごとの乱数を含み、古い口と衝突させない。connection.jsonは書込みをfsyncしてからrenameする。
 
 デーモンが持つのはPTY・emulator・出力の順序と流量制御・生のhooksとioriコマンドの受け口である。CLIの起動引数・環境変数・cwd、hooksの解釈、題名・OSC/BELの意味づけ、入力待ちとkittyキー入力の判定、チームと使用量はHost本体が持つ。デーモンはHost不在中もTerminalへの問い合わせに答えるため、emulatorのmode・色・Terminal属性の応答を持つ。Host本体はemulatorを持たず、デーモンが出力と同じ順序で送るOSC・CSIと、変化したモードを読み込む。読む構文は起動と再接続でHostが登録する。再接続ではデーモンの現在のsnapshot、モード、寸法、出力の連番、登録済みOSCの最新の生の値を取り込み、Hostがタイトルと作業ディレクトリを復元する。出来事の種類と順序は[Terminalデーモン](design/terminal-daemon.md#状態と通信の責任)に従う。
 
-CLI hooksとioriコマンドの受け口はデーモンの寿命に合わせる。Host本体が不在の間は生のhook payload、iori要求、PTY終了をデーモンが保持し、hooksとPTY終了は本体が処理を終え、配送完了を返してから削除する。Hostの停止中・終了処理中や接続切断では保持し、再接続で配送する。Terminalごとの配送順序を保ち、他のTerminalの処理完了は待たない。稼働中の本体の処理失敗は記録して配送完了を返し、後の出来事の配送を妨げない。チーム処理は本体内で順序付けて進める。iori要求は本体の処理結果を返す。生出力の履歴やHost内部状態はデーモンへ保存しない。不在中の途中の題名やBELは再送せず、現在の画面から再開する。HostはCLIの観測済み状態・起動の記録・保留入力をSQLiteへ保存し、シェルへ戻ったかは再接続時に実プロセスの前面状態も観測する。ioriコマンドは本体のチーム処理の準備を待って渡す。渡した後に接続が切れた要求は結果が不明なので自動再実行しない。チーム・CLIの探索と起動定義・デバイス認証・Files・GitはHost本体が持つ。画像の一時ファイルはHost再接続では残し、Terminalを閉じた時と新しいデーモンの起動時に回収する。
+CLI hooksとioriコマンドの受け口はデーモンの寿命に合わせる。Host本体が不在の間は生のhook payload、iori要求、PTY終了をデーモンが保持し、hooksとPTY終了は本体が処理を終え、配送完了を返してから削除する。Hostの停止中・終了処理中や接続切断では保持し、再接続で配送する。全Terminalの合計が1,024件またはUTF-8のJSONで8 MiBを超えた場合は、古いhookから破棄する。終了通知だけで上限を超えた場合は古い終了通知から破棄する。Terminalごとの配送順序を保ち、他のTerminalの処理完了は待たない。稼働中の本体の処理失敗は記録して配送完了を返し、後の出来事の配送を妨げない。チーム処理は本体内で順序付けて進める。iori要求は本体の処理結果を返す。生出力の履歴やHost内部状態はデーモンへ保存しない。不在中の途中の題名やBELは再送せず、現在の画面から再開する。HostはCLIの観測済み状態・起動の記録・保留入力をSQLiteへ保存し、シェルへ戻ったかは再接続時に実プロセスの前面状態も観測する。ioriコマンドは本体のチーム処理の準備を待って渡す。渡した後に接続が切れた要求は結果が不明なので自動再実行しない。チーム・CLIの探索と起動定義・デバイス認証・Files・GitはHost本体が持つ。画像の一時ファイルはHost再接続では残し、Terminalを閉じた時と新しいデーモンの起動時に回収する。
 
 配布物のNode・native・デーモンが読み込むコードと依存パッケージだけを、保存先の `terminal-daemon/runtime/<版>/<起動ごとのID>` へ複写する。読み込み範囲はbuild時に生成し、CLI定義・チーム・Hostの全コードは複写しない。Windowsの権限を扱う小さなnative addonを通信のiroh addonから分け、デーモンには前者だけを含める。稼働中のデーモンは入れ替える配布フォルダーを参照しない。新しいデーモンの起動時に以前の複写を回収し、Windowsで終了直後のファイルがまだ開かれている時は次の起動で回収する。Linuxではsystemd userが使える場合に別の一時unitで動かすため、Host本体のunitを再起動してもデーモンは残る。固定unitの導入を増やさず、保存先ごとの検証Hostにも同じ分離を使える。systemd userの無い開発環境とWindowsでは短いbootstrapから切り離して起動し、bootstrapは起動完了後に終了する。Host本体の通常終了はデーモンを止めない。撤去・検証の後片付けは `iori-host stop-terminals` で明示的に止める。
 
@@ -207,7 +207,7 @@ AutomationのWebhookはHost本体のHTTPのエンドポイントで受け、Term
 
 AutomationのIssueの契機は、Hostが自動化ごとに1分ごとにForgeを読み込む（Issueの一覧、更新時刻が変わったIssueだけ出来事の記録、読むアカウント）。Forgeの読み取りはAutomationsの直列の処理の外で行い、作業中の判定・回の確保・worktreeの作成・起動だけを直列の処理の中で行う。拾ったラベル（Issueとラベルを付けた時刻）は回の記録で一度だけにする。`iori pr create` はHostが呼んだCLIのworktreeでGitの普段の認証を使ってpushし（明示した1本のrefspec、forceとtagを送らない）、PRの作成だけをForgeの認証（`gh` のアカウント、登録済みのトークン）で行う。Forgeのトークンをgitへ渡さない。
 
-**Client**: nativeのSQLiteに下書き・入力先・読み位置・配置をデバイスと入力先ごとに保存し、OSの鍵で守った鍵で暗号化する。切替・再起動・切断で削除しない。
+**Client**: 下書き・入力先・読み位置・配置はデバイスと入力先ごとに保存し、切替・再起動・切断で削除しない。これらの画面状態や設定、Relayのトークンは、WindowsではDPAPI、LinuxではSecret Serviceで保護した鍵とAES-256-GCM、AndroidではKeystoreの鍵とAES-GCMで暗号化し、SQLiteの `client_views.ciphertext` に保存する。Hostの公開鍵・名前・アドレス・SSH接続先などの登録情報は、同じSQLiteの `hosts`・`host_setup` などに平文で保存する。ファイルへのアクセスはOSの権限で保護する（Linuxではフォルダーが0700、ファイルが0600）。
 
 Androidの鍵の暗号文とデバイス登録DBは、cloud backupとデバイス間の移行から除外する。鍵を復元できない状態で自動的に作り直さない。
 

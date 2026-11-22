@@ -990,7 +990,6 @@ const japanese: Record<string, string> = {
   // Board と Records
   Starting: "起動中",
   Waiting: "待機中",
-  Thinking: "考え中",
   Approval: "承認待ち",
   Question: "質問",
   Reported: "報告済み",

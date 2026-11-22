@@ -5,6 +5,7 @@ import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { readFile, realpath } from "node:fs/promises";
 import { join } from "node:path";
+import { TomlDocument } from "@decimalturn/toml-patch";
 import { object, type HookInstallContext } from "../hooks.ts";
 import { writeText } from "../hook-config.ts";
 import { shellDialect } from "../shell-command.ts";
@@ -182,53 +183,60 @@ export async function removeTrust(directory: string): Promise<void> {
   } catch (error) {
     if (object(error).code !== "ENOENT") throw error;
   }
-  if (content !== undefined) {
-    const headers = new Map<string, string>();
-    for (const raw of Array.isArray(keys) ? keys : []) {
-      const entry = object(raw);
-      if (typeof entry.key === "string" && typeof entry.hash === "string")
-        headers.set(`[hooks.state.${JSON.stringify(entry.key)}]`, entry.hash);
-    }
+  const hashes = new Map<string, string>();
+  for (const raw of Array.isArray(keys) ? keys : []) {
+    const entry = object(raw);
+    if (typeof entry.key === "string" && typeof entry.hash === "string")
+      hashes.set(entry.key, entry.hash);
+  }
+  if (content !== undefined && hashes.size) {
     const sourceLines = content.split("\n");
-    const lines: string[] = [];
-    for (let index = 0; index < sourceLines.length;) {
-      const line = sourceLines[index];
-      const expected = headers.get(line.trim());
-      if (!expected) {
-        lines.push(line);
-        index++;
-        continue;
-      }
-      let end = index + 1;
-      while (
-        end < sourceLines.length &&
-        !sourceLines[end].trim().startsWith("[")
-      )
-        end++;
-      const body = sourceLines.slice(index + 1, end);
-      const trusted = body
-        .map(
-          (line) =>
-            /^\s*trusted_hash\s*=\s*("[^"\n]*"|'[^'\n]*')/u.exec(line)?.[1],
-        )
-        .find(Boolean);
-      const actual = trusted?.slice(1, -1);
-      // A displaced key can now belong to a user hook; do not revoke that trust.
-      if (actual !== expected) lines.push(...sourceLines.slice(index, end));
-      else
-        for (const item of body) {
-          const trimmed = item.trim();
-          if (!trimmed || trimmed.startsWith("#")) lines.push(item);
-          else {
-            const comment = /^(?:[^"']|"[^"\n]*"|'[^'\n]*')*?(#.*)$/u.exec(
-              item,
-            )?.[1];
-            if (comment) lines.push(comment);
-          }
-        }
-      index = end;
+    const edits = new Map<number, string | undefined>();
+    function removeLines(first: number, last: number, column: number) {
+      const suffix = sourceLines[last - 1].slice(column).trimStart();
+      const indent = /^[ \t]*/u.exec(sourceLines[first - 1])![0];
+      for (let line = first - 1; line < last; line++)
+        edits.set(
+          line,
+          line === last - 1 && suffix.startsWith("#")
+            ? indent + suffix
+            : undefined,
+        );
     }
-    await writeText(path, lines.join("\n"));
+    for (const table of new TomlDocument(content).cst) {
+      if (table.type !== "Table") continue;
+      const [hooks, state, key, ...nested] = table.key.item.value;
+      if (hooks !== "hooks" || state !== "state" || nested.length) continue;
+      const expected = hashes.get(key);
+      if (expected === undefined) continue;
+      const entries = table.items.filter((item) => item.type === "KeyValue");
+      const trusted = entries.find(
+        (item) =>
+          item.key.value.length === 1 && item.key.value[0] === "trusted_hash",
+      );
+      // A displaced key can now belong to a user hook; do not revoke that trust.
+      if (trusted?.value.type !== "String" || trusted.value.value !== expected)
+        continue;
+      removeLines(
+        trusted.loc.start.line,
+        trusted.loc.end.line,
+        trusted.loc.end.column,
+      );
+      if (entries.length === 1)
+        removeLines(
+          table.key.loc.start.line,
+          table.key.loc.end.line,
+          table.key.loc.end.column,
+        );
+    }
+    if (edits.size)
+      await writeText(
+        path,
+        sourceLines
+          .map((line, index) => (edits.has(index) ? edits.get(index) : line))
+          .filter((line) => line !== undefined)
+          .join("\n"),
+      );
   }
   await removeHookFile(manifest);
 }

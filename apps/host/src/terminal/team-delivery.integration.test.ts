@@ -1,3 +1,4 @@
+import { queryObjects } from "node:v8";
 import { stopTerminalDaemon } from "./daemon/launch.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -127,6 +128,10 @@ await save(name+'-ready.json',true);
       const hostConnection = await incoming;
       // Bootstrap the real hook installation and version observation before
       // exercising both parent and child input on the same registry.
+      class BootstrapEnvironment {
+        [key: string]: string;
+        IORI_DELIVERY_ACTOR = "bootstrap";
+      }
       const bootstrap = await terminals.createTerminal(
         { clientPublicKey: "test", operationId: randomUUID() },
         root,
@@ -134,7 +139,7 @@ await save(name+'-ready.json',true);
         definition.id,
         {
           conversation: "bootstrap",
-          env: { IORI_DELIVERY_ACTOR: "bootstrap" },
+          env: new BootstrapEnvironment(),
           team: {
             trustWorkspace: false,
             candidate: {
@@ -163,6 +168,12 @@ await save(name+'-ready.json',true);
       // completed its startup hook. Do not tear it down in that handshake.
       await readJson("bootstrap-ready.json");
       await terminals.stopTeamTerminal(bootstrap.result.terminal.id);
+      await nextTurn();
+      assert.equal(
+        queryObjects(BootstrapEnvironment),
+        0,
+        "a stopped CLI releases its environment",
+      );
       for (const name of ["parent", "child", "without-paste"]) {
         if (name === "without-paste") delete definition.waitForBracketedPaste;
         const options: TeamTerminalOptions = {

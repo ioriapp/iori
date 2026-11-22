@@ -204,10 +204,12 @@ export async function forgeFixture(t, dataRoot, { web = false } = {}) {
     }
     if (path.endsWith("/comments"))
       return json(web ? comments : comments.slice(0, 1));
-    if (/\/issues\/\d+$/u.test(path))
+    if (/\/issues\/\d+$/u.test(path)) {
+      const number = Number(path.split("/").at(-1));
       return state.gone
         ? json({}, 404)
-        : json(issue(Number(path.split("/").at(-1))));
+        : json(issues.find((item) => item.number === number) ?? issue(number));
+    }
     if (path.endsWith("/labels"))
       return json(web ? labels : labels.slice(0, 1));
     if (web && path.endsWith("/status")) {

@@ -30,6 +30,7 @@ export async function childWorktree(
   requested: string,
   title: string,
   repo?: string,
+  beforeCreate?: (plan: { path: string; branch: string }) => void,
 ): Promise<string> {
   if (repo) parent = repo;
   if (requested === "parent") return realpath(parent);
@@ -92,7 +93,8 @@ export async function childWorktree(
   const branches = refs.stdout.toString("utf8").split("\n");
   for (;;) {
     const name = `${slug}-${randomBytes(4).toString("hex")}`;
-    const branch = `refs/heads/iori/${name}`;
+    const branchName = `iori/${name}`;
+    const branch = `refs/heads/${branchName}`;
     const path = join(directory, `${basename(primary)}-${name}`);
     if (
       branches.some((ref) => ref === branch || ref.startsWith(branch + "/")) ||
@@ -107,21 +109,18 @@ export async function childWorktree(
     }
     // Git's refusal may follow a partly completed checkout. Do not replay
     // creation or override an existing branch after an ambiguous failure.
-    await addGitWorktree(
-      parent,
-      path,
-      `iori/${name}`,
-      repo
-        ? (
-            await collectGit(parent, [
-              "rev-parse",
-              `${(await worktreeOptions(parent)).defaultBranch}^{commit}`,
-            ])
-          ).stdout
-            .toString("utf8")
-            .trim()
-        : "HEAD",
-    );
+    const start = repo
+      ? (
+          await collectGit(parent, [
+            "rev-parse",
+            `${(await worktreeOptions(parent)).defaultBranch}^{commit}`,
+          ])
+        ).stdout
+          .toString("utf8")
+          .trim()
+      : "HEAD";
+    beforeCreate?.({ path, branch: branchName });
+    await addGitWorktree(parent, path, branchName, start);
     const base = (await collectGit(path, ["rev-parse", "HEAD"])).stdout
       .toString("utf8")
       .trim();

@@ -1,15 +1,16 @@
 import type { DaemonChannel } from "./daemon/channel.ts";
 import type {
+  DaemonRpc,
   PtyEvent,
   PtyScreen,
   SpawnPty,
   PtyOutput,
 } from "./daemon/protocol.ts";
-import type { TerminalSnapshot } from "./daemon/types.ts";
 type HookPayload = Record<string, unknown>;
 
 type PtyExit = { exitCode: number; signal?: number };
 /** Output and an exit that came before the Host listened to the process. */
+type PendingSpawn = { exit?: Extract<PtyEvent, { kind: "exit" }> };
 type Early = { data: PtyOutput[]; exit?: PtyExit; listened: boolean };
 
 export class RemotePty {
@@ -48,7 +49,7 @@ export class RemotePty {
     return { dispose: () => this.exits.delete(callback) };
   }
   write(data: string) {
-    this.owner.send("write", this.id, data);
+    return this.owner.channel.call("write", this.id, data);
   }
   resize(cols: number, rows: number) {
     this.owner.send("resize", this.id, cols, rows);
@@ -58,11 +59,6 @@ export class RemotePty {
   }
   resume() {
     this.owner.send("resume", this.id);
-  }
-  kill() {
-    void this.owner.kill(this.id).catch(() => {
-      console.error("Terminal stop failed");
-    });
   }
 }
 export class RemotePtys {
@@ -74,14 +70,17 @@ export class RemotePtys {
   // A spawn's answer and its shell's first output can arrive in one read; the
   // channel hands both over before the answer's continuation attaches the pid.
   readonly #unattached = new Map<number, Early>();
-  #spawning = 0;
+  readonly #spawning = new Map<string, PendingSpawn>();
   constructor(channel: DaemonChannel) {
     this.channel = channel;
   }
-  send(method: string, ...args: unknown[]) {
+  send<K extends keyof DaemonRpc>(
+    method: K,
+    ...args: Parameters<DaemonRpc[K]>
+  ) {
     void this.channel.call(method, ...args).catch(() => {});
   }
-  attach(screen: PtyScreen) {
+  attach(screen: Pick<PtyScreen, "id" | "pid">) {
     const process = new RemotePty(
       this,
       screen.id,
@@ -89,27 +88,41 @@ export class RemotePtys {
       this.#unattached.get(screen.pid),
     );
     this.#unattached.delete(screen.pid);
+    this.#forget(screen.id);
     this.processes.set(screen.id, process);
     this.byPid.set(screen.pid, process);
     return process;
   }
   async spawn(request: SpawnPty) {
-    this.#spawning++;
+    const pending: PendingSpawn = {};
+    this.#spawning.set(request.id, pending);
     try {
-      const { pid } = await this.channel.call<{ pid: number }>(
-        "spawn",
-        request,
-      );
-      return this.attach({ id: request.id, pid } as PtyScreen);
+      const { pid } = await this.channel.call("spawn", request);
+      const child = this.attach({ id: request.id, pid });
+      if (pending.exit?.pid === pid) await this.#exit(child, pending.exit);
+      return child;
     } finally {
-      // Only a spawn in flight can own an unknown pid's output.
-      if (--this.#spawning === 0) this.#unattached.clear();
+      this.#spawning.delete(request.id);
+      if (!this.#spawning.size) this.#unattached.clear();
     }
+  }
+  #forget(id: string) {
+    const child = this.processes.get(id);
+    if (!child) return;
+    this.processes.delete(id);
+    if (this.byPid.get(child.pid) === child) this.byPid.delete(child.pid);
+  }
+  dispose() {
+    this.processes.clear();
+    this.byPid.clear();
+    this.hooks.clear();
+    this.#unattached.clear();
+    this.#spawning.clear();
   }
   #early(pid: number): Early | undefined {
     const process = this.byPid.get(pid);
     if (process) return process.early.listened ? undefined : process.early;
-    if (!this.#spawning) return undefined;
+    if (!this.#spawning.size) return undefined;
     let early = this.#unattached.get(pid);
     if (!early)
       this.#unattached.set(pid, (early = { data: [], listened: false }));
@@ -127,30 +140,43 @@ export class RemotePtys {
       await this.hooks.get(event.id)?.(event.payload);
       return;
     }
-    const process = this.byPid.get(event.pid);
-    if (process?.exits.size) {
-      for (const listener of [...process.exits]) await listener(event);
-      return;
+    const child = this.processes.get(event.id);
+    if (child?.pid === event.pid) await this.#exit(child, event);
+    else {
+      const pending = this.#spawning.get(event.id);
+      if (pending) pending.exit = event;
     }
-    // An exit before the Host listened waits for its first listener.
-    const early = this.#early(event.pid);
-    if (early) early.exit = event;
+  }
+  async #exit(child: RemotePty, event: PtyExit) {
+    if (this.processes.get(child.id) === child) this.#forget(child.id);
+    const listeners = [...child.exits];
+    child.exits.clear();
+    if (!listeners.length) child.early.exit = event;
+    for (const listener of listeners) await listener(event);
   }
   async kill(id: string) {
-    const result = await this.channel.call<
-      { exitCode: number; signal?: number } | undefined
-    >("kill", id);
-    if (result)
-      await this.event({
-        id,
-        kind: "exit",
-        pid: this.processes.get(id)!.pid,
-        ...result,
-      });
+    const child = this.processes.get(id);
+    const result = await this.channel.call("kill", id);
+    if (result && child && this.processes.get(id) === child)
+      await this.#exit(child, result);
+  }
+  async remove(id: string) {
+    const child = this.processes.get(id);
+    try {
+      await this.channel.call("remove", id);
+    } finally {
+      if (child && this.processes.get(id) === child) this.#forget(id);
+    }
   }
   async hook(id: string, callback: (payload: HookPayload) => unknown) {
     this.hooks.set(id, callback);
-    const url = await this.channel.call<string>("hookRoute", id);
+    let url: string;
+    try {
+      url = await this.channel.call("hookRoute", id);
+    } catch (error) {
+      this.hooks.delete(id);
+      throw error;
+    }
     return {
       url,
       dispose: () => {
@@ -160,7 +186,9 @@ export class RemotePtys {
     };
   }
   snapshot(id: string, lines?: number) {
-    return this.channel.call<TerminalSnapshot>("snapshot", id, lines);
+    return lines === undefined
+      ? this.channel.call("snapshot", id)
+      : this.channel.call("snapshot", id, lines);
   }
   async frozen<T>(id: string, action: () => Promise<T>): Promise<T> {
     const previous = this.locks.get(id) ?? Promise.resolve();

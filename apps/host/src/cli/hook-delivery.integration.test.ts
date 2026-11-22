@@ -62,16 +62,26 @@ test("応答が途中で切れても後の状態が受け手へ届く", async (t
         await once(proxy, "listening");
         const address = proxy.address();
         assert.ok(address && typeof address === "object");
-        const names = ["HOME", "XDG_CONFIG_HOME", "PI_CODING_AGENT_DIR"];
+        const names = [
+          "HOME",
+          "USERPROFILE",
+          "XDG_CONFIG_HOME",
+          "PI_CODING_AGENT_DIR",
+        ];
         const original = names.map((name) => process.env[name]);
         let script: string;
         try {
           process.env.HOME = home;
+          process.env.USERPROFILE = home;
           process.env.XDG_CONFIG_HOME = join(home, ".config");
           process.env.PI_CODING_AGENT_DIR = join(home, ".pi", "agent");
           const ctx = await hookInstallContext(
             { id: "bash", label: "Bash", executable: "/bin/bash", args: [] },
             id,
+            "",
+            true,
+            undefined,
+            home,
           );
           if (id !== "claude") await hooks.install(ctx);
           script = ctx.script;

@@ -10,7 +10,7 @@ import { existsSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
-import { daemonClosure } from "./terminal-daemon-files.mjs";
+import { nativeAssets } from "./terminal-daemon-files.mjs";
 
 const recordPath = "apps/host/terminal-daemon-compatibility.json";
 const read = (file) => readFile(file, "utf8");
@@ -21,9 +21,7 @@ async function fingerprint() {
     const { buildHost } = await import("./release/host.mjs");
     const bundle = path.join(temporary, "host");
     // Inspect built assets; Node itself is represented by its pinned version.
-    await buildHost(bundle, null);
-    const closure = await daemonClosure(bundle),
-      files = new Set(closure.sources);
+    const closure = await buildHost(bundle, null);
     async function walk(directory, add) {
       for (const entry of await readdir(directory, { withFileTypes: true })) {
         const file = path.join(directory, entry.name);
@@ -31,30 +29,21 @@ async function fingerprint() {
         else add(file);
       }
     }
-    // Hash the shipped JavaScript and package assets, not the recipe that builds them.
-    // Native prebuilds vary by OS; their pinned inputs are included below.
-    for (const name of Object.keys(closure.packages))
-      await walk(path.join(bundle, "node_modules", name), (file) => {
-        const relative = path.relative(bundle, file).split(path.sep).join("/");
-        if (
-          !relative.includes("/prebuilds/") &&
-          !relative.includes("/build/") &&
-          path.basename(file) !== "iori" &&
-          !/\.(node|dll|exe|so|a|lib)$/u.test(file)
-        )
-          files.add(relative);
-      });
     const hash = createHash("sha256");
-    const { version: _releaseVersion, ...packageMetadata } = JSON.parse(
-      await read(path.join(bundle, "package.json")),
-    );
-    hash.update(JSON.stringify(packageMetadata));
-    hash.update(await read(path.join(bundle, "terminal-daemon-files.json")));
-    for (const file of [...files].sort())
+    hash.update(JSON.stringify(nativeAssets));
+    for (const file of closure.files) {
+      let bytes = await readFile(path.join(bundle, file));
+      if (file === "package.json") {
+        const { version: _releaseVersion, ...metadata } = JSON.parse(
+          bytes.toString("utf8"),
+        );
+        bytes = Buffer.from(JSON.stringify(metadata));
+      }
       hash
         .update(file + "\0")
-        .update(await readFile(path.join(bundle, file)))
+        .update(bytes)
         .update("\0");
+    }
     const nativeInputs = new Set([
       ".node-version",
       "rust-toolchain.toml",
@@ -127,8 +116,11 @@ async function fingerprint() {
     return {
       version,
       sha256: hash.digest("hex"),
-      ...closure,
-      hashedFiles: [...files].sort(),
+      packages: closure.packages,
+      hashedFiles: closure.files,
+      nativeAssets: Object.entries(nativeAssets).flatMap(([name, patterns]) =>
+        patterns.map((pattern) => `node_modules/${name}/${pattern}`),
+      ),
       nativeInputs: [...nativeInputs].sort(),
       nativePackages: [...visited].sort(),
     };
@@ -145,7 +137,7 @@ export async function checkDaemonCompatibility(update = false) {
     if (error.code !== "ENOENT") throw error;
   }
   const instruction =
-    "Terminalの係の読込コードが変わりました。DAEMON_PROTOCOLを上げて node scripts/terminal-daemon-compatibility.mjs --update を実行してください。版の変更は動作中のTerminalとAgentを止め、再開経路へ戻します。";
+    "Terminalデーモンの実行ファイルが変わりました。DAEMON_PROTOCOLを上げて node scripts/terminal-daemon-compatibility.mjs --update を実行してください。バージョンの変更は動作中のTerminalとAgentを止め、再開経路へ戻します。";
   if (update) {
     if (record && current.version <= record.version)
       throw new Error(instruction);

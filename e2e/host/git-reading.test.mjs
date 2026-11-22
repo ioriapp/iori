@@ -86,6 +86,41 @@ test("履歴とコミットの変更ファイルを読める", (t) =>
     assert.ok(files.files.some((entry) => entry.path === "sample.txt"));
   }));
 
+test("Gitの変更通知を受けた後は一覧の途中から最新の変更を読める", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    const { root } = await repository(dataRoot);
+    await writeFile(join(root, "a.txt"), "");
+    await writeFile(join(root, "c.txt"), "");
+    const watch = await client.readingWatch(root, "git");
+    const ready = await watch.waitFor(
+      (event) =>
+        event.ok === false ||
+        (event.type === "reading.changed" && !event.paths),
+    );
+    assert.equal(ready.type, "reading.changed");
+    const first = await client.request("git.status", {
+      root,
+      start: 0,
+      count: 1,
+    });
+    assert.equal(first.entries[0].path, "a.txt");
+    await writeFile(join(root, "b.txt"), "");
+    const changed = await watch.waitFor(
+      (event) =>
+        event.ok === false ||
+        (event.type === "reading.changed" && event.paths?.includes("b.txt")),
+    );
+    assert.equal(changed.type, "reading.changed");
+    const second = await client.request("git.status", {
+      root,
+      start: 1,
+      count: 1,
+    });
+    assert.equal(second.counts.untracked, 3);
+    assert.equal(second.entries[0].path, "b.txt");
+    await watch.close();
+  }));
+
 test("画像の変更前後を比較元から読み出せる", (t) =>
   runHostTest(t, async ({ client, dataRoot }) => {
     const { root, git } = await repository(dataRoot);

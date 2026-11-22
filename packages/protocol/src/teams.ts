@@ -1,11 +1,13 @@
-import type {
-  BoardData,
-  BoardSummary,
-  RecordsData,
-  RecordsFilter,
-  TaskHistoryData,
-} from "./board.ts";
-import type { CliSummary, CliStatus, UsageWindowSelection } from "./cli.ts";
+import * as v from "valibot";
+import {
+  schema,
+  fail,
+  integer,
+  identifier,
+  decoded,
+  record,
+} from "./primitives.ts";
+import type { CliSummary, CliStatus } from "./cli.ts";
 export type ChildSummary = {
   id: string;
   createdAt: number;
@@ -84,47 +86,6 @@ export function cliWorkState(
 
 /** Teams are Host-owned; CLI values retain their own names. */
 export type Difficulty = "high" | "medium" | "low";
-export type Candidate = {
-  id: string;
-  cli: string;
-  cliName?: string;
-  model: string;
-  effort?: string;
-  permission?: string;
-  sandbox?: string;
-  tools: string[];
-  minimum: string;
-  minimumWindow?: UsageWindowSelection;
-};
-export type Role = {
-  id: string;
-  name: string;
-  when: string;
-  limit: string;
-  reuse: boolean;
-  split: boolean;
-  candidates: Record<Difficulty, Candidate[]>;
-  instruction: string;
-  request: string;
-  report: string;
-};
-export type TeamDefinition = {
-  name: string;
-  description: string;
-  parent: Candidate;
-  instruction: string;
-  roles: Role[];
-  /** The parent may send input to its children's terminals (default off). */
-  parentInput?: boolean;
-  /** Minutes between check-ins on working children (1-1440); absent means off. */
-  checkMinutes?: number;
-  /**
-   * Minutes after a child ends its response with background work still running
-   * before Host asks the child to check that work, then again at the same
-   * interval (1-1440). Absent means the default (15); 0 means off.
-   */
-  backgroundWakeMinutes?: number;
-};
 /** Default for `TeamDefinition.backgroundWakeMinutes`. */
 export const defaultBackgroundWakeMinutes = 15;
 /** Largest minutes value for team intervals (one day). */
@@ -152,10 +113,6 @@ export type TeamRecord = {
   history: TeamHistory[];
   hidden?: boolean;
 };
-export type TeamSettings = {
-  defaultTeam: string;
-  limits: Record<string, string>;
-};
 export type TeamList = TeamSettings & {
   teams: (TeamRecord & { hidden: boolean; conversationCount?: number })[];
   templates: Record<string, TeamDefinition>;
@@ -176,385 +133,115 @@ export type CliModels = {
   errorDetail?: string;
   error?: "command_failed" | "unsupported" | "invalid_output" | "not_found";
 };
-export interface TeamParamsByMethod {
-  "teams.board": { cwd: string };
-  "teams.boards": Record<string, never>;
-  "teams.records": RecordsFilter;
-  "teams.task.history": { taskId: string };
-  "teams.children": { conversation?: string; cwd?: string };
-  "teams.child.stop": { childId: string };
-  "teams.list": Record<string, never>;
-  "teams.read": { teamId: string };
-  "teams.create": {
-    template?: string;
-    language?: "en" | "ja";
-    sourceId?: string;
-    definition?: TeamDefinition;
-    parent?: Candidate;
-    name?: string;
-  };
-  "teams.save": {
-    teamId: string;
-    definition: TeamDefinition;
-    baseVersion?: number;
-    editedFrom?: number;
-  };
-  "teams.memo": { teamId: string; version: number; memo: string };
-  "teams.restore": { teamId: string; version: number };
-  "teams.duplicate": { teamId: string; name?: string };
-  "teams.hidden.set": { teamId: string; hidden: boolean };
-  "teams.delete": { teamId: string };
-  "teams.settings": TeamSettings;
-  "cli.models": { cliId: string };
-}
-export interface TeamResultByMethod {
-  "teams.board": BoardData;
-  "teams.boards": { boards: BoardSummary[] };
-  "teams.records": RecordsData;
-  "teams.task.history": TaskHistoryData;
-  "teams.children": { children: ChildSummary[] };
-  "teams.child.stop": { childId: string };
-  "teams.list": TeamList;
-  "teams.read": TeamRecord;
-  "teams.create": TeamRecord;
-  "teams.save":
-    | TeamRecord
-    | { conflict: "changed"; current: TeamRecord }
-    | { conflict: "deleted" };
-  "teams.memo": TeamRecord;
-  "teams.restore": TeamRecord;
-  "teams.duplicate": TeamRecord;
-  "teams.hidden.set": { teamId: string; hidden: boolean };
-  "teams.delete": { teamId: string };
-  "teams.settings": TeamSettings;
-  "cli.models": CliModels;
-}
-export type TeamMethod = keyof TeamParamsByMethod;
-const methods: TeamMethod[] = [
-  "teams.board",
-  "teams.boards",
-  "teams.records",
-  "teams.task.history",
-  "teams.children",
-  "teams.child.stop",
-  "teams.list",
-  "teams.read",
-  "teams.create",
-  "teams.save",
-  "teams.memo",
-  "teams.restore",
-  "teams.duplicate",
-  "teams.hidden.set",
-  "teams.delete",
-  "teams.settings",
-  "cli.models",
-];
-export function isTeamMethod(value: unknown): value is TeamMethod {
-  return typeof value === "string" && methods.includes(value as TeamMethod);
-}
-function object(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value))
-    throw new Error("Expected an object");
-  return value as Record<string, unknown>;
-}
-function text(value: unknown): string {
-  if (typeof value !== "string") throw new Error("Expected text");
-  return value;
-}
-function id(value: unknown): string {
-  const result = text(value);
-  if (!result) throw new Error("Expected an identifier");
-  return result;
-}
-function bool(value: unknown): boolean {
-  if (typeof value !== "boolean") throw new Error("Expected a boolean");
-  return value;
-}
-function list<T>(value: unknown, parse: (v: unknown) => T): T[] {
-  if (!Array.isArray(value)) throw new Error("Expected a list");
-  return value.map(parse);
-}
-/** Decimal text avoids imposing a numeric ceiling on concurrency settings. */
-function limit(value: unknown): string {
-  const result = text(value);
-  if (result !== "" && !/^[1-9][0-9]*$/u.test(result))
-    throw new Error("Expected a positive integer or empty limit");
-  return result;
-}
-export function parseCandidate(value: unknown): Candidate {
-  return parseTeamCandidate(value, false);
-}
-function parseTeamCandidate(value: unknown, allowEmptyCli: boolean): Candidate {
-  const v = object(value);
-  const minimum = text(v.minimum);
-  if (
-    minimum !== "" &&
-    (!/^\d+(?:\.\d+)?$/u.test(minimum) || Number(minimum) > 100)
-  )
-    throw new Error("Expected a percentage");
-  let minimumWindow: UsageWindowSelection | undefined;
-  if (v.minimumWindow !== undefined) {
-    const { minutes, name } = object(v.minimumWindow);
-    if (
-      typeof minutes !== "number" ||
-      !Number.isFinite(minutes) ||
-      minutes <= 0 ||
-      (name !== undefined && (typeof name !== "string" || name.length === 0))
-    )
-      throw new Error(
-        "Expected a usage window with a positive duration and an optional non-empty name",
-      );
-    minimumWindow = name === undefined ? { minutes } : { minutes, name };
-  }
-  return {
-    id: id(v.id),
-    cli: allowEmptyCli ? text(v.cli) : id(v.cli),
-    ...(v.cliName === undefined ? {} : { cliName: text(v.cliName) }),
-    model: text(v.model),
-    ...(v.effort === undefined ? {} : { effort: text(v.effort) }),
-    ...(v.permission === undefined ? {} : { permission: text(v.permission) }),
-    ...(v.sandbox === undefined ? {} : { sandbox: text(v.sandbox) }),
-    tools: list(v.tools, text),
-    minimum,
-    ...(minimumWindow === undefined ? {} : { minimumWindow }),
-  };
-}
-function role(value: unknown): Role {
-  const v = object(value);
-  const c = object(v.candidates);
-  return {
-    id: id(v.id),
-    name: id(v.name),
-    when: text(v.when),
-    limit: limit(v.limit),
-    reuse: bool(v.reuse),
-    split: bool(v.split),
-    candidates: {
-      high: list(c.high, parseCandidate),
-      medium: list(c.medium, parseCandidate),
-      low: list(c.low, parseCandidate),
-    },
-    instruction: text(v.instruction),
-    request: text(v.request),
-    report: text(v.report),
-  };
-}
-export function parseTeamDefinition(value: unknown): TeamDefinition {
-  const v = object(value);
-  const roles = list(v.roles, role);
-  const ids = [
-    id(object(v.parent).id),
-    ...roles.flatMap((r) => [
-      r.id,
-      ...Object.values(r.candidates)
-        .flat()
-        .map((c) => c.id),
-    ]),
-  ];
-  if (
-    new Set(ids).size !== ids.length ||
-    roles.some((r) => r.id === "overview" || r.id === "parent")
-  )
-    throw new Error("Repeated or reserved identifier");
-  return {
-    name: id(v.name),
-    description: text(v.description),
-    parent: parseTeamCandidate(v.parent, true),
-    instruction: text(v.instruction),
-    roles,
-    ...(v.parentInput === true ? { parentInput: true } : {}),
-    ...(teamMinutes(v.checkMinutes, 1) !== undefined
-      ? { checkMinutes: teamMinutes(v.checkMinutes, 1) }
-      : {}),
-    ...(teamMinutes(v.backgroundWakeMinutes, 0) !== undefined
-      ? { backgroundWakeMinutes: teamMinutes(v.backgroundWakeMinutes, 0) }
-      : {}),
-  };
-}
-/** Whole minutes from `min` to one day; anything else is left unset. */
-function teamMinutes(value: unknown, min: number): number | undefined {
-  return typeof value === "number" &&
-    Number.isInteger(value) &&
-    value >= min &&
-    value <= maxTeamIntervalMinutes
-    ? value
-    : undefined;
-}
-export function parseTeamSettings(value: unknown): TeamSettings {
-  const v = object(value);
-  return {
-    defaultTeam: text(v.defaultTeam),
-    limits: Object.fromEntries(
-      Object.entries(object(v.limits)).map(([key, value]) => [
-        (() => {
-          const value: unknown = JSON.parse(key);
-          if (
-            !Array.isArray(value) ||
-            typeof value[0] !== "string" ||
-            !value[0] ||
-            !["cli", "provider", "model"].includes(value[1]) ||
-            typeof value[2] !== "string" ||
-            (value[1] === "cli" ? value[2] !== "" : !value[2])
-          )
-            throw new Error("Expected a concurrency scope");
-          return limitKey(value[0], value[1], value[2]);
-        })(),
-        limit(value),
-      ]),
+
+const candidateFields = {
+  id: identifier,
+  cli: identifier,
+  cliName: v.optional(v.string()),
+  model: v.string(),
+  effort: v.optional(v.string()),
+  permission: v.optional(v.string()),
+  sandbox: v.optional(v.string()),
+  tools: v.array(v.string()),
+  minimum: v.pipe(
+    v.string(),
+    v.check(
+      (text) =>
+        text === "" || (/^\d+(?:\.\d+)?$/u.test(text) && Number(text) <= 100),
     ),
-  };
-}
-export function parseTeamParams<M extends TeamMethod>(
-  method: M,
-  value: unknown,
-): TeamParamsByMethod[M] {
-  const v = object(value);
-  let result: unknown;
-  switch (method) {
-    case "teams.board":
-      result = { cwd: id(v.cwd) };
-      break;
-    case "teams.task.history":
-      result = { taskId: id(v.taskId) };
-      break;
-    case "teams.records":
-      for (const value of [v.startAt, v.endAt]) {
-        if (
-          value !== undefined &&
-          (typeof value !== "number" || !Number.isFinite(value))
-        )
-          throw new Error("Expected a finite date");
-      }
-      if (
-        typeof v.startAt === "number" &&
-        typeof v.endAt === "number" &&
-        v.startAt > v.endAt
-      )
-        throw new Error("Expected start before end");
-      if (
-        v.days !== undefined &&
-        (typeof v.days !== "number" || ![7, 30, 90].includes(v.days))
-      )
-        throw new Error("Expected a period");
-      if (
-        v.version !== undefined &&
-        (typeof v.version !== "number" ||
-          !Number.isSafeInteger(v.version) ||
-          v.version < 1)
-      )
-        throw new Error("Expected a version");
-      if (
-        v.difficulty !== undefined &&
-        !["high", "medium", "low"].includes(String(v.difficulty))
-      )
-        throw new Error("Expected a difficulty");
-      result = {
-        ...(v.days === undefined ? {} : { days: v.days }),
-        ...(v.startAt === undefined ? {} : { startAt: v.startAt }),
-        ...(v.endAt === undefined ? {} : { endAt: v.endAt }),
-        ...(v.teamId === undefined ? {} : { teamId: id(v.teamId) }),
-        ...(v.version === undefined ? {} : { version: v.version }),
-        ...(v.difficulty === undefined ? {} : { difficulty: v.difficulty }),
-      };
-      break;
-    case "teams.child.stop":
-      result = { childId: id(v.childId) };
-      break;
-    case "teams.children":
-      result = {
-        ...(v.conversation === undefined
-          ? {}
-          : { conversation: id(v.conversation) }),
-        ...(v.cwd === undefined ? {} : { cwd: id(v.cwd) }),
-      };
-      break;
-    case "teams.boards":
-    case "teams.list":
-      result = {};
-      break;
-    case "cli.models":
-      result = { cliId: id(v.cliId) };
-      break;
-    case "teams.hidden.set":
-      if (typeof v.hidden !== "boolean") throw new Error("Expected a boolean");
-      result = { teamId: id(v.teamId), hidden: v.hidden };
-      break;
-    case "teams.settings":
-      result = parseTeamSettings(v);
-      break;
-    case "teams.create":
-      if (
-        v.template !== undefined &&
-        v.language !== "en" &&
-        v.language !== "ja"
-      )
-        throw new Error("Expected a display language");
-      result = {
-        ...(v.template === undefined ? {} : { template: id(v.template) }),
-        ...(v.template === undefined ? {} : { language: v.language }),
-        ...(v.sourceId === undefined ? {} : { sourceId: id(v.sourceId) }),
-        ...(v.definition === undefined
-          ? {}
-          : { definition: parseTeamDefinition(v.definition) }),
-        ...(v.parent === undefined ||
-        v.template === undefined ||
-        v.sourceId !== undefined ||
-        v.definition !== undefined
-          ? {}
-          : { parent: parseCandidate(v.parent) }),
-        ...(v.name === undefined ? {} : { name: id(v.name) }),
-      };
-      if (
-        [v.template, v.sourceId, v.definition].filter((x) => x !== undefined)
-          .length !== 1
-      )
-        throw new Error("Select one source");
-      break;
-    default:
-      result = {
-        teamId: id(v.teamId),
-        ...(method === "teams.save"
-          ? {
-              definition: parseTeamDefinition(v.definition),
-              ...(v.baseVersion === undefined
-                ? {}
-                : { baseVersion: version(v.baseVersion) }),
-              ...(v.editedFrom === undefined
-                ? {}
-                : { editedFrom: version(v.editedFrom) }),
-            }
-          : {}),
-        ...(method === "teams.duplicate" && v.name !== undefined
-          ? { name: id(v.name) }
-          : {}),
-      };
-      if (method === "teams.memo" || method === "teams.restore") {
-        if (
-          typeof v.version !== "number" ||
-          !Number.isSafeInteger(v.version) ||
-          v.version < 1
-        )
-          throw new Error("Expected a version");
-        result = {
-          ...object(result),
-          version: v.version,
-          ...(method === "teams.memo" ? { memo: text(v.memo) } : {}),
-        };
-      }
-  }
-  return result as TeamParamsByMethod[M];
-}
-function version(value: unknown): number {
-  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1)
-    throw new Error("Expected a version");
-  return value;
-}
-/** Host responses are already produced by iori; do not reject saved definitions. */
-export const teamResultSchemas = Object.fromEntries(
-  methods.map((method) => [method, { parse: (value: unknown) => value }]),
-) as {
-  [M in TeamMethod]: { parse: (value: unknown) => TeamResultByMethod[M] };
+  ),
+  minimumWindow: v.optional(
+    v.object({
+      minutes: v.pipe(
+        v.number(),
+        v.finite(),
+        v.check((n) => n > 0),
+      ),
+      name: v.optional(identifier),
+    }),
+  ),
 };
+export const candidate = v.object(candidateFields);
+export type Candidate = v.InferOutput<typeof candidate>;
+export const parseCandidate = schema(candidate).parse;
+
+const limit = v.pipe(v.string(), v.regex(/^(?:[1-9][0-9]*)?$/u));
+const candidates = v.array(candidate);
+const role = v.object({
+  id: identifier,
+  name: identifier,
+  when: v.string(),
+  limit,
+  reuse: v.boolean(),
+  split: v.boolean(),
+  candidates: v.object({
+    high: candidates,
+    medium: candidates,
+    low: candidates,
+  }),
+  instruction: v.string(),
+  request: v.string(),
+  report: v.string(),
+});
+export type Role = v.InferOutput<typeof role>;
+export const teamDefinition = v.pipe(
+  v.object({
+    name: identifier,
+    description: v.string(),
+    parent: v.object({ ...candidateFields, cli: v.string() }),
+    instruction: v.string(),
+    roles: v.array(role),
+    parentInput: v.optional(v.unknown()),
+    // An absent check interval is off. Background checks default to 15 minutes,
+    // and an explicit zero turns them off.
+    checkMinutes: v.optional(integer(1, maxTeamIntervalMinutes)),
+    backgroundWakeMinutes: v.optional(integer(0, maxTeamIntervalMinutes)),
+  }),
+  v.check(({ parent, roles }) => {
+    const ids = [
+      parent.id,
+      ...roles.flatMap((role) => [
+        role.id,
+        ...Object.values(role.candidates)
+          .flat()
+          .map((c) => c.id),
+      ]),
+    ];
+    return (
+      new Set(ids).size === ids.length &&
+      roles.every((role) => role.id !== "overview" && role.id !== "parent")
+    );
+  }),
+  v.transform(({ parentInput, ...team }) => ({
+    ...team,
+    ...(parentInput === true ? { parentInput: true } : {}),
+  })),
+);
+export type TeamDefinition = v.InferOutput<typeof teamDefinition>;
+export const parseTeamDefinition = schema(teamDefinition).parse;
+
+const concurrencyScope = schema(
+  v.tuple([identifier, v.picklist(["cli", "provider", "model"]), v.string()]),
+);
+const concurrencyLimit = schema(limit);
+export const teamSettings = v.object({
+  defaultTeam: v.string(),
+  limits: decoded((value) =>
+    Object.fromEntries(
+      Object.entries(record(value)).map(([key, maximum]) => {
+        const [cli, kind, name] = concurrencyScope.parse(JSON.parse(key));
+        if (kind === "cli" ? name !== "" : !name)
+          return fail("Expected a concurrency scope");
+        return [
+          limitKey(cli, kind, name),
+          concurrencyLimit.parse(maximum),
+        ] as const;
+      }),
+    ),
+  ),
+});
+export type TeamSettings = v.InferOutput<typeof teamSettings>;
+export const parseTeamSettings = schema(teamSettings).parse;
 export function modelProvider(model: string): string {
   const slash = model.indexOf("/");
   return slash > 0 ? model.slice(0, slash) : "";

@@ -43,7 +43,7 @@ async function locate(
   const mainPath = await repositoryMainPath(path).catch(() => undefined);
   return {
     target,
-    ...(adapter?.readCi && adapter.readCiLog ? { adapter } : {}),
+    adapter,
     repository: mainPath ? { store, mainPath } : undefined,
   };
 }
@@ -55,8 +55,8 @@ async function readCi(
 ): Promise<ForgeCi> {
   if (!located) return { logs: false, runs: [], results: [] };
   const { target, adapter, repository } = located;
-  if (!adapter) throw new Error("Forge unavailable");
-  const read = await adapter.readCi!(target, repository, signal);
+  if (!adapter?.ci) throw new Error("Forge unavailable");
+  const read = await adapter.ci.read(target, repository, signal);
   const subject = (
     await collectGit(
       path,
@@ -104,7 +104,7 @@ function failure(error: unknown, located: Located | undefined) {
     target
       ? forgeReadFailure(error, target.origin, `${target.owner}/${target.repo}`)
       : undefined,
-    Boolean(located && !located.adapter),
+    Boolean(located && !located.adapter?.ci),
   );
 }
 
@@ -145,16 +145,9 @@ export async function readForgeCiLog(
   try {
     located = await locate(path, store, detection, signal, redetect);
     if (!located) throw new ForgeCiFailure(undefined, false, true);
-    if (!located?.adapter) throw new Error("Forge unavailable");
     const { target, adapter, repository } = located;
-    return await adapter.readCiLog!(
-      target,
-      job,
-      before,
-      repository,
-      signal,
-      keep,
-    );
+    if (!adapter?.ci) throw new Error("Forge unavailable");
+    return await adapter.ci.log(target, job, before, repository, signal, keep);
   } catch (error) {
     signal?.throwIfAborted();
     if (error instanceof ForgeCiFailure) throw error;

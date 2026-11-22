@@ -237,7 +237,7 @@ test("委譲は未着手の計画を作業中にし、親が更新しない時�
       request: false,
       by: "host",
       task: 1,
-      text: "Running",
+      state: "in_progress",
     });
 
     await actorCommand(child, "report-second", ["report", "--body", "Report"]);

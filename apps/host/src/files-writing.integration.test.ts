@@ -2,11 +2,13 @@ import { spawnSync } from "node:child_process";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import {
+  chmod,
   mkdir,
   mkdtemp,
   readFile,
   readdir,
   rm,
+  stat,
   symlink,
   writeFile,
 } from "node:fs/promises";
@@ -14,6 +16,57 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { FileUploads, FilePutFailure } from "./files-writing.ts";
+
+test(
+  "uploads restrict temporary files and publish with the destination permissions",
+  { skip: process.platform === "win32" },
+  async () => {
+    const root = await mkdtemp(join(tmpdir(), "iori-put-permissions-"));
+    const previousUmask = process.umask(0o027);
+    const uploads = new FileUploads(join(root, "storage"));
+    const sessionId = "app";
+    try {
+      await uploads.request("device", "files.put.session", { sessionId });
+      const existing = join(root, "existing.txt");
+      await writeFile(existing, "original");
+      await chmod(existing, 0o754);
+
+      for (const { path, replace, mode } of [
+        { path: "new.txt", replace: false, mode: 0o640 },
+        { path: "existing.txt", replace: true, mode: 0o754 },
+      ]) {
+        const transfer = { sessionId, uploadId: randomUUID() };
+        await uploads.request("device", "files.put.begin", {
+          ...transfer,
+          root,
+          path,
+          replace,
+        });
+        await uploads.request("device", "files.put.chunk", {
+          ...transfer,
+          offset: 0,
+          data: Buffer.from("uploaded").toString("base64"),
+        });
+        const temporaries = (await readdir(root)).filter((name) =>
+          name.startsWith(".iori-put-"),
+        );
+        assert.equal(temporaries.length, 1);
+        assert.equal(
+          (await stat(join(root, temporaries[0]!))).mode & 0o777,
+          0o600,
+        );
+
+        await uploads.request("device", "files.put.finish", transfer);
+        assert.equal((await stat(join(root, path))).mode & 0o777, mode);
+        assert.equal(await readFile(join(root, path), "utf8"), "uploaded");
+      }
+    } finally {
+      process.umask(previousUmask);
+      await uploads.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
 
 // The UI cannot submit traversal paths, or create external symlinks.
 test("ファイルを置く入口はRoot外へのパス・外を指すフォルダー・symlinkへの書込みを残さない", async () => {

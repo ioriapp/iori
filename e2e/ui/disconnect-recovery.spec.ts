@@ -19,7 +19,10 @@ test(
     await app.host.stop();
     await expect(
       page.getByRole("img", { name: "Reconnecting…", exact: true }),
-    ).toBeVisible();
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("img", { name: "Reconnecting…", exact: true }),
+    ).toBeVisible({ timeout: 10_000 });
     await expect(
       page.locator('[data-iori-state="cli-resume-pending"]'),
     ).toHaveCount(0);

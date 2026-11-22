@@ -14,6 +14,7 @@ import {
   SettingsDialog as ProductSettings,
   type Preferences,
 } from "../../apps/client/src/Settings.tsx";
+import { SettingsNav } from "../../apps/client/src/settings/SettingsNav.tsx";
 import { ChildRows } from "../../apps/client/src/teams/ChildRows.tsx";
 import { TerminalPane } from "../../apps/client/src/terminal/TerminalPane.tsx";
 import { connection } from "../../apps/client/src/connection.ts";
@@ -22,19 +23,7 @@ import { IntegrationsSettings } from "../../apps/client/src/IntegrationsSettings
 import { ClientInitialization } from "../../apps/client/src/ClientInitialization.tsx";
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
-import {
-  Bell,
-  Blocks,
-  Cable,
-  GitFork,
-  Keyboard,
-  Monitor,
-  Package,
-  Plus,
-  Settings,
-  Terminal,
-  X,
-} from "lucide-react";
+import { X } from "lucide-react";
 import { HostSetupDialog } from "../../apps/client/src/host-setup/HostSetupDialog.tsx";
 import { HostVersionSettings } from "../../apps/client/src/updates/HostVersionSettings.tsx";
 import {
@@ -55,17 +44,8 @@ import {
   DialogTitle,
 } from "../../apps/client/src/components/ui/dialog.tsx";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "../../apps/client/src/components/ui/select.tsx";
-import {
   SidebarProvider,
   SidebarMenu,
-  SidebarMenuItem,
-  SidebarMenuButton,
 } from "../../apps/client/src/components/ui/sidebar.tsx";
 import { TooltipProvider } from "../../apps/client/src/components/ui/tooltip.tsx";
 import {
@@ -98,6 +78,22 @@ const actions: UninstallActions = {
 };
 const query = new URLSearchParams(location.search);
 const theme = query.get("theme") === "dark" ? "dark" : "light";
+const previewPreferences: Preferences = {
+  notifyWaiting: true,
+  notifyDone: true,
+  notificationPrompted: true,
+  closeToExit: false,
+  language,
+  theme,
+  fontSize: 16,
+  terminalFontSize: 14,
+  terminalFontFamily: "",
+  terminalRightClick: "menu",
+  terminalLinkOpen: "click",
+  doubleClickMaximize: true,
+  panelWidths: {},
+  panelFullWidth: {},
+};
 document.documentElement.classList.toggle("dark", theme === "dark");
 document.documentElement.style.colorScheme = theme;
 if (current.connectedHostUpdates) {
@@ -135,23 +131,11 @@ function TerminalFontSettingsPreview() {
       ? notificationSettingsFixture(stateId)
       : undefined;
   const [preferences, setPreferences] = useState<Preferences>({
-    notifyWaiting: true,
-    notifyDone: true,
+    ...previewPreferences,
     backgroundConnection: push?.mode === "background",
     unifiedPushDistributor: push?.distributor,
-    notificationPrompted: true,
-    closeToExit: false,
-    language,
-    theme: theme,
-    fontSize: 16,
-    terminalFontSize: 14,
     terminalFontFamily:
       stateId === "terminal-font-saved" ? "FiraCode Nerd Font" : "",
-    terminalRightClick: "menu",
-    terminalLinkOpen: "click",
-    doubleClickMaximize: true,
-    panelWidths: {},
-    panelFullWidth: {},
   });
   return (
     <ProductSettings
@@ -196,6 +180,11 @@ function SettingsBackdrop() {
   const setup = stateId.startsWith("A");
   const name = setup ? "office-win" : "build-linux";
   const integrations = current.kind === "integrations";
+  const section = integrations
+    ? "integrations"
+    : setup
+      ? "connection"
+      : "version";
   const title = integrations
     ? t("Integrations")
     : setup
@@ -204,17 +193,28 @@ function SettingsBackdrop() {
   return (
     <Dialog open>
       <DialogContent
-        className="settings-modal dialog-full-screen"
+        className="dialog-full-screen flex h-[min(51.25rem,calc(100dvh-4rem))] max-h-none w-[min(60rem,calc(100vw-1.75rem))] max-w-[calc(100vw-1.75rem)] flex-col gap-0 overflow-hidden rounded-lg border border-border bg-popover p-0 shadow-lg max-md:bg-background sm:max-w-[min(60rem,calc(100vw-1.75rem))]"
         showCloseButton={false}
       >
         <DialogHeader className="sr-only">
           <DialogTitle>{t("Settings")}</DialogTitle>
           <DialogDescription>{t("Client and Host settings")}</DialogDescription>
         </DialogHeader>
-        <div className="settings-location">
-          <span className="settings-mobile-title">{title}</span>
+        <div className="flex min-w-0 shrink-0 items-center justify-between gap-2 border-b border-border bg-popover px-4 py-2.5 max-md:min-h-14 max-md:bg-background max-md:px-2 max-md:py-2">
+          <span className="truncate font-heading text-sm font-semibold text-foreground max-md:hidden">
+            {t("Settings")}
+          </span>
+          <span className="hidden min-w-0 flex-1 truncate font-heading text-sm font-medium text-foreground max-md:block">
+            {name} › {title}
+            {stateId === "B1" && (
+              <>
+                {" "}
+                · <Connecting t={t} />
+              </>
+            )}
+          </span>
           <Button
-            className="settings-close"
+            className="shrink-0 max-md:size-11"
             variant="ghost"
             size="icon-sm"
             aria-label={t("Close")}
@@ -222,72 +222,32 @@ function SettingsBackdrop() {
             <X size={16} />
           </Button>
         </div>
-        <SidebarProvider className="settings-pane v9-settings-pane settings-mobile-detail">
-          <nav
-            className="settings-nav v9-settings-nav"
-            aria-label={t("Settings")}
-          >
-            <div className="v9-settings-section-title">{t("This PC")}</div>
-            <SidebarMenu>
-              {[
-                ["General", Settings],
-                ["Notifications", Bell],
-                ["Display", Monitor],
-                ["Keyboard", Keyboard],
-              ].map(([label, Icon]) => (
-                <SidebarMenuItem key={String(label)}>
-                  <SidebarMenuButton>
-                    <Icon size={14} />
-                    <span>{t(String(label))}</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-            <div className="v9-settings-section-title v9-settings-host-title">
-              Host
-            </div>
-            <Button variant="outline">
-              <Plus size={14} />
-              {t("Add iori Host")}
-            </Button>
-            <Select value={name}>
-              <SelectTrigger className="v9-settings-host-select">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={name}>{name}</SelectItem>
-              </SelectContent>
-            </Select>
-            <SidebarMenu>
-              {[
-                ["Connection", Cable],
-                ["Devices", Terminal],
-                ["Integrations", Blocks],
-                ["Version", Package],
-              ].map(([label, Icon]) => (
-                <SidebarMenuItem key={String(label)}>
-                  <SidebarMenuButton isActive={t(String(label)) === title}>
-                    <Icon size={14} />
-                    <span>{t(String(label))}</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-            <div className="v9-settings-section-title">{t("Workspace")}</div>
-            <Button variant="outline">iori</Button>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton>
-                  <GitFork size={14} />
-                  Git
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </nav>
-          <div className="settings-content v9-settings-content">
+        <div className="flex min-h-0 flex-1 overflow-hidden">
+          <SettingsNav
+            current={section}
+            mobileDetail
+            host={{ ...host, hostName: name }}
+            state={connection.getSnapshot()}
+            preferences={previewPreferences}
+            repository={{
+              path: "/work/iori",
+              workspacePath: "/work/iori",
+              kind: "git",
+              openedAt: 1,
+              inSidebar: true,
+            }}
+            repositoryItems={[]}
+            hasUnsavedChanges={false}
+            onSectionChange={noop}
+            onRegisterNewHost={noop}
+            onRepositoryChange={noop}
+            onLeave={noop}
+            t={t}
+          />
+          <section className="min-w-0 flex-1 overflow-y-auto bg-background px-8 pt-6 pb-14 max-md:px-4 max-md:pt-5 max-md:pb-12">
             <PageBody>
               <PageHeader
-                className="settings-page-header"
+                className="max-md:hidden"
                 title={title}
                 description={
                   <>
@@ -317,8 +277,8 @@ function SettingsBackdrop() {
                 <Version />
               )}
             </PageBody>
-          </div>
-        </SidebarProvider>
+          </section>
+        </div>
       </DialogContent>
     </Dialog>
   );

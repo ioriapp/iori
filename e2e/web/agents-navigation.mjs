@@ -27,28 +27,23 @@ export async function clickAgentControl(screen, selector) {
   );
   await screen.click(selector);
 }
+
+export const cliRowToggle = (row) =>
+  `${row} > div > button[data-slot="collapsible-trigger"]`;
+
 /** The `id` of the CLI row named `name` on the AI agents screen. */
 export function cliRowNamed(screen, name) {
+  const label = `${cliRowToggle(":scope")} span[title]`;
   return waitFor(
     () =>
       screen.evaluate(
-        `[...document.querySelectorAll('[data-iori-cli-row]')].find(row=>row.querySelector('.team-agent-name > span')?.textContent===${JSON.stringify(name)})?.dataset.ioriCliRow`,
+        `[...document.querySelectorAll('[data-iori-cli-row]')].find(row=>row.querySelector(${JSON.stringify(label)})?.textContent===${JSON.stringify(name)})?.dataset.ioriCliRow`,
       ),
     Boolean,
     undefined,
     `AIエージェントの一覧の行: ${name}`,
   );
 }
-/** Add a CLI with the name and launch command fields of the AI agents
- * screen that is open, and return its `id`. */
-export async function addCliByCommand(screen, name, command) {
-  await screen.click('[data-iori-action="cli-add-open"]');
-  await screen.input('[data-iori-field="cli-name"]', name);
-  await screen.input('[data-iori-field="cli-command"]', command);
-  await screen.click('[data-iori-action="cli-add-submit"]');
-  return cliRowNamed(screen, name);
-}
-
 /** Navigate real worktrees and launch local CLI processes through the Client. */
 export async function sidebarWorktrees({
   screen,
@@ -341,7 +336,7 @@ export async function saveStartupArguments(screen, cli, value) {
   const row = `[data-iori-cli-row="${cli}"]`;
   const input = `${row} [data-iori-field="cli-arguments"]`;
   if ((await screen.attribute(row, "data-state")) !== "open")
-    await clickAgentControl(screen, `${row} .team-agent-toggle`);
+    await clickAgentControl(screen, cliRowToggle(row));
   await screen.input(input, value);
   await screen.click(`${row} [data-iori-action="save-cli-settings"]`);
   await waitFor(() =>
@@ -349,14 +344,6 @@ export async function saveStartupArguments(screen, cli, value) {
       `(async()=>{const {connection}=await import('/src/connection.ts');const r=await connection.requestHost(connection.getSnapshot().host.publicKey,'cli.list',{});return r.result.clis.find(c=>c.id===${JSON.stringify(cli)})?.startupArguments===${JSON.stringify(value)};})()`,
     ),
   );
-}
-
-/** Keep an already expanded ended group open when other finished children remain. */
-export async function showEndedChildren(screen) {
-  const selector = '[data-iori-action="children-ended"]';
-  await screen.wait(selector);
-  if ((await screen.attribute(selector, "aria-expanded")) === "false")
-    await screen.click(selector);
 }
 
 /** Open the CLI row menu and choose one of its actions (menu is portalled). */

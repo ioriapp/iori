@@ -7,6 +7,7 @@
   "version": { "args": ["--version"] },
   "models": { "unavailable": true },
   "launch": {
+    "interrupt": "ctrl-c",
     "initialPrompt": {
       "mode": "argument",
       "args": ["chat", "-q", "{prompt}"]

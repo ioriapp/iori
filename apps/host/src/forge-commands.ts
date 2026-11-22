@@ -9,7 +9,6 @@ import {
 } from "@iori/protocol";
 import type { HostStore } from "./store.ts";
 import type { ForgeDetection } from "./forge/adapters.ts";
-import type { CiLogKeep } from "./forge/ci.ts";
 import { forgeReadFailure } from "./forge/failure.ts";
 import { repositoryIssues, type RepositoryIssues } from "./forge-issues.ts";
 import { ForgeCiFailure, readForgeCi, readForgeCiLog } from "./forge-ci.ts";
@@ -21,9 +20,9 @@ import {
 
 /** `iori` commands that read the Forge, for every CLI that iori starts (forge.md). */
 export const forgeCommandUsage = `iori issue list [--state open|closed|all] [--label NAME]... [--limit N]
-iori issue show N
+iori issue show N [--comments-offset K] [--comments-limit M]
 iori ci list
-iori ci log [JOB_ID]
+iori ci log [JOB_ID] [--before N]
 iori pr create --title TITLE [--body TEXT | --body - | --file PATH] [--issue N]`;
 
 export type ForgeCommand =
@@ -33,15 +32,58 @@ export type ForgeCommand =
       labels: string[];
       limit: number;
     }
-  | { kind: "issue-show"; number: number }
+  | {
+      kind: "issue-show";
+      number: number;
+      commentsOffset?: number;
+      commentsLimit?: number;
+    }
   | { kind: "ci-list" }
-  | { kind: "ci-log"; job?: string }
+  | { kind: "ci-log"; job?: string; before?: number }
   | ({ kind: "pr-create" } & PullRequestInput);
 
 type Answer = { ok: boolean; text: string; data?: unknown };
 
 // gh issue list shows 30 Issues unless --limit asks for another number.
 const DEFAULT_ISSUE_LIMIT = 30;
+const MAX_COMMAND_TEXT_BYTES = 64 * 1024;
+
+// OSC, DCS/SOS/PM/APC, CSI, other ESC sequences, and stray C0/C1 controls.
+// Both the ESC-prefixed and single-character encodings can occur in log text.
+const terminalControls = new RegExp(
+  [
+    String.raw`(?:\x1b\]|\x9d)(?:[^\x07\x18\x1a\x1b\x9c]|\x1b(?!\\))*(?:\x07|\x18|\x1a|\x1b\\|\x9c|$)`,
+    String.raw`(?:\x1b[PX^_]|[\x90\x98\x9e\x9f])(?:[^\x18\x1a\x1b\x9c]|\x1b(?!\\))*(?:\x18|\x1a|\x1b\\|\x9c|$)`,
+    String.raw`(?:\x1b\[|\x9b)[0-?]*[ -/]*(?:[@-~]|$)`,
+    String.raw`\x1b[ -/]*[0-~]`,
+    String.raw`[\x00-\x08\x0b-\x1f\x7f-\x9f]`,
+  ].join("|"),
+  "gu",
+);
+
+function plainText(text: string, start = 0): string {
+  if (!start) return text.replace(terminalControls, "");
+  // Scan from the beginning even when taking the tail, so a cut inside a
+  // control string does not show part of its payload.
+  const parts: string[] = [];
+  for (const { index, 0: control } of text.matchAll(terminalControls)) {
+    const end = index + control.length;
+    if (end <= start) continue;
+    if (index > start) parts.push(text.slice(start, index));
+    start = end;
+  }
+  return parts.join("") + text.slice(start);
+}
+
+const bytes = (text: string) => Buffer.byteLength(text, "utf8");
+
+function textPrefix(text: string, limit: number): string {
+  if (limit <= 0) return "";
+  if (bytes(text) <= limit) return text;
+  const utf8 = Buffer.from(text);
+  while ((utf8[limit]! & 0xc0) === 0x80) limit--;
+  return utf8.toString("utf8", 0, limit);
+}
 
 /** Undefined when `argv` names no Forge command; throws the usage when it is malformed. */
 export function parseForgeCommand(argv: unknown): ForgeCommand | undefined {
@@ -57,9 +99,16 @@ export function parseForgeCommand(argv: unknown): ForgeCommand | undefined {
       throw usage();
     }
   };
-  const count = (value: string | undefined, name: string) => {
+  const count = (
+    value: string | undefined,
+    name: string,
+    allowZero = false,
+  ) => {
     const number = Number(value);
-    if (!/^[1-9][0-9]*$/u.test(value ?? "") || !Number.isSafeInteger(number))
+    if (
+      (!(allowZero && value === "0") && !/^[1-9][0-9]*$/u.test(value ?? "")) ||
+      !Number.isSafeInteger(number)
+    )
       throw new Error(`Expected a number: ${name}.`);
     return number;
   };
@@ -113,24 +162,56 @@ export function parseForgeCommand(argv: unknown): ForgeCommand | undefined {
           : count(values.limit, "--limit"),
     };
   }
-  const { positionals } = parse(() =>
-    parseArgs({ args, allowPositionals: true }),
-  );
   if (group === "issue" && action === "show") {
+    const { values, positionals } = parse(() =>
+      parseArgs({
+        args,
+        allowPositionals: true,
+        options: {
+          "comments-offset": { type: "string" },
+          "comments-limit": { type: "string" },
+        },
+      }),
+    );
     if (positionals.length !== 1) throw usage();
-    return { kind: "issue-show", number: count(positionals[0], "N") };
+    return {
+      kind: "issue-show",
+      number: count(positionals[0], "N"),
+      commentsOffset:
+        values["comments-offset"] === undefined
+          ? undefined
+          : count(values["comments-offset"], "--comments-offset", true),
+      commentsLimit:
+        values["comments-limit"] === undefined
+          ? undefined
+          : count(values["comments-limit"], "--comments-limit"),
+    };
   }
   if (group === "ci" && action === "list") {
-    if (positionals.length) throw usage();
+    if (args.length) throw usage();
     return { kind: "ci-list" };
   }
   if (group === "ci" && action === "log") {
+    const { values, positionals } = parse(() =>
+      parseArgs({
+        args,
+        allowPositionals: true,
+        options: { before: { type: "string" } },
+      }),
+    );
     if (positionals.length > 1) throw usage();
     const job = positionals[0];
     // The job ID goes into the Forge's API path; both Forges use numbers.
     if (job !== undefined && !/^\d{1,20}$/u.test(job))
       throw new Error("Expected a job ID from iori ci list.");
-    return { kind: "ci-log", ...(job === undefined ? {} : { job }) };
+    return {
+      kind: "ci-log",
+      job,
+      before:
+        values.before === undefined
+          ? undefined
+          : count(values.before, "--before"),
+    };
   }
   throw usage();
 }
@@ -189,8 +270,8 @@ function issueRow(issue: ForgeIssueSummary) {
   return {
     number: issue.number,
     state: issue.state,
-    title: issue.title,
-    labels: issue.labels.map((label) => label.name),
+    title: plainText(issue.title),
+    labels: issue.labels.map((label) => plainText(label.name)),
     updatedAt: time(issue.updatedAt),
   };
 }
@@ -248,7 +329,11 @@ async function listIssues(
 
 async function showIssue(
   { reader, target, context, repository }: RepositoryIssues,
-  number: number,
+  {
+    number,
+    commentsOffset,
+    commentsLimit,
+  }: Extract<ForgeCommand, { kind: "issue-show" }>,
 ): Promise<Answer> {
   const [issue, thread] = await Promise.all([
     reader.issue(target, number, context),
@@ -258,36 +343,72 @@ async function showIssue(
   // A removed or moved Issue: the repository reads, the Issue does not.
   if (!issue || !thread)
     return failed(`Issue #${number} was not found in ${name}.`);
-  const data = {
-    repository,
-    issue: {
-      number: issue.number,
-      title: issue.title,
-      state: issue.state,
-      author: issue.author,
-      labels: issue.labels.map((label) => label.name),
-      createdAt: time(issue.createdAt),
-      body: issue.body,
-      comments: thread.map((comment) => ({
-        author: comment.author,
-        createdAt: time(comment.createdAt),
-        body: comment.body,
-      })),
+  const continuation = (offset: number) =>
+    `\n\nMore comments; run \`iori issue show ${number} --comments-offset ${offset}\` to read them.`;
+  const truncatedNotice =
+    "\n\nContent truncated. Open the Issue on the Forge to read it in full.";
+  const limit =
+    MAX_COMMAND_TEXT_BYTES -
+    bytes(truncatedNotice) -
+    (thread.length ? bytes(continuation(thread.length)) : 0);
+  const title = plainText(issue.title);
+  const author = plainText(issue.author);
+  const labels = issue.labels.map((label) => plainText(label.name));
+  const createdAt = time(issue.createdAt);
+  const heading = `#${issue.number} ${title}\n${issue.state} · opened${by(author)} on ${createdAt}${labels.length ? ` · labels: ${labels.join(", ")}` : ""} · ${thread.length} comments`;
+  let text = textPrefix(heading, limit);
+  let truncated = text !== heading;
+  // A comment page can use the budget even when the Issue body fills it.
+  if (truncated && commentsOffset !== undefined) text = `#${issue.number}`;
+  const bodyText = commentsOffset === undefined ? plainText(issue.body) : "";
+  const body = textPrefix(bodyText, limit - bytes(text) - 2);
+  if (body) text += `\n\n${body}`;
+  if (body !== bodyText) truncated = true;
+
+  const comments = [];
+  let remaining = limit - bytes(text);
+  let next = commentsOffset ?? 0;
+  const end = Math.min(thread.length, next + (commentsLimit ?? thread.length));
+  for (; next < end; next++) {
+    const comment = thread[next]!;
+    const author = plainText(comment.author);
+    const createdAt = time(comment.createdAt);
+    const header = `\n\n--- comment${by(author)} on ${createdAt} ---\n`;
+    const commentText = plainText(comment.body);
+    if (
+      bytes(header) + bytes(commentText) > remaining &&
+      (comments.length || commentsOffset === undefined)
+    )
+      break;
+    const prefix = textPrefix(header, remaining);
+    const commentBody = textPrefix(commentText, remaining - bytes(prefix));
+    const section = prefix + commentBody;
+    text += section;
+    remaining -= bytes(section);
+    comments.push({ author, createdAt, body: commentBody });
+    if (prefix !== header || commentBody !== commentText) truncated = true;
+  }
+  if (truncated) text += truncatedNotice;
+  const more = next < thread.length;
+  if (more) text += continuation(next);
+  return {
+    ok: true,
+    text,
+    data: {
+      repository,
+      issue: {
+        number: issue.number,
+        title,
+        state: issue.state,
+        author,
+        labels,
+        createdAt,
+        body,
+        comments,
+      },
+      ...(more ? { nextCommentsOffset: next } : {}),
     },
   };
-  const { labels, comments } = data.issue;
-  // The body and comments are as the Forge returned them.
-  const text = [
-    `#${issue.number} ${issue.title}`,
-    `${issue.state} · opened${by(issue.author)} on ${data.issue.createdAt}${labels.length ? ` · labels: ${labels.join(", ")}` : ""} · ${comments.length} comments`,
-    ...(issue.body ? ["", issue.body] : []),
-    ...comments.flatMap((comment) => [
-      "",
-      `--- comment${by(comment.author)} on ${comment.createdAt} ---`,
-      comment.body,
-    ]),
-  ].join("\n");
-  return { ok: true, text, data };
 }
 
 async function readIssues(
@@ -311,7 +432,7 @@ async function readIssues(
     issues = resolved.issues;
     return command.kind === "issue-list"
       ? await listIssues(issues, command)
-      : await showIssue(issues, command.number);
+      : await showIssue(issues, command);
   } catch (error) {
     const { target } = issues ?? {};
     if (!target) return gitUnreadable;
@@ -327,26 +448,39 @@ async function readIssues(
   }
 }
 
-/** The whole log of a job, read from its end as the CI View reads it. */
-async function wholeLog(
-  read: (before?: number) => Promise<ForgeCiLog>,
-): Promise<ForgeCiLog> {
-  const end = await read();
-  let { start, text } = end;
-  while (start > 0) {
-    const earlier = await read(start);
-    if (earlier.start >= start) break;
-    text = earlier.text + text;
-    start = earlier.start;
-  }
-  return { ...end, start, text };
-}
-
 function logText(job: string, log: ForgeCiLog): string {
   if (log.availableWhenDone)
     return `GitHub gives the log of job ${job} only after the job finishes. Try again when it is done.`;
   if (log.notRun) return `Job ${job} did not run.`;
   return log.text || `Job ${job} has no log.`;
+}
+
+const logContinuation = (job: string, start: number) =>
+  `\n\nEarlier output omitted; run \`iori ci log ${job} --before ${start}\` to read earlier log.`;
+
+function logPage(job: string, log: ForgeCiLog, budget: number) {
+  let start = log.start;
+  let limit = budget;
+  let offset = 0;
+  if (start > 0 || bytes(log.text) > limit) {
+    limit -= bytes(logContinuation(job, log.end));
+    const utf8 = Buffer.from(log.text);
+    let skip = Math.max(0, utf8.length - limit);
+    if (skip) {
+      while ((utf8[skip]! & 0xc0) === 0x80) skip++;
+      offset = log.text.length - utf8.subarray(skip).toString("utf8").length;
+      // Count from the page's end so an incomplete character already decoded
+      // at the start of the Forge's window cannot shift the continuation.
+      start = log.end - (utf8.length - skip);
+    }
+  }
+  const page = { ...log, text: plainText(log.text, offset) };
+  return {
+    text:
+      textPrefix(logText(job, page), limit) +
+      (start > 0 ? logContinuation(job, start) : ""),
+    data: { ...logData(page), ...(start > 0 ? { before: start } : {}) },
+  };
 }
 
 async function readCi(
@@ -355,36 +489,32 @@ async function readCi(
   store: HostStore,
   detection: ForgeDetection,
 ): Promise<Answer> {
-  // GitHub sends a job's whole log at once; keep it while reading its parts.
-  const keep: CiLogKeep = {};
-  // Every command asks the site again which Forge it is, as a reload does.
-  let redetect = true;
-  const log = async (job: string) =>
-    wholeLog((before) => {
-      const read = readForgeCiLog(
-        path,
-        job,
-        before,
-        store,
-        detection,
-        undefined,
-        keep,
-        redetect,
-      );
-      redetect = false;
-      return read;
-    });
+  const log = (job: string, before: number | undefined, redetect = false) =>
+    readForgeCiLog(
+      path,
+      job,
+      before,
+      store,
+      detection,
+      undefined,
+      undefined,
+      redetect,
+    );
   try {
+    // Every command asks the site again which Forge it is, as a reload does.
     if (command.kind === "ci-log" && command.job) {
-      const read = await log(command.job);
+      const page = logPage(
+        command.job,
+        await log(command.job, command.before, true),
+        MAX_COMMAND_TEXT_BYTES,
+      );
       return {
         ok: true,
-        text: logText(command.job, read),
-        data: { jobs: [{ id: command.job, ...logData(read) }] },
+        text: page.text,
+        data: { jobs: [{ id: command.job, ...page.data }] },
       };
     }
-    const ci = await readForgeCi(path, store, detection, undefined, redetect);
-    redetect = false;
+    const ci = await readForgeCi(path, store, detection, undefined, true);
     if (!ci.commit)
       return {
         ok: true,
@@ -413,25 +543,45 @@ async function readCi(
           text: `No job failed in the CI of commit ${short}. Name a job from iori ci list to read its log.`,
           data: { commit, jobs: [] },
         };
+      const moreNotice =
+        "\n\nMore job logs omitted; run `iori ci list` to find job IDs and `iori ci log <JOB_ID>` to read them.";
+      let remaining = MAX_COMMAND_TEXT_BYTES - bytes(moreNotice);
+      const parts: string[] = [];
       const reads = [];
-      for (const { run, job } of jobs)
-        reads.push({ run, job, log: await log(job.id) });
+      const omittedJobs: string[] = [];
+      let moreJobs = false;
+      for (const [index, { run, job }] of jobs.entries()) {
+        const separator = parts.length ? "\n\n" : "";
+        const name = plainText(job.name);
+        const jobStatus = plainText(status(job));
+        const heading = `${separator}=== log of job ${job.id} "${name}" (${jobStatus}) in "${plainText(run.name)}" ===\n`;
+        const budget =
+          Math.floor(remaining / (jobs.length - index)) - bytes(heading);
+        if (budget <= bytes(logContinuation(job.id, Number.MAX_SAFE_INTEGER))) {
+          const omitted = `${separator}Log of job ${job.id} omitted; run \`iori ci log ${job.id}\` to read it.`;
+          if (bytes(omitted) > remaining) {
+            moreJobs = true;
+            break;
+          }
+          parts.push(omitted);
+          remaining -= bytes(omitted);
+          omittedJobs.push(job.id);
+          continue;
+        }
+        const page = logPage(job.id, await log(job.id, command.before), budget);
+        const entry = heading + page.text;
+        parts.push(entry);
+        remaining -= bytes(entry);
+        reads.push({ id: job.id, name, status: jobStatus, ...page.data });
+      }
       return {
         ok: true,
-        text: reads
-          .map(
-            ({ run, job, log }) =>
-              `=== log of job ${job.id} "${job.name}" (${status(job)}) in "${run.name}" ===\n${logText(job.id, log)}`,
-          )
-          .join("\n\n"),
+        text: parts.join("") + (moreJobs ? moreNotice : ""),
         data: {
           commit,
-          jobs: reads.map(({ job, log }) => ({
-            id: job.id,
-            name: job.name,
-            status: status(job),
-            ...logData(log),
-          })),
+          jobs: reads,
+          ...(omittedJobs.length ? { omittedJobs } : {}),
+          ...(moreJobs ? { moreJobs } : {}),
         },
       };
     }
@@ -520,7 +670,12 @@ export function runForgeCommand(
         }
         return gitUnreadable;
       });
-  return command.kind === "issue-list" || command.kind === "issue-show"
-    ? readIssues(path, command, store, detection)
-    : readCi(path, command, store, detection);
+  const answer =
+    command.kind === "issue-list" || command.kind === "issue-show"
+      ? readIssues(path, command, store, detection)
+      : readCi(path, command, store, detection);
+  return answer.then((result) => ({
+    ...result,
+    text: textPrefix(plainText(result.text), MAX_COMMAND_TEXT_BYTES),
+  }));
 }

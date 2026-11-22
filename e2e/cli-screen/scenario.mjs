@@ -1,6 +1,7 @@
 import { splitTab } from "../../verification/workspace/interaction.mjs";
 import {
   cliRowNamed,
+  cliRowToggle,
   cliMenuAction,
   returnToWorktree,
   openAgents,
@@ -322,7 +323,7 @@ export async function cliScenario({
   const customId = await cliRowNamed(screen, "My CLI");
   const customRow = `[data-iori-cli-row="${customId}"]`;
   if ((await screen.attribute(customRow, "data-state")) !== "open")
-    await screen.click(`${customRow} .team-agent-toggle`);
+    await screen.click(cliRowToggle(customRow));
   await screen.click(`${customRow} ${action("cli-definition-edit")}`);
   assert.equal(
     await screen.value(`${customRow} [data-iori-field="cli-command"]`),
@@ -334,11 +335,7 @@ export async function cliScenario({
     registrationCommand + " --no-session",
   );
   await screen.click(`${customRow} ${action("cli-definition-save")}`);
-  await waitFor(async () =>
-    (await screen.text(`${customRow} .team-agent-name > span`)).includes(
-      "My Pi",
-    ),
-  );
+  assert.equal(await cliRowNamed(screen, "My Pi"), customId);
   await returnToWorktree(screen);
   await screen.click(action("workspace-add-tab"));
   // The launcher follows the CLI list, not the last used CLI.
@@ -371,7 +368,7 @@ export async function cliScenario({
   await openAgents(screen);
   await screen.reveal(customRow);
   if ((await screen.attribute(customRow, "data-state")) !== "open")
-    await screen.click(`${customRow} .team-agent-toggle`);
+    await screen.click(cliRowToggle(customRow));
   await screen.click(`${customRow} ${action("cli-definition-edit")}`);
   assert.equal(
     await screen.value(`${customRow} [data-iori-field="cli-command"]`),
@@ -537,7 +534,7 @@ export async function cliSettings({ client, record }) {
   const customId = await cliRowNamed(screen, "My CLI");
   const customRow = `[data-iori-cli-row="${customId}"]`;
   if ((await screen.attribute(customRow, "data-state")) !== "open")
-    await screen.click(`${customRow} .team-agent-toggle`);
+    await screen.click(cliRowToggle(customRow));
   await screen.click(`${customRow} ${action("cli-definition-edit")}`);
   await screen.input(`${customRow} [data-iori-field="cli-name"]`, "My Pi");
   await screen.input(
@@ -545,11 +542,7 @@ export async function cliSettings({ client, record }) {
     "pi --no-session",
   );
   await screen.click(`${customRow} ${action("cli-definition-save")}`);
-  await waitFor(async () =>
-    (await screen.text(`${customRow} .team-agent-name > span`)).includes(
-      "My Pi",
-    ),
-  );
+  assert.equal(await cliRowNamed(screen, "My Pi"), customId);
   await returnToWorktree(screen);
   await screen.click(action("workspace-add-tab"));
   const launcherOrder = await screen.evaluate(`(async () => {
@@ -581,7 +574,7 @@ export async function cliSettings({ client, record }) {
   await openAgents(screen);
   await screen.reveal(customRow);
   if ((await screen.attribute(customRow, "data-state")) !== "open")
-    await screen.click(`${customRow} .team-agent-toggle`);
+    await screen.click(cliRowToggle(customRow));
   await screen.click(`${customRow} ${action("cli-definition-edit")}`);
   assert.equal(
     await screen.value(`${customRow} [data-iori-field="cli-command"]`),

@@ -1,12 +1,22 @@
+import * as v from "valibot";
+import {
+  method,
+  pathSchema,
+  hostResult,
+  nonNulText,
+  integer,
+  type Params,
+  type Results,
+  hasMethod,
+  paramsOf,
+  type ResultSchemas,
+} from "./primitives.ts";
 /**
  * Reading a repository's Issues on its Forge (GitHub, Forgejo, Gitea).
  * `path` is any folder of the repository on the Host; the Host reads the
  * Issues of the remote that `git push` without arguments uses in the main
  * worktree, so every worktree of the repository shows the same Issues.
  */
-
-import { ProtocolValidationError, hostPath } from "./index.ts";
-import type { ValueSchema } from "./index.ts";
 
 export type ForgeIssueState = "open" | "closed";
 
@@ -49,98 +59,50 @@ export type ForgeIssue = ForgeIssueSummary & {
   thread: ForgeIssueComment[];
 };
 
-export interface ForgeIssueParams {
-  "forge.issues.repository": { path: string };
-  "forge.issues.list": {
-    path: string;
-    state: ForgeIssueState;
-    /** Only Issues that have every one of these labels. */
-    labels: string[];
-    /** Pages count from 1, as on the Forges. */
-    page: number;
-  };
-  "forge.issues.labels": { path: string };
-  "forge.issues.show": { path: string; number: number };
-}
+export const forgeIssueMethods = {
+  "forge.issues.repository": method(
+    v.object({ path: pathSchema }),
+    hostResult<{ repository?: ForgeIssueRepository }>(),
+  ),
+  "forge.issues.list": method(
+    v.object({
+      path: pathSchema,
+      state: v.picklist(["open", "closed"]),
+      labels: v.array(nonNulText),
+      page: integer(1),
+    }),
+    hostResult<{
+      repository: ForgeIssueRepository;
+      /** The Forge's page of these Issues. */
+      url: string;
+      /** False when the repository does not use the Forge's Issues. */
+      enabled: boolean;
+      /** Newest first; Pull requests are not included. */
+      issues: ForgeIssueSummary[];
+      hasMore: boolean;
+    }>(),
+  ),
+  "forge.issues.labels": method(
+    v.object({ path: pathSchema }),
+    hostResult<{ labels: ForgeIssueLabel[] }>(),
+  ),
+  "forge.issues.show": method(
+    v.object({ path: pathSchema, number: integer(1) }),
+    hostResult<{ issue?: ForgeIssue }>(),
+  ),
+};
 
-export interface ForgeIssueResults {
-  /** No repository: the repository's Forge is not known. */
-  "forge.issues.repository": { repository?: ForgeIssueRepository };
-  "forge.issues.list": {
-    repository: ForgeIssueRepository;
-    /** The Forge's page of these Issues. */
-    url: string;
-    /** False when the repository does not use the Forge's Issues. */
-    enabled: boolean;
-    /** Newest first; Pull requests are not included. */
-    issues: ForgeIssueSummary[];
-    hasMore: boolean;
-  };
-  "forge.issues.labels": { labels: ForgeIssueLabel[] };
-  /** No issue: the repository reads, but the Issue was removed or moved. */
-  "forge.issues.show": { issue?: ForgeIssue };
-}
-
-export type ForgeIssueMethod = keyof ForgeIssueParams;
-const methods: ForgeIssueMethod[] = [
-  "forge.issues.repository",
-  "forge.issues.list",
-  "forge.issues.labels",
-  "forge.issues.show",
-];
-
+export type ForgeIssueMethod = keyof typeof forgeIssueMethods;
+export type ForgeIssueParams = Params<typeof forgeIssueMethods>;
+export type ForgeIssueResults = Results<typeof forgeIssueMethods>;
 export function isForgeIssueMethod(value: unknown): value is ForgeIssueMethod {
-  return methods.includes(value as ForgeIssueMethod);
+  return hasMethod(forgeIssueMethods, value);
 }
-
-function fail(message: string): never {
-  throw new ProtocolValidationError("invalid_request", message);
-}
-
-function object(value: unknown, field: string): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value))
-    return fail(`${field} must be an object`);
-  return value as Record<string, unknown>;
-}
-
-function positiveInteger(value: unknown, field: string): number {
-  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1)
-    return fail(`${field} must be a positive integer`);
-  return value;
-}
-
-/** The Host's entry check for values received from a Client. */
 export function parseForgeIssueParams<M extends ForgeIssueMethod>(
-  method: M,
+  key: M,
   value: unknown,
 ): ForgeIssueParams[M] {
-  const input = object(value, "params");
-  const path = hostPath(input.path, "path");
-  if (method === "forge.issues.show")
-    return {
-      path,
-      number: positiveInteger(input.number, "number"),
-    } as ForgeIssueParams[M];
-  if (method !== "forge.issues.list") return { path } as ForgeIssueParams[M];
-  if (input.state !== "open" && input.state !== "closed")
-    return fail("state must be open or closed");
-  if (!Array.isArray(input.labels)) return fail("labels must be an array");
-  return {
-    path,
-    state: input.state,
-    labels: input.labels.map((label) => {
-      if (typeof label !== "string" || !label || label.includes("\0"))
-        return fail("labels must be names");
-      return label;
-    }),
-    page: positiveInteger(input.page, "page"),
-  } as ForgeIssueParams[M];
+  return paramsOf<ForgeIssueParams, M>(forgeIssueMethods, key, value);
 }
-
-// The Host checks what the Forge returned before it answers; the Client reads
-// its registered Host's answer as is.
-export const forgeIssueResultSchemas = Object.fromEntries(
-  methods.map((method) => [method, { parse: (value: unknown) => value }]),
-) as {
-  [M in ForgeIssueMethod]: ValueSchema<ForgeIssueResults[M]>;
-};
+export const forgeIssueResultSchemas: ResultSchemas<ForgeIssueResults> =
+  forgeIssueMethods;

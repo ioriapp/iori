@@ -14,6 +14,9 @@ import {
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import test from "node:test";
+import { DatabaseSync } from "node:sqlite";
+import { createServer } from "node:net";
+import { once } from "node:events";
 import { fileURLToPath } from "node:url";
 import { writeFakeCli } from "../../verification/host/environment.mjs";
 import { runHostTest } from "../../verification/host/process.mjs";
@@ -647,17 +650,27 @@ test("mergeコミットだけの新しい内容は未取り込みとして知ら
   runHostTest(t, async ({ client, dataRoot }) => {
     const { path, git, add } = await repository(dataRoot);
     const worktree = add("merge-extra");
+    await writeFile(
+      join(worktree, ".gitattributes"),
+      "merge-only.txt diff=fixture\n",
+    );
     await commit(git, worktree, "picked");
     const picked = git(worktree, "rev-parse", "HEAD");
     await commit(git, path, "main-before-merge");
     git(worktree, "merge", "--no-ff", "--no-commit", "main");
     await commit(git, worktree, "merge-only");
     git(path, "cherry-pick", picked);
+    await writeFile(
+      join(worktree, "textconv.sh"),
+      ': > textconv-called\ncat "$1"\n',
+    );
+    git(path, "config", "diff.fixture.textconv", "sh ./textconv.sh");
     const preview = await client.request("worktrees.preview", {
       path: worktree,
     });
     assert.equal(preview.items[0].merged, false);
     assert.equal(preview.items[0].deleteBranch, false);
+    assert.equal(await exists(join(worktree, "textconv-called")), false);
   }));
 
 async function teamParent(client, root, cwd, launch = {}, observePids = false) {
@@ -741,6 +754,7 @@ async function teamParent(client, root, cwd, launch = {}, observePids = false) {
   await parent.output("INITIAL_REQUEST_RECEIVED:");
   return {
     parent,
+    parentId: summary.id,
     events,
     async delegate(title, worktree = "new") {
       const result = await actorCommand(parent, title, [
@@ -776,6 +790,102 @@ async function teamParent(client, root, cwd, launch = {}, observePids = false) {
     },
   };
 }
+
+test("worktree の作成直後に Host が停止しても、親は再起動後に子の worktree を削除できる", (t) =>
+  runHostTest(t, async ({ client, dataRoot, restart }) => {
+    const { path } = await repository(dataRoot);
+    const team = await teamParent(client, dataRoot, path);
+    // Git has registered the worktree when this hook runs, but worktree add
+    // has not yet returned to the Host.
+    const server = createServer();
+    t.after(() => server.close());
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const hook = join(path, ".git", "hooks", "post-checkout");
+    await writeFile(
+      hook,
+      `#!${process.execPath}
+const socket = require("node:net").connect(${server.address().port}, "127.0.0.1");
+socket.on("connect", () => socket.write(process.cwd()));
+`,
+      { mode: 0o755 },
+    );
+    const connected = once(server, "connection");
+    const delegated = await actorCommand(team.parent, "interrupted", [
+      "delegate",
+      "--role",
+      "Worker",
+      "--difficulty",
+      "low",
+      "--title",
+      "interrupted",
+      "--worktree",
+      "new",
+      "--body",
+      "Check the worktree.",
+    ]);
+    const [socket] = await connected;
+    t.after(() => socket.destroy());
+    const [buffer] = await once(socket, "data");
+    const cwd = buffer.toString();
+    assert.ok(await exists(cwd));
+    const reconnected = await restart({
+      interrupt: true,
+      whileStopped: () => socket.end(),
+    });
+    await actorCommand(
+      await reconnected.terminal(team.parentId),
+      "remove-recovered",
+      [
+        "finish",
+        delegated.data.child,
+        "--decision",
+        "reject",
+        "--reason",
+        "interrupted",
+        "--worktree",
+        "remove",
+      ],
+    );
+    assert.equal(await exists(cwd), false);
+    assert.ok(await exists(path));
+  }));
+
+test("タスクの終了を保存できない場合は子を終了済みにせず再試行できる", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    const { path } = await repository(dataRoot);
+    const team = await teamParent(client, dataRoot, path);
+    const child = await team.delegate("atomic", "parent");
+    using db = new DatabaseSync(join(dataRoot, "iori-host", "host.sqlite"));
+    db.exec(`CREATE TRIGGER refuse_decision BEFORE INSERT ON team_tasks
+      WHEN json_extract(NEW.value_json, '$.decision') IS NOT NULL
+      BEGIN SELECT RAISE(ABORT, 'cannot save task'); END`);
+    const command = [
+      "finish",
+      child.id,
+      "--decision",
+      "accept",
+      "--reason",
+      "verified",
+      "--worktree",
+      "keep",
+    ];
+    await assert.rejects(actorCommand(team.parent, "failed-decision", command));
+    const state = db
+      .prepare(
+        "SELECT json_extract(value_json, '$.state') AS state FROM team_children WHERE id = ?",
+      )
+      .get(child.id).state;
+    assert.notEqual(state, "finished");
+    db.exec("DROP TRIGGER refuse_decision");
+    await actorCommand(team.parent, "retry-decision", command);
+    assert.equal(
+      (await client.request("teams.children", { cwd: path })).children.find(
+        (row) => row.id === child.id,
+      ).state,
+      "finished",
+    );
+  }));
 
 test("親の削除では専用の子worktreeを削除し、既存のworktreeは残す", (t) =>
   runHostTest(t, async ({ client, dataRoot, stage }) => {

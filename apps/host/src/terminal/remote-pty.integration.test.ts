@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createServer, connect, type Socket } from "node:net";
+import { createServer, connect, Socket } from "node:net";
 import { setImmediate as nextTurn } from "node:timers/promises";
 import { DaemonChannel } from "./daemon/channel.ts";
 import { RemotePtys } from "./remote-pty.ts";
-import type { PtyEvent, SpawnPty, PtyOutput } from "./daemon/protocol.ts";
+import type { SpawnPty } from "./daemon/protocol.ts";
 
 const frame = (message: unknown) => {
   const payload = Buffer.from(JSON.stringify(message));
@@ -29,9 +29,9 @@ test("a shell's output and exit that arrive with its spawn answer reach the Host
   const channel = new DaemonChannel(host);
   const remote = new RemotePtys(channel);
   // As TerminalManager hands the daemon's requests to the Host's processes.
-  channel.handle = async (method, args) => {
-    if (method === "data") return remote.data(...(args as [number, PtyOutput]));
-    if (method === "event") return remote.event(args[0] as PtyEvent);
+  channel.handle = {
+    data: (pid, output) => remote.data(pid, output),
+    event: (event) => remote.event(event),
   };
   const output = "\u001b[?2004hiori-test# ";
   daemon.once("data", (bytes) => {
@@ -65,9 +65,37 @@ test("a shell's output and exit that arrive with its spawn answer reach the Host
     await nextTurn();
     assert.deepEqual(received, [output]);
     assert.deepEqual(exits, [0]);
+    assert.equal(remote.processes.has(child.id), false);
+    assert.equal(remote.byPid.has(child.pid), false);
   } finally {
     host.destroy();
     daemon.destroy();
     await new Promise((resolve) => server.close(resolve));
   }
+});
+
+test("a delayed exit cannot retire another terminal that reused the pid", async () => {
+  const socket = new Socket();
+  const remote = new RemotePtys(new DaemonChannel(socket));
+  const old = remote.attach({ id: "old", pid: 42 });
+  const current = remote.attach({ id: "current", pid: 42 });
+  const exits: string[] = [];
+  old.onExit(() => exits.push(old.id));
+  current.onExit(() => exits.push(current.id));
+  try {
+    await remote.event({ kind: "exit", id: old.id, pid: 42, exitCode: 1 });
+    assert.deepEqual(exits, [old.id]);
+    assert.equal(remote.byPid.get(42), current);
+    assert.equal(remote.processes.has(old.id), false);
+  } finally {
+    socket.destroy();
+  }
+});
+
+test("typing into a disconnected PTY reports the failed write", async () => {
+  const socket = new Socket();
+  const remote = new RemotePtys(new DaemonChannel(socket));
+  const child = remote.attach({ id: "terminal", pid: 42 });
+  socket.destroy();
+  await assert.rejects(async () => child.write("x"), /connection closed/u);
 });

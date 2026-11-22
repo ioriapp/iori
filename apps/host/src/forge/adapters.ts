@@ -1,9 +1,6 @@
 import { ForgeReadError } from "./failure.ts";
-import { github } from "./github.ts";
-import { forgejo } from "./forgejo.ts";
+import { forgeProviders } from "./registry.ts";
 import type { ForgeAdapter } from "./types.ts";
-
-const adapters: ForgeAdapter[] = [github, forgejo];
 
 /** Share detection facts from marks with settings; settings only detects unseen origins. */
 export class ForgeDetection {
@@ -48,7 +45,7 @@ export class ForgeDetection {
     }
     const request = (async () => {
       let found: ForgeAdapter | undefined;
-      for (const adapter of adapters) {
+      for (const adapter of forgeProviders) {
         try {
           if (await adapter.detect(origin, signal)) {
             found = adapter;

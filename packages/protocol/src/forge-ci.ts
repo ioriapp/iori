@@ -1,3 +1,15 @@
+import * as v from "valibot";
+import {
+  method,
+  pathSchema,
+  hostResult,
+  integer,
+  type Params,
+  type Results,
+  hasMethod,
+  paramsOf,
+  type ResultSchemas,
+} from "./primitives.ts";
 // The CI of a worktree's push target as its Forge reports it: runs, their jobs,
 // results without jobs, and one job's log (forge.md「CIの詳細」).
 
@@ -113,67 +125,38 @@ export type ForgeCiLog = {
   notRun?: true;
 };
 
-export interface ForgeCiParams {
-  /** `redetect`: the reader's retry also asks again which Forge the site is. */
-  "forge.ci": { path: string; redetect?: true };
-  /** The end of the log, or the part just before `before`. */
-  "forge.ci.log": { path: string; job: string; before?: number };
-}
-export interface ForgeCiResults {
-  "forge.ci": ForgeCi;
-  "forge.ci.log": ForgeCiLog;
-}
-export type ForgeCiMethod = keyof ForgeCiParams;
-const methods: ForgeCiMethod[] = ["forge.ci", "forge.ci.log"];
-export function isForgeCiMethod(value: unknown): value is ForgeCiMethod {
-  return methods.includes(value as ForgeCiMethod);
-}
+export const forgeCiMethods = {
+  "forge.ci": method(
+    v.pipe(
+      v.object({ path: pathSchema, redetect: v.optional(v.unknown()) }),
+      v.transform(({ path, redetect }) => ({
+        path,
+        ...(redetect === true ? { redetect: true as const } : {}),
+      })),
+    ),
+    hostResult<ForgeCi>(),
+  ),
+  "forge.ci.log": method(
+    v.object({
+      path: pathSchema,
+      job: v.pipe(v.string(), v.regex(/^\d{1,20}$/u)),
+      before: v.optional(integer(1)),
+    }),
+    hostResult<ForgeCiLog>(),
+  ),
+};
 
-function object(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value))
-    throw new Error("Expected an object");
-  return value as Record<string, unknown>;
-}
-function path(value: unknown): string {
-  if (
-    typeof value !== "string" ||
-    value.includes("\0") ||
-    (!value.startsWith("/") &&
-      !/^[A-Za-z]:[\\/]/u.test(value) &&
-      !/^(?:\\\\|\/\/)[^\\/]+[\\/][^\\/]+/u.test(value))
-  )
-    throw new Error("Expected an absolute path");
-  return value;
+export type ForgeCiMethod = keyof typeof forgeCiMethods;
+export type ForgeCiParams = Params<typeof forgeCiMethods>;
+export type ForgeCiResults = Results<typeof forgeCiMethods>;
+export function isForgeCiMethod(value: unknown): value is ForgeCiMethod {
+  return hasMethod(forgeCiMethods, value);
 }
 export function parseForgeCiParams<M extends ForgeCiMethod>(
-  method: M,
+  key: M,
   value: unknown,
 ): ForgeCiParams[M] {
-  const v = object(value);
-  if (method === "forge.ci")
-    return {
-      path: path(v.path),
-      ...(v.redetect === true ? { redetect: true } : {}),
-    } as ForgeCiParams[M];
-  // The job ID goes into the Forge's API path; both Forges use numbers.
-  if (typeof v.job !== "string" || !/^\d{1,20}$/u.test(v.job))
-    throw new Error("Expected a job");
-  if (
-    v.before !== undefined &&
-    (typeof v.before !== "number" ||
-      !Number.isSafeInteger(v.before) ||
-      v.before < 1)
-  )
-    throw new Error("Expected a log position");
-  return {
-    path: path(v.path),
-    job: v.job,
-    ...(v.before === undefined ? {} : { before: v.before }),
-  } as ForgeCiParams[M];
+  return paramsOf<ForgeCiParams, M>(forgeCiMethods, key, value);
 }
-// Responses are the Host's own reads; only requests cross a trust boundary.
-export const forgeCiResultSchemas = Object.fromEntries(
-  methods.map((method) => [method, { parse: (value: unknown) => value }]),
-) as {
-  [M in ForgeCiMethod]: { parse: (value: unknown) => ForgeCiResults[M] };
-};
+export const forgeCiResultSchemas: ResultSchemas<ForgeCiResults> =
+  forgeCiMethods;

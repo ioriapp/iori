@@ -1,3 +1,11 @@
+import * as v from "valibot";
+import {
+  integer,
+  identifier,
+  schema,
+  type ValueSchema,
+  record,
+} from "./primitives.ts";
 import type { CliSummary, CliStatus } from "./cli.ts";
 export const MAX_TERMINAL_SNAPSHOT_LINES = 5_000;
 export const MAX_TERMINAL_SNAPSHOT_BYTES = 4 * 1024 * 1024;
@@ -107,62 +115,75 @@ export interface TerminalSnapshot {
   scrollbackTruncated?: boolean;
 }
 
-export type TerminalViewRgb = [number, number, number];
-
-export type TerminalViewAttributes = {
-  foreground: TerminalViewRgb;
-  background: TerminalViewRgb;
-  cursor: TerminalViewRgb;
-  ansi: TerminalViewRgb[];
-  colorSchemeMode: "dark" | "light";
-  cursorStyle: "bar" | "block" | "underline";
-  cursorBlink: boolean;
+const channel = integer(0, 255);
+const rgb = v.strictTuple([channel, channel, channel]);
+export type TerminalViewRgb = v.InferOutput<typeof rgb>;
+const viewAttributes = v.object({
+  foreground: rgb,
+  background: rgb,
+  cursor: rgb,
+  ansi: v.pipe(v.array(rgb), v.length(256)),
+  colorSchemeMode: v.picklist(["dark", "light"]),
+  cursorStyle: v.picklist(["bar", "block", "underline"]),
+  cursorBlink: v.boolean(),
+});
+export type TerminalViewAttributes = v.InferOutput<typeof viewAttributes>;
+const size = { cols: integer(1, 65535), rows: integer(1, 65535) };
+const openStream = v.object({
+  kind: v.literal("terminal"),
+  action: v.literal("open"),
+  operationId: identifier,
+  terminalId: identifier,
+  viewId: identifier,
+  viewAttributes,
+  deviceClass: v.picklist(["desktop", "mobile"]),
+  claimSize: v.optional(v.boolean()),
+  ...size,
+  snapshotMaxLines: integer(1, MAX_TERMINAL_SNAPSHOT_LINES),
+  snapshotMaxBytes: integer(1, MAX_TERMINAL_SNAPSHOT_BYTES),
+});
+export type TerminalOpenStream = v.InferOutput<typeof openStream>;
+export const terminalOpenStreamSchema = schema(openStream);
+const clientMessages = v.variant("kind", [
+  v.object({ kind: v.literal("terminal.seen") }),
+  v.pipe(
+    v.object({
+      kind: v.literal("terminal.input"),
+      data: v.string(),
+      origin: v.optional(v.unknown()),
+    }),
+    v.transform(({ kind, data, origin }) => ({
+      kind,
+      data,
+      ...(origin === "scroll" ? { origin: "scroll" as const } : {}),
+    })),
+  ),
+  v.object({
+    kind: v.literal("terminal.submit"),
+    data: v.string(),
+    id: v.optional(identifier),
+  }),
+  v.object({ kind: v.literal("terminal.resize"), ...size }),
+  v.object({ kind: v.literal("terminal.focus"), ...size }),
+  v.object({ kind: v.literal("terminal.theme"), viewAttributes }),
+]);
+export type TerminalClientMessage = v.InferOutput<typeof clientMessages>;
+const knownMessage = schema(clientMessages);
+export const terminalClientMessageSchema: ValueSchema<
+  TerminalClientMessage | undefined
+> = {
+  parse(value) {
+    const input = record(value);
+    if (
+      clientMessages.options.some(
+        (option) => option.entries.kind.literal === input.kind,
+      )
+    )
+      return knownMessage.parse(input);
+    return undefined;
+  },
 };
-
-/** Shared Host/Client byte order for rebuilding the visible xterm state. */
-export function buildTerminalSnapshotRestoreSequence(
-  snapshot: TerminalSnapshot,
-): string {
-  const kittyKeyboard =
-    snapshot.modes.kittyKeyboardFlags > 0
-      ? `\u001b[=${snapshot.modes.kittyKeyboardFlags};1u`
-      : "";
-  return [
-    snapshot.scrollbackAnsi,
-    snapshot.rehydrateSequences,
-    snapshot.snapshotAnsi,
-    snapshot.frameRestoreAnsi ?? "",
-    kittyKeyboard,
-    // This may end in an unfinished escape sequence, so it must remain last.
-    snapshot.pendingEscapeTailAnsi ?? "",
-  ].join("");
-}
-
-export interface TerminalOpenStream {
-  kind: "terminal";
-  operationId: string;
-  action: "open";
-  terminalId: string;
-  viewId: string;
-  viewAttributes: TerminalViewAttributes;
-  deviceClass: "desktop" | "mobile";
-  claimSize?: boolean;
-  cols: number;
-  rows: number;
-  snapshotMaxLines: number;
-  snapshotMaxBytes: number;
-}
-
-export type TerminalClientMessage =
-  | { kind: "terminal.seen" }
-  | { kind: "terminal.input"; data: string; origin?: "scroll" }
-  | { kind: "terminal.submit"; data: string; id?: string }
-  | { kind: "terminal.resize"; cols: number; rows: number }
-  | { kind: "terminal.focus"; cols: number; rows: number }
-  | {
-      kind: "terminal.theme";
-      viewAttributes: TerminalViewAttributes;
-    };
+export { buildTerminalSnapshotRestoreSequence } from "./terminal-restore.ts";
 
 export type TerminalServerMessage =
   | {

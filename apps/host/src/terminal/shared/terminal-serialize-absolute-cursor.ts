@@ -17,6 +17,7 @@ import {
 } from "./terminal-mouse-encoding.ts";
 
 type SerializeCursorTerminal = {
+  modes?: { originMode?: boolean };
   cols: number;
   rows: number;
   buffer: { active: { cursorX: number; cursorY: number } };
@@ -29,31 +30,14 @@ type BufferSerializer<TOpts> = {
 /** VT100 DECSC saved-cursor register (0-based, viewport-relative row). */
 export type SavedCursorRegister = { x: number; y: number; originMode: boolean };
 
-// xterm keeps the DECSC register on each Buffer (savedY is absolute:
-// ybase-included). It is not exposed through the public API, so snapshot
-// producers read the core buffer directly — `_core.buffer` is the ACTIVE
-// buffer, so an alt-screen TUI yields the alternate screen's own register,
-// matching the one a post-restore DECRC would consult.
-type TerminalWithSavedCursorCore = SerializeCursorTerminal & {
-  modes?: { originMode?: boolean };
-  _core?: {
-    buffer?: {
-      savedX?: number;
-      savedY?: number;
-      savedOriginMode?: boolean;
-      ybase?: number;
-      scrollTop?: number;
-      scrollBottom?: number;
-    };
-  };
-};
+import { activeBufferState } from "../daemon/xterm-adapter.ts";
 
 /** Reads the source terminal's active-buffer DECSC register, or null when it
  *  is unavailable or indistinguishable from the never-saved default. */
 export function readSavedCursorRegister(
   terminal: SerializeCursorTerminal,
 ): SavedCursorRegister | null {
-  const core = (terminal as TerminalWithSavedCursorCore)._core?.buffer;
+  const core = activeBufferState(terminal);
   if (
     typeof core?.savedX !== "number" ||
     typeof core.savedY !== "number" ||
@@ -112,11 +96,10 @@ export function buildAbsoluteCursorRestoreSequence(
   options: { restoreModesWithoutCursor?: boolean } = {},
 ): string {
   const { cursorX, cursorY } = terminal.buffer.active;
-  const terminalWithCore = terminal as TerminalWithSavedCursorCore;
-  const buffer = terminalWithCore._core?.buffer;
+  const buffer = activeBufferState(terminal);
   const scrollTop = buffer?.scrollTop ?? 0;
   const scrollBottom = buffer?.scrollBottom ?? terminal.rows - 1;
-  const originMode = terminalWithCore.modes?.originMode === true;
+  const originMode = terminal.modes?.originMode === true;
   const cupCursorY = cursorY - (originMode ? scrollTop : 0);
   // Why skip wrap-pending sources (cursorX == cols): plain replay already
   // reproduces that state exactly, while CUP would clamp to the last column

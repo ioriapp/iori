@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import type { CliSession, CliUsage, TokenUsage } from "@iori/protocol";
 import { parseCliUsage } from "@iori/protocol";
+import { ByteLimitError } from "../resource-limits.ts";
 import type { ShellDefinition } from "../terminal/platform.ts";
 import type { DefinitionScript } from "./definition-file.ts";
 import { object } from "./hooks.ts";
@@ -72,14 +73,22 @@ async function run(
   signal?: AbortSignal,
 ): Promise<unknown> {
   const marker = `IORI_CLI_SCRIPT_${randomUUID()}`;
-  const { output, code } = await serially(id, async () =>
+  const result = await serially(id, async () =>
     runInLoginShell(
       shell,
       marked(await command(folder, script, shell), shell, marker),
       JSON.stringify(input),
       signal,
     ),
-  );
+  ).catch((error: unknown) => {
+    if (!(error instanceof ByteLimitError)) throw error;
+    return undefined;
+  });
+  if (!result) {
+    console.error(`iori-host cli-definition-script-unreadable: ${id}`);
+    return undefined;
+  }
+  const { output, code } = result;
   if (code !== 0) {
     console.error(`iori-host cli-definition-script-failed: ${id}`);
     return undefined;

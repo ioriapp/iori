@@ -1,4 +1,5 @@
 import { definitionOrder, limitKey } from "@iori/protocol";
+import { cn } from "cn";
 import { useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 import { Check, ChevronDown, ChevronRight } from "lucide-react";
@@ -147,12 +148,13 @@ export function ModelPicker({
               ? label
               : `${cliName(cli)} › ${label}`}
         </span>
-        {isSelected && (
-          <Check
-            className="ml-auto size-3 shrink-0 text-primary"
-            aria-hidden="true"
-          />
-        )}
+        <Check
+          className={cn(
+            "ml-auto size-3 shrink-0 text-primary",
+            !isSelected && "invisible",
+          )}
+          aria-hidden="true"
+        />
       </CommandItem>
     );
   };

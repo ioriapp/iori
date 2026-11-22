@@ -1,5 +1,12 @@
 import assert from "node:assert/strict";
-import { access, mkdir, readFile, watch, writeFile } from "node:fs/promises";
+import {
+  access,
+  mkdir,
+  readFile,
+  rmdir,
+  watch,
+  writeFile,
+} from "node:fs/promises";
 import { join, relative, dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
@@ -274,4 +281,30 @@ test("自動化を削除しても開始済みの会話は残る", (t) =>
         (item) => item.id === run.terminalId,
       ),
     );
+  }));
+
+test("受信ファイルを消せない自動化は、原因を解消してから削除できる", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    const { automation } = await save(client, dataRoot);
+    const file = join(
+      dataRoot,
+      "iori-host",
+      "automation-files",
+      automation.id,
+      "unreadable.received.json",
+    );
+    // A directory at the file's path produces an unlink failure on every OS.
+    await mkdir(file, { recursive: true });
+    await assert.rejects(
+      client.request("automation.delete", { id: automation.id }),
+    );
+    assert.ok(
+      (await client.request("automation.list")).automations.some(
+        (item) => item.id === automation.id,
+      ),
+    );
+    await rmdir(file);
+    await writeFile(file, "{}");
+    await client.request("automation.delete", { id: automation.id });
+    await assert.rejects(access(file), { code: "ENOENT" });
   }));

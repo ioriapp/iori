@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 import {
+  attachTerminalDaemon,
   captureDaemonProcessIdentity,
   stopTerminalDaemon,
   terminateVerifiedDaemonProcess,
@@ -138,4 +139,33 @@ test("同一性が一致しないプロセスを終わらせない", async (t) =
     false,
   );
   assert.equal(isPidDead(pid), false);
+});
+
+// Restoring or resizing a screen does not advance its PTY output sequence.
+test("PTYの出力がなくても復元とサイズ変更が次の保存画面に反映される", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "iori-snapshot-"));
+  t.after(async () => {
+    await stopTerminalDaemon(root);
+    await rm(root, { recursive: true, force: true });
+  });
+  const { channel } = await attachTerminalDaemon(root);
+  try {
+    await channel.call("attach", { osc: [], csi: [] });
+    await channel.call("screen", "saved", 20, 3, "first");
+    const first = await channel.call("snapshot", "saved");
+    assert.deepEqual(await channel.call("visibleLinesFromSnapshot", first), [
+      "first",
+    ]);
+    await channel.call("screenWrite", "saved", "\r\nsecond");
+    const written = await channel.call("snapshot", "saved");
+    assert.deepEqual(await channel.call("visibleLinesFromSnapshot", written), [
+      "first",
+      "second",
+    ]);
+    await channel.call("resize", "saved", 30, 4);
+    const resized = await channel.call("snapshot", "saved");
+    assert.deepEqual([resized.cols, resized.rows], [30, 4]);
+  } finally {
+    channel.close();
+  }
 });

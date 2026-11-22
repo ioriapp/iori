@@ -109,8 +109,7 @@ export function createReadingTransport(
       let connectionId: string | undefined;
       let subscription: string | undefined;
       let foreground = true;
-      let stopEvents: (() => void) | undefined;
-      let stopForeground: (() => void) | undefined;
+      let listening = false;
       const release = () => {
         if (subscription)
           void native.cancelStream(subscription).catch(() => undefined);
@@ -119,7 +118,7 @@ export function createReadingTransport(
       };
       const update = () => {
         const id = foreground ? currentConnection() : undefined;
-        if (id === connectionId || disposed) return;
+        if (!listening || id === connectionId || disposed) return;
         release();
         if (!id) return;
         connectionId = id;
@@ -146,58 +145,81 @@ export function createReadingTransport(
               failed(new ReadError("read_failed"));
           });
       };
-      const stopConnection = controller.subscribe(update);
-      void native
-        .onStream((event) => {
-          if (
-            disposed ||
-            event.connectionId !== connectionId ||
-            event.subscriptionId !== subscription
-          )
-            return;
-          try {
-            const value: unknown = JSON.parse(event.json);
-            if (
-              typeof value === "object" &&
-              value !== null &&
-              "ok" in value &&
-              value.ok === false
-            ) {
-              const response = responseSchema.parse(value);
-              if (!response.ok) failed(new ReadError(response.error.code));
-              return;
-            }
-            const changed = parseReadingChangedEvent(value);
-            if (changed.operationId === subscription)
-              listener(changed.paths ? { paths: changed.paths } : {});
-          } catch {
-            // A notice that cannot be read still means something changed.
-            listener({});
-          }
-        })
-        .then((stop) => {
-          if (disposed) stop();
-          else {
-            stopEvents = stop;
-            update();
-          }
-        });
-      void native
-        .onForeground((value) => {
-          foreground = value;
-          update();
-        })
-        .then((stop) => {
-          if (disposed) stop();
-          else stopForeground = stop;
-        });
-      return () => {
+      const stops: (() => void)[] = [controller.subscribe(update)];
+      const add = (stop: () => void) => {
+        if (disposed) stop();
+        else stops.push(stop);
+      };
+      const close = () => {
         disposed = true;
         release();
-        stopConnection();
-        stopEvents?.();
-        stopForeground?.();
+        for (const stop of stops.splice(0)) stop();
       };
+      void Promise.all([
+        native
+          .onStream((event) => {
+            if (
+              disposed ||
+              event.connectionId !== connectionId ||
+              event.subscriptionId !== subscription
+            )
+              return;
+            try {
+              const value: unknown = JSON.parse(event.json);
+              if (
+                typeof value === "object" &&
+                value !== null &&
+                "ok" in value &&
+                value.ok === false
+              ) {
+                const response = responseSchema.parse(value);
+                if (!response.ok) {
+                  // A Host rejection ends this watch until its connection changes.
+                  subscription = undefined;
+                  failed(new ReadError(response.error.code));
+                }
+                return;
+              }
+              const changed = parseReadingChangedEvent(value);
+              if (changed.operationId === subscription)
+                listener(changed.paths ? { paths: changed.paths } : {});
+            } catch {
+              // A notice that cannot be read still means something changed.
+              listener({});
+            }
+          })
+          .then(add),
+        native
+          .onSubscriptionEnded((event) => {
+            if (
+              disposed ||
+              event.connectionId !== connectionId ||
+              event.subscriptionId !== subscription
+            )
+              return;
+            subscription = undefined;
+            connectionId = undefined;
+            update();
+          })
+          .then(add),
+        native
+          .onForeground((value) => {
+            foreground = value;
+            update();
+          })
+          .then(add),
+      ])
+        .then(() => {
+          listening = true;
+          update();
+        })
+        .catch(() => {
+          if (!disposed) {
+            close();
+            failed(new ReadError("read_failed"));
+          }
+        });
+      return close;
     },
   };
 }

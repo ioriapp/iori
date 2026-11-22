@@ -323,6 +323,7 @@ class WorktreeWatcher {
   readonly #onGitChange: (paths: string[]) => void;
   readonly #removing: ReadonlyMap<string, number>;
   readonly #watchers = new Map<string, FSWatcher>();
+  readonly #watchFailures = new Map<string, number>();
   #worktrees: Worktree[];
   #gitWorktrees: GitWorktree[];
   readonly #batch = batchChanges(() => this.#refresh());
@@ -383,6 +384,8 @@ class WorktreeWatcher {
     );
     if (this.#closed) return;
     const required = new Set(directories);
+    for (const path of this.#watchFailures.keys())
+      if (!required.has(path)) this.#watchFailures.delete(path);
     for (const [path, watcher] of this.#watchers) {
       if (!required.has(path)) {
         watcher.close();
@@ -392,20 +395,33 @@ class WorktreeWatcher {
     for (const path of directories) {
       if (this.#watchers.has(path)) continue;
       try {
+        const started = Date.now();
         const watcher = watch(path, { persistent: false }, (_event, name) => {
           if (name !== null && !this.#affectsWorktrees(path, name.toString()))
             return;
+          this.#watchFailures.delete(path);
           this.#queueRefresh();
         });
         watcher.on("error", () => {
+          if (this.#watchers.get(path) !== watcher) return;
           watcher.close();
           this.#watchers.delete(path);
+          if (Date.now() - started > 1000) this.#watchFailures.delete(path);
+          this.#retryWatch(path);
         });
         this.#watchers.set(path, watcher);
       } catch {
-        // Other watched directories still cover repository and worktree changes.
+        if (this.#watchFailures.has(path)) this.#retryWatch(path);
       }
     }
+  }
+
+  #retryWatch(path: string): void {
+    // Reuse the batched rescan. After three consecutive failures, a change
+    // in a surviving directory can still trigger the next attempt.
+    const failures = (this.#watchFailures.get(path) ?? 0) + 1;
+    this.#watchFailures.set(path, failures);
+    if (failures <= 3) this.#queueRefresh();
   }
 
   #affectsWorktrees(directory: string, name: string): boolean {

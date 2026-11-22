@@ -28,15 +28,69 @@ pub fn restrict_to_current_user(
 #[napi(catch_unwind)]
 pub fn restrict_terminal_pipe(path: String) -> napi::Result<()> {
     #[cfg(windows)]
-    {
-        // A newly created pipe can be owned by the Administrators group when
-        // the process is elevated. Grant the actual token user, not that group.
-        let sid = current_windows_user_sid()?;
-        set_windows_acl(Path::new(&path), &format!("D:P(A;;FA;;;{sid})"))?;
-    }
+    restrict_windows_pipe(&path)?;
     #[cfg(not(windows))]
     let _ = path;
     Ok(())
+}
+
+#[cfg(windows)]
+fn restrict_windows_pipe(path: &str) -> napi::Result<()> {
+    use std::{iter::once, ptr};
+    use windows_sys::Win32::{
+        Foundation::{CloseHandle, GetLastError, INVALID_HANDLE_VALUE},
+        Security::{
+            Authorization::{SE_KERNEL_OBJECT, SetSecurityInfo},
+            DACL_SECURITY_INFORMATION, PROTECTED_DACL_SECURITY_INFORMATION,
+        },
+        Storage::FileSystem::{
+            CreateFileW, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING, SECURITY_IDENTIFICATION,
+            SECURITY_SQOS_PRESENT, WRITE_DAC,
+        },
+    };
+
+    // An elevated process can create a pipe owned by the Administrators group.
+    // Grant access to the user SID from the process token.
+    let sid = current_windows_user_sid()?;
+    let path_wide: Vec<u16> = path.encode_utf16().chain(once(0)).collect();
+    apply_windows_dacl(&format!("D:P(A;;FA;;;{sid})"), "terminal pipe", |dacl| {
+        // SAFETY: `path_wide` is NUL-terminated. The handle is not inheritable.
+        let handle = unsafe {
+            CreateFileW(
+                path_wide.as_ptr(),
+                WRITE_DAC,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                ptr::null(),
+                OPEN_EXISTING,
+                SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION,
+                ptr::null_mut(),
+            )
+        };
+        if handle == INVALID_HANDLE_VALUE {
+            // SAFETY: this reads the current thread's error after CreateFileW failed.
+            let error = unsafe { GetLastError() };
+            return Err(Error::from_reason(format!(
+                "could not open terminal pipe to restrict its ACL (Windows error {error})"
+            )));
+        }
+        // SAFETY: `handle` is owned and `dacl` belongs to the live descriptor.
+        let result = unsafe {
+            let result = SetSecurityInfo(
+                handle,
+                SE_KERNEL_OBJECT,
+                DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+                ptr::null_mut(),
+                ptr::null_mut(),
+                dacl,
+                ptr::null(),
+            );
+            // Opening the client end takes one listening instance. Close it
+            // immediately so the server sees only a connection without data.
+            CloseHandle(handle);
+            result
+        };
+        Ok(result)
+    })
 }
 
 #[cfg(windows)]
@@ -192,70 +246,88 @@ fn restrict_windows_acl(path: &Path) -> napi::Result<()> {
 
 #[cfg(windows)]
 fn set_windows_acl(path: &Path, sddl: &str) -> napi::Result<()> {
-    use std::{ffi::c_void, iter::once, os::windows::ffi::OsStrExt};
+    use std::{iter::once, os::windows::ffi::OsStrExt, ptr};
+    use windows_sys::Win32::Security::{
+        Authorization::{SE_FILE_OBJECT, SetNamedSecurityInfoW},
+        DACL_SECURITY_INFORMATION, PROTECTED_DACL_SECURITY_INFORMATION,
+    };
+
+    let path_wide: Vec<u16> = path.as_os_str().encode_wide().chain(once(0)).collect();
+    apply_windows_dacl(sddl, "Host storage", |dacl| {
+        // SAFETY: `path_wide` is NUL-terminated; `dacl` belongs to the live descriptor.
+        let result = unsafe {
+            SetNamedSecurityInfoW(
+                path_wide.as_ptr(),
+                SE_FILE_OBJECT,
+                DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+                ptr::null_mut(),
+                ptr::null_mut(),
+                dacl,
+                ptr::null(),
+            )
+        };
+        Ok(result)
+    })
+}
+
+#[cfg(windows)]
+fn apply_windows_dacl(
+    sddl: &str,
+    target: &str,
+    apply: impl FnOnce(*const windows_sys::Win32::Security::ACL) -> napi::Result<u32>,
+) -> napi::Result<()> {
+    use std::{iter::once, ptr};
     use windows_sys::Win32::{
         Foundation::LocalFree,
         Security::{
-            Authorization::{
-                ConvertStringSecurityDescriptorToSecurityDescriptorW, SE_FILE_OBJECT,
-                SetNamedSecurityInfoW,
-            },
-            DACL_SECURITY_INFORMATION, GetSecurityDescriptorDacl,
-            PROTECTED_DACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR,
+            Authorization::ConvertStringSecurityDescriptorToSecurityDescriptorW,
+            GetSecurityDescriptorDacl, PSECURITY_DESCRIPTOR,
         },
     };
 
+    struct SecurityDescriptor(PSECURITY_DESCRIPTOR);
+    impl Drop for SecurityDescriptor {
+        fn drop(&mut self) {
+            // SAFETY: the Windows security API allocated this descriptor.
+            unsafe { LocalFree(self.0) };
+        }
+    }
+
     let sddl: Vec<u16> = sddl.encode_utf16().chain(once(0)).collect();
-    let mut descriptor: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
+    let mut descriptor: PSECURITY_DESCRIPTOR = ptr::null_mut();
     // SAFETY: `sddl` is NUL-terminated and the output pointer remains valid below.
     let converted = unsafe {
         ConvertStringSecurityDescriptorToSecurityDescriptorW(
             sddl.as_ptr(),
             1,
             &mut descriptor,
-            std::ptr::null_mut(),
+            ptr::null_mut(),
         )
     };
     if converted == 0 || descriptor.is_null() {
-        return Err(Error::from_reason("could not build Host storage ACL"));
+        return Err(Error::from_reason(format!("could not build {target} ACL")));
     }
+    let descriptor = SecurityDescriptor(descriptor);
 
-    let mut dacl = std::ptr::null_mut();
+    let mut dacl = ptr::null_mut();
     let mut dacl_present = 0;
     let mut dacl_defaulted = 0;
     // SAFETY: `descriptor` was returned by ConvertStringSecurityDescriptorToSecurityDescriptorW.
     let found_dacl = unsafe {
         GetSecurityDescriptorDacl(
-            descriptor,
+            descriptor.0,
             &mut dacl_present,
             &mut dacl,
             &mut dacl_defaulted,
         )
     };
     if found_dacl == 0 || dacl_present == 0 || dacl.is_null() {
-        // SAFETY: the descriptor was allocated by the Windows security API.
-        unsafe { LocalFree(descriptor.cast()) };
-        return Err(Error::from_reason("could not read Host storage ACL"));
+        return Err(Error::from_reason(format!("could not read {target} ACL")));
     }
-
-    let path_wide: Vec<u16> = path.as_os_str().encode_wide().chain(once(0)).collect();
-    // SAFETY: `path_wide` is NUL-terminated; `dacl` belongs to the live descriptor.
-    let result = unsafe {
-        SetNamedSecurityInfoW(
-            path_wide.as_ptr(),
-            SE_FILE_OBJECT,
-            DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-            dacl,
-            std::ptr::null_mut(),
-        )
-    };
-    // SAFETY: the descriptor was allocated by the Windows security API.
-    unsafe { LocalFree(descriptor.cast::<c_void>()) };
+    let result = apply(dacl)?;
     if result != 0 {
         return Err(Error::from_reason(format!(
-            "could not restrict Host storage ACL (Windows error {result})"
+            "could not restrict {target} ACL (Windows error {result})"
         )));
     }
     Ok(())

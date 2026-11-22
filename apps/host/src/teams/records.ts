@@ -107,6 +107,7 @@ export interface TeamChild {
     external: boolean;
   };
   branch?: string;
+  pendingWorktree?: { path: string; branch: string };
   createdWorktree?: string;
   createdBranch?: string;
   worktreeRemoved?: boolean;

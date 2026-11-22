@@ -337,6 +337,36 @@ test("アイコンの変更と復元で以前の画像を片付け、他のフ�
     ]);
   }));
 
+test("大きいアイコンをアップロードし、すべての範囲を読める", (t) =>
+  runHostTest(t, async ({ client }) => {
+    const value = definition("large-icon");
+    const prefix = "<!--" + "x".repeat(1_048_576) + "-->";
+    const icon = '<svg xmlns="http://www.w3.org/2000/svg"/>';
+    const upload = await uploadDefinitionFile(client, "icon.svg", prefix);
+    await client.request("cli.definition.file.write", {
+      uploadId: upload.uploadId,
+      first: false,
+      data: Buffer.from(icon).toString("base64"),
+    });
+    await client.request("cli.definition.save", {
+      definition: JSON.stringify({ ...value, icon: { light: upload.name } }),
+      files: [upload],
+    });
+    const { clis } = await client.request("cli.list");
+    const hash = clis.find((cli) => cli.id === value.id).icon.light;
+    const pages = [];
+    let offset = 0;
+    for (;;) {
+      const page = await client.request("cli.icon.read", { hash, offset });
+      assert.equal(page.mimeType, "image/svg+xml");
+      assert.ok(page.nextOffset > offset);
+      pages.push(Buffer.from(page.bytesBase64, "base64"));
+      if (page.eof) break;
+      offset = page.nextOffset;
+    }
+    assert.deepEqual(Buffer.concat(pages), Buffer.from(prefix + icon));
+  }));
+
 test("CLI定義を保存して再起動後も一覧から読める", (t) =>
   runHostTest(t, async ({ client, restart, stage }) => {
     const value = definition("example-cli");

@@ -3,6 +3,25 @@ $ErrorActionPreference = 'Stop'
 $destination = Join-Path $env:LOCALAPPDATA 'Programs\iori-host'
 $first = -not (Test-Path -LiteralPath (Join-Path $destination 'iori-host.cmd'))
 $work = Join-Path (Split-Path $destination) ('.iori-host-setup-' + [Guid]::NewGuid().ToString())
+$previous = Join-Path $work 'previous'
+$stoppedPrevious = $false
+$startRequested = $false
+$completed = $false
+$start = {
+    param([string]$destination, [string]$work)
+    $errorFile = Join-Path $work ('startup-error-' + [Guid]::NewGuid().ToString() + '.txt')
+    $launcher = Start-Process -FilePath "$destination\iori-host-background.exe" -WorkingDirectory $destination -ArgumentList ('"' + $errorFile + '"') -WindowStyle Hidden -PassThru
+    $ready = [Threading.EventWaitHandle]::new($false, [Threading.EventResetMode]::ManualReset, ('Local\iori-host-ready-' + $launcher.Id))
+    $exited = [Threading.ManualResetEvent]::new($false)
+    $exited.SafeWaitHandle = [Microsoft.Win32.SafeHandles.SafeWaitHandle]::new($launcher.Handle, $false)
+    try {
+        $null = [Threading.WaitHandle]::WaitAny([Threading.WaitHandle[]]@($exited, $ready))
+        if ($launcher.HasExited) {
+            $details = if (Test-Path -LiteralPath $errorFile) { [IO.File]::ReadAllText($errorFile) } else { '' }
+            throw ('iori Hostを起動できませんでした（終了コード: ' + $launcher.ExitCode + '）。' + $details)
+        }
+    } finally { $exited.Dispose(); $ready.Dispose(); $launcher.Dispose() }
+}
 New-Item -ItemType Directory -Path $work -Force | Out-Null
 try {
     if (-not $StartOnly) {
@@ -17,12 +36,12 @@ try {
             }
             & "$destination\runtime\node.exe" "$destination\stop.mjs"
             if ($LASTEXITCODE -ne 0) { throw 'iori Hostを停止できませんでした。' }
-            & "$work\node.exe" "$work\move-bundle.mjs" $destination "$work\previous"
+            $stoppedPrevious = $true
+            & "$work\node.exe" "$work\move-bundle.mjs" $destination $previous
             if ($LASTEXITCODE -ne 0) { throw 'iori Hostの前のバージョンを移動できませんでした。' }
         }
         & "$work\node.exe" "$work\move-bundle.mjs" $bundle $destination
         if ($LASTEXITCODE -ne 0) { throw 'iori Hostの新しいバージョンを配置できませんでした。' }
-        if (Test-Path -LiteralPath "$work\previous") { Remove-Item -LiteralPath "$work\previous" -Recurse -Force }
         # Command installs and reinstalls use the network default. Updates keep
         # the existing choice; the local Client has saved its choice already.
         if ($first -and -not $KeepConnectionScope) {
@@ -36,20 +55,13 @@ try {
         if ($destination -notin ($userPath -split ';')) { [Environment]::SetEnvironmentVariable('Path', (([string]$userPath).TrimEnd(';') + ';' + $destination), 'User') }
         if ($destination -notin ($env:Path -split ';')) { $env:Path += ';' + $destination }
     }
-    if ($InstallOnly) { return }
-    $start = {
-        param([string]$destination, [string]$work)
-        $errorFile = Join-Path $work 'startup-error.txt'
-        $launcher = Start-Process -FilePath "$destination\iori-host-background.exe" -WorkingDirectory $destination -ArgumentList ('"' + $errorFile + '"') -WindowStyle Hidden -PassThru
-        $ready = [Threading.EventWaitHandle]::new($false, [Threading.EventResetMode]::ManualReset, ('Local\iori-host-ready-' + $launcher.Id))
-        $exited = [Threading.ManualResetEvent]::new($false)
-        $exited.SafeWaitHandle = [Microsoft.Win32.SafeHandles.SafeWaitHandle]::new($launcher.Handle, $false)
-        try {
-            $null = [Threading.WaitHandle]::WaitAny([Threading.WaitHandle[]]@($exited, $ready))
-            if ($launcher.HasExited) { throw ('iori Hostを起動できませんでした（終了コード: ' + $launcher.ExitCode + '）。' + [IO.File]::ReadAllText($errorFile)) }
-        } finally { $exited.Dispose(); $ready.Dispose(); $launcher.Dispose() }
+    if ($InstallOnly) { $completed = $true; return }
+    if (-not $Ssh) {
+        $startRequested = $true
+        & $start $destination $work
+        $completed = $true
+        return
     }
-    if (-not $Ssh) { & $start $destination $work; return }
     # LSA exposes the caller's own logon sessions without elevation. Compare
     # SIDs and numeric logon types, including disconnected/locked desktops.
     # https://learn.microsoft.com/windows/win32/api/ntsecapi/nf-ntsecapi-lsagetlogonsessiondata
@@ -136,7 +148,7 @@ public static class IoriInteractiveLogon {
     try {
         $task = $folder.RegisterTaskDefinition($taskName, $definition, 2, $null, $null, 3, $null) # TASK_CREATE
         $registered = $true
-        try { $null = $task.Run($null) } catch {
+        try { $null = $task.Run($null); $startRequested = $true } catch {
             $errorCode = $_.Exception
             while ($errorCode -and $errorCode.HResult -notin $notStarted) { $errorCode = $errorCode.InnerException }
             if ($errorCode) {
@@ -163,10 +175,31 @@ public static class IoriInteractiveLogon {
         }
         $result = ConvertFrom-Json ([IO.File]::ReadAllText($resultFile))
         if (-not $result.started) { throw $result.message }
+        $completed = $true
     } finally {
         if ($registered) { $folder.DeleteTask($taskName, 0) }
     }
-
+} catch {
+    if ($stoppedPrevious -and -not $completed) {
+        try {
+            if (Test-Path -LiteralPath $previous) {
+                if (Test-Path -LiteralPath $destination) {
+                    if ($startRequested) {
+                        try { & "$destination\runtime\node.exe" "$destination\stop.mjs" }
+                        catch { Write-Error -ErrorRecord $_ -ErrorAction Continue }
+                    }
+                    & "$work\node.exe" "$work\move-bundle.mjs" $destination "$work\failed"
+                    if ($LASTEXITCODE -ne 0) { throw 'iori Hostの新しいバージョンを配置できませんでした。' }
+                }
+                & "$work\node.exe" "$work\move-bundle.mjs" $previous $destination
+                if ($LASTEXITCODE -ne 0) { throw 'iori Hostの前のバージョンを移動できませんでした。' }
+            }
+            & $start $destination $work
+        } catch { Write-Error -ErrorRecord $_ -ErrorAction Continue }
+    }
+    throw
 } finally {
-    if (Test-Path -LiteralPath $work) { Remove-Item -LiteralPath $work -Recurse -Force }
+    if ($completed -or -not (Test-Path -LiteralPath $previous)) {
+        if (Test-Path -LiteralPath $work) { Remove-Item -LiteralPath $work -Recurse -Force }
+    }
 }

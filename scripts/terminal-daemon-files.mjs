@@ -1,14 +1,24 @@
-import { readFile, realpath } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { readFile, glob } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 import ts from "typescript";
 const read = (file) => readFile(file, "utf8");
 
 const roots = ["src/terminal/daemon/entry.js"];
+// Native filenames are selected from the package's own load locations. Keep
+// the platform-independent recipe in the fingerprint along with its build inputs.
+export const nativeAssets = {
+  "@iori/terminal-native": ["iori_terminal_native.node", "iori{,.exe}"],
+  "node-pty": [
+    "{build/Release,prebuilds/PLATFORM-ARCH}/{pty.node,spawn-helper,conpty.node,conpty_console_list.node,winpty.dll,winpty-agent.exe,conpty/conpty.dll,conpty/OpenConsole.exe}",
+  ],
+};
 export async function daemonClosure(bundle) {
-  const files = new Set(),
-    packages = new Map();
+  const files = new Set(["package.json"]),
+    packages = new Map(),
+    nativeFiles = new Set([
+      process.platform === "win32" ? "runtime/node.exe" : "runtime/node",
+    ]);
   async function dependency(specifier, from) {
     if (specifier.startsWith("node:")) return;
     if (specifier.startsWith(".")) {
@@ -22,20 +32,39 @@ export async function daemonClosure(bundle) {
     const name = specifier.startsWith("@")
       ? specifier.split("/").slice(0, 2).join("/")
       : specifier.split("/")[0];
-    if (packages.has(name)) return;
-    const require = createRequire(path.resolve(bundle, from));
-    const location = require.resolve
-      .paths(name)
-      .map((p) => path.join(p, name))
-      .find((p) => existsSync(path.join(p, "package.json")));
-    const root = await realpath(location);
+    const prefix = `node_modules/${name}`;
+    const root = path.join(bundle, prefix);
     const manifest = JSON.parse(await read(path.join(root, "package.json")));
-    packages.set(name, manifest.version);
-    for (const child of Object.keys(manifest.dependencies ?? {}))
-      await dependency(
-        child,
-        path.posix.join("node_modules", name, "package.json"),
+    files.add(`${prefix}/package.json`);
+    packages.set(name, manifest.version ?? "workspace");
+    const require = createRequire(path.resolve(bundle, from));
+    const entry = path
+      .relative(bundle, require.resolve(specifier))
+      .split(path.sep)
+      .join("/");
+    if (name === "@iori/protocol") {
+      // Follow only the standalone snapshot restore helper.
+      await source(entry);
+      return;
+    }
+    files.add(entry);
+    if (name === "node-pty") {
+      for await (const js of glob("lib/**/*.js", {
+        cwd: root,
+        exclude: ["**/*.test.js"],
+      }))
+        files.add(`${prefix}/${js.split(path.sep).join("/")}`);
+    } else if (!(name in nativeAssets) && !name.startsWith("@xterm/")) {
+      throw new Error(`No terminal daemon runtime file selection for ${name}`);
+    }
+    for (const pattern of nativeAssets[name] ?? []) {
+      const target = pattern.replace(
+        "PLATFORM-ARCH",
+        `${process.platform}-${process.arch}`,
       );
+      for await (const file of glob(target, { cwd: root }))
+        nativeFiles.add(`${prefix}/${file.split(path.sep).join("/")}`);
+    }
   }
   async function source(file) {
     if (files.has(file)) return;
@@ -77,7 +106,8 @@ export async function daemonClosure(bundle) {
   }
   for (const root of roots) await source(root);
   return {
-    sources: [...files].sort(),
+    files: [...files].sort(),
+    nativeFiles: [...nativeFiles].sort(),
     packages: Object.fromEntries([...packages].sort()),
   };
 }

@@ -4,16 +4,7 @@ import type { Terminal } from "@xterm/headless";
 import { readTerminalMouseEncoding } from "../shared/terminal-mouse-encoding.ts";
 import type { TerminalModes } from "./types.ts";
 
-type TerminalWithKittyKeyboard = Terminal & {
-  // Why: kitty keyboard flags aren't on the public IModes; read the core service the CSI u handlers mutate.
-  _core?: { coreService?: { kittyKeyboard?: { flags?: number } } };
-};
-
-export function readKittyKeyboardFlags(terminal: Terminal): number {
-  const flags = (terminal as TerminalWithKittyKeyboard)._core?.coreService
-    ?.kittyKeyboard?.flags;
-  return typeof flags === "number" ? flags : 0;
-}
+import { kittyKeyboardFlags } from "./xterm-adapter.ts";
 
 /** Mode state a snapshot must carry so a restored pane behaves like the live one. */
 export function readTerminalModes(terminal: Terminal): TerminalModes {
@@ -31,6 +22,6 @@ export function readTerminalModes(terminal: Terminal): TerminalModes {
         ? terminal.modes.applicationCursorKeysMode
         : false,
     alternateScreen: buffer.type === "alternate",
-    kittyKeyboardFlags: readKittyKeyboardFlags(terminal),
+    kittyKeyboardFlags: kittyKeyboardFlags(terminal),
   };
 }

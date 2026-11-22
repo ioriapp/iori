@@ -244,13 +244,39 @@ test("repeatable directories and prompts retain the user's spelling", () => {
   }
 });
 
-test("simple braced variable references survive alongside a removed role option", () => {
+test("unquoted variable expansions omit the saved arguments of a team launch", () => {
+  const definition = cliDefinitions.find((entry) => entry.id === "codex")!;
+  for (const [id, reference] of [
+    ["bash", "$FLAGS"],
+    ["zsh", "${FLAGS}"],
+    ["fish", "$FLAGS"],
+    ["powershell", "$env:FLAGS"],
+    ["powershell", "${env:FLAGS}"],
+    ["cmd", "%FLAGS%"],
+    ["cmd", "!FLAGS!"],
+    ["bash", "--add-dir ${HOME}/src"],
+    ["powershell", "--add-dir ${env:USERPROFILE}/src"],
+  ] as const) {
+    assert.equal(
+      teamStartupArguments(
+        `--keep value ${reference} --model old`,
+        shell(id),
+        definition.managedTeamArguments!,
+        definition.teamArguments!(launch),
+      ),
+      "",
+      id,
+    );
+  }
+});
+
+test("quoted variable references survive alongside a removed role option", () => {
   const definition = cliDefinitions.find((entry) => entry.id === "codex")!;
   for (const [id, source] of [
-    ["bash", '--profile "${PROFILE}" --add-dir ${HOME}/src'],
+    ["bash", '--profile "${PROFILE}" --add-dir "${HOME}/src"'],
     [
       "powershell",
-      '--profile "${env:PROFILE}" --add-dir ${env:USERPROFILE}/src',
+      '--profile "${env:PROFILE}" --add-dir "${env:USERPROFILE}/src"',
     ],
   ]) {
     assert.equal(
@@ -294,7 +320,7 @@ test("Claude grants iori directories without replacing the user's settings", () 
     [`--settings '{"permissions":{"allow":["Read"]}}'`, "bash"],
     ["--settings 'custom settings.json'", "bash"],
     ['--settings="custom settings.json"', "powershell"],
-    ["--settings ${SETTINGS_FILE}", "bash"],
+    ['--settings "${SETTINGS_FILE}"', "bash"],
   ]) {
     const args = definition.teamArguments!({
       ...launch,

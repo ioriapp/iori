@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
+import { constants, type BigIntStats } from "node:fs";
 import {
   appendFile,
   mkdir,
-  readFile,
+  open,
   realpath,
   rm,
   writeFile,
@@ -54,32 +55,158 @@ export async function definitionFilePath(
   } else contained(await realpath(path));
   return path;
 }
-export function imageMime(name: string, bytes: Uint8Array): string | undefined {
-  if (/\.png$/iu.test(name))
-    return Buffer.from(bytes.subarray(0, 8)).equals(
-      Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
-    )
-      ? "image/png"
-      : undefined;
-  if (!/\.svg$/iu.test(name)) return undefined;
-  try {
-    const xml = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-    // The Client's image decoder checks the complete image when it is chosen.
-    // The Host never executes SVG or fetches its external declarations.
-    const content = xml
-      .replace(
-        /<!--[\s\S]*?-->|<\?[\s\S]*?\?>|<!DOCTYPE(?:[^>\[]|\[[\s\S]*?\])*?>/giu,
-        "",
-      )
-      .trimStart();
-    return /^<svg(?:\s|\/?>)/u.test(content) ? "image/svg+xml" : undefined;
-  } catch {
-    return undefined;
-  }
-}
 export const imageHash = (bytes: Uint8Array) =>
   createHash("sha256").update(bytes).digest("hex");
-export type DefinitionImage = { bytes: Buffer; mimeType: string };
+
+/** Checks the SVG opening tag without retaining its prolog or loading XML. */
+function svgOpening() {
+  const prologs = [
+    { start: "<!--", end: "-->" },
+    { start: "<?", end: "?>" },
+    { start: "<!doctype", end: ">" },
+  ];
+  let tail = "";
+  let end = "";
+  let inDoctype = false;
+  return (chunk: string): boolean | undefined => {
+    let text = tail + chunk;
+    tail = "";
+    for (;;) {
+      if (end) {
+        const index =
+          inDoctype && end === ">" ? text.search(/[>\[]/u) : text.indexOf(end);
+        if (index < 0) {
+          tail = end.length > 1 ? text.slice(1 - end.length) : "";
+          return undefined;
+        }
+        const delimiter = text[index];
+        text = text.slice(index + end.length);
+        end = inDoctype && delimiter === "[" ? "]" : end === "]" ? ">" : "";
+        if (!end) inDoctype = false;
+        continue;
+      }
+      text = text.trimStart();
+      if (/^<svg(?:\s|\/?>)/u.test(text)) return true;
+      const lower = text.slice(0, 9).toLowerCase();
+      const prolog = prologs.find(({ start }) => lower.startsWith(start));
+      if (prolog) {
+        text = text.slice(prolog.start.length);
+        end = prolog.end;
+        inDoctype = end === ">";
+      } else if (
+        ["<svg", "<svg/"].some((prefix) => prefix.startsWith(text)) ||
+        prologs.some(
+          ({ start }) => start.startsWith(lower) && text.length <= start.length,
+        )
+      ) {
+        tail = text;
+        return undefined;
+      } else return false;
+    }
+  };
+}
+
+export type DefinitionImage = {
+  path: string;
+  info: BigIntStats;
+  mimeType: string;
+};
+const sameFile = (a: BigIntStats, b: BigIntStats) =>
+  a.dev === b.dev &&
+  a.ino === b.ino &&
+  a.size === b.size &&
+  a.mtimeNs === b.mtimeNs &&
+  a.ctimeNs === b.ctimeNs;
+const READ_REGULAR = constants.O_RDONLY | constants.O_NONBLOCK;
+
+export async function inspectDefinitionImage(name: string, path: string) {
+  const png = /\.png$/iu.test(name);
+  if (!png && !/\.svg$/iu.test(name)) return undefined;
+  const file = await open(path, READ_REGULAR);
+  try {
+    const info = await file.stat({ bigint: true });
+    if (!info.isFile()) return undefined;
+    const signature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+    const head = png ? Buffer.alloc(signature.length) : undefined;
+    let headBytes = 0;
+    const decoder = png ? undefined : new TextDecoder("utf-8", { fatal: true });
+    const opening = svgOpening();
+    let isSvg: boolean | undefined;
+    const hash = createHash("sha256");
+    for await (const chunk of file.createReadStream({ autoClose: false })) {
+      hash.update(chunk);
+      if (head && headBytes < head.length)
+        headBytes += (chunk as Buffer).copy(head, headBytes);
+      if (decoder) {
+        let text;
+        try {
+          text = decoder.decode(chunk, { stream: true });
+        } catch {
+          return undefined;
+        }
+        isSvg ??= opening(text);
+        if (isSvg === false) return undefined;
+      }
+    }
+    if (decoder) {
+      let last;
+      try {
+        last = decoder.decode();
+      } catch {
+        return undefined;
+      }
+      isSvg ??= opening(last);
+    }
+    if (!(head ? head.equals(signature) : isSvg)) return undefined;
+    if (!sameFile(info, await file.stat({ bigint: true }))) return undefined;
+    return {
+      hash: hash.digest("hex"),
+      path,
+      info,
+      mimeType: png ? "image/png" : "image/svg+xml",
+    };
+  } finally {
+    await file.close();
+  }
+}
+
+/** The protocol identifies the exact icon bytes by hash across range reads. */
+export async function readDefinitionIcon(
+  image: DefinitionImage,
+  offset: number,
+) {
+  const file = await open(image.path, READ_REGULAR);
+  try {
+    const info = await file.stat({ bigint: true });
+    if (!sameFile(image.info, info)) throw new Error("Image changed");
+    const size = Number(info.size);
+    const bytes = Buffer.allocUnsafe(
+      Math.min(1_048_576, Math.max(0, size - offset)),
+    );
+    let read = 0;
+    while (read < bytes.length) {
+      const { bytesRead } = await file.read(
+        bytes,
+        read,
+        bytes.length - read,
+        offset + read,
+      );
+      if (bytesRead === 0) break;
+      read += bytesRead;
+    }
+    if (!sameFile(info, await file.stat({ bigint: true })))
+      throw new Error("Image changed");
+    return {
+      bytesBase64: bytes.subarray(0, read).toString("base64"),
+      nextOffset: offset + read,
+      eof: offset + read >= size,
+      mimeType: image.mimeType,
+    };
+  } finally {
+    await file.close();
+  }
+}
+
 export async function definitionImages(file: DefinitionFile, folder: string) {
   const images = new Map<string, DefinitionImage>();
   const icon: { light: string; dark?: string; source: "host" } = {
@@ -91,12 +218,13 @@ export async function definitionImages(file: DefinitionFile, folder: string) {
     if (!name) continue;
     const field = `icon.${theme}`;
     try {
-      const bytes = await readFile(await definitionFilePath(folder, name));
-      const mimeType = imageMime(name, bytes);
-      if (!mimeType) continue;
-      const hash = imageHash(bytes);
-      icon[theme] = hash;
-      images.set(hash, { bytes, mimeType });
+      const image = await inspectDefinitionImage(
+        name,
+        await definitionFilePath(folder, name),
+      );
+      if (!image) continue;
+      icon[theme] = image.hash;
+      images.set(image.hash, image);
     } catch (error) {
       if (error instanceof DefinitionAttachmentError)
         return { reason: { ...error.reason, field } as CliDefinitionReason };

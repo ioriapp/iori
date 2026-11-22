@@ -1,9 +1,10 @@
-import { otherHostUses } from "../hook-hosts.ts";
-import { removeHookFile } from "../hook-files.ts";
+import {
+  removeOwnedPluginFile,
+  writeOwnedPluginFile,
+} from "../definition-hooks.ts";
 // Derived from Orca agent-status-handler-source.ts / ui-prompt-source.ts.
 // Copyright (c) 2026 Lovecast Inc.; MIT license: ../ORCA-LICENSE.txt.
-import { dirname, join } from "node:path";
-import { writeText } from "../hook-config.ts";
+import { join } from "node:path";
 import {
   cliFailure,
   toolActivity,
@@ -62,18 +63,8 @@ export default function(pi) {
 `;
 export const hooks: CliHooks = {
   isSessionStart: (payload) => payload.hook_event_name === "session_start",
-  async install(ctx) {
-    const target = path(ctx.home);
-    await writeText(target, source);
-  },
-  async remove(ctx) {
-    if (
-      ctx.writtenPath &&
-      (await otherHostUses(dirname(ctx.writtenPath), ctx.id))
-    )
-      return;
-    await removeHookFile(path(ctx.home));
-  },
+  install: (ctx) => writeOwnedPluginFile(ctx, path(ctx.home), source),
+  remove: (ctx) => removeOwnedPluginFile(ctx, path(ctx.home)),
   normalize(payload, _previous, cwd) {
     const event = payload.hook_event_name;
     if (event === "session_start") return { state: "idle" };

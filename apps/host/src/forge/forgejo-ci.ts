@@ -227,6 +227,47 @@ export async function readForgejoCi(
   };
 }
 
+/** Keep only the requested window when the server sends the whole log. */
+async function logWindow(
+  body: ReadableStream<Uint8Array> | null,
+  before: number | undefined,
+) {
+  const ring = Buffer.alloc(LOG_PART_BYTES);
+  let size = 0;
+  const reader = body?.getReader();
+  if (reader) {
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const count = Math.min(
+          value.length,
+          Math.max(0, (before ?? Infinity) - size),
+        );
+        const kept = value.subarray(Math.max(0, count - LOG_PART_BYTES), count);
+        const offset = (size + count - kept.length) % LOG_PART_BYTES;
+        const first = Math.min(kept.length, LOG_PART_BYTES - offset);
+        ring.set(kept.subarray(0, first), offset);
+        ring.set(kept.subarray(first), 0);
+        size += value.length;
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  }
+  const { start, end } = logRange(before, size);
+  const index = start % LOG_PART_BYTES;
+  const length = end - start;
+  const bytes =
+    index + length <= LOG_PART_BYTES
+      ? ring.subarray(index, index + length)
+      : Buffer.concat([
+          ring.subarray(index),
+          ring.subarray(0, (index + length) % LOG_PART_BYTES),
+        ]);
+  return { bytes, start, size };
+}
+
 export async function readForgejoCiLog(
   target: ForgeTarget,
   job: string,
@@ -259,13 +300,15 @@ export async function readForgejoCiLog(
     await response.body?.cancel().catch(() => undefined);
     return { start: 0, end: 0, size: 0, text: "" };
   }
-  const bytes = new Uint8Array(await response.arrayBuffer());
   const served = /^bytes (\d+)-\d+\/(\d+)$/u.exec(
     response.headers.get("content-range") ?? "",
   );
-  if (response.status === 206 && served)
-    return logPart(bytes, Number(served[1]), Number(served[2]));
-  // The site sent the whole log; only the part asked for crosses to the Client.
-  const { start, end } = logRange(before, bytes.length);
-  return logPart(bytes.subarray(start, end), start, bytes.length);
+  const partial = response.status === 206 && served;
+  const { bytes, start, size } = await logWindow(
+    response.body,
+    partial ? undefined : before,
+  );
+  return partial
+    ? logPart(bytes, Number(partial[1]) + start, Number(partial[2]))
+    : logPart(bytes, start, size);
 }

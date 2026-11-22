@@ -138,12 +138,15 @@ export class PagedList<T> {
         this.error = undefined;
       })
       .catch((error: unknown) => {
-        if (controller.signal.aborted || isAbort(error)) return;
+        if (
+          controller.signal.aborted ||
+          generation !== this.#generation ||
+          isAbort(error)
+        )
+          return;
         // A lost connection is not a failure here; the watch reads again after reconnecting.
         if (error instanceof ReadConnectionLost) {
-          // A newer watch refresh may already have arrived while this read
-          // was finishing. Otherwise wait for that event, including on ensure.
-          this.#waitingForConnection = generation === this.#generation;
+          this.#waitingForConnection = true;
         } else {
           this.error = error;
           this.#failedPage = start;

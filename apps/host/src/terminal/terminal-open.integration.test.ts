@@ -1,3 +1,4 @@
+import { queryObjects } from "node:v8";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -111,6 +112,12 @@ test("a view opened while a CLI's Terminal is created never drops the CLI's star
     assert.equal(store.terminalCli(created.result.terminal.id)?.cli.id, cliId);
     closeView();
     await view;
+    const exits: string[] = [];
+    terminals.onCliExit = (_id, reason) => {
+      exits.push(reason);
+    };
+    await terminals.closeTerminal(context(), created.result.terminal.id, true);
+    assert.deepEqual(exits, ["user"]);
   } finally {
     watching = false;
     closeView();
@@ -118,5 +125,28 @@ test("a view opened while a CLI's Terminal is created never drops the CLI's star
     await stopTerminalDaemon(root);
     store.close();
     await rm(root, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
+test("a rejected delivery releases its completion callback", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iori-terminal-deliveries-"));
+  const store = new HostStore(join(root, "host.sqlite"));
+  const terminals = await TerminalManager.create(store, () => {}, root);
+  class Delivery {
+    complete() {}
+  }
+  const send = () => {
+    const receipt = new Delivery();
+    return terminals.sendLine("closed", "line", receipt.complete.bind(receipt));
+  };
+  try {
+    await assert.rejects(send(), /CLI is stopped/u);
+    await nextTurn();
+    assert.equal(queryObjects(Delivery), 0);
+  } finally {
+    await terminals.close();
+    await stopTerminalDaemon(root);
+    store.close();
+    await rm(root, { recursive: true, force: true });
   }
 });

@@ -643,7 +643,7 @@ function HostRecords({
                               className={cn(
                                 "grid w-full cursor-pointer grid-cols-1 gap-1.5 px-1 py-3 text-left text-xs tabular-nums transition-colors md:col-span-full md:grid-cols-subgrid md:items-center md:gap-y-0 md:border-b md:border-border-subtle md:px-0 md:py-3",
                                 isSelected
-                                  ? "bg-primary/14 font-semibold"
+                                  ? "bg-primary/14"
                                   : "bg-transparent [@media(hover:hover)]:hover:bg-accent/40",
                               )}
                               key={row.key}

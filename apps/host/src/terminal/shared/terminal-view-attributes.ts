@@ -6,7 +6,10 @@
  * push, plus main/renderer mirrors of xterm's XParseColor color-spec grammar
  * so main's responder replies byte-identically to a visible renderer xterm.
  */
-import type { TerminalOscColorQueryReplyColors } from "./terminal-osc-color-reply.ts";
+export type TerminalOscColorQueryReplyColors = {
+  foreground?: string;
+  background?: string;
+};
 
 /** 8-bit-per-channel RGB triple — the same resolution xterm's theme service
  *  stores internally (`color.toColorRGB`). */

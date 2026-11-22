@@ -743,7 +743,7 @@ export function UsageStatus({
       ? `ほかの利用枠 ${count}件`
       : `${count} more usage limits`;
   const triggerBaseClass =
-    "h-[1.125rem] gap-1.5 rounded-sm px-1.5 text-[length:inherit] font-normal text-muted-foreground aria-expanded:border-primary/55 aria-expanded:bg-primary/6 aria-expanded:font-semibold";
+    "h-[1.125rem] gap-1.5 rounded-sm px-1.5 text-[length:inherit] font-normal text-muted-foreground aria-expanded:border-primary/55 aria-expanded:bg-primary/6";
   const usageItemClass = cn(
     "usage-item border border-transparent bg-transparent hover:bg-primary/6 focus-visible:bg-primary/6",
     triggerBaseClass,

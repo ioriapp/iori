@@ -84,10 +84,10 @@ function NavItemButton({
       title={label}
       onClick={onClick}
       className={cn(
-        "flex w-full cursor-pointer items-center justify-between gap-2 rounded-md px-2.5 text-left text-xs font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+        "relative flex w-full cursor-pointer items-center justify-between gap-2 rounded-md px-2.5 text-left text-xs font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
         "min-h-11 md:min-h-0 md:h-8",
         active
-          ? "text-foreground md:rounded-l-none md:border-l-2 md:border-l-primary md:bg-sidebar-accent md:font-semibold"
+          ? "text-foreground md:rounded-l-none md:bg-sidebar-accent md:before:pointer-events-none md:before:absolute md:before:inset-y-0 md:before:left-0 md:before:w-0.5 md:before:bg-primary"
           : "text-sidebar-foreground/85 [@media(hover:hover)]:hover:bg-sidebar-accent/70 [@media(hover:hover)]:hover:text-foreground",
       )}
     >

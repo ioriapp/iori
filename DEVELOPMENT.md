@@ -4,18 +4,18 @@
 
 ## ソースの入口
 
-| 場所                                   | 責務                                                    |
-| -------------------------------------- | ------------------------------------------------------- |
-| `packages/protocol/`                   | HostとReactが共有する要求・出来事・招待・枠と入口の検査 |
-| `apps/host/native/`                    | Hostからirohを呼ぶNode addon                            |
-| `crates/iori-iroh-config/`             | HostとClientのiroh endpoint設定                         |
-| `apps/host/src/main.ts`                | Hostの起動と終了。Node.js 24がTypeScriptを直接実行する  |
-| `apps/client/src/`                     | Reactの登録・端末管理とモックアップv9の色・書体         |
-| `apps/client/src-tauri/`               | Tauriのnative入口とAndroidプロジェクト                  |
-| `scripts/eslint-plugin-iori/`          | 作りの原則を守るESLint規則と純粋な試験                  |
-| `scripts/`                             | 検査とCIの道具                                          |
-| [verification](verification/README.md) | 実機と本物のCLIによる検証                               |
-| `e2e/`                                 | ioriの画面を通すCLI・Terminal・接続のシナリオ           |
+| 場所                                   | 責務                                                                  |
+| -------------------------------------- | --------------------------------------------------------------------- |
+| `packages/protocol/`                   | HostとReactが共有する要求・出来事・招待・枠と入口の検査               |
+| `apps/host/native/`                    | Hostからirohを呼ぶNode addon                                          |
+| `crates/iori-iroh-config/`             | HostとClientのiroh endpoint設定                                       |
+| `apps/host/src/main.ts`                | Hostの起動と終了。Node.js 24がTypeScriptを直接実行する                |
+| `apps/client/src/`                     | Reactの画面本体（Tailwind CSS v4・shadcn/uiのフラット・ヘアラインUI） |
+| `apps/client/src-tauri/`               | Tauriのnative入口とAndroidプロジェクト                                |
+| `scripts/eslint-plugin-iori/`          | 作りの原則を守るESLint規則と純粋な試験                                |
+| `scripts/`                             | 検査とCIの道具                                                        |
+| [verification](verification/README.md) | 実機と本物のCLIによる検証                                             |
+| `e2e/`                                 | ioriの画面を通すCLI・Terminal・接続のシナリオ                         |
 
 Orca（[stablyai/orca](https://github.com/stablyai/orca)、MIT）の実装は流用してよい。コピーしたファイルには元の著作権表示と許諾文を残し、同梱物・依存のライセンスはそのファイルごとに確かめる。
 
@@ -122,7 +122,11 @@ node scripts/run-bounded-check.mjs bash scripts/ci.sh
 Dockerが必要。imageを作り直す時は `bash scripts/ci.sh --rebuild-image` を使う。pushの変更がMarkdownだけの時は `--docs-only` で整形・文書のリンク・空白だけを検査する。同じ機械の通常の `ci.sh` は1本ずつ流れ、後から始めた方は前の実行が終わるまで待つ（重なると Host API の試験が負荷で時間切れになるため）。CI imageはLinux用Tauri依存・Rust・pnpmを含み、Dockerfileとtoolchainから決まるtag・labelで再利用する。pnpm store、Cargo registry、Cargo targetは名前付きvolumeを使う。
 CIの前にCargo targetへworktreeの絶対パスを記録し、消えたworktreeの保存先と、記録がなく2日以上使われていない保存先を片付ける。今のworktreeと実行中のCIの保存先は残す。
 
+CIコンテナのメモリ上限はホストとDockerが利用できるRAMの小さい方の半分（整数のGiB、8〜24 GiB）で、取得できない時は8 GiB、`IORI_CI_MEMORY` を指定した時はその値を使う。上限が16 GiB以上で利用できるCPUが8コア以上なら、同時に動く試験数を調整して `pnpm test` と画面の試験を並列に実行する。
+
 ソースを `docker create` → `docker cp` → `docker start` で渡し、型・lint・全試験・format・文書・Clientのfrontend build・Rust fmt/clippyを流す。linked worktreeにも対応する。Gitのobjects・refs・indexはコピーするが、認証・config・hooksはコピーしない。実行のログと所要時間は `.local/evidence/ci/` に保存する。温まった状態で全体5分以内を目標にする。
+
+各ステップの所要時間と結果は実行末尾と証拠ディレクトリの `steps.json` に、個別のログは `logs/` に出る。直前に成功した full CI と Rust の入力内容と Docker image が一致するときは Rust の整形・Clippy・試験を省略する。ネイティブビルドは毎回実行する。
 
 ## 開発の回し方
 

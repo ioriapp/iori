@@ -7,6 +7,7 @@ import {
   hkdfSync,
   randomBytes,
 } from "node:crypto";
+import { watch } from "node:fs";
 import { appendFile, readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -126,6 +127,38 @@ for (const mode of [
         const pty = await controller.terminal(terminal.id);
         const output = await pty.output(/WATCH_CONTROL:([^\r\n]+)\r?\n/u);
         const control = output.match(/WATCH_CONTROL:([^\r\n]+)\r?\n/u)[1];
+        let subscriptionRemoved;
+        if (mode === "gone") {
+          const directory = join(dataRoot, "iori-host");
+          const db = new DatabaseSync(join(directory, "host.sqlite"), {
+            readOnly: true,
+          });
+          let watcher;
+          let settled = false;
+          subscriptionRemoved = new Promise((resolve) => {
+            const check = () => {
+              if (settled || !db.isOpen) return;
+              if (
+                db
+                  .prepare(
+                    "SELECT count(*) AS n FROM push_subscriptions WHERE device_public_key = ?",
+                  )
+                  .get(deviceKey).n === 0
+              ) {
+                settled = true;
+                watcher.close();
+                db.close();
+                resolve();
+              }
+            };
+            watcher = watch(directory, check);
+            t.after(() => {
+              watcher.close();
+              if (db.isOpen) db.close();
+            });
+            check();
+          });
+        }
         if (mode === "revoked")
           await controller.request("devices.revoke", { publicKey: deviceKey });
         stage("CLIの判断待ちを公開する");
@@ -164,8 +197,7 @@ for (const mode of [
             target: { hostKey, terminalId: terminal.id },
           });
         }
-        // Let the HTTPS response reach the Host before inspecting saved state.
-        await new Promise((resolve) => setTimeout(resolve, 100));
+        if (mode === "gone") await subscriptionRemoved;
         if (mode === "gone" || mode === "revoked") {
           const db = new DatabaseSync(
             join(dataRoot, "iori-host", "host.sqlite"),
@@ -202,7 +234,7 @@ for (const mode of [
               event.terminal.cliStatus?.state === "done",
           );
         }
-        await new Promise((resolve) => setTimeout(resolve, 100));
+        await controller.request("host.info");
         assert.equal(
           received.length,
           mode === "offline" || mode === "gone" || mode === "disconnect"
@@ -230,12 +262,12 @@ for (const mode of [
                 headers: request.headers,
               };
               received.push(delivery);
+              response.on("finish", () => arrived(delivery));
               response
                 .writeHead(
                   mode === "gone" ? 410 : mode === "unavailable" ? 503 : 201,
                 )
                 .end(mode === "unavailable" ? "private-response-body" : "");
-              arrived(delivery);
             },
           );
           await new Promise((resolve) =>
