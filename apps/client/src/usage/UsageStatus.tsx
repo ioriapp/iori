@@ -31,6 +31,7 @@ import {
   formatUsageLength,
   formatUsageDuration,
   formatUpdatedAt,
+  formatUsagePace,
 } from "../usage-format.ts";
 import { useUsagePreferences } from "./preferences.tsx";
 import { refreshUsage, useUsageRefresh } from "./refresh.ts";
@@ -73,8 +74,8 @@ function findSelectedWindow(
   );
 }
 
-function resetLabel(at: number, language: string) {
-  const minutes = Math.max(0, Math.ceil((at - Date.now()) / 60000));
+function resetLabel(at: number, language: string, now = Date.now()) {
+  const minutes = Math.max(0, Math.ceil((at - now) / 60000));
   const date = new Intl.DateTimeFormat(
     language.toLowerCase().startsWith("ja") ? "ja-JP" : "en-US",
     {
@@ -332,6 +333,7 @@ function UsageDetail({
 }) {
   const baseId = useId();
   const headingId = `${baseId}-heading`;
+  const now = Date.now();
   const selectable = cli.windows.length >= 2;
   const pinnedWindow = selectable
     ? findSelectedWindow(cli.windows, selected)
@@ -375,7 +377,7 @@ function UsageDetail({
       </div>
       {updatedAt !== undefined && (
         <p className="mt-0 mb-3 text-xs text-muted-foreground">
-          {formatUpdatedAt(updatedAt, language)}
+          {formatUpdatedAt(updatedAt, language, now)}
         </p>
       )}
       {cli.windows.map((window, index) => {
@@ -384,6 +386,7 @@ function UsageDetail({
         const lastSpace = label.lastIndexOf(" ");
         const labelHead = lastSpace === -1 ? "" : label.slice(0, lastSpace + 1);
         const labelTail = lastSpace === -1 ? label : label.slice(lastSpace + 1);
+        const pace = formatUsagePace(window, language, now);
         return (
           <div className="mt-3.5 first:mt-0" key={index}>
             <div className="flex min-w-0 items-center gap-2">
@@ -415,7 +418,12 @@ function UsageDetail({
             </div>
             {window.resetsAt !== undefined && (
               <p className="mt-1 mb-0 text-xs text-muted-foreground tabular-nums">
-                {resetLabel(window.resetsAt, language)}
+                {resetLabel(window.resetsAt, language, now)}
+              </p>
+            )}
+            {pace !== undefined && (
+              <p className="mt-0.5 mb-0 text-xs text-status-waiting-text tabular-nums">
+                {pace}
               </p>
             )}
           </div>

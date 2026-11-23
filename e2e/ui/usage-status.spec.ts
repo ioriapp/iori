@@ -221,3 +221,54 @@ test(
     await expect(usage.locator(".usage-mini-graphs > *")).toHaveCount(2);
   },
 );
+
+test(
+  "ポップオーバーで消費ペース超過の利用枠だけに予測残り時間を表示する",
+  { tag: "@desktop" },
+  async ({ page, registeredApp: app }) => {
+    await app.open(page);
+    await openFolder(page, app, false);
+    const uploadId = randomUUID();
+    const script = `const now = Date.now();
+const minute = 60_000;
+console.log(JSON.stringify({
+  windows: [
+    { name: "Fast", remaining: 80, minutes: 10080, resetsAt: now + 6 * 1440 * minute },
+    { name: "Safe", remaining: 90, minutes: 10080, resetsAt: now + 6 * 1440 * minute },
+    { name: "Early", remaining: 50, minutes: 300, resetsAt: now + 295 * minute },
+    { name: "Empty", remaining: 0, minutes: 300, resetsAt: now + 180 * minute }
+  ]
+}));`;
+    await app.request("cli.definition.file.write", {
+      uploadId,
+      first: true,
+      data: Buffer.from(script).toString("base64"),
+    });
+    await app.request("cli.definition.save", {
+      definition: JSON.stringify({
+        schema: 1,
+        id: "usage-pace-test",
+        name: "Usage pace",
+        command: { shell: "node --version" },
+        usage: { script: "usage.mjs" },
+      }),
+      files: [{ name: "usage.mjs", uploadId }],
+    });
+    await page.reload();
+
+    const usage = page.getByRole("button", { name: /Usage pace usage/ });
+    await expect(usage).toBeVisible();
+    await usage.click();
+    await expect(
+      page.getByRole("heading", { name: "Usage pace", exact: true }),
+    ).toBeVisible();
+    await expect(page.getByText(/Fast 7d/)).toBeVisible();
+    await expect(page.getByText(/Safe 7d/)).toBeVisible();
+    await expect(page.getByText(/Early 5h/)).toBeVisible();
+    await expect(page.getByText(/Empty 5h/)).toBeVisible();
+    await expect(
+      page.getByText("Runs out in ~4d 0h", { exact: true }),
+    ).toBeVisible();
+    await expect(page.getByText(/Runs out in/)).toHaveCount(1);
+  },
+);

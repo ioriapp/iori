@@ -241,14 +241,17 @@ export async function runReleaseScenario({
     }));
     for (const cli of result.cliResumePending) assert.equal(cli.pending, true);
     if (runningClis) {
-      const current = await processes();
-      result.remainingOldProcesses = result.before.processes.filter((old) =>
-        current.some(
-          (item) =>
-            item.ProcessId === old.ProcessId &&
-            item.CreationDate === old.CreationDate,
-        ),
-      );
+      await waitFor(async () => {
+        const current = await processes();
+        result.remainingOldProcesses = result.before.processes.filter((old) =>
+          current.some(
+            (item) =>
+              item.ProcessId === old.ProcessId &&
+              item.CreationDate === old.CreationDate,
+          ),
+        );
+        return result.remainingOldProcesses.length === 0;
+      }).catch(() => {});
       assert.deepEqual(result.remainingOldProcesses, []);
     }
   }

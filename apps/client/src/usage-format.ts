@@ -31,6 +31,51 @@ export function formatUsageDuration(remainingMinutes: number) {
       : `${Math.floor(remainingMinutes)}m`;
 }
 
+export function usageDepletionMinutes(
+  window: { minutes: number; remaining: number; resetsAt?: number },
+  now = Date.now(),
+): number | undefined {
+  if (
+    window.resetsAt === undefined ||
+    !Number.isFinite(window.resetsAt) ||
+    !Number.isFinite(window.minutes) ||
+    window.minutes <= 0 ||
+    !Number.isFinite(now)
+  ) {
+    return undefined;
+  }
+  if (!(window.remaining > 0 && window.remaining < 100)) {
+    return undefined;
+  }
+  const remainingMinutes = (window.resetsAt - now) / 60000;
+  if (!(remainingMinutes > 0)) {
+    return undefined;
+  }
+  const elapsedMinutes = window.minutes - remainingMinutes;
+  if (!(elapsedMinutes >= 15)) {
+    return undefined;
+  }
+  const depletionMinutes =
+    elapsedMinutes * (window.remaining / (100 - window.remaining));
+  if (!(depletionMinutes < remainingMinutes)) {
+    return undefined;
+  }
+  return Math.max(1, Math.floor(depletionMinutes));
+}
+
+export function formatUsagePace(
+  window: { minutes: number; remaining: number; resetsAt?: number },
+  language: string,
+  now = Date.now(),
+): string | undefined {
+  const minutes = usageDepletionMinutes(window, now);
+  if (minutes === undefined) return undefined;
+  const duration = formatUsageDuration(minutes);
+  return language.toLowerCase().startsWith("ja")
+    ? `あと約 ${duration} で上限`
+    : `Runs out in ~${duration}`;
+}
+
 export function formatUpdatedAt(
   at: number,
   language: string,
