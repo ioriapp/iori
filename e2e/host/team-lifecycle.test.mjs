@@ -251,6 +251,62 @@ test("別のリポジトリへの委譲は指定先にworktreeを作る", (t) =>
     assert.equal(resolve(main), join(repositories[1], ".git"));
   }));
 
+test("委譲で子のために作成したworktreeだけをteams.childrenで区別できる", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    await linkGit(join(dataRoot, "bin"));
+    const root = join(dataRoot, "repo");
+    const feature = join(dataRoot, "feature");
+    const existing = join(dataRoot, "existing");
+    await mkdir(root);
+    const git = (...args) =>
+      execFileSync("git", ["-C", root, ...args], { stdio: "pipe" });
+    git("init", "-b", "main");
+    git(
+      "-c",
+      "user.name=Worktree E2E",
+      "-c",
+      "user.email=worktree@localhost",
+      "commit",
+      "--allow-empty",
+      "-m",
+      "initial",
+    );
+    git("worktree", "add", "-b", "feature", feature);
+    git("worktree", "add", "-b", "existing", existing);
+
+    const context = await setup(
+      client,
+      dataRoot,
+      ["report-later"],
+      "",
+      feature,
+    );
+    const delegations = [];
+    for (const worktree of ["new", "main", "existing"]) {
+      const { child } = await delegate(
+        context,
+        worktree,
+        "Do the work.",
+        worktree,
+      );
+      await childTerminal(client, context, child);
+      delegations.push({ worktree, child });
+    }
+
+    const { children } = await client.request("teams.children", {
+      cwd: feature,
+    });
+    assert.deepEqual(
+      Object.fromEntries(
+        delegations.map(({ worktree, child }) => [
+          worktree,
+          children.find((entry) => entry.id === child)?.createdWorktree,
+        ]),
+      ),
+      { new: true, main: false, existing: false },
+    );
+  }));
+
 test("子のworktree作成中にも別の子が親のフォルダーで起動する", (t) =>
   runHostTest(t, async ({ client, dataRoot, stage }) => {
     await linkGit(join(dataRoot, "bin"));

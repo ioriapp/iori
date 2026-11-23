@@ -281,7 +281,8 @@ export function Navigation({
 
   const repository = (host: HostInfo, folder: FolderHistoryItem) => {
     const items = worktreesOf(folder).filter(
-      (worktree) => !isChildWorktree(host.publicKey, worktree.path),
+      (worktree) =>
+        worktree.primary || !isChildWorktree(host.publicKey, worktree.path),
     );
     const rows = items.map((item) => renderWorktree(host, folder, item));
     if (!rows.some(Boolean)) return null;

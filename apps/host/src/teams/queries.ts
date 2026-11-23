@@ -62,6 +62,10 @@ export class TeamQueries {
       title: child.title,
       terminalId: child.terminalId,
       cwd: child.cwd,
+      createdWorktree:
+        child.cwd !== undefined
+          ? child.createdWorktree === child.cwd
+          : undefined,
       worktreeRemoved: child.worktreeRemoved,
       repositoryName: child.repository?.external
         ? child.repository.name

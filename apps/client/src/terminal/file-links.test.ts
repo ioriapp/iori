@@ -1,6 +1,61 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { pathCandidates, terminalUrlRegex } from "./file-links.ts";
+import {
+  parseFileUri,
+  pathCandidates,
+  terminalUrlRegex,
+} from "./file-links.ts";
+
+test("file URI links decode Host paths without using the URI authority", () => {
+  for (const [uri, path] of [
+    ["file:///tmp/report.md", "/tmp/report.md"],
+    ["file://localhost/tmp/report.md", "/tmp/report.md"],
+    ["file://example-host/tmp/report.md", "/tmp/report.md"],
+    ["file:///tmp/%E8%A8%AD%E8%A8%88%20notes.md", "/tmp/設計 notes.md"],
+    ["file:///C:/Users/a.md", "C:/Users/a.md"],
+    ["file:///C%3A/Users/a.md", "C:/Users/a.md"],
+  ] as const) {
+    assert.deepEqual(parseFileUri(uri), { path }, uri);
+  }
+});
+
+test("file URI links use the start of the line fragment or a path suffix", () => {
+  const path = "/tmp/report.md";
+  for (const [suffix, line, column] of [
+    ["#L10", 10],
+    ["#L10-L20", 10],
+    ["#L10C5", 10, 5],
+    ["#l10c5-l20c15", 10, 5],
+    ["#10", 10],
+    ["#10:5", 10, 5],
+    [":12", 12],
+    [":12:4", 12, 4],
+    [":12:4#L0", 12, 4],
+  ] as const) {
+    assert.deepEqual(
+      parseFileUri(`file://${path}${suffix}`),
+      { path, line, ...(column === undefined ? {} : { column }) },
+      suffix,
+    );
+  }
+});
+
+test("file URI links reject other schemes and invalid paths", () => {
+  for (const uri of [
+    "https://example.com",
+    "javascript:alert(1)",
+    "file:///tmp/%ZZ.md",
+    "file:///tmp/%00.md",
+    "file:///",
+    "file:///.",
+    "file:///..",
+    "file:////server/share/notes.md",
+    "file:///%5Cserver/share/notes.md",
+    "file:///%2Fserver/share/notes.md",
+  ]) {
+    assert.equal(parseFileUri(uri), undefined, uri);
+  }
+});
 
 test("Japanese punctuation separates terminal paths and URLs from prose", () => {
   const path =

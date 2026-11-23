@@ -1,4 +1,6 @@
 import type { Page } from "@playwright/test";
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import {
   test,
   expect,
@@ -114,3 +116,51 @@ test(
   { tag: "@phone" },
   journey(modes[1]),
 );
+
+const linkedFileBody = "Content of the linked file";
+
+for (const { title, path, fragment, tab, content } of [
+  {
+    title: "Terminalのファイルリンクから作業ディレクトリ外のファイルを開く",
+    path: "../external notes.md",
+    fragment: "",
+    tab: "external notes.md",
+    content: (page: Page) => page.getByText(linkedFileBody),
+  },
+  {
+    title: "TerminalのファイルリンクからFilesで指定した行を開く",
+    path: "notes.md",
+    fragment: "#L3-L5",
+    tab: "Files",
+    content: (page: Page) =>
+      page
+        .locator('[data-iori-line="3"][data-selected="true"]')
+        .getByText(linkedFileBody),
+  },
+]) {
+  test(title, { tag: "@desktop" }, async ({ page, registeredApp: app }) => {
+    await app.files({ [path]: `# Notes\n\n${linkedFileBody}\n` });
+    await app.open(page);
+    await openFolder(page, app);
+    await newTab(page, false);
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Bash" })
+      .click();
+    const terminal = visibleTerminal(page);
+    const id = await terminalId(terminal);
+    const uri = pathToFileURL(resolve(app.folder, path)).href + fragment;
+    // Put the linked label at the top left of the terminal screen.
+    await sendLine(
+      terminal,
+      `printf '\\033[2J\\033[H\\033]8;;%s\\007Open document\\033]8;;\\007\\n' '${uri}'`,
+    );
+    await app.terminalText(id, `\x1b]8;;${uri}\x07Open document\x1b]8;;\x07`);
+    await expect(terminal.getByRole("textbox")).toBeFocused();
+    await terminal.locator(".xterm-screen").click({ position: { x: 1, y: 1 } });
+    await expect(
+      page.getByRole("tab", { name: tab, exact: true }),
+    ).toHaveAttribute("aria-selected", "true");
+    await expect(content(page)).toBeVisible();
+  });
+}

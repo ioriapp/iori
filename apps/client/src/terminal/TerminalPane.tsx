@@ -4,6 +4,8 @@ import {
 } from "./terminal-stream-controller.ts";
 import { terminalFontFamily } from "./terminal-font-family.ts";
 import {
+  openFileUri,
+  parseFileUri,
   terminalPathLinks,
   tapTerminalLink,
   terminalUrlRegex,
@@ -284,6 +286,7 @@ export function TerminalPane({
 }: Props) {
   const openFileRef = useRef(onOpenFile);
   openFileRef.current = onOpenFile;
+  const ignoredOscLinkRef = useRef<ReturnType<typeof hoveredLink>>(undefined);
   const refreshFontRef = useRef<(() => void) | undefined>(undefined);
   const fontSizeRef = useRef(fontSize);
   fontSizeRef.current = fontSize;
@@ -923,6 +926,10 @@ export function TerminalPane({
   useEffect(() => {
     const mount = mountRef.current;
     if (!mount) return;
+    const transport = createReadingTransport(hostKey);
+    const cwd = () => pasteTargetRef.current.summary.cwd;
+    const openFile = (file: OpenFile) => openFileRef.current(file);
+    const openUri = (uri: string) => openFileUri(uri, transport, cwd, openFile);
     const openLink = (uri: string) => {
       if (!validLink(uri)) return;
       void native
@@ -936,7 +943,9 @@ export function TerminalPane({
         press: linkPressRef.current,
       });
     const activateLink = (event: MouseEvent, uri: string) => {
-      if (opensLink(event)) openLink(uri);
+      if (!opensLink(event)) return;
+      if (parseFileUri(uri)) void openUri(uri);
+      else openLink(uri);
     };
     // xterm draws a hovered link's underline and hand cursor first and makes
     // its decorations settable right after the hover callback returns, all
@@ -944,20 +953,38 @@ export function TerminalPane({
     let ctrlHeld = false;
     const showLinkClickable = (ctrlKey = ctrlHeld) => {
       ctrlHeld = ctrlKey;
-      const decorations = hoveredLink(terminal)?.decorations;
+      const link = hoveredLink(terminal);
+      const decorations = link?.decorations;
       if (!decorations) return;
-      const clickable = linkLooksClickable(linkOpenRef.current, ctrlKey, {
-        focused: !!paneRef.current?.contains(document.activeElement),
-        selected: terminal.hasSelection(),
-      });
+      const clickable =
+        link !== ignoredOscLinkRef.current &&
+        linkLooksClickable(linkOpenRef.current, ctrlKey, {
+          focused: !!paneRef.current?.contains(document.activeElement),
+          selected: terminal.hasSelection(),
+        });
       decorations.underline = clickable;
       decorations.pointerCursor = clickable;
     };
     const hoverLink = (event: MouseEvent) =>
-      queueMicrotask(() => showLinkClickable(event.ctrlKey));
+      queueMicrotask(() => {
+        ignoredOscLinkRef.current = undefined;
+        showLinkClickable(event.ctrlKey);
+      });
+    const hoverOscLink = (event: MouseEvent, uri: string) => {
+      // xterm exposes all OSC protocols when file links are enabled.
+      const allowed = validLink(uri) || Boolean(parseFileUri(uri));
+      queueMicrotask(() => {
+        ignoredOscLinkRef.current = allowed ? undefined : hoveredLink(terminal);
+        showLinkClickable(event.ctrlKey);
+      });
+    };
     const initialTheme = terminalTheme(mount);
     const terminal = new Terminal({
-      linkHandler: { activate: activateLink, hover: hoverLink },
+      linkHandler: {
+        activate: activateLink,
+        hover: hoverOscLink,
+        allowNonHttpProtocols: true,
+      },
       allowProposedApi: true,
       vtExtensions: { kittyKeyboard: true },
       convertEol: false,
@@ -983,13 +1010,10 @@ export function TerminalPane({
     terminal.loadAddon(search);
     terminal.loadAddon(unicode);
     terminal.loadAddon(links);
-    const pathLinks = terminalPathLinks(
-      terminal,
-      createReadingTransport(hostKey),
-      () => pasteTargetRef.current.summary.cwd,
-      (file) => openFileRef.current(file),
-      { opens: opensLink, hover: hoverLink },
-    );
+    const pathLinks = terminalPathLinks(terminal, transport, cwd, openFile, {
+      opens: opensLink,
+      hover: hoverLink,
+    });
     terminal.registerLinkProvider({
       provideLinks: (y, callback) => {
         void pathLinks(y).then(callback);
@@ -1157,7 +1181,13 @@ export function TerminalPane({
     const screenElement =
       terminal.element?.querySelector<HTMLElement>(".xterm-screen");
     const onTap = (event: Event) => {
-      const opened = tapTerminalLink(terminal, event, pathLinks, openLink);
+      const opened = tapTerminalLink(
+        terminal,
+        event,
+        pathLinks,
+        openLink,
+        openUri,
+      );
       if (typeof opened === "boolean") {
         if (!opened) focusFromTap();
       } else
@@ -1294,6 +1324,7 @@ export function TerminalPane({
       detachTouchCoordinates();
       terminal.dispose();
       terminalRef.current = undefined;
+      ignoredOscLinkRef.current = undefined;
       fitRef.current = undefined;
       searchRef.current = undefined;
     };
@@ -1681,6 +1712,7 @@ export function TerminalPane({
   // Runs before xterm and the width claim see the press.
   const pressLink = (event: MouseEvent) => {
     const terminal = terminalRef.current;
+    const link = terminal && hoveredLink(terminal);
     const press = {
       focused: !!paneRef.current?.contains(document.activeElement),
       selected: !!terminal?.hasSelection(),
@@ -1690,7 +1722,8 @@ export function TerminalPane({
     if (
       !terminal ||
       terminal.modes.mouseTrackingMode === "none" ||
-      !hoveredLink(terminal) ||
+      !link ||
+      link === ignoredOscLinkRef.current ||
       !linkClickOpens(event, {
         mode: linkOpenRef.current,
         selected: press.selected,

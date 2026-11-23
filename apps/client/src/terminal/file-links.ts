@@ -11,6 +11,8 @@ export type PathCandidate = {
   column?: number;
 };
 
+const pathPosition = /:(\d+)(?::(\d+))?$/u;
+
 /** Quotes delimit paths containing spaces; bare paths end at terminal prose punctuation. */
 export function pathCandidates(text: string): PathCandidate[] {
   const result: PathCandidate[] = [];
@@ -25,7 +27,7 @@ export function pathCandidates(text: string): PathCandidate[] {
     if (/^[a-z][a-z\d+.-]*:\/\//iu.test(value)) continue;
     const start = match.index + match[0].indexOf(raw);
     const add = (value: string) => {
-      const suffix = /:(\d+)(?::(\d+))?$/u.exec(value);
+      const suffix = pathPosition.exec(value);
       const path = suffix ? value.slice(0, suffix.index) : value;
       if (!path || path === "." || path === "..") return;
       result.push({
@@ -56,6 +58,69 @@ export function pathCandidates(text: string): PathCandidate[] {
     if (quoted === undefined && prefix) add(prefix);
   }
   return result;
+}
+
+function filePosition(match: RegExpExecArray | null) {
+  const line = Number(match?.[1]);
+  if (!Number.isSafeInteger(line) || line < 1) return;
+  const column = Number(match?.[2]);
+  return Number.isSafeInteger(column) && column > 0
+    ? { line, column }
+    : { line };
+}
+
+export function parseFileUri(
+  uri: string,
+): { path: string; line?: number; column?: number } | undefined {
+  let url: URL;
+  let path: string;
+  try {
+    url = new URL(uri);
+    if (url.protocol !== "file:") return;
+    path = decodeURIComponent(url.pathname);
+  } catch {
+    return;
+  }
+  // The URI authority is not a network share. A decoded UNC path must not
+  // cause the Host to look up a file on another machine either.
+  if (path.includes("\0") || /^[/\\]{2}/u.test(path)) return;
+  if (/^\/[A-Za-z]:\//u.test(path)) path = path.slice(1);
+
+  let position = filePosition(
+    /^#L(\d+)(?:C(\d+))?(?:-L\d+(?:C\d+)?)?$/iu.exec(url.hash) ??
+      /^#(\d+)(?::(\d+))?$/u.exec(url.hash),
+  );
+  if (!position) {
+    const suffix = pathPosition.exec(path);
+    if (suffix) {
+      position = filePosition(suffix);
+      if (position) path = path.slice(0, suffix.index);
+    }
+  }
+  if (!path || path === "/" || path === "." || path === "..") return;
+  return { path, ...position };
+}
+
+export async function openFileUri(
+  uri: string,
+  transport: ReadingTransport,
+  cwd: () => string,
+  open: (file: OpenFile) => void,
+): Promise<boolean> {
+  const parsed = parseFileUri(uri);
+  if (!parsed) return false;
+  try {
+    const { results } = await transport.request("files.resolve", {
+      root: cwd(),
+      paths: [parsed.path],
+    });
+    const file = results[0];
+    if (!file?.found) return false;
+    open({ ...file, line: parsed.line, column: parsed.column });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Map string offsets back to terminal cells, including wide characters and wrapped rows. */
@@ -174,6 +239,7 @@ export function tapTerminalLink(
   event: Event,
   paths: ReturnType<typeof terminalPathLinks>,
   openUrl: (url: string) => void,
+  openFileUri: (uri: string) => Promise<boolean>,
 ): boolean | Promise<boolean> {
   const point = event as Event & { pageX: number; pageY: number };
   const bounds = terminal
@@ -207,6 +273,7 @@ export function tapTerminalLink(
       terminal as unknown as OscTerminal
     )._core?._oscLinkService?.getLinkData?.(urlId)?.uri;
     if (uri) {
+      if (parseFileUri(uri)) return openFileUri(uri);
       if (!/^https?:\/\//iu.test(uri)) return false;
       openUrl(uri);
       return true;

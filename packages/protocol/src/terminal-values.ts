@@ -210,6 +210,14 @@ export function parseChildSummary(
     title: string(input.title, "child.title"),
     state,
     ...optionalText("terminalId"),
+    ...(input.createdWorktree === undefined
+      ? {}
+      : {
+          createdWorktree: boolean(
+            input.createdWorktree,
+            "child.createdWorktree",
+          ),
+        }),
     ...(input.worktreeRemoved === undefined
       ? {}
       : {

@@ -21,6 +21,7 @@ test("child snapshots and deltas discard malformed children without losing reada
     { ...child, stoppedBy: "invented" },
     { ...child, elapsedMs: NaN },
     { ...child, notified: "yes" },
+    { ...child, createdWorktree: "yes" },
   ];
   const value = { children: [child, ...bad] };
   assert.deepEqual(
@@ -41,6 +42,16 @@ test("child snapshots and deltas discard malformed children without losing reada
     );
   assert.throws(() =>
     parseResponse("teams.children", { ok: true, result: { children: {} } }),
+  );
+});
+test("child summaries preserve whether iori created the worktree", () => {
+  const children = [
+    { ...child, id: "new", cwd: "/repo-new", createdWorktree: true },
+    { ...child, id: "existing", cwd: "/repo-existing", createdWorktree: false },
+  ];
+  assert.deepEqual(
+    parseResponse("teams.children", { ok: true, result: { children } }),
+    { ok: true, result: { children } },
   );
 });
 test("Client checks the shape and numeric ranges of usage windows received from the Host", () => {

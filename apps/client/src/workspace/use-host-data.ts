@@ -163,17 +163,18 @@ export function useHostData({
           );
           for (const child of displayed) {
             if (child.terminalId) terminalIds.add(child.terminalId);
+            if (!parents.has(child.parentTerminalId)) continue;
             parentCwds.add(hostPathKey(child.parentCwd));
             const closed = closedParents[host]?.has(child.parentTerminalId);
             if (
               !closed &&
               !child.worktreeRemoved &&
+              child.createdWorktree !== false &&
               child.cwd &&
               !child.repositoryName &&
               !samePath(child.cwd, child.parentCwd)
             )
               childCwds.add(hostPathKey(child.cwd));
-            if (!parents.has(child.parentTerminalId)) continue;
             let list = byWorktree.get(hostPathKey(child.parentCwd));
             if (!list)
               byWorktree.set(hostPathKey(child.parentCwd), (list = []));

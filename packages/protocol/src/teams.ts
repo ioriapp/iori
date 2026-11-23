@@ -19,6 +19,7 @@ export type ChildSummary = {
   title: string;
   terminalId?: string;
   cwd?: string;
+  createdWorktree?: boolean;
   worktreeRemoved?: boolean;
   repositoryName?: string;
   branch?: string;

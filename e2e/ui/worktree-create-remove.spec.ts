@@ -16,6 +16,47 @@ import { git, repository } from "./support/reading.ts";
 
 type Args = { page: Page; registeredApp: App };
 
+async function createWorktreeWithTeam(page: Page, name: string, team: string) {
+  await page.getByRole("button", { name: "New worktree" }).click();
+  const dialog = page.getByRole("dialog", { name: "New worktree" });
+  await dialog.getByRole("textbox", { name: "Name (optional)" }).fill(name);
+  await dialog.locator('[data-iori-field="worktree-launcher"]').click();
+  await page.getByRole("option", { name: team, exact: false }).click();
+  await dialog
+    .getByRole("button", { name: "Create worktree", exact: true })
+    .click();
+}
+
+async function delegateToWorktree(
+  app: App,
+  id: string,
+  worktree: string,
+  title: string,
+) {
+  await app.input(
+    id,
+    JSON.stringify({
+      id: worktree,
+      command: [
+        "delegate",
+        "--role",
+        "Worker",
+        "--difficulty",
+        "medium",
+        "--title",
+        title,
+        "--worktree",
+        worktree,
+        "--body",
+        "Work on the child.",
+      ],
+    }) + "\r",
+  );
+  const result = new RegExp(`ACTOR_RESULT:${worktree}:(.*)\\r?\\n`);
+  const output = await app.terminalText(id, result);
+  expect(JSON.parse(output.match(result)![1])).toMatchObject({ ok: true });
+}
+
 function worktreeJourney(mobile: boolean) {
   return async ({ page, registeredApp: app }: Args) => {
     await repository(app.folder);
@@ -24,42 +65,14 @@ function worktreeJourney(mobile: boolean) {
     await openFolder(page, app, mobile);
     if (mobile)
       await page.getByRole("button", { name: "Open sidebar" }).click();
-    await page.getByRole("button", { name: "New worktree" }).click();
-    await page
-      .getByRole("textbox", { name: "Name (optional)" })
-      .fill("feature");
-    await page.locator('[data-iori-field="worktree-launcher"]').click();
-    await page.getByRole("option", { name: /Removal team/ }).click();
-    await page
-      .getByRole("button", { name: "Create worktree", exact: true })
-      .click();
+    await createWorktreeWithTeam(page, "feature", "Removal team");
     const path = `${app.folder}-feature`;
     await expect(
       page.locator("[data-iori-current-worktree-path]"),
     ).toHaveAttribute("data-iori-current-worktree-path", path);
     const id = await terminalId(visibleTerminal(page));
     await app.terminalText(id, "ACTOR_PROMPT:");
-    await app.input(
-      id,
-      JSON.stringify({
-        id: "delegate",
-        command: [
-          "delegate",
-          "--role",
-          "Worker",
-          "--difficulty",
-          "medium",
-          "--title",
-          "Owned child",
-          "--worktree",
-          "new",
-          "--body",
-          "Work on the child.",
-        ],
-      }) + "\r",
-    );
-    const result = await app.terminalText(id, /ACTOR_RESULT:delegate:.*\r?\n/);
-    expect(result).toContain('"ok":true');
+    await delegateToWorktree(app, id, "new", "Owned child");
     if (mobile)
       await page.getByRole("button", { name: "Open sidebar" }).click();
     await expect(
@@ -144,6 +157,58 @@ test(
   { tag: "@phone" },
   worktreeJourney(true),
 );
+
+test(
+  "委譲先の既存worktreeは残り、子のために作成したworktreeは親の会話を閉じると一覧に表示される",
+  { tag: "@desktop" },
+  async ({ page, registeredApp: app }) => {
+    await repository(app.folder);
+    const existing = `${app.folder}-existing`;
+    git(app.folder, "worktree", "add", "-b", "existing", existing);
+    await createTeam(app, { name: "Delegation team" });
+    await app.open(page);
+    await openFolder(page, app);
+    await createWorktreeWithTeam(page, "feature", "Delegation team");
+    const feature = `${app.folder}-feature`;
+    await expect(
+      page.locator("[data-iori-current-worktree-path]"),
+    ).toHaveAttribute("data-iori-current-worktree-path", feature);
+    const parentId = await terminalId(visibleTerminal(page));
+    await app.terminalText(parentId, "ACTOR_PROMPT:");
+
+    const sidebar = page.locator('[data-sidebar="sidebar"]');
+    const newTitle = "New worktree child";
+    for (const [worktree, title] of [
+      ["main", "Main worktree child"],
+      ["existing", "Existing worktree child"],
+      ["new", newTitle],
+    ]) {
+      await delegateToWorktree(app, parentId, worktree, title);
+      const child = sidebar.getByRole("button", {
+        name: new RegExp(`Worker ${title}`),
+      });
+      await expect(child).toBeVisible();
+      await expect(child).toBeEnabled();
+    }
+    const { children } = await app.request("teams.children", { cwd: feature });
+    const cwd = children.find((child) => child.title === newTitle)?.cwd;
+    expect(cwd).toBeDefined();
+    const worktreeRow = (path: string) =>
+      sidebar.locator(`[data-iori-worktree-path=${JSON.stringify(path)}]`);
+    const created = worktreeRow(cwd!);
+    await expect(worktreeRow(app.folder)).toBeVisible();
+    await expect(worktreeRow(existing)).toBeVisible();
+    await expect(created).toHaveCount(0);
+
+    const parent = sidebar.getByRole("button", { name: "Delegation team" });
+    await parent.click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Close terminal" }).click();
+    await expect(parent).toHaveCount(0);
+    await page.reload();
+    await expect(created).toBeVisible();
+  },
+);
+
 test("取り込み済みのworktreeを片付ける", { tag: "@desktop" }, cleanup(false));
 test(
   "スマホで取り込み済みのworktreeを片付ける",
