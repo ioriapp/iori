@@ -86,7 +86,6 @@ const defaultPreferences: Preferences = {
   theme: "system",
   fontSize: UI_FONT_DEFAULT,
   usageDisplay: "used",
-  usageGraph: "bar",
   usageWindows: {},
   terminalFontSize: 14,
   terminalFontFamily: "",
@@ -175,7 +174,6 @@ function readPreferences(value: unknown): Preferences {
       ? (value.theme as Preferences["theme"])
       : defaultPreferences.theme,
     usageDisplay: value.usageDisplay === "remaining" ? "remaining" : "used",
-    usageGraph: value.usageGraph === "circle" ? "circle" : "bar",
     usageWindows: readUsageWindows(value.usageWindows),
     fontSize: isNumber(value.fontSize)
       ? clampUiFontSize(value.fontSize)
@@ -958,16 +956,10 @@ function AppContent({
   const usagePreferences = useMemo(
     () => ({
       display: preferences.usageDisplay ?? "used",
-      graph: preferences.usageGraph ?? "bar",
       windows: preferences.usageWindows ?? {},
       setWindow: setUsageWindow,
     }),
-    [
-      preferences.usageDisplay,
-      preferences.usageGraph,
-      preferences.usageWindows,
-      setUsageWindow,
-    ],
+    [preferences.usageDisplay, preferences.usageWindows, setUsageWindow],
   );
   const firstRun = !state.host || (state.revoked && adding);
   const canSetupHost = state.initial?.canSetupHost === true;

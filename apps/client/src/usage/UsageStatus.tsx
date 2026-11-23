@@ -31,12 +31,13 @@ import {
   formatUsageLength,
   formatUsageDuration,
   formatUpdatedAt,
-  formatUsagePace,
+  formatUsageIdeal,
+  formatUsageOverPace,
+  usagePaceInfo,
 } from "../usage-format.ts";
 import { useUsagePreferences } from "./preferences.tsx";
 import { refreshUsage, useUsageRefresh } from "./refresh.ts";
 
-type Shape = "circle" | "bar";
 type Display = "remaining" | "used";
 type Language = string;
 type UsageWindow = CliUsage["windows"][number];
@@ -131,58 +132,70 @@ function numberTone(window: UsageWindow) {
       : undefined;
 }
 
-function Graph({
+function trackColor(window: UsageWindow) {
+  return window.remaining === 0
+    ? "color-mix(in oklch, var(--status-failed) 35%, transparent)"
+    : "color-mix(in oklch, var(--muted-foreground) 35%, transparent)";
+}
+
+function MiniBar({
   window,
-  shape,
   display,
-  detail = false,
 }: {
   window: UsageWindow;
-  shape: Shape;
   display: Display;
-  detail?: boolean;
 }) {
   const value = percentage(window, display);
-  const track =
-    window.remaining === 0
-      ? "color-mix(in oklch, var(--status-failed) 35%, transparent)"
-      : "color-mix(in oklch, var(--muted-foreground) 35%, transparent)";
   const style = {
     "--usage-color": tone(window),
-    "--usage-track": track,
+    "--usage-track": trackColor(window),
   } as CSSProperties;
-  return shape === "circle" ? (
-    <svg
-      className={cn(
-        "flex-none fill-none stroke-[2]",
-        detail ? "size-5" : "size-3",
-      )}
-      viewBox="0 0 16 16"
-      aria-hidden="true"
-      style={style}
-    >
-      <circle cx="8" cy="8" r="6" className="stroke-[var(--usage-track)]" />
-      <circle
-        cx="8"
-        cy="8"
-        r="6"
-        className="stroke-[var(--usage-color)]"
-        pathLength="100"
-        strokeDasharray={`${value} 100`}
-        transform="rotate(-90 8 8)"
-      />
-    </svg>
-  ) : (
+  return (
     <span
-      className={cn(
-        "block flex-none [&_[data-slot=progress]]:h-1 [&_[data-slot=progress]]:bg-[var(--usage-track)] [&_[data-slot=progress-indicator]]:bg-[var(--usage-color)]",
-        detail ? "w-24" : "w-6",
-      )}
+      className="block w-6 flex-none [&_[data-slot=progress]]:h-1 [&_[data-slot=progress]]:bg-[var(--usage-track)] [&_[data-slot=progress-indicator]]:bg-[var(--usage-color)]"
       aria-hidden="true"
       style={style}
     >
       <Progress value={value} />
     </span>
+  );
+}
+
+function FullWidthBar({
+  window,
+  display,
+  markerPercent,
+}: {
+  window: UsageWindow;
+  display: Display;
+  markerPercent?: number;
+}) {
+  const value = percentage(window, display);
+  const style = {
+    "--usage-color": tone(window),
+    "--usage-track": trackColor(window),
+  } as CSSProperties;
+  return (
+    <div
+      className="relative my-1.5 flex h-2.5 w-full items-center"
+      style={style}
+    >
+      <span
+        className="block w-full [&_[data-slot=progress]]:h-1.5 [&_[data-slot=progress]]:bg-[var(--usage-track)] [&_[data-slot=progress-indicator]]:bg-[var(--usage-color)]"
+        aria-hidden="true"
+      >
+        <Progress value={value} />
+      </span>
+      {markerPercent !== undefined && (
+        <span
+          className="pointer-events-none absolute top-0 bottom-0 w-[2px] -translate-x-1/2 rounded-full bg-foreground ring-1 ring-popover"
+          style={{
+            left: `clamp(1px, ${markerPercent}%, calc(100% - 1px))`,
+          }}
+          aria-hidden="true"
+        />
+      )}
+    </div>
   );
 }
 
@@ -310,7 +323,6 @@ function WindowPicker({
 
 function UsageDetail({
   cli,
-  shape,
   display,
   language,
   updatedAt,
@@ -321,7 +333,6 @@ function UsageDetail({
   refresh,
 }: {
   cli: Cli;
-  shape: Shape;
   display: Display;
   language: Language;
   updatedAt?: number;
@@ -386,10 +397,13 @@ function UsageDetail({
         const lastSpace = label.lastIndexOf(" ");
         const labelHead = lastSpace === -1 ? "" : label.slice(0, lastSpace + 1);
         const labelTail = lastSpace === -1 ? label : label.slice(lastSpace + 1);
-        const pace = formatUsagePace(window, language, now);
+        const paceInfo = usagePaceInfo(window, display, now);
+        const overPaceText = paceInfo
+          ? formatUsageOverPace(paceInfo, language)
+          : undefined;
         return (
           <div className="mt-3.5 first:mt-0" key={index}>
-            <div className="flex min-w-0 items-center gap-2">
+            <div className="flex min-w-0 items-center justify-between gap-2">
               <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
                 {isPinned ? (
                   <>
@@ -407,23 +421,32 @@ function UsageDetail({
                   label
                 )}
               </span>
-              <Graph window={window} shape={shape} display={display} detail />
               <span
-                className="w-[9ch] min-w-[9ch] flex-none text-end whitespace-nowrap tabular-nums"
+                className="flex-none whitespace-nowrap tabular-nums"
                 style={{ color: numberTone(window) }}
               >
                 {percentage(window, display)}%{" "}
                 {display === "remaining" ? "left" : "used"}
               </span>
             </div>
+            <FullWidthBar
+              window={window}
+              display={display}
+              markerPercent={paceInfo?.markerPercent}
+            />
             {window.resetsAt !== undefined && (
-              <p className="mt-1 mb-0 text-xs text-muted-foreground tabular-nums">
-                {resetLabel(window.resetsAt, language, now)}
-              </p>
+              <div className="mt-0.5 flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5 text-xs text-muted-foreground tabular-nums">
+                <span>{resetLabel(window.resetsAt, language, now)}</span>
+                {paceInfo !== undefined && (
+                  <span>
+                    {formatUsageIdeal(paceInfo.idealPercent, language)}
+                  </span>
+                )}
+              </div>
             )}
-            {pace !== undefined && (
+            {overPaceText !== undefined && (
               <p className="mt-0.5 mb-0 text-xs text-status-waiting-text tabular-nums">
-                {pace}
+                {overPaceText}
               </p>
             )}
           </div>
@@ -435,7 +458,6 @@ function UsageDetail({
 
 function UsagePopup({
   clis,
-  shape,
   display,
   language,
   maxHeight,
@@ -453,7 +475,6 @@ function UsagePopup({
   onLeave,
 }: {
   clis: Cli[];
-  shape: Shape;
   display: Display;
   language: Language;
   maxHeight: number;
@@ -506,7 +527,7 @@ function UsagePopup({
     for (const row of element.querySelectorAll<HTMLElement>(".usage-detail"))
       observer.observe(row);
     return () => observer.disconnect();
-  }, [body, bodyLimit, clis, shape, display, language]);
+  }, [body, bodyLimit, clis, display, language]);
 
   const keepOpenForMenu = (event: {
     target: EventTarget | null;
@@ -577,7 +598,6 @@ function UsagePopup({
           <UsageDetail
             key={cli.id}
             cli={cli}
-            shape={shape}
             display={display}
             language={language}
             updatedAt={updatedAt[cli.id]}
@@ -613,7 +633,6 @@ export function UsageStatus({
 }) {
   const {
     display,
-    graph: shape,
     windows: selectedWindows,
     setWindow,
   } = useUsagePreferences();
@@ -695,7 +714,7 @@ export function UsageStatus({
     observer.observe(measure);
     void document.fonts.ready.then(fit);
     return () => observer.disconnect();
-  }, [all, shape, display, mobile, selectedWindows]);
+  }, [all, display, mobile, selectedWindows]);
   const cancelHover = () => clearTimeout(hoverTimer.current);
   const close = () => {
     cancelHover();
@@ -764,19 +783,9 @@ export function UsageStatus({
     return (
       <>
         <CliIcon cli={cli} hostKey={hostKey} size={14} />
-        <span
-          className={cn(
-            "usage-mini-graphs flex items-center max-sm:hidden",
-            shape === "bar" ? "flex-col gap-0.5" : "gap-1",
-          )}
-        >
+        <span className="usage-mini-graphs flex flex-col items-center gap-0.5 max-sm:hidden">
           {windows.map((window, index) => (
-            <Graph
-              window={window}
-              shape={shape}
-              display={display}
-              key={index}
-            />
+            <MiniBar window={window} display={display} key={index} />
           ))}
         </span>
         <span className="tabular-nums" style={{ color: numberTone(active) }}>
@@ -789,7 +798,6 @@ export function UsageStatus({
     <UsagePopup
       clis={values}
       all={isAll}
-      shape={shape}
       display={display}
       language={language}
       mobile={mobile}

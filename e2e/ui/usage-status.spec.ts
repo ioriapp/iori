@@ -223,7 +223,7 @@ test(
 );
 
 test(
-  "ポップオーバーで消費ペース超過の利用枠だけに予測残り時間を表示する",
+  "ポップオーバーで理想値と消費ペース超過の差・予測残り時間を表示する",
   { tag: "@desktop" },
   async ({ page, registeredApp: app }) => {
     await app.open(page);
@@ -235,7 +235,7 @@ console.log(JSON.stringify({
   windows: [
     { name: "Fast", remaining: 80, minutes: 10080, resetsAt: now + 6 * 1440 * minute },
     { name: "Safe", remaining: 90, minutes: 10080, resetsAt: now + 6 * 1440 * minute },
-    { name: "Early", remaining: 50, minutes: 300, resetsAt: now + 295 * minute },
+    { name: "Early", remaining: 95, minutes: 10080, resetsAt: now + (10080 - 10) * minute },
     { name: "Empty", remaining: 0, minutes: 300, resetsAt: now + 180 * minute }
   ]
 }));`;
@@ -264,11 +264,16 @@ console.log(JSON.stringify({
     ).toBeVisible();
     await expect(page.getByText(/Fast 7d/)).toBeVisible();
     await expect(page.getByText(/Safe 7d/)).toBeVisible();
-    await expect(page.getByText(/Early 5h/)).toBeVisible();
+    await expect(page.getByText(/Early 7d/)).toBeVisible();
     await expect(page.getByText(/Empty 5h/)).toBeVisible();
     await expect(
-      page.getByText("Runs out in ~4d 0h", { exact: true }),
+      page.getByText("Ideal 14%", { exact: true }).first(),
     ).toBeVisible();
+    await expect(
+      page.getByText("+6% · Runs out in ~4d 0h", { exact: true }),
+    ).toBeVisible();
+    await expect(page.getByText("+5%", { exact: true })).toBeVisible();
     await expect(page.getByText(/Runs out in/)).toHaveCount(1);
+    await expect(page.getByText(/^[+-]\d+%/)).toHaveCount(2);
   },
 );

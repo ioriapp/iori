@@ -400,7 +400,6 @@ function ChildStatesPreview() {
 function UsagePreview() {
   const state =
     stateId === "light-board" ? 20 : Number(stateId.split("-").at(-1));
-  const graph = stateId.includes("-circle-") ? "circle" : "bar";
   const display =
     query.get("display") === "remaining" || [8, 25].includes(state)
       ? "remaining"
@@ -409,7 +408,7 @@ function UsagePreview() {
   const list = usageSnapshot(stateId);
   return (
     <UsagePreferences.Provider
-      value={{ graph, display, windows: {}, setWindow: () => {} }}
+      value={{ display, windows: {}, setWindow: () => {} }}
     >
       <TooltipProvider>
         <div className="workspace-app" style={{ height: "100dvh" }}>

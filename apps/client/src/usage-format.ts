@@ -31,10 +31,24 @@ export function formatUsageDuration(remainingMinutes: number) {
       : `${Math.floor(remainingMinutes)}m`;
 }
 
-export function usageDepletionMinutes(
+export type UsagePaceInfo = {
+  /** Marker position on the bar (0..100), aligned with `display`. */
+  markerPercent: number;
+  /** Rounded ideal percentage (0..100), aligned with `display`. */
+  idealPercent: number;
+  /** Whether actual usage strictly exceeds elapsed fraction (with 0 < remaining < 100). */
+  overPace: boolean;
+  /** Signed rounded difference `actualRounded - idealPercent` when overPace, else 0. */
+  diffPercent: number;
+  /** Estimated minutes until exhaustion (>= 1) when overPace and elapsed >= 15m. */
+  depletionMinutes?: number;
+};
+
+export function usagePaceInfo(
   window: { minutes: number; remaining: number; resetsAt?: number },
+  display: UsageDisplay,
   now = Date.now(),
-): number | undefined {
+): UsagePaceInfo | undefined {
   if (
     window.resetsAt === undefined ||
     !Number.isFinite(window.resetsAt) ||
@@ -44,36 +58,74 @@ export function usageDepletionMinutes(
   ) {
     return undefined;
   }
-  if (!(window.remaining > 0 && window.remaining < 100)) {
-    return undefined;
-  }
   const remainingMinutes = (window.resetsAt - now) / 60000;
   if (!(remainingMinutes > 0)) {
     return undefined;
   }
   const elapsedMinutes = window.minutes - remainingMinutes;
-  if (!(elapsedMinutes >= 15)) {
+  if (!(elapsedMinutes >= 0)) {
     return undefined;
   }
-  const depletionMinutes =
-    elapsedMinutes * (window.remaining / (100 - window.remaining));
-  if (!(depletionMinutes < remainingMinutes)) {
-    return undefined;
+  const expectedUsed = Math.min(
+    100,
+    Math.max(0, (elapsedMinutes / window.minutes) * 100),
+  );
+  const markerPercent =
+    display === "remaining" ? 100 - expectedUsed : expectedUsed;
+  const idealPercent = Math.round(markerPercent);
+  const used = 100 - window.remaining;
+  const overPace =
+    window.remaining > 0 &&
+    window.remaining < 100 &&
+    elapsedMinutes > 0 &&
+    used > expectedUsed;
+  const actualRounded = Math.round(
+    display === "remaining" ? window.remaining : used,
+  );
+  const diffPercent = overPace ? actualRounded - idealPercent : 0;
+  let depletionMinutes: number | undefined;
+  if (overPace && elapsedMinutes >= 15) {
+    const depletion = elapsedMinutes * (window.remaining / used);
+    if (depletion < remainingMinutes) {
+      depletionMinutes = Math.max(1, Math.floor(depletion));
+    }
   }
-  return Math.max(1, Math.floor(depletionMinutes));
+  return {
+    markerPercent,
+    idealPercent,
+    overPace,
+    diffPercent,
+    ...(depletionMinutes !== undefined ? { depletionMinutes } : {}),
+  };
 }
 
-export function formatUsagePace(
-  window: { minutes: number; remaining: number; resetsAt?: number },
+export function formatUsageIdeal(
+  idealPercent: number,
   language: string,
-  now = Date.now(),
-): string | undefined {
-  const minutes = usageDepletionMinutes(window, now);
-  if (minutes === undefined) return undefined;
-  const duration = formatUsageDuration(minutes);
+): string {
   return language.toLowerCase().startsWith("ja")
-    ? `あと約 ${duration} で上限`
-    : `Runs out in ~${duration}`;
+    ? `理想 ${idealPercent}%`
+    : `Ideal ${idealPercent}%`;
+}
+
+export function formatUsageOverPace(
+  info: UsagePaceInfo,
+  language: string,
+): string | undefined {
+  if (!info.overPace) return undefined;
+  const parts: string[] = [];
+  if (info.diffPercent !== 0) {
+    parts.push(`${info.diffPercent > 0 ? "+" : ""}${info.diffPercent}%`);
+  }
+  if (info.depletionMinutes !== undefined) {
+    const duration = formatUsageDuration(info.depletionMinutes);
+    parts.push(
+      language.toLowerCase().startsWith("ja")
+        ? `あと約 ${duration} で上限`
+        : `Runs out in ~${duration}`,
+    );
+  }
+  return parts.length === 0 ? undefined : parts.join(" · ");
 }
 
 export function formatUpdatedAt(

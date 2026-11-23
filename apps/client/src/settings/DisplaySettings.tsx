@@ -461,21 +461,6 @@ export function DisplaySettings({
           "Choose whether usage limits show the percentage remaining or used.",
         )}
         {selectRow(
-          "Usage graph",
-          preferences.usageGraph ?? "bar",
-          [
-            ["bar", "Bar"],
-            ["circle", "Circle"],
-          ],
-          (value) =>
-            onPreferencesChange({
-              usageGraph: value as Preferences["usageGraph"],
-            }),
-          "usage-graph",
-          "usageGraph",
-          "Choose the shape of usage graphs in the status bar and popovers.",
-        )}
-        {selectRow(
           "Terminal text size",
           String(preferences.terminalFontSize),
           TERMINAL_FONT_SIZES.map((size) => [

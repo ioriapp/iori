@@ -27,7 +27,6 @@ export type Preferences = {
   theme: "system" | "light" | "dark";
   fontSize: number;
   usageDisplay?: "remaining" | "used";
-  usageGraph?: "bar" | "circle";
   usageWindows?: Record<string, UsageWindowSelection>;
   terminalFontSize: number;
   terminalFontFamily: string;

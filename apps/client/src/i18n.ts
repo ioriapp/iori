@@ -157,15 +157,10 @@ const japanese: Record<string, string> = {
   "Open before": "変更前を開く",
   "Open after": "変更後を開く",
   "Usage display": "利用枠の表示",
-  "Usage graph": "利用枠のグラフ",
   Remaining: "残量",
   Used: "使用量",
-  Bar: "棒グラフ",
-  Circle: "円グラフ",
   "Choose whether usage limits show the percentage remaining or used.":
     "利用枠の割合を、残量と使用量のどちらで表示するかを選びます。",
-  "Choose the shape of usage graphs in the status bar and popovers.":
-    "ステータスバーとポップオーバーの利用枠のグラフの形を選びます。",
 
   "Could not check the iori Host version. Try updating from Version in settings.":
     "iori Hostのバージョンを確認できませんでした。設定の「バージョン」から更新をお試しください。",

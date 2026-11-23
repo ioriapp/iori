@@ -57,6 +57,7 @@
 | 自動（Auto）                                         | 自動                                                 | —                                                                                | VS Code・Apple・Microsoft                                                                                       |
 | チームの統括役（Orchestrator）                       | Orchestrator（日英とも英語のまま）                   | 親・オーケストレーター（画面のチーム呼称として。Git の親コミットは「親」のまま） | Owner の決定（Roo Code・Anthropic の慣例）                                                                      |
 | 利用枠の限度（limit）                                | 上限                                                 | —                                                                                | Android（`Over your mobile data limit`→モバイルデータ上限の超過）・Apple（`Exceeded Limit`→制限を超過しました） |
+| 経過時間に対する消費の基準値（Ideal）                | 理想                                                 | —                                                                                | Owner の決定（モックアップ承認）                                                                                |
 
 ## 状態と件数
 
