@@ -3,6 +3,7 @@ import type {
   GitDiffRow,
   GitDiffSource,
   ReadResultByMethod,
+  SyntaxSpan,
 } from "@iori/protocol";
 import type { TextRow, TextSource } from "../reading/TextRows.tsx";
 import {
@@ -16,7 +17,12 @@ const PAGE_ROWS = 128;
 const CACHE_PAGES = 4;
 const PAGE_BYTES = 524_288;
 
-type Page = { revision: string; rows: GitDiffRow[] };
+type Page = {
+  revision: string;
+  rows: GitDiffRow[];
+  syntax: Map<number, SyntaxSpan[]>;
+  syntaxDone: boolean;
+};
 type Shown = { row: number } | { run: number };
 
 /**
@@ -34,6 +40,8 @@ export class DiffDocument implements TextSource {
   #wantedPages: number[] = [];
   #running?: AbortController;
   #opening?: AbortController;
+  #syntaxRunning = new Map<number, AbortController>();
+  #plainRevision?: string;
   #failed?: number;
   #refreshFailed = false;
   #paused = false;
@@ -41,6 +49,8 @@ export class DiffDocument implements TextSource {
   revision: string | undefined;
   totalRows = 0;
   collapsed: Array<[number, number]> = [];
+  hunks: number[] = [];
+  patchHunks: Array<{ row: number; fingerprint: string }> = [];
   info?: GitDiffInfo;
   count = 0;
   error: unknown;
@@ -115,12 +125,58 @@ export class DiffDocument implements TextSource {
   }
 
   #apply(result: ReadResultByMethod["git.diffOpen"]) {
-    if (result.revision !== this.revision) this.#expanded.clear();
+    if (result.revision !== this.revision) {
+      this.#expanded.clear();
+      for (const controller of this.#syntaxRunning.values()) controller.abort();
+      this.#syntaxRunning.clear();
+    }
     this.revision = result.revision;
     this.totalRows = result.totalRows;
     this.info = result.info;
     this.collapsed = result.collapsed;
+    this.hunks = result.hunks ?? [];
+    this.patchHunks = result.patchHunks ?? [];
     this.#layout();
+  }
+
+  /** Visible row indices of each hunk start, mapped across collapsed omissions. */
+  shownHunks(): number[] {
+    return this.hunks.map((row) => this.#shownIndex(row));
+  }
+
+  /** Visible row indices of each Git `@@` patch hunk, in `git.applyHunk` index order. */
+  shownPatchHunks(): Array<{
+    shownRow: number;
+    hunkIndex: number;
+    fingerprint: string;
+  }> {
+    return this.patchHunks.map((hunk, hunkIndex) => ({
+      shownRow: this.#shownIndex(hunk.row),
+      hunkIndex,
+      fingerprint: hunk.fingerprint,
+    }));
+  }
+
+  /** First loaded changed line number on the new side (for "Open in Files"). */
+  firstChangedLine(): number | undefined {
+    for (const rawRow of this.hunks) {
+      const data = this.#rowData(rawRow);
+      if (data?.newLine !== undefined) return data.newLine;
+      if (data?.oldLine !== undefined) return data.oldLine;
+    }
+    return undefined;
+  }
+
+  /** Best visible row index for a given file line number among loaded pages. */
+  rowIndexForLine(side: "old" | "new", line: number): number | undefined {
+    for (const page of this.#pages.values()) {
+      if (page.revision !== this.revision) continue;
+      for (const item of page.rows) {
+        const candidate = side === "old" ? item.oldLine : item.newLine;
+        if (candidate === line) return this.#shownIndex(item.row);
+      }
+    }
+    return undefined;
   }
 
   /** Each collapsed run that is not expanded takes one shown row. */
@@ -194,12 +250,17 @@ export class DiffDocument implements TextSource {
         omitted: this.collapsed[shown.run]![1],
       };
     const data = this.#rowData(shown.row);
+    const page = this.#pages.get(Math.floor(shown.row / PAGE_ROWS));
     return (
       data && {
         kind: data.kind,
         text: data.text,
         complete: data.complete,
         byteOffset: data.byteOffset,
+        syntax:
+          page && page.revision === this.revision
+            ? page.syntax.get(data.row)
+            : undefined,
         ...(data.oldLine === undefined ? {} : { oldLine: data.oldLine }),
         ...(data.newLine === undefined ? {} : { newLine: data.newLine }),
       }
@@ -218,6 +279,17 @@ export class DiffDocument implements TextSource {
     this.#paused = false;
     this.#wanted = { first, last };
     this.#wantPages();
+    for (const [page, controller] of this.#syntaxRunning) {
+      if (!this.#wantedPages.includes(page)) {
+        controller.abort();
+        this.#syntaxRunning.delete(page);
+      }
+    }
+    for (const page of this.#wantedPages) {
+      const stored = this.#pages.get(page);
+      if (stored && stored.revision === this.revision)
+        this.#readSyntax(page, stored);
+    }
     this.#kick();
   }
 
@@ -274,6 +346,8 @@ export class DiffDocument implements TextSource {
     this.#paused = true;
     this.#running?.abort();
     this.#opening?.abort();
+    for (const controller of this.#syntaxRunning.values()) controller.abort();
+    this.#syntaxRunning.clear();
   }
 
   #kick() {
@@ -301,7 +375,16 @@ export class DiffDocument implements TextSource {
           this.open(false);
           return;
         }
-        this.#pages.set(page, { revision, rows });
+        const stored: Page = {
+          revision,
+          rows,
+          syntax: new Map(),
+          syntaxDone: false,
+        };
+        this.#syntaxRunning.get(page)?.abort();
+        this.#syntaxRunning.delete(page);
+        this.#pages.set(page, stored);
+        if (this.#wantedPages.includes(page)) this.#readSyntax(page, stored);
         for (const key of this.#pages.keys())
           if (
             !wanted.includes(key) &&
@@ -326,7 +409,62 @@ export class DiffDocument implements TextSource {
       });
   }
 
-  async #readPage(page: number, signal: AbortSignal) {
+  #readSyntax(page: number, stored: Page) {
+    if (
+      stored.syntaxDone ||
+      this.#syntaxRunning.has(page) ||
+      this.#plainRevision === stored.revision ||
+      stored.rows.length === 0
+    )
+      return;
+    const controller = new AbortController();
+    this.#syntaxRunning.set(page, controller);
+    const start = page * PAGE_ROWS;
+    const end = start + stored.rows.length;
+    const read = async () => {
+      let startRow = start;
+      while (startRow < end) {
+        const result = await this.#transport.request(
+          "git.diffSyntax",
+          {
+            root: this.#root,
+            source: this.#source,
+            startRow,
+            rowCount: end - startRow,
+          },
+          controller.signal,
+        );
+        if (
+          controller.signal.aborted ||
+          this.#pages.get(page) !== stored ||
+          result.revision !== stored.revision ||
+          this.#plainRevision === stored.revision
+        )
+          return;
+        if (!result.language) {
+          this.#plainRevision = stored.revision;
+          for (const other of this.#syntaxRunning.values()) other.abort();
+          this.#syntaxRunning.clear();
+          return;
+        }
+        for (const item of result.rows) stored.syntax.set(item.row, item.spans);
+        this.#changed();
+        if (result.endRow <= startRow) break;
+        startRow = result.endRow;
+      }
+      stored.syntaxDone = true;
+    };
+    void read()
+      .catch(() => {
+        stored.syntaxDone = !controller.signal.aborted;
+      })
+      .finally(() => {
+        if (this.#syntaxRunning.get(page) === controller)
+          this.#syntaxRunning.delete(page);
+      });
+  }
+
+  async #readPage(page: number, signal: AbortSignal): Promise<Page> {
     const start = page * PAGE_ROWS;
     const read = (startRow: number) =>
       this.#transport.request(
@@ -349,11 +487,21 @@ export class DiffDocument implements TextSource {
     ) {
       const more = await read(rows.at(-1)!.row + 1);
       if (more.revision !== result.revision)
-        return { revision: more.revision, rows: more.rows };
+        return {
+          revision: more.revision,
+          rows: more.rows,
+          syntax: new Map(),
+          syntaxDone: false,
+        };
       if (!more.rows.length) break;
       rows.push(...more.rows);
     }
-    return { revision: result.revision, rows };
+    return {
+      revision: result.revision,
+      rows,
+      syntax: new Map(),
+      syntaxDone: false,
+    };
   }
 
   search: TextSource["search"] = async (query, from, direction, signal) => {

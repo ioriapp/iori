@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -14,6 +15,8 @@ import { Button } from "./components/ui/button.tsx";
 import { SidebarProvider, useSidebar } from "./components/ui/sidebar.tsx";
 import { TooltipProvider } from "./components/ui/tooltip.tsx";
 import { connection } from "./connection.ts";
+import { QuickOpenDialog } from "./files/QuickOpenDialog.tsx";
+import { createReadingTransport } from "./reading/transport.ts";
 import {
   sidebarViewTransferType,
   type DockContextValue,
@@ -133,6 +136,7 @@ function WorkspaceFrameInner({
 
   const [folderHostKey, setFolderHostKey] = useState<string>();
   const [shellPickerOpen, setShellPickerOpen] = useState(false);
+  const [quickOpen, setQuickOpen] = useState(false);
   const [teamToOpen, setTeamToOpen] = useState<TeamToOpen>();
   const [creationTarget, setCreationTarget] = useState<CreationTarget>();
   const [creationOpen, setCreationOpen] = useState(false);
@@ -332,6 +336,7 @@ function WorkspaceFrameInner({
     splitGroup,
     dropSidebarView,
     dropPath,
+    sendPathToTerminal,
     displayTabs,
   } = useWorkspaceTabs({
     workspace,
@@ -364,6 +369,25 @@ function WorkspaceFrameInner({
   });
   displayTabsRef.current = displayTabs;
 
+  const openTerminalInFolder = useCallback(
+    (cwd: string) => {
+      void createTerminal(
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        cwd,
+      );
+    },
+    [createTerminal],
+  );
+  const quickOpenTransport = useMemo(
+    () => (currentHostKey ? createReadingTransport(currentHostKey) : undefined),
+    [currentHostKey],
+  );
+
   const {
     attentionItems,
     setAttentionToOpen,
@@ -376,6 +400,9 @@ function WorkspaceFrameInner({
     setIssuesToOpen,
     setCiToOpen,
     setFileHistoryRequest,
+    setDiffOpenRequest,
+    setWorkspaceSearchRequest,
+    openWorkspaceSearch,
     targetFolder,
     selectReadingWorktree,
     viewServices,
@@ -407,6 +434,9 @@ function WorkspaceFrameInner({
     activateTab,
     openTerminal,
     createTerminal,
+    openTerminalInFolder,
+    sendPathToTerminal:
+      targetTerminals.length > 0 ? sendPathToTerminal : undefined,
     recentTerminal,
     setTabVisitHistory,
     setTeamToOpen,
@@ -419,6 +449,9 @@ function WorkspaceFrameInner({
   resetScopeRef.current = () => {
     setMaximizedGroup(undefined);
     setFileHistoryRequest(undefined);
+    setDiffOpenRequest(undefined);
+    setWorkspaceSearchRequest(undefined);
+    setQuickOpen(false);
   };
 
   useWorkspaceBackAndShortcuts({
@@ -434,6 +467,10 @@ function WorkspaceFrameInner({
     setFolderHostKey,
     shellPickerOpen,
     setShellPickerOpen,
+    quickOpen,
+    setQuickOpen,
+    canQuickOpen: Boolean(selectedTarget && !teamsHost),
+    onWorkspaceSearch: () => openWorkspaceSearch(),
     maximizedGroup,
     closeMaximize,
     toggleMaximize,
@@ -587,7 +624,7 @@ function WorkspaceFrameInner({
         : undefined,
     readingViews: [
       "files",
-      ...(targetFolder?.kind === "git" ? ["git" as const] : []),
+      ...(targetFolder?.kind === "git" ? (["git", "ci"] as const) : []),
       ...(targetTerminals.some((terminal) => terminal.teamConversation)
         ? ["board" as const]
         : []),
@@ -755,10 +792,14 @@ function WorkspaceFrameInner({
             setViewToOpen({ scope, kind });
           })
         }
-        onOpenCi={(host, folder, worktree) =>
+        onOpenCi={(host, folder, worktree, section) =>
           leaveTeams(() => {
             setTeamsHost(undefined);
-            setCiToOpen({ hostKey: host.publicKey, cwd: worktree.path });
+            setCiToOpen({
+              hostKey: host.publicKey,
+              cwd: worktree.path,
+              section,
+            });
             openTarget(host, folder, worktree);
           })
         }
@@ -1033,6 +1074,23 @@ function WorkspaceFrameInner({
         openFolder={openFolder}
         shellPickerContent={launcher(false)}
       />
+      {selectedTarget && quickOpenTransport && (
+        <QuickOpenDialog
+          open={quickOpen}
+          onOpenChange={setQuickOpen}
+          transport={quickOpenTransport}
+          root={selectedTarget.cwd}
+          locale={language}
+          onSelect={(path) =>
+            viewServices.openFile({
+              absolutePath: `${selectedTarget.cwd.replace(/[\\/]+$/, "")}/${path}`,
+              root: selectedTarget.cwd,
+              path,
+              displayPath: path,
+            })
+          }
+        />
+      )}
     </>
   );
 }

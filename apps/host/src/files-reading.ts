@@ -27,6 +27,7 @@ import {
   type ReadParamsByMethod,
   type ReadResultByMethod,
   type ReadMethod,
+  type WorkspaceSearchMatch,
   type SymlinkTargetKind,
   type SymlinkTargetState,
 } from "@iori/protocol";
@@ -39,6 +40,7 @@ import {
 } from "./reading-failure.ts";
 import { NulReader, finishGit, startGit, stopGit } from "./git-process.ts";
 import {
+  READ_CHUNK,
   checkpointFor,
   continuesText,
   readAt,
@@ -179,7 +181,7 @@ async function insidePath(root: Root, relativePath: string) {
   return { absolutePath, canonical };
 }
 
-function revisionFor(info: {
+export function revisionFor(info: {
   dev: bigint;
   ino: bigint;
   size: bigint;
@@ -197,7 +199,7 @@ async function openFile(
   const { canonical } = await insidePath(root, relativePath);
   let handle: FileHandle;
   try {
-    handle = await open(canonical, constants.O_RDONLY);
+    handle = await open(canonical, constants.O_RDONLY | constants.O_NONBLOCK);
   } catch (error) {
     throw toFailure(error);
   }
@@ -485,6 +487,19 @@ async function* walkedFiles(root: Root, signal?: Signal) {
   }
 }
 
+async function* workspaceFiles(root: Root, signal?: Signal) {
+  try {
+    yield* gitListedFiles(root, signal);
+  } catch (error) {
+    if (
+      !(error instanceof ReadingFailure) ||
+      error.code !== "not_git_repository"
+    )
+      throw error;
+    yield* walkedFiles(root, signal);
+  }
+}
+
 /** Names that contain the query. In a Git repository, ignored files are not candidates. */
 async function findFiles(
   root: Root,
@@ -494,53 +509,170 @@ async function findFiles(
   signal?: Signal,
 ): Promise<ReadResultByMethod["files.find"]> {
   const wanted = query.toLocaleLowerCase();
-  let source: AsyncGenerator<string>;
-  const listed = gitListedFiles(root, signal);
-  try {
-    const first = await listed.next();
-    source = (async function* () {
-      if (!first.done) yield first.value;
-      yield* listed;
-    })();
-  } catch (error) {
-    if (
-      !(error instanceof ReadingFailure) ||
-      error.code !== "not_git_repository"
-    )
-      throw error;
-    source = walkedFiles(root, signal);
-  }
   const entries: FileEntry[] = [];
   let matched = 0;
   let hasMore = false;
-  try {
-    for await (const path of source) {
-      if (isExcludedPath(path)) continue;
-      const name = path.slice(path.lastIndexOf("/") + 1);
-      if (!name.toLocaleLowerCase().includes(wanted)) continue;
-      if (matched++ < start) continue;
-      if (entries.length >= count) {
-        hasMore = true;
-        break;
-      }
-      const slash = path.lastIndexOf("/");
-      const entry = await describeEntry(
-        root,
-        slash < 0 ? "" : path.slice(0, slash),
-        name,
-      );
-      if (!entry) continue;
-      entries.push(entry);
-      if (!fitsPage(entries)) {
-        entries.pop();
-        hasMore = true;
-        break;
-      }
+  for await (const path of workspaceFiles(root, signal)) {
+    if (isExcludedPath(path)) continue;
+    const name = path.slice(path.lastIndexOf("/") + 1);
+    if (wanted && !path.toLocaleLowerCase().includes(wanted)) continue;
+    if (matched++ < start) continue;
+    if (entries.length >= count) {
+      hasMore = true;
+      break;
     }
-  } finally {
-    await source.return(undefined);
+    const slash = path.lastIndexOf("/");
+    const entry = await describeEntry(
+      root,
+      slash < 0 ? "" : path.slice(0, slash),
+      name,
+    );
+    if (!entry) continue;
+    entries.push(entry);
+    if (!fitsPage(entries)) {
+      entries.pop();
+      hasMore = true;
+      break;
+    }
   }
   return { entries, hasMore };
+}
+
+// Bound the memory needed to match one logical line, independently of file size.
+const MAX_SEARCH_LINE_BYTES = 8 * 1024 * 1024;
+
+async function* workspaceLines(file: OpenedFile, signal?: Signal) {
+  let parts: Buffer[] = [];
+  let length = 0;
+  const decoder = new TextDecoder("utf-8", { ignoreBOM: true });
+  let first = true;
+  function finish() {
+    let text: string | undefined;
+    if (length <= MAX_SEARCH_LINE_BYTES) {
+      const bytes =
+        parts.length === 1 ? parts[0]! : Buffer.concat(parts, length);
+      text = decoder.decode(
+        bytes.at(-1) === 13 ? bytes.subarray(0, -1) : bytes,
+      );
+      if (first && text.startsWith("\uFEFF")) text = text.slice(1);
+    }
+    parts = [];
+    length = 0;
+    first = false;
+    return text;
+  }
+  for (let offset = 0; offset < file.size;) {
+    throwIfAborted(signal);
+    const block = await readAt(
+      file.handle,
+      offset,
+      Math.min(READ_CHUNK, file.size - offset),
+    );
+    if (!block.length) break;
+    if (offset === 0 && block.subarray(0, 8192).includes(0)) return;
+    offset += block.length;
+    let at = 0;
+    while (at < block.length) {
+      const lf = block.indexOf(10, at);
+      const end = lf < 0 ? block.length : lf;
+      length += end - at;
+      if (length <= MAX_SEARCH_LINE_BYTES) parts.push(block.subarray(at, end));
+      if (lf < 0) break;
+      yield finish();
+      at = lf + 1;
+    }
+  }
+  if (length) yield finish();
+}
+
+async function searchWorkspace(
+  root: Root,
+  {
+    folder,
+    query,
+    caseSensitive,
+    regex,
+    maxResults = 200,
+  }: ReadParamsByMethod["files.searchWorkspace"],
+  signal?: Signal,
+): Promise<ReadResultByMethod["files.searchWorkspace"]> {
+  if (folder) {
+    const { canonical } = await insidePath(root, folder);
+    if (!(await stat(canonical)).isDirectory())
+      throw new ReadingFailure(
+        "not_a_directory",
+        "Search path is not a folder",
+      );
+  }
+  let pattern: RegExp;
+  try {
+    const source = regex
+      ? query
+      : query.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+    pattern = new RegExp(source, caseSensitive ? "gu" : "giu");
+  } catch {
+    throw new ReadingFailure("invalid_request", "Invalid search expression");
+  }
+  const matches: WorkspaceSearchMatch[] = [];
+  const matchedFiles = new Set<string>();
+  let truncated = false;
+  let pageBytes = 2; // JSON array delimiters
+  for await (const path of workspaceFiles(root, signal)) {
+    throwIfAborted(signal);
+    if (
+      isExcludedPath(path) ||
+      (folder && !path.startsWith(folder + "/")) ||
+      matchedFiles.has(path)
+    )
+      continue;
+    try {
+      const full = await withFile(root, path, signal, async (file) => {
+        const absolutePath = absoluteFor(root, path);
+        let line = 0;
+        for await (const text of workspaceLines(file, signal)) {
+          line++;
+          if (text === undefined || (regex && text.length > 20_000)) {
+            truncated = true;
+            continue;
+          }
+          for (const hit of text.matchAll(pattern)) {
+            const column = hit.index;
+            const context = Math.max(0, 300 - hit[0].length);
+            const start = Math.max(
+              0,
+              Math.min(column - Math.floor(context / 2), text.length - 300),
+            );
+            const match = {
+              path,
+              absolutePath,
+              line,
+              column,
+              length: hit[0].length,
+              text: text.slice(start, start + 300),
+              previewColumn: column - start,
+            };
+            pageBytes +=
+              Buffer.byteLength(JSON.stringify(match)) +
+              (matches.length ? 1 : 0);
+            if (pageBytes >= MAX_PAGE_RESPONSE_BYTES) return true;
+            matches.push(match);
+            matchedFiles.add(path);
+            if (matches.length >= maxResults) return true;
+          }
+        }
+        return false;
+      });
+      if (full) {
+        truncated = true;
+        break;
+      }
+    } catch (error) {
+      throwIfAborted(signal);
+      if (!(error instanceof ReadingFailure)) throw error;
+      // A missing or unreadable entry does not hide matches in other files.
+    }
+  }
+  return { matches, truncated, fileCount: matchedFiles.size };
 }
 
 async function fileInfo(
@@ -821,6 +953,12 @@ export async function handleFileRead<M extends ReadMethod>(
         return { ...result, revision: file.revision };
       })) as ReadResultByMethod[M];
     }
+    case "files.searchWorkspace":
+      return (await searchWorkspace(
+        root,
+        params as ReadParamsByMethod["files.searchWorkspace"],
+        signal,
+      )) as ReadResultByMethod[M];
     case "files.find": {
       const value = params as ReadParamsByMethod["files.find"];
       return (await findFiles(

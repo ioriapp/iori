@@ -12,6 +12,7 @@ import {
 } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
+import { linkGit } from "../../verification/host/environment.mjs";
 import { runHostTest } from "../../verification/host/process.mjs";
 
 async function folder(dataRoot) {
@@ -129,6 +130,25 @@ test("一覧とファイル名の絞り込みに.gitなどを出さず、直接�
     assert.deepEqual(
       foundVisible.entries.map(({ path }) => path),
       ["sub/visible.txt"],
+    );
+    await writeFile(join(root, "another.txt"), "");
+    const initial = await client.request("files.find", {
+      root,
+      query: "",
+      start: 0,
+      count: 1,
+    });
+    const next = await client.request("files.find", {
+      root,
+      query: "",
+      start: 1,
+      count: 1,
+    });
+    assert.equal(initial.hasMore, true);
+    assert.equal(next.hasMore, false);
+    assert.deepEqual(
+      [...initial.entries, ...next.entries].map(({ path }) => path).sort(),
+      ["another.txt", "sub/visible.txt"],
     );
     const direct = await client.request("files.read", {
       root,
@@ -290,4 +310,91 @@ test("同じ大きさの外部変更を監視中のClientへ知らせる", (t) =
       Buffer.from(result.bytesBase64, "base64").toString(),
       "変更後\n",
     );
+  }));
+
+test("Files の作成・名前の変更・複製・削除が選んだフォルダー内に反映される", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    const root = await folder(dataRoot);
+    const created = await client.request("files.create", {
+      root,
+      path: "src/item.txt",
+      kind: "file",
+    });
+    assert.equal(created.absolutePath, join(root, "src/item.txt"));
+    const moved = await client.request("files.rename", {
+      root,
+      from: created.path,
+      to: "note.txt",
+    });
+    const copy = await client.request("files.duplicate", {
+      root,
+      path: moved.path,
+    });
+    assert.equal(copy.path, "note copy.txt");
+    await client.request("files.delete", { root, path: moved.path });
+    await symlink(dataRoot, join(root, "outside"), "dir");
+    await assert.rejects(
+      client.request("files.rename", {
+        root,
+        from: copy.path,
+        to: "outside/note.txt",
+      }),
+      /\(path_outside_root\)/u,
+    );
+    const list = await client.request("files.list", {
+      root,
+      path: "",
+      start: 0,
+      count: 10,
+    });
+    assert.deepEqual(list.entries.map((entry) => entry.name).sort(), [
+      "note copy.txt",
+      "outside",
+      "src",
+    ]);
+  }));
+
+test("外部変更との競合を確認して上書きし、保存した行を全文検索で開ける", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    const root = await folder(dataRoot);
+    await linkGit(join(dataRoot, "bin"));
+    const path = "note.txt";
+    const target = join(root, path);
+    await writeFile(target, "before");
+    const { revision } = await client.request("files.info", { root, path });
+    const write = {
+      root,
+      path,
+      expectedRevision: revision,
+      contentBase64: Buffer.from("draft\n確定\n").toString("base64"),
+    };
+    const saved = await client.request("files.write", write);
+    await writeFile(target, "external edit");
+    write.expectedRevision = saved.revision;
+    await assert.rejects(
+      client.request("files.write", write),
+      /\(file_conflict\)/u,
+    );
+    assert.equal(await readFile(target, "utf8"), "external edit");
+    await client.request("files.write", { ...write, force: true });
+    const result = await client.request("files.searchWorkspace", {
+      root,
+      query: "確定",
+      caseSensitive: true,
+    });
+    assert.deepEqual(result, {
+      matches: [
+        {
+          path,
+          absolutePath: target,
+          line: 2,
+          column: 0,
+          length: 2,
+          text: "確定",
+          previewColumn: 0,
+        },
+      ],
+      truncated: false,
+      fileCount: 1,
+    });
   }));

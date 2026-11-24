@@ -327,8 +327,8 @@ export function useWorkspaceTabs({
     ],
   );
 
-  // A new Terminal starts in the selected worktree. The result is applied once;
-  // a failed request is reported and never sent again automatically.
+  // A new Terminal starts in the selected worktree (or an explicit subfolder).
+  // The result is applied once; a failed request is reported and never sent again automatically.
   const createTerminal = useCallback(
     async (
       shellId?: string,
@@ -337,9 +337,11 @@ export function useWorkspaceTabs({
       cli?: CliSummary,
       team?: Team,
       startTabId?: string,
+      cwdOverride?: string,
     ) => {
       if (!selectedTarget) return;
       const target = selectedTarget;
+      const cwd = cwdOverride ?? target.cwd;
       const hostKey = target.host.publicKey;
       const startedIn = layoutScope.current;
       setShellPickerOpen(false);
@@ -353,16 +355,16 @@ export function useWorkspaceTabs({
       try {
         const result = team
           ? await connection.requestHost(hostKey, "team.launch", {
-              cwd: target.cwd,
+              cwd,
               teamId: team.id,
             })
           : cli
             ? await connection.requestHost(hostKey, "cli.launch", {
-                cwd: target.cwd,
+                cwd,
                 cliId: cli.id,
               })
             : await connection.requestHost(hostKey, "terminal.create", {
-                cwd: target.cwd,
+                cwd,
                 ...(shellId ? { shell: shellId } : {}),
               });
         if (!result?.ok) {
@@ -588,6 +590,34 @@ export function useWorkspaceTabs({
     showPanel(tab.id);
   };
 
+  const sendPathToTerminal = useCallback(
+    (absolutePath: string, worktreePath: string) => {
+      if (!selectedTarget) return;
+      const hostKey = selectedTarget.host.publicKey;
+      const allTerminals = terminalLists[hostKey]?.terminals ?? [];
+      const matching = allTerminals.filter(
+        (terminal) =>
+          !terminal.teamChild &&
+          samePath(terminal.worktreePath ?? terminal.cwd, worktreePath),
+      );
+      const lastId = workspace.getSnapshot().lastTerminalId;
+      const summary =
+        matching.find((terminal) => terminal.id === lastId) ??
+        matching.at(-1) ??
+        recentTerminal();
+      if (!summary) return;
+      const text = terminalDropText(
+        absolutePath,
+        summary.cwdFromShell ? summary.cwd : undefined,
+        summary.shell,
+      );
+      if (text === undefined) return;
+      typeIntoTerminal(summary.id, text);
+      openTerminal(summary);
+    },
+    [openTerminal, recentTerminal, selectedTarget, terminalLists, workspace],
+  );
+
   const childStates = useRef(new Map<string, ChildSummary["state"]>());
   const finishedChildTabs = useRef(
     new Map<string, { hostKey: string; cwd: string; terminalId: string }>(),
@@ -724,6 +754,7 @@ export function useWorkspaceTabs({
     splitGroup,
     dropSidebarView,
     dropPath,
+    sendPathToTerminal,
     displayTabs,
   };
 }

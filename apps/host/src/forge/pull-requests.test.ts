@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { pushFailureText } from "./pull-requests.ts";
+import {
+  draftTitle,
+  pullRequestBody,
+  pushFailureText,
+} from "./pull-requests.ts";
 
 test("Git rejection summaries retain the reason and omit credential-bearing URLs", () => {
   assert.equal(
@@ -17,4 +21,10 @@ test("Git rejection summaries retain the reason and omit credential-bearing URLs
     ),
     "Git push failed.\nfatal: Authentication failed for '[remote]'",
   );
+});
+
+test("Forgejo draft titles keep an existing WIP prefix and an optional Issue link keeps the supplied body", () => {
+  assert.equal(draftTitle("WIP: Change"), "WIP: Change");
+  assert.equal(pullRequestBody("Review notes"), "Review notes");
+  assert.equal(pullRequestBody("", 4), "Closes #4");
 });

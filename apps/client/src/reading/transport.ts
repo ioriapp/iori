@@ -5,9 +5,15 @@ import {
   responseSchema,
   type ForgeReadFailure,
   type ReadMethod,
+  type FilesManageMethod,
+  type FilesManageParams,
+  type FilesManageResults,
   type FilesTransferMethod,
   type FilesTransferParams,
   type FilesTransferResults,
+  type GitWriteMethod,
+  type GitWriteParams,
+  type GitWriteResults,
   type ReadParamsByMethod,
   type ReadResultByMethod,
 } from "@iori/protocol";
@@ -20,9 +26,16 @@ import { connection, type ConnectionController } from "../connection.ts";
  */
 export type ReadingChange = { paths?: string[] };
 
-type ReadingMethod = ReadMethod | FilesTransferMethod;
-type ReadingParams = ReadParamsByMethod & FilesTransferParams;
-type ReadingResults = ReadResultByMethod & FilesTransferResults;
+type ReadingMethod =
+  ReadMethod | FilesTransferMethod | FilesManageMethod | GitWriteMethod;
+type ReadingParams = ReadParamsByMethod &
+  FilesTransferParams &
+  FilesManageParams &
+  GitWriteParams;
+type ReadingResults = ReadResultByMethod &
+  FilesTransferResults &
+  FilesManageResults &
+  GitWriteResults;
 
 export interface ReadingTransport {
   request<M extends ReadingMethod>(

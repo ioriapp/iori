@@ -1,5 +1,5 @@
 import { translator } from "../i18n.ts";
-import { useState, type ReactNode } from "react";
+import { Fragment, useState, type ReactNode } from "react";
 import {
   ContextMenu,
   ContextMenuTrigger,
@@ -17,6 +17,8 @@ export type MenuAction = {
   icon?: ReactNode;
   shortcut?: string;
   disabled?: boolean;
+  destructive?: boolean;
+  separatorBefore?: boolean;
   action: string;
   run: () => void | Promise<void>;
 };
@@ -28,6 +30,7 @@ export type MenuAction = {
 export function PathMenu({
   children,
   path,
+  relativePath,
   lines,
   actions = [],
   leadingActions = [],
@@ -38,6 +41,8 @@ export function PathMenu({
 }: {
   children: ReactNode;
   path: string;
+  /** Path relative to the open folder, for "Copy relative path". */
+  relativePath?: string;
   /** 1-based line or line range for "Copy path with line"; omitted for a whole file. */
   lines?: { start: number; end: number };
   actions?: MenuAction[];
@@ -61,22 +66,25 @@ export function PathMenu({
       setError(true);
     }
   };
-  const renderAction = (item: MenuAction) => (
-    <ContextMenuItem
-      key={item.action}
-      data-iori-action={item.action}
-      disabled={item.disabled}
-      onSelect={(event) => {
-        event.preventDefault();
-        void run(item.run);
-      }}
-    >
-      {showIcons && item.icon}
-      {item.label}
-      {item.shortcut && (
-        <ContextMenuShortcut>{item.shortcut}</ContextMenuShortcut>
-      )}
-    </ContextMenuItem>
+  const renderAction = (item: MenuAction, index: number) => (
+    <Fragment key={item.action}>
+      {item.separatorBefore && index > 0 && <ContextMenuSeparator />}
+      <ContextMenuItem
+        data-iori-action={item.action}
+        disabled={item.disabled}
+        variant={item.destructive ? "destructive" : "default"}
+        onSelect={(event) => {
+          event.preventDefault();
+          void run(item.run);
+        }}
+      >
+        {showIcons && item.icon}
+        {item.label}
+        {item.shortcut && (
+          <ContextMenuShortcut>{item.shortcut}</ContextMenuShortcut>
+        )}
+      </ContextMenuItem>
+    </Fragment>
   );
   return (
     <ContextMenu
@@ -97,7 +105,7 @@ export function PathMenu({
             event.pointerType !== "mouse" &&
             Boolean(
               (event.target as Element).closest(
-                ".reading-line-text, .reading-markdown",
+                ".reading-line-text, .reading-markdown, .cm-content",
               ),
             );
           // The trigger must know before this pointerdown bubbles whether Radix
@@ -109,7 +117,7 @@ export function PathMenu({
         {children}
       </ContextMenuTrigger>
       <ContextMenuContent collisionPadding={8}>
-        {leadingActions.map(renderAction)}
+        {leadingActions.map((item, index) => renderAction(item, index))}
         {leadingActions.length > 0 && <ContextMenuSeparator />}
         <ContextMenuItem
           onSelect={(event) => {
@@ -121,6 +129,18 @@ export function PathMenu({
           {showIcons && <Copy />}
           {t("Copy path")}
         </ContextMenuItem>
+        {relativePath && (
+          <ContextMenuItem
+            onSelect={(event) => {
+              event.preventDefault();
+              void run(() => native.clipboardWrite(relativePath));
+            }}
+            data-iori-action="copy-relative-path"
+          >
+            {showIcons && <Copy />}
+            {t("Copy relative path")}
+          </ContextMenuItem>
+        )}
         {lines && (
           <ContextMenuItem
             onSelect={(event) => {
@@ -138,7 +158,7 @@ export function PathMenu({
           </ContextMenuItem>
         )}
         {actions.length > 0 && separateActions && <ContextMenuSeparator />}
-        {actions.map((item) => renderAction(item))}
+        {actions.map((item, index) => renderAction(item, index))}
         {error && (
           <p className="mx-2 my-1 text-xs text-status-failed-text" role="alert">
             {t("That did not work. Select it again.")}

@@ -1,7 +1,8 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID, type Hash } from "node:crypto";
 import { lstat, mkdir, mkdtemp, open, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { extname, join } from "node:path";
+import { MAX_PAGE_RESPONSE_BYTES, type SyntaxLine } from "@iori/protocol";
 import type {
   GitDiffInfo,
   GitDiffRow,
@@ -43,10 +44,13 @@ import {
 } from "./text-lines.ts";
 import {
   handleFileRead,
+  revisionFor,
   isWithin,
   MIME_BY_EXTENSION,
 } from "./files-reading.ts";
-import type { Repository } from "./git-reading.ts";
+import { readBufferSyntax, MAX_SYNTAX_FILE_BYTES } from "./files-syntax.ts";
+import { syntaxLanguage } from "./files-syntax-language.ts";
+import { branchMergeBase, type Repository } from "./git-reading.ts";
 import { createConcurrencyLimiter } from "./resource-limits.ts";
 
 type Signal = AbortSignal | undefined;
@@ -74,7 +78,9 @@ type Part = {
 /** The new side of a diff, as a file whose lines can be read by range. */
 type NewSide = {
   lines: number;
-  load: (signal?: Signal) => Promise<{ file: string; index: LineIndex }>;
+  load: (
+    signal?: Signal,
+  ) => Promise<{ file: string; index: LineIndex; revision?: string }>;
 };
 
 type NewSideSource =
@@ -105,12 +111,19 @@ type DiffDocument = {
   imageFiles?: Map<string, Promise<string>>;
   info: GitDiffInfo;
   collapsed: Array<[number, number]>;
+  hunks: number[];
+  patchHunks?: { row: number; fingerprint: string }[];
+  mergeBase?: string;
+  worktreeRevision?: string;
+  oldBlob?: string;
+  newBlob?: string;
 };
 
 // Git's context around each change; longer unchanged stretches are collapsed.
 const CONTEXT = "--unified=3";
 const MIN_COLLAPSED_ROWS = 3;
 // The collapsed list is sent in one response. Past this many runs the rest stay visible.
+const MAX_HUNKS = 4096;
 const MAX_COLLAPSED_RUNS = 16_384;
 // Recent diffs kept on disk for scrolling and searching; older ones are deleted.
 const MAX_DOCUMENTS = 16;
@@ -164,10 +177,11 @@ function advance(state: LineState, marker: number | undefined): void {
   else if (marker === MARK_DELETED) state.old += 1;
 }
 
-const common = [
+export const gitPatchOptions = [
   "--no-ext-diff",
   "--no-textconv",
   "--no-color",
+  "--full-index",
   "--src-prefix=a/",
   "--dst-prefix=b/",
   CONTEXT,
@@ -177,7 +191,17 @@ const common = [
  * Checks a path in the worktree, which Git and the Host read from the OS,
  * against the repository: no folder on the way may lead outside it.
  */
-async function worktreeTarget(repository: Repository, path: string) {
+async function worktreeTarget(
+  repository: Repository,
+  path: string,
+  tracked = false,
+) {
+  if (process.platform === "win32" && path.includes("\\")) {
+    throw new ReadingFailure(
+      "path_outside_root",
+      "Worktree paths must use slash separators",
+    );
+  }
   const parts = path.split("/");
   let current = repository.root;
   for (const part of parts.slice(0, -1)) {
@@ -192,11 +216,12 @@ async function worktreeTarget(repository: Repository, path: string) {
   const absolute = join(repository.root, ...parts);
   let info;
   try {
-    info = await lstat(absolute);
+    info = await lstat(absolute, { bigint: true });
   } catch (error) {
     throw toFailure(error);
   }
   if (info.isSymbolicLink()) {
+    if (tracked) return { absolute, directory: false, file: false };
     const target = await realpath(absolute).catch(() => undefined);
     if (target && !isWithin(repository.root, target))
       throw new ReadingFailure(
@@ -206,55 +231,89 @@ async function worktreeTarget(repository: Repository, path: string) {
     if (target && (await lstat(target)).isDirectory())
       return { absolute, directory: true, file: false };
   }
-  return { absolute, directory: info.isDirectory(), file: info.isFile() };
+  return {
+    absolute,
+    directory: info.isDirectory(),
+    file: info.isFile(),
+    revision: revisionFor(info),
+  };
 }
 
 async function commandFor(
   repository: Repository,
   source: GitDiffSource,
+  signal?: Signal,
 ): Promise<
   | {
       args: string[];
       plain: boolean;
       accepted: number[];
       newSide?: NewSideSource;
+      worktreeRevision?: string;
+      mergeBase?: string;
     }
   | { directory: true }
 > {
   const paths = source.kind === "stage" ? [] : [source.oldPath, source.path];
   const pathspec = ["--", ...paths.filter((path) => path !== undefined)];
+  if (
+    (source.kind === "branch" && source.untracked) ||
+    (source.kind === "change" && source.area === "untracked")
+  ) {
+    const target = await worktreeTarget(repository, source.path);
+    if (target.directory) return { directory: true };
+    return {
+      args: [
+        "diff",
+        "--no-index",
+        ...gitPatchOptions,
+        "--",
+        process.platform === "win32" ? "NUL" : "/dev/null",
+        target.absolute,
+      ],
+      plain: false,
+      accepted: [0, 1],
+      worktreeRevision: target.file ? target.revision : undefined,
+    };
+  }
+  if (
+    source.kind === "branch" ||
+    (source.kind === "change" && source.area === "unstaged")
+  ) {
+    const mergeBase =
+      source.kind === "branch"
+        ? await branchMergeBase(repository, source.base, signal)
+        : undefined;
+    const target = await worktreeTarget(repository, source.path, true).catch(
+      (error: unknown) => {
+        if (error instanceof ReadingFailure && error.code === "path_not_found")
+          return undefined;
+        throw error;
+      },
+    );
+    return {
+      args: [
+        "diff",
+        ...(mergeBase ? ["-M"] : []),
+        ...gitPatchOptions,
+        ...(mergeBase ? ["--end-of-options", mergeBase] : []),
+        ...pathspec,
+      ],
+      plain: false,
+      accepted: [0],
+      mergeBase,
+      newSide: target?.file ? { kind: "file", path: source.path } : undefined,
+      worktreeRevision: target?.file ? target.revision : undefined,
+    };
+  }
   switch (source.kind) {
     case "change":
-      if (source.area === "staged")
-        return {
-          args: ["diff", "--cached", "-M", ...common, ...pathspec],
-          plain: false,
-          accepted: [0],
-          newSide: { kind: "blob", spec: `:0:${source.path}` },
-        };
-      if (source.area === "unstaged")
-        return {
-          args: ["diff", ...common, ...pathspec],
-          plain: false,
-          accepted: [0],
-          newSide: { kind: "file", path: source.path },
-        };
-      {
-        const target = await worktreeTarget(repository, source.path);
-        if (target.directory) return { directory: true };
-        return {
-          args: [
-            "diff",
-            "--no-index",
-            ...common,
-            "--",
-            process.platform === "win32" ? "NUL" : "/dev/null",
-            target.absolute,
-          ],
-          plain: false,
-          accepted: [0, 1],
-        };
-      }
+      return {
+        args: ["diff", "--cached", "-M", ...gitPatchOptions, ...pathspec],
+        plain: false,
+        accepted: [0],
+        newSide: { kind: "blob", spec: `:0:${source.path}` },
+      };
     case "stage":
       return {
         args: ["cat-file", "blob", `:${source.stage}:${source.path}`],
@@ -267,7 +326,7 @@ async function commandFor(
           ? [
               "diff",
               "-M",
-              ...common,
+              ...gitPatchOptions,
               "--end-of-options",
               source.parent,
               source.hash,
@@ -279,7 +338,7 @@ async function commandFor(
               "--root",
               "--no-commit-id",
               "-M",
-              ...common,
+              ...gitPatchOptions,
               "--end-of-options",
               source.hash,
               ...pathspec,
@@ -383,7 +442,11 @@ async function newSideFor(
         (await handle.stat()).size,
         signal,
       );
-      const loaded = Promise.resolve({ file: target.absolute, index });
+      const loaded = Promise.resolve({
+        file: target.absolute,
+        index,
+        revision: document.worktreeRevision,
+      });
       return { lines: index.lines, load: () => loaded };
     } finally {
       await handle.close().catch(() => undefined);
@@ -432,12 +495,20 @@ async function generate(
     parts: [],
     info: {},
     collapsed: [],
+    hunks: [],
+    ...(source.kind === "change" &&
+    (source.area === "staged" || source.area === "unstaged") &&
+    !source.oldPath
+      ? { patchHunks: [] }
+      : {}),
   };
-  const command = await commandFor(repository, source);
+  const command = await commandFor(repository, source, signal);
   if ("directory" in command) {
     document.info.directory = true;
     return document;
   }
+  document.mergeBase = command.mergeBase;
+  document.worktreeRevision = command.worktreeRevision;
   const file = join(await directory(), `${document.revision}.diff`);
   const output = await open(file, "w", 0o600);
   let git: ReturnType<typeof startGit> | undefined;
@@ -465,8 +536,21 @@ async function generate(
   let header: Buffer[] = [];
   let headerBytes = 0;
   let probed = !command.plain;
+  let patchHash: Hash | undefined;
+  let patchRow: number | undefined;
+  const finishPatchHunk = () => {
+    if (patchHash && patchRow !== undefined)
+      document.patchHunks!.push({
+        row: patchRow,
+        fingerprint: patchHash.digest("hex"),
+      });
+    patchHash = undefined;
+    patchRow = undefined;
+  };
+  let changing = false;
   const addGap = (rows: number) => {
     if (rows <= 0) return;
+    changing = false;
     document.parts.push({
       kind: "gap",
       row: document.rows,
@@ -486,6 +570,10 @@ async function generate(
     state.new += rows;
   };
   const beginRow = async (marker: number) => {
+    const changed = marker === MARK_ADDED || marker === MARK_DELETED;
+    if (changed && !changing && document.hunks.length < MAX_HUNKS)
+      document.hunks.push(document.rows);
+    changing = changed;
     const line = document.lines + 1;
     if (!hunk) {
       hunk = {
@@ -514,15 +602,21 @@ async function generate(
     const text = Buffer.concat(header, headerBytes)
       .toString("utf8")
       .replace(/\r?\n$/u, "");
-    if (lineType === "header")
+    if (lineType === "header") {
       newMode = parseHeader(text, document.info) ?? newMode;
-    else if (lineType === "hunk") {
+      const blobs = /^index ([0-9a-f]+)\.\.([0-9a-f]+)/u.exec(text);
+      if (blobs) {
+        document.oldBlob = blobs[1];
+        document.newBlob = blobs[2];
+      }
+    } else if (lineType === "hunk") {
       const match = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/u.exec(text);
       if (match) {
         // An empty range names the line before it.
         const oldBegin = Number(match[1]) + (match[2] === "0" ? 1 : 0);
         const newBegin = Number(match[3]) + (match[4] === "0" ? 1 : 0);
         addGap(newBegin - state.new);
+        if (patchHash) patchRow = document.rows;
         state.old = oldBegin;
         state.new = newBegin;
         hunk = undefined;
@@ -554,6 +648,15 @@ async function generate(
         if (atLineStart) {
           atLineStart = false;
           const first = segment[0]!;
+          if (first === 0x40 || first === 0x64) {
+            finishPatchHunk();
+            if (
+              first === 0x40 &&
+              document.patchHunks &&
+              document.patchHunks.length < MAX_HUNKS
+            )
+              patchHash = createHash("sha256");
+          }
           if (command.plain) {
             lineType = "row";
             await beginRow(MARK_CONTEXT);
@@ -569,6 +672,7 @@ async function generate(
             await beginRow(first);
           } else lineType = inRows ? "other" : "header";
         }
+        patchHash?.update(segment);
         if (lineType === "row") await write(segment);
         else if (lineType !== "other" && headerBytes < 65_536) {
           header.push(segment);
@@ -578,6 +682,7 @@ async function generate(
         at = end;
       }
     }
+    finishPatchHunk();
     if (!atLineStart && lineType === "row") await write(Buffer.of(10));
     if (document.info.binary && command.plain) await stopGit(git);
     else await finishGit(git, signal, command.accepted);
@@ -590,6 +695,7 @@ async function generate(
       document.rows = document.lines = document.index.lines = 0;
       document.parts = [];
       document.collapsed = [];
+      document.hunks = [];
     } else if (
       command.newSide &&
       document.parts.length > 0 &&
@@ -600,7 +706,9 @@ async function generate(
       // The unchanged lines after the last hunk: the new side's line count says how many.
       const newSide = await newSideFor(
         repository,
-        command.newSide,
+        command.newSide.kind === "blob" && document.newBlob
+          ? { kind: "blob", spec: document.newBlob }
+          : command.newSide,
         document,
         signal,
       ).catch(() => {
@@ -766,11 +874,20 @@ export async function handleDiffRead<M extends ReadMethod>(
           totalRows: document.rows,
           info: document.info,
           collapsed: document.collapsed,
+          hunks: document.hunks,
+          patchHunks: document.patchHunks,
         }) as ReadResultByMethod[M],
     );
   }
   return withDocument(repository, source, false, signal, async (document) => {
     try {
+      if (method === "git.diffSyntax")
+        return (await diffSyntax(
+          repository,
+          document,
+          params as ReadParamsByMethod["git.diffSyntax"],
+          signal,
+        )) as ReadResultByMethod[M];
       return await readDocument(document, method, params, signal);
     } catch (error) {
       throw toFailure(error);
@@ -779,19 +896,30 @@ export async function handleDiffRead<M extends ReadMethod>(
 }
 
 /** Resolve each side from the comparison, keeping paths relative to the repository. */
-function imageSource(
+function contentSource(
   source: GitDiffSource,
   side: GitImageSide,
+  mergeBase?: string,
 ):
   | { kind: "missing"; path: string }
   | { kind: "file"; path: string }
   | { kind: "blob"; path: string; spec: string } {
   if (source.kind === "stage")
-    throw new ReadingFailure("invalid_request", "Stage images are unsupported");
+    return {
+      kind: "blob",
+      path: source.path,
+      spec: `:${source.stage}:${source.path}`,
+    };
   const path =
-    side === "old" && (source.kind === "commit" || source.area === "staged")
+    side === "old" && (source.kind !== "change" || source.area === "staged")
       ? (source.oldPath ?? source.path)
       : source.path;
+  if (source.kind === "branch") {
+    if (side === "new") return { kind: "file", path };
+    return source.untracked
+      ? { kind: "missing", path }
+      : { kind: "blob", path, spec: `${mergeBase}:${path}` };
+  }
   if (source.kind === "commit")
     return {
       kind: "blob",
@@ -819,7 +947,15 @@ async function handleImageRead(
 ): Promise<
   ReadResultByMethod["git.imageInfo"] | ReadResultByMethod["git.imageRead"]
 > {
-  const source = imageSource(value.source, value.side);
+  if (value.source.kind === "stage")
+    throw new ReadingFailure("invalid_request", "Stage images are unsupported");
+  const base =
+    value.source.kind === "branch" &&
+    !value.source.untracked &&
+    value.side === "old"
+      ? await branchMergeBase(repository, value.source.base, signal)
+      : undefined;
+  const source = contentSource(value.source, value.side, base);
   const mimeType = MIME_BY_EXTENSION[extname(source.path).toLowerCase()];
   const missing = () => {
     if (method === "git.imageRead")
@@ -1016,9 +1152,13 @@ class Files {
       const side = this.#document.newSide;
       if (!side)
         throw new ReadingFailure("read_failed", "The new side is not readable");
-      const { file, index } = await side.load(this.#signal);
+      const { file, index, revision } = await side.load(this.#signal);
       const handle = await this.#open(file);
-      return { handle, size: (await handle.stat()).size, index };
+      const info = await handle.stat({ bigint: true });
+      // eslint-disable-next-line iori/no-stored-value-rejection -- The worktree path may now point to a different file, including a link outside the repository.
+      if (revision && revisionFor(info) !== revision)
+        throw new ReadingFailure("read_failed", "The diff file has changed");
+      return { handle, size: Number(info.size), index };
     })();
     return this.#newSide;
   }
@@ -1192,6 +1332,165 @@ async function readRows(
     if (row < part.row + part.rows || budget <= 0) break;
   }
   return { rows };
+}
+
+type SyntaxRow = { row: number; side: GitImageSide; line: number };
+
+/** Gap rows have consecutive new-side lines. For hunks only the marker bytes are needed. */
+async function syntaxRows(
+  document: DiffDocument,
+  start: number,
+  end: number,
+  signal?: Signal,
+) {
+  const rows: SyntaxRow[] = [];
+  const files = new Files(document, signal);
+  try {
+    for (let at = partAt(document, start); at < document.parts.length; at++) {
+      const part = document.parts[at]!;
+      if (part.row >= end) break;
+      let row = Math.max(start, part.row);
+      const stop = Math.min(end, part.row + part.rows);
+      if (part.kind === "gap") {
+        for (; row < stop; row++)
+          rows.push({ row, side: "new", line: part.new + row - part.row });
+        continue;
+      }
+      const { handle, size, offset, state } = await locate(
+        files,
+        document,
+        part,
+        row,
+        signal,
+      );
+      await seekLine(
+        handle,
+        size,
+        { line: row, offset },
+        stop,
+        signal,
+        (marker) => {
+          if (marker === MARK_DELETED)
+            rows.push({ row, side: "old", line: state.old });
+          else if (marker === MARK_ADDED || marker === MARK_CONTEXT)
+            rows.push({ row, side: "new", line: state.new });
+          advance(state, marker);
+          row++;
+        },
+      );
+    }
+    return rows;
+  } finally {
+    await files.close();
+  }
+}
+
+async function diffSyntax(
+  repository: Repository,
+  document: DiffDocument,
+  value: ReadParamsByMethod["git.diffSyntax"],
+  signal?: Signal,
+): Promise<ReadResultByMethod["git.diffSyntax"]> {
+  const { source, startRow, rowCount } = value;
+  const language = syntaxLanguage(source.path, "");
+  const result: ReadResultByMethod["git.diffSyntax"] = {
+    rows: [],
+    startRow,
+    endRow: startRow,
+    revision: document.revision,
+  };
+  if (!language) return result;
+  result.language = language;
+  result.endRow = Math.max(
+    startRow,
+    Math.min(document.rows, startRow + rowCount),
+  );
+  if (result.endRow === startRow) return result;
+  const positions = await syntaxRows(document, startRow, result.endRow, signal);
+  const spansByRow = new Map<number, SyntaxLine["spans"]>();
+  for (const side of ["old", "new"] as const) {
+    const selected = positions.filter((pos) => pos.side === side);
+    if (!selected.length) continue;
+    const startLine = selected[0]!.line;
+    const range = {
+      startLine,
+      lineCount: selected.at(-1)!.line - startLine + 1,
+    };
+    const content = contentSource(source, side, document.mergeBase);
+    try {
+      let syntax: ReadResultByMethod["files.syntax"];
+      if (content.kind === "file") {
+        if (!document.worktreeRevision) continue;
+        syntax = await handleFileRead(
+          "files.syntax",
+          { root: repository.root, path: content.path, ...range },
+          signal,
+        );
+        if (syntax.revision !== document.worktreeRevision) continue;
+      } else if (content.kind === "blob") {
+        const blob =
+          (side === "old" ? document.oldBlob : document.newBlob) ??
+          (
+            await collectGit(
+              repository.root,
+              ["rev-parse", "--verify", "--end-of-options", content.spec],
+              signal,
+            )
+          ).stdout
+            .toString("utf8")
+            .trim();
+        syntax = await readBufferSyntax(
+          blob,
+          blob,
+          language,
+          range,
+          async () => {
+            const size = await collectGit(
+              repository.root,
+              ["cat-file", "-s", blob],
+              signal,
+            );
+            if (Number(size.stdout.toString("utf8")) > MAX_SYNTAX_FILE_BYTES)
+              return Buffer.alloc(0);
+            return (
+              await collectGit(
+                repository.root,
+                ["cat-file", "blob", blob],
+                signal,
+              )
+            ).stdout;
+          },
+          signal,
+        );
+      } else continue;
+      const lines = new Map(
+        syntax.lines.map(({ line, spans }) => [line, spans]),
+      );
+      for (const { row, line } of selected) {
+        if (syntax.lines.length && line >= syntax.endLine) {
+          result.endRow = Math.min(result.endRow, row);
+          break;
+        }
+        const spans = lines.get(line);
+        if (spans) spansByRow.set(row, spans);
+      }
+    } catch {
+      // Highlighting is optional; one unavailable side leaves the other readable.
+      throwIfAborted(signal);
+    }
+  }
+  let bytes = Buffer.byteLength(JSON.stringify(result));
+  for (const { row } of positions) {
+    if (row >= result.endRow) break;
+    const entry = { row, spans: spansByRow.get(row) ?? [] };
+    bytes += Buffer.byteLength(JSON.stringify(entry)) + 1;
+    if (result.rows.length && bytes > MAX_PAGE_RESPONSE_BYTES) {
+      result.endRow = row;
+      break;
+    }
+    result.rows.push(entry);
+  }
+  return result;
 }
 
 function emptyResult(document: DiffDocument, method: ReadMethod) {

@@ -27,6 +27,7 @@ export const MAX_TEXT_RANGE_BYTES = 524_288;
 export const MAX_PAGE_RESPONSE_BYTES = 524_288;
 // One list request returns at most this many items; the Client asks by position.
 export const MAX_LIST_COUNT = 512;
+export const MAX_WORKSPACE_SEARCH_RESULTS = 500;
 // One syntax request covers at most this many lines; the Client asks by page.
 export const MAX_SYNTAX_LINES = 1024;
 
@@ -114,6 +115,18 @@ export interface TextSearchMatch {
   length: number;
   byteOffset: number;
   byteLength: number;
+}
+
+export interface WorkspaceSearchMatch {
+  path: string;
+  absolutePath: string;
+  /** 1-based line, with column and length in UTF-16 code units. */
+  line: number;
+  column: number;
+  length: number;
+  text: string;
+  /** Offset of the match in the line preview. */
+  previewColumn: number;
 }
 
 export interface GitRepositoryStatus {
@@ -297,10 +310,29 @@ const search = {
 };
 const hash = decoded((value) => objectId(value, "hash"));
 const changePath = { path: filePath, oldPath: v.optional(filePath) };
+const branchRef = v.pipe(
+  nonNulText,
+  v.check(
+    (name) =>
+      !/^-|[\s\p{Cc}~^:?*\[\\]|\.\.|@\{|\.$/u.test(name) &&
+      name !== "@" &&
+      name
+        .split("/")
+        .every(
+          (part) => part && !part.startsWith(".") && !part.endsWith(".lock"),
+        ),
+  ),
+);
 const source = v.variant("kind", [
   v.object({
     kind: v.literal("change"),
     area: v.picklist(["staged", "unstaged", "untracked"]),
+    ...changePath,
+  }),
+  v.object({
+    kind: v.literal("branch"),
+    base: branchRef,
+    untracked: v.optional(v.boolean()),
     ...changePath,
   }),
   v.pipe(
@@ -435,8 +467,31 @@ export const readMethods = {
       revision: "string",
     }),
   ),
+  "files.searchWorkspace": method(
+    v.object({
+      root,
+      folder: v.optional(relative),
+      query: nonNulText,
+      caseSensitive: v.boolean(),
+      regex: v.optional(v.boolean()),
+      maxResults: v.optional(integer(1, MAX_WORKSPACE_SEARCH_RESULTS)),
+    }),
+    shaped<{
+      matches: WorkspaceSearchMatch[];
+      truncated: boolean;
+      fileCount: number;
+    }>("files.searchWorkspace", {
+      matches: "array",
+      truncated: "boolean",
+      fileCount: "number",
+    }),
+  ),
   "files.find": method(
-    v.object({ root, query: nonNulText, ...listWindow }),
+    v.object({
+      root,
+      query: decoded((value) => text(value, "query", true)),
+      ...listWindow,
+    }),
     shaped<{ entries: FileEntry[]; hasMore: boolean }>("files.find", {
       entries: "array",
       hasMore: "boolean",
@@ -453,6 +508,26 @@ export const readMethods = {
     }>("git.status", {
       isRepository: "boolean",
       counts: "object",
+      entries: "array",
+    }),
+  ),
+  "git.branches": method(
+    v.object({ root }),
+    shaped<{ current?: string; defaultBase?: string; branches: string[] }>(
+      "git.branches",
+      { branches: "array" },
+    ),
+  ),
+  "git.branchChanges": method(
+    v.object({ root, base: branchRef, ...listWindow }),
+    shaped<{
+      base: string;
+      mergeBase?: string;
+      total: number;
+      entries: GitChangeEntry[];
+    }>("git.branchChanges", {
+      base: "string",
+      total: "number",
       entries: "array",
     }),
   ),
@@ -496,6 +571,9 @@ export const readMethods = {
     shaped<{
       revision: string;
       totalRows: number;
+      hunks?: number[];
+      /** Start rows of Git patch hunks, in git.applyHunk index order. */
+      patchHunks?: { row: number; fingerprint: string }[];
       info: GitDiffInfo;
       /** Unchanged rows far from any change: [startRow, rowCount]. */
       collapsed: Array<[number, number]>;
@@ -504,6 +582,26 @@ export const readMethods = {
       totalRows: "number",
       info: "object",
       collapsed: "array",
+    }),
+  ),
+  "git.diffSyntax": method(
+    v.object({
+      root,
+      source,
+      startRow: integer(0),
+      rowCount: integer(1, MAX_SYNTAX_LINES),
+    }),
+    shaped<{
+      language?: string;
+      rows: { row: number; spans: SyntaxSpan[] }[];
+      startRow: number;
+      endRow: number;
+      revision: string;
+    }>("git.diffSyntax", {
+      rows: "array",
+      startRow: "number",
+      endRow: "number",
+      revision: "string",
     }),
   ),
   "git.diffRows": method(

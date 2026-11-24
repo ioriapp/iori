@@ -1,7 +1,15 @@
-import { http, pullRequestsByHead } from "./forgejo.ts";
+import { forgejoRequest, http, pages } from "./forgejo.ts";
 import { ForgeReadError, forgejoFailure } from "./failure.ts";
 import { forgeSites } from "./sites.ts";
-import { object, pullRequestUrl, string } from "./response.ts";
+import {
+  currentPull,
+  matchingHead,
+  inlineComment,
+  prDetail,
+  positiveId,
+} from "./pr-detail.ts";
+import type { IssueTarget } from "./issues.ts";
+import { array, object, pullRequestUrl, string } from "./response.ts";
 import {
   PullRequestFailure,
   draftTitle,
@@ -76,55 +84,117 @@ async function create(
   return (await response.json()) as unknown;
 }
 
+function repositoryEndpoint(target: IssueTarget) {
+  return `/api/v1/repos/${encodeURIComponent(target.owner)}/${encodeURIComponent(target.repo)}`;
+}
+
+async function list(target: IssueTarget, path: string, signal?: AbortSignal) {
+  return (
+    await pages(target.origin, `${repositoryEndpoint(target)}${path}`, signal)
+  ).flatMap(array);
+}
+
+async function readDefaultBranch(target: IssueTarget, signal?: AbortSignal) {
+  return string(
+    object(
+      (await http(`${target.origin}${repositoryEndpoint(target)}`, signal))
+        .value,
+    ).default_branch,
+  );
+}
+
+export async function readForgejoPrBranches(
+  target: IssueTarget,
+  signal?: AbortSignal,
+) {
+  const [defaultBranch, branches] = await Promise.all([
+    readDefaultBranch(target, signal),
+    list(target, "/branches", signal),
+  ]);
+  return {
+    defaultBranch,
+    branches: branches.map((row) => string(object(row).name)),
+  };
+}
+
+export async function readForgejoPrDetail(
+  target: IssueTarget,
+  branch: string,
+  signal?: AbortSignal,
+) {
+  // Older servers ignore head. Follow every page so PRs against a custom base are included.
+  const query = new URLSearchParams({ state: "all", head: branch });
+  const pull = currentPull(
+    await list(target, `/pulls?${query}`, signal),
+    target,
+    branch,
+  );
+  if (!pull) return undefined;
+  const n = positiveId(pull.number);
+  const [files, discussion, reviews] = await Promise.all([
+    list(target, `/pulls/${n}/files`, signal),
+    list(target, `/issues/${n}/comments`, signal),
+    list(target, `/pulls/${n}/reviews`, signal),
+  ]);
+  const comments = [];
+  for (const review of reviews.map(object)) {
+    if (review.comments_count === 0) continue;
+    const response = await forgejoRequest(
+      `${target.origin}${repositoryEndpoint(target)}/pulls/${n}/reviews/${positiveId(review.id)}/comments`,
+      signal,
+      { answers: [404] },
+    );
+    if (response.status === 404) {
+      await response.body?.cancel();
+      continue;
+    }
+    for (const row of array(await response.json()).map(object)) {
+      const old =
+        typeof row.original_position === "number" && row.original_position > 0;
+      comments.push(
+        inlineComment(
+          target.origin,
+          row,
+          old ? row.original_position : row.position,
+          old ? "old" : "new",
+        ),
+      );
+    }
+  }
+  return prDetail(target.origin, pull, files, discussion, comments, reviews);
+}
+
 export const forgejoPullRequests: PullRequestWriter = async (
   target,
   { signal },
 ) => {
-  const endpoint = `/api/v1/repos/${encodeURIComponent(target.owner)}/${encodeURIComponent(target.repo)}`;
-  const defaultBranch = string(
-    object((await http(`${target.origin}${endpoint}`, signal)).value)
-      .default_branch,
-  );
+  const endpoint = repositoryEndpoint(target);
+  const defaultBranch = await readDefaultBranch(target, signal);
   const url = (value: unknown) => pullRequestUrl(target.origin, value);
   return {
     defaultBranch,
     async existing(branch) {
-      const pulls = await pullRequestsByHead(
-        {
-          origin: target.origin,
-          owner: target.owner,
-          repo: target.repo,
-          branch,
-          state: "open",
-          defaultBranch,
-        },
-        signal,
-      );
+      const query = new URLSearchParams({ state: "open", head: branch });
+      const pulls = await list(target, `/pulls?${query}`, signal);
       // Match the head repository too: a fork can use the same branch name.
-      const pull = pulls.map(object).find((value) => {
-        if (value.state !== "open") return false;
-        const head = object(value.head);
-        if (!head.repo) return false;
-        const repo = object(head.repo);
-        return (
-          head.ref === branch &&
-          typeof repo.full_name === "string" &&
-          repo.full_name.toLowerCase() ===
-            `${target.owner}/${target.repo}`.toLowerCase()
+      const pull = pulls
+        .map(object)
+        .find(
+          (value) =>
+            value.state === "open" && matchingHead(value, target, branch),
         );
-      });
       return pull ? url(pull) : undefined;
     },
-    async create(branch, { title, body, issue }) {
+    async create(branch, { title, body, issue, base, draft }) {
       return url(
         await create(
           target.origin,
           `${endpoint}/pulls`,
           {
-            title: draftTitle(title),
+            title: draft === false ? title : draftTitle(title),
             body: pullRequestBody(body, issue),
             head: branch,
-            base: defaultBranch,
+            base: base ?? defaultBranch,
           },
           signal,
         ),

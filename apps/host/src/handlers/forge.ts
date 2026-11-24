@@ -4,6 +4,7 @@ import {
   repositoryMainPath,
 } from "../repository-git-settings.ts";
 import { discoveredForgeOrigins } from "../forge/sites.ts";
+import { answerForgePr } from "../forge-pr.ts";
 import { answerForgeCi } from "../forge-ci.ts";
 import { isForgeIssueMethod, type Event, type Response } from "@iori/protocol";
 import {
@@ -153,8 +154,27 @@ export async function handleForge(
         response = responseError("read_failed");
       }
       break;
+    case "forge.pr":
+      response = await answerForgePr(request, store, forge.detection, signal);
+      if (signal?.aborted) return;
+      break;
+    case "forge.pr.create":
+      response = await answerForgePr(request, store, forge.detection, signal);
+      if (signal?.aborted) return;
+      if (response.ok) {
+        try {
+          forge.repositoryChanged(
+            await repositoryMainPath(request.params.path),
+          );
+        } catch {
+          // Best-effort refresh of sidebar PR badge.
+        }
+      }
+      break;
     case "forge.ci":
     case "forge.ci.log":
+    case "forge.ci.rerun":
+    case "forge.ci.cancel":
       response = await answerForgeCi(
         request,
         store,

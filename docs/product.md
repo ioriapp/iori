@@ -44,7 +44,7 @@ Clientの更新確認・取得・入替を変える時は[Clientの自己更新]
 サイドバーから親のworktreeを選ぶと、親と子のAgent、ボード、Files、Git、Terminalを一画面で扱える。同じworktreeの複数Agentもタブで見比べられる。
 画面構造・配置・最大化・Mobileの移動を変える時は[画面の構成と移動](design/workspace-layout.md)、worktreeの作成・削除を変える時は[worktreeとフォルダー](design/worktrees.md)を読む。
 
-ファイルの一覧・表示・参照を変える時は[Files View](design/files-view.md)、差分・履歴とサイドバーのPR・CIのアイコンを変える時は[Git View](design/git-view.md)、ForgeのCI・Issueを読み込む画面、Hostの設定の「連携」、Issueから始める操作、Agent向けのForgeを読み込むコマンドを変える時は[Forgeとの連携](design/forge.md)、シェル・入力・終了を変える時は[Terminal](design/terminal.md)、スマホでの入力欄・キーの帯・画像・選択・文字の大きさを変える時は[スマホでのTerminalとCLIの画面](design/mobile-terminal.md)を読む。Filesはファイルの中身を編集せず（ファイルのアップロード・ダウンロードだけはできる）、Gitの書き込み操作は作らない。
+ファイルの一覧・表示・編集・参照を変える時は[Files View](design/files-view.md)、差分・履歴・Gitの書き込み操作とサイドバーのPR・CIのアイコンを変える時は[Git View](design/git-view.md)、ForgeのPR・CI統合画面とIssueの画面、Hostの設定の「連携」、Issueから始める操作、Agent向けのForgeコマンドを変える時は[Forgeとの連携](design/forge.md)、シェル・入力・終了を変える時は[Terminal](design/terminal.md)、スマホでの入力欄・キーの帯・画像・選択・文字の大きさを変える時は[スマホでのTerminalとCLIの画面](design/mobile-terminal.md)を読む。Filesでは開いたフォルダー内でファイル・フォルダーの作成・名前の変更・複製・削除・移動、テキストファイルの編集・自動保存、アップロード・ダウンロードができる。Gitでは作業ツリーとベースブランチ全体の差分レビュー・行コメントのAgent送信に加え、日常的な書き込み操作（stage・unstage・変更の破棄・commit・fetch・pull・push）ができる。Forge連携ではPR・CI統合画面からPRの概要・変更ファイル・レビューコメントの確認とPR作成、CIログ検索・再実行・キャンセル、失敗やレビューコメントのAgent（チーム時は親のみ）への送信ができる。
 
 CLIの一覧・追加・同時実行の上限と、チームの入口を変える時は[AI Agents/Teams](design/agents-and-teams.md)、正式対応でないCLIを定義ファイルで足す仕組みを変える時は[CLIの定義ファイル](design/cli-definitions.md)を読む。
 
@@ -97,5 +97,5 @@ Attentionは全Hostを横断して、ユーザーが回答できる質問と権�
 
 ## 対象外と未決
 
-ユーザー同士の共同操作、Web/PWA、Filesの編集、Gitの書き込み操作は対象外。動いているCLIプロセスの引き渡し、Files/Gitの永続offline cache、自由なcwd変更の画面は未定。ライセンスと配布の経路は[Releaseと公開](design/release.md#公開の準備)が持つ。
+ユーザー同士の共同操作、Web/PWA、破壊的なGit履歴改変操作（rebase・merge・reset --hard・force push・ブランチ削除・stash）は対象外。動いているCLIプロセスの引き渡し、Files/Gitの永続offline cache、自由なcwd変更の画面は未定。ライセンスと配布の経路は[Releaseと公開](design/release.md#公開の準備)が持つ。
 LAN・VPNで届かない時の中継を変える時は[Relay](design/relay.md)、保存した指示を時刻・Webhook・Issueのラベルを契機にAgentへ渡す機能を変える時は[Automations](design/automations.md)を読む。

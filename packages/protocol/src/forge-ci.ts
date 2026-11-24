@@ -104,6 +104,8 @@ export type ForgeCi = {
   url?: string;
   /** Whether this Forge lets iori read runs, jobs and their logs. */
   logs: boolean;
+  canRerun?: boolean;
+  canCancel?: boolean;
   /** Failed, running, then passed, by workflow name within each. */
   runs: ForgeCiRun[];
   results: ForgeCiResult[];
@@ -125,6 +127,8 @@ export type ForgeCiLog = {
   notRun?: true;
 };
 
+const actionsId = v.pipe(v.string(), v.regex(/^\d{1,20}$/u));
+
 export const forgeCiMethods = {
   "forge.ci": method(
     v.pipe(
@@ -139,10 +143,22 @@ export const forgeCiMethods = {
   "forge.ci.log": method(
     v.object({
       path: pathSchema,
-      job: v.pipe(v.string(), v.regex(/^\d{1,20}$/u)),
+      job: actionsId,
       before: v.optional(integer(1)),
     }),
     hostResult<ForgeCiLog>(),
+  ),
+  "forge.ci.rerun": method(
+    v.object({
+      path: pathSchema,
+      run: actionsId,
+      failedOnly: v.optional(v.boolean()),
+    }),
+    hostResult<{ ok: true }>(),
+  ),
+  "forge.ci.cancel": method(
+    v.object({ path: pathSchema, run: actionsId }),
+    hostResult<{ ok: true }>(),
   ),
 };
 

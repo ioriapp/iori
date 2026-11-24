@@ -6,7 +6,10 @@ import {
   ChevronRight,
   ExternalLink,
   PanelLeft,
+  RotateCcw,
   RotateCw,
+  Search,
+  Square,
   WrapText,
 } from "lucide-react";
 import {
@@ -15,7 +18,9 @@ import {
   type ForgeCiJob,
   type ForgeCiResult,
   type ForgeCiRun,
+  type ForgeCiState,
   type ForgeCiStatusOf,
+  type ForgePrView,
   type ForgeReadFailure,
 } from "@iori/protocol";
 import { AsyncState } from "../components/AsyncState.tsx";
@@ -24,8 +29,8 @@ import { connection } from "../connection.ts";
 import { native } from "../native.ts";
 import { forgeMark } from "../forge-status.ts";
 import { samePath } from "../host-path.ts";
-import { useIsMobile } from "../hooks/use-mobile.ts";
 import { cn } from "../lib/utils.ts";
+import type { OpenFile } from "../workspace-panel.tsx";
 import { SplitPane } from "../reading/SplitPane.tsx";
 import { useSavedViewState } from "../reading/savedViewState.ts";
 import {
@@ -35,12 +40,18 @@ import {
 import { CiStateIcon } from "./CiStateIcon.tsx";
 import { CiLog } from "./CiLog.tsx";
 import { CiFailure } from "./CiFailure.tsx";
+import { CiCancelDialog } from "./CiCancelDialog.tsx";
+import { AgentTargetPicker, type AgentTarget } from "./AgentTargetPicker.tsx";
+import { formatCiFailureForAgent } from "./ci-log.ts";
+import { PrPane } from "./PrPane.tsx";
 import { ForgeNotice } from "./ForgeFailure.tsx";
 import { useForgeTokenChange } from "./forge-token-changes.ts";
 import { ciDuration, ciStatusLabel } from "./ci-format.ts";
 
 type Selection = { kind: "job" | "result"; id: string };
+export type CiSection = "pr" | "ci";
 export type CiViewState = {
+  section?: CiSection;
   selected?: Selection;
   listOpen: boolean;
   detailOpen: boolean;
@@ -112,13 +123,21 @@ export type CiPaneProps = {
   viewState?: unknown;
   onViewState?: (state: CiViewState) => void;
   onBackHandler?: (handler: (() => boolean) | undefined) => void;
-  /** The sidebar's CI mark asked to show this worktree's CI from its failed job. */
-  openRequest?: { id: number };
+  /** The sidebar's PR or CI mark asked to open that section of this worktree. */
+  openRequest?: { id: number; section?: CiSection };
   onOpenRequestShown?: (id: number) => void;
   /** Recovery from a failed read: the Host's Integrations settings. */
   onOpenIntegrations?: () => void;
   /** Recovery from a failed read: the workspace's Git settings. */
   onOpenWorkspaceSettings?: () => void;
+  /** Opens a workspace-relative `file:line` from CI logs in Files View. */
+  onOpenFile?: (file: OpenFile, standalone?: boolean) => void;
+  /** Opens a PR changed file in Git View's branch diff. */
+  onOpenDiff?: (path: string, baseBranch?: string) => void;
+  /** Eligible non-child Agent/Terminal destinations for "Send failure to Agent". */
+  agentTargets?: AgentTarget[];
+  /** Inserts formatted CI failure details or PR comments into an eligible Agent/Terminal without Enter. */
+  onSendTextToTerminal?: (text: string, terminalId?: string) => boolean;
 };
 
 /** The CI View of a worktree tab (forge.md「CIの詳細」). */
@@ -143,10 +162,14 @@ function CiWorkspace({
   onOpenRequestShown,
   onOpenIntegrations,
   onOpenWorkspaceSettings,
+  onOpenFile,
+  onOpenDiff,
+  agentTargets = [],
+  onSendTextToTerminal,
 }: CiPaneProps) {
   const t = translator(locale);
-  const mobile = useIsMobile();
   const [view, setView] = useState(() => readViewState(viewState));
+  const activeSection: CiSection = view.section === "pr" ? "pr" : "ci";
   const update = (value: Partial<CiViewState>) =>
     setView((current) => ({ ...current, ...value }));
   const changeRatio = useSavedViewState(view, onViewState);
@@ -156,23 +179,54 @@ function CiWorkspace({
   // A failed read, and why when the Host could tell.
   const [failed, setFailed] = useState<{ forge?: ForgeReadFailure }>();
   const [reads, setReads] = useState(0);
+  const [prView, setPrView] = useState<ForgePrView>();
+  const [prLoading, setPrLoading] = useState(false);
+  const [prError, setPrError] = useState<{
+    forge?: ForgeReadFailure;
+    message?: string;
+  }>();
+  const [prReads, setPrReads] = useState(0);
+  const [findRequest, setFindRequest] = useState(0);
+  const [failureContext, setFailureContext] = useState<{
+    failedStepName?: string;
+    errorExcerpt: string;
+  }>();
+  const [actionBusy, setActionBusy] = useState<{
+    runId: string;
+    kind: "rerun-failed" | "rerun-all" | "cancel";
+  }>();
+  const [actionFailed, setActionFailed] = useState<{
+    forge?: ForgeReadFailure;
+  }>();
+  const [cancelTarget, setCancelTarget] = useState<{
+    runId: string;
+    runName: string;
+  }>();
   // The reader's own reads also ask again which Forge the site is.
   const redetect = useRef(false);
+  const prRedetect = useRef(false);
   const reread = () => {
     redetect.current = true;
+    prRedetect.current = true;
     setReads((value) => value + 1);
+    setPrReads((value) => value + 1);
   };
   const markAtRead = useRef<string | undefined>(undefined);
+  const prMarkAtRead = useRef<string | undefined>(undefined);
 
-  // The mark shows the list with the failed job chosen, once per press.
+  // The mark opens the requested section (PR or CI with failed job chosen), once per press.
   const shown = useRef(onOpenRequestShown);
   shown.current = onOpenRequestShown;
   useEffect(() => {
     if (!openRequest) return;
+    const requestedSection: CiSection =
+      openRequest.section === "pr" ? "pr" : "ci";
     setView((current) => ({
       ...current,
-      selected: undefined,
-      detailOpen: false,
+      section: requestedSection,
+      ...(requestedSection === "ci"
+        ? { selected: undefined, detailOpen: false }
+        : {}),
     }));
     shown.current?.(openRequest.id);
   }, [openRequest]);
@@ -212,6 +266,38 @@ function CiWorkspace({
     return () => controller.abort();
   }, [hostKey, root, visible, reads]);
   useEffect(() => {
+    if (!visible || activeSection !== "pr") return;
+    const controller = new AbortController();
+    setPrLoading(true);
+    prMarkAtRead.current = JSON.stringify(
+      forgeMark(hostKey, root)?.pullRequest ?? null,
+    );
+    const params = prRedetect.current
+      ? { path: root, redetect: true as const }
+      : { path: root };
+    prRedetect.current = false;
+    void connection
+      .requestHost(hostKey, "forge.pr", params, undefined, controller.signal)
+      .then((response) => {
+        if (controller.signal.aborted) return;
+        if (response?.ok) {
+          setPrView(response.result);
+          setPrError(undefined);
+        } else {
+          setPrError({
+            forge: response?.ok === false ? response.error.forge : undefined,
+          });
+        }
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setPrError({});
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setPrLoading(false);
+      });
+    return () => controller.abort();
+  }, [hostKey, root, visible, activeSection, prReads]);
+  useEffect(() => {
     if (!visible) return;
     const stop = connection.subscribeHostEvents((host, event) => {
       if (
@@ -222,15 +308,21 @@ function CiWorkspace({
         return;
       if (JSON.stringify(event.status.checks ?? null) !== markAtRead.current)
         setReads((value) => value + 1);
+      if (
+        JSON.stringify(event.status.pullRequest ?? null) !==
+        prMarkAtRead.current
+      )
+        setPrReads((value) => value + 1);
     });
     return () => {
       stop();
     };
   }, [hostKey, root, visible]);
   // A token registered, replaced or removed may let a failed read work now.
-  useForgeTokenChange(hostKey, visible && Boolean(failed), () =>
-    setReads((value) => value + 1),
-  );
+  useForgeTokenChange(hostKey, visible && Boolean(failed || prError), () => {
+    setReads((value) => value + 1);
+    setPrReads((value) => value + 1);
+  });
 
   const selected = useMemo(
     () =>
@@ -249,8 +341,8 @@ function CiWorkspace({
     ]);
   }, [selected, reads]);
 
-  // On a narrow screen, going back leaves the detail for the list.
-  const showsDetail = narrow && view.detailOpen;
+  // On a narrow screen, going back leaves the detail for the list (in CI section).
+  const showsDetail = activeSection === "ci" && narrow && view.detailOpen;
   useNarrowBack(onBackHandler, showsDetail, () => {
     setView((value) => ({ ...value, detailOpen: false }));
     return true;
@@ -267,9 +359,179 @@ function CiWorkspace({
   const openUrl = (url: string | undefined) => {
     if (url) void native.openUrl(url);
   };
+  const openLogFile = useCallback(
+    (relativePath: string, line?: number, column?: number) => {
+      if (!onOpenFile) return;
+      const base = root.replace(/[\\/]+$/u, "");
+      const sep = root.includes("\\") ? "\\" : "/";
+      const normalized = relativePath.replace(/^\/+/u, "");
+      const absolutePath = `${base}${sep}${sep === "\\" ? normalized.replaceAll("/", "\\") : normalized}`;
+      onOpenFile({
+        absolutePath,
+        root,
+        path: normalized,
+        displayPath: normalized,
+        ...(line !== undefined ? { line } : {}),
+        ...(column !== undefined ? { column } : {}),
+      });
+    },
+    [onOpenFile, root],
+  );
+  const rerunWorkflow = async (runId: string, failedOnly: boolean) => {
+    if (actionBusy) return;
+    setActionBusy({
+      runId,
+      kind: failedOnly ? "rerun-failed" : "rerun-all",
+    });
+    setActionFailed(undefined);
+    try {
+      const response = await connection.requestHost(hostKey, "forge.ci.rerun", {
+        path: root,
+        run: runId,
+        ...(failedOnly ? { failedOnly: true } : {}),
+      });
+      if (response?.ok) {
+        setReads((value) => value + 1);
+      } else {
+        setActionFailed({
+          forge: response?.ok === false ? response.error.forge : undefined,
+        });
+      }
+    } catch {
+      setActionFailed({});
+    } finally {
+      setActionBusy(undefined);
+    }
+  };
+  const cancelWorkflow = async (runId: string) => {
+    if (actionBusy) return;
+    setActionBusy({ runId, kind: "cancel" });
+    setActionFailed(undefined);
+    try {
+      const response = await connection.requestHost(
+        hostKey,
+        "forge.ci.cancel",
+        { path: root, run: runId },
+      );
+      if (response?.ok) {
+        setReads((value) => value + 1);
+      } else {
+        setActionFailed({
+          forge: response?.ok === false ? response.error.forge : undefined,
+        });
+      }
+    } catch {
+      setActionFailed({});
+    } finally {
+      setActionBusy(undefined);
+      setCancelTarget(undefined);
+    }
+  };
+
+  const createPr = async (input: {
+    title: string;
+    body: string;
+    base?: string;
+    draft: boolean;
+    issue?: number;
+  }): Promise<
+    | { ok: true; url: string; created: boolean }
+    | { ok: false; message?: string; forge?: ForgeReadFailure }
+  > => {
+    try {
+      const response = await connection.requestHost(
+        hostKey,
+        "forge.pr.create",
+        {
+          path: root,
+          title: input.title,
+          body: input.body,
+          ...(input.base ? { base: input.base } : {}),
+          draft: input.draft,
+          ...(input.issue !== undefined ? { issue: input.issue } : {}),
+        },
+      );
+      if (response?.ok) {
+        setPrReads((value) => value + 1);
+        setReads((value) => value + 1);
+        return {
+          ok: true,
+          url: response.result.url,
+          created: response.result.created,
+        };
+      }
+      return {
+        ok: false,
+        message: response?.ok === false ? response.error.message : undefined,
+        forge: response?.ok === false ? response.error.forge : undefined,
+      };
+    } catch {
+      return { ok: false };
+    }
+  };
 
   // Without CI, the top shows only the switcher and reloading (forge.md).
   const hasCi = Boolean(ci && (ci.runs.length || ci.results.length));
+  const ciSummary = useMemo<
+    { state: ForgeCiState; label: string } | undefined
+  >(() => {
+    const ja = locale.startsWith("ja");
+    if (ci && (ci.runs.length > 0 || ci.results.length > 0)) {
+      const items: ForgeCiStatusOf[] = [
+        ...ci.runs.flatMap((run) => (run.jobs.length > 0 ? run.jobs : [run])),
+        ...ci.results,
+      ];
+      let failedCount = 0;
+      let runningCount = 0;
+      let passedCount = 0;
+      for (const item of items) {
+        const state = forgeCiState(item.status);
+        if (state === "failed") failedCount += 1;
+        else if (state === "running") runningCount += 1;
+        else if (state === "passed") passedCount += 1;
+      }
+      const total = items.length;
+      if (failedCount > 0) {
+        return {
+          state: "failed",
+          label: ja
+            ? `CI失敗（${failedCount}/${total}）`
+            : `CI failed (${failedCount}/${total})`,
+        };
+      }
+      if (runningCount > 0) {
+        return {
+          state: "running",
+          label: ja
+            ? `CI実行中（${runningCount}/${total}）`
+            : `CI running (${runningCount}/${total})`,
+        };
+      }
+      if (passedCount > 0) {
+        return {
+          state: "passed",
+          label: ja
+            ? `CI通過（${passedCount}/${total}）`
+            : `CI passed (${passedCount}/${total})`,
+        };
+      }
+      return {
+        state: "other",
+        label: ja ? `CI（${total}件）` : `CI (${total})`,
+      };
+    }
+    const checks = forgeMark(hostKey, root)?.checks;
+    if (!checks) return undefined;
+    const labelText =
+      checks.state === "other"
+        ? checks.word
+          ? `CI: ${checks.word}`
+          : "CI"
+        : t(`CI ${checks.state}`);
+    return { state: checks.state, label: labelText };
+  }, [ci, hostKey, root, locale, t]);
+  const prNumber =
+    prView?.pr?.number ?? forgeMark(hostKey, root)?.pullRequest?.number;
   const head = (
     <div
       className="flex h-9 shrink-0 min-w-0 items-center gap-2 border-b border-border bg-background px-1.5 [@media(pointer:coarse)]:min-h-11"
@@ -284,7 +546,43 @@ function CiWorkspace({
           field="ci-worktree"
         />
       </div>
-      {hasCi && ci?.commit && (
+      <div
+        role="tablist"
+        aria-label="PR / CI"
+        className="flex shrink-0 items-center rounded-md border border-border-subtle bg-muted/40 p-0.5"
+      >
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeSection === "pr"}
+          data-iori-action="ci-section-pr"
+          className={cn(
+            "cursor-pointer rounded-sm px-2 py-0.5 text-xs font-medium transition-colors [@media(pointer:coarse)]:min-h-8 [@media(pointer:coarse)]:px-3",
+            activeSection === "pr"
+              ? "bg-background text-foreground shadow-2xs"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+          onClick={() => update({ section: "pr" })}
+        >
+          {prNumber !== undefined ? `PR #${prNumber}` : "PR"}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeSection === "ci"}
+          data-iori-action="ci-section-ci"
+          className={cn(
+            "cursor-pointer rounded-sm px-2 py-0.5 text-xs font-medium transition-colors [@media(pointer:coarse)]:min-h-8 [@media(pointer:coarse)]:px-3",
+            activeSection === "ci"
+              ? "bg-background text-foreground shadow-2xs"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+          onClick={() => update({ section: "ci" })}
+        >
+          CI
+        </button>
+      </div>
+      {activeSection === "ci" && hasCi && ci?.commit && (
         <span
           className="flex min-w-0 flex-1 items-baseline gap-2 overflow-hidden whitespace-nowrap"
           title={`${ci.commit.sha} ${ci.commit.subject ?? ""}`.trim()}
@@ -307,13 +605,13 @@ function CiWorkspace({
           className="[@media(pointer:coarse)]:size-11"
           aria-label={t("Reload")}
           title={t("Reload")}
-          pending={loading}
+          pending={activeSection === "pr" ? prLoading : loading}
           data-iori-action="ci-reload"
           onClick={reread}
         >
           <RotateCw />
         </Button>
-        {hasCi && ci?.url && (
+        {activeSection === "ci" && hasCi && ci?.url && (
           <Button
             variant="ghost"
             size="sm"
@@ -332,15 +630,18 @@ function CiWorkspace({
       </span>
     </div>
   );
-  const failure = failed && (
+  const failure = (failed || actionFailed) && (
     <CiFailure
       subject="ci"
       form={ci ? "line" : "notice"}
       className={ci ? "mx-3 my-2" : undefined}
-      failure={failed.forge}
+      failure={(actionFailed ?? failed)?.forge}
       locale={locale}
       recovery={{
-        onRetry: reread,
+        onRetry: () => {
+          setActionFailed(undefined);
+          reread();
+        },
         onOpenIntegrations,
         onOpenWorkspaceSettings,
       }}
@@ -410,6 +711,9 @@ function CiWorkspace({
     >
       {ci.runs.map((run) => {
         const runMeta = ciMeta(run, ciDuration(run, now));
+        const runState = forgeCiState(run.status);
+        const canRerunRun = Boolean(ci.canRerun) && runState !== "running";
+        const canCancelRun = Boolean(ci.canCancel) && runState === "running";
         return (
           <div
             className="not-first:mt-2 not-first:border-t not-first:border-border-subtle not-first:pt-2"
@@ -417,10 +721,10 @@ function CiWorkspace({
             data-iori-ci-run={run.id}
           >
             <div
-              className="flex min-h-7 items-center gap-2 px-3 py-1 font-semibold text-foreground [@media(pointer:coarse)]:min-h-11"
+              className="flex min-h-7 items-center gap-1.5 px-3 py-1 font-semibold text-foreground [@media(pointer:coarse)]:min-h-11"
               title={run.name}
             >
-              <CiStateIcon state={forgeCiState(run.status)} />
+              <CiStateIcon state={runState} />
               <span className="min-w-0 flex-1 truncate">{run.name}</span>
               {run.event && (
                 <span className="min-w-0 shrink-[1000] truncate text-xs font-normal text-muted-foreground">
@@ -432,6 +736,67 @@ function CiWorkspace({
                 <span className="ml-auto max-w-[55%] shrink-0 truncate text-xs font-normal text-muted-foreground">
                   {runMeta}
                 </span>
+              )}
+              {canRerunRun && runState === "failed" && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  disabled={Boolean(actionBusy)}
+                  pending={
+                    actionBusy?.runId === run.id &&
+                    actionBusy.kind === "rerun-failed"
+                  }
+                  aria-label={t("Rerun failed jobs")}
+                  title={t("Rerun failed jobs")}
+                  data-iori-action="ci-rerun-failed"
+                  data-run-id={run.id}
+                  className="shrink-0 [@media(pointer:coarse)]:size-9"
+                  onClick={() => void rerunWorkflow(run.id, true)}
+                >
+                  <RotateCcw />
+                </Button>
+              )}
+              {canRerunRun && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  disabled={Boolean(actionBusy)}
+                  pending={
+                    actionBusy?.runId === run.id &&
+                    actionBusy.kind === "rerun-all"
+                  }
+                  aria-label={t("Rerun all")}
+                  title={t("Rerun all")}
+                  data-iori-action="ci-rerun-all"
+                  data-run-id={run.id}
+                  className="shrink-0 [@media(pointer:coarse)]:size-9"
+                  onClick={() => void rerunWorkflow(run.id, false)}
+                >
+                  <RotateCw />
+                </Button>
+              )}
+              {canCancelRun && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  disabled={Boolean(actionBusy)}
+                  pending={
+                    actionBusy?.runId === run.id && actionBusy.kind === "cancel"
+                  }
+                  aria-label={t("Cancel workflow")}
+                  title={t("Cancel workflow")}
+                  data-iori-action="ci-cancel-run"
+                  data-run-id={run.id}
+                  className="shrink-0 text-destructive hover:text-destructive [@media(pointer:coarse)]:size-9"
+                  onClick={() =>
+                    setCancelTarget({ runId: run.id, runName: run.name })
+                  }
+                >
+                  <Square />
+                </Button>
               )}
             </div>
             {run.jobs.map((job) =>
@@ -532,19 +897,55 @@ function CiWorkspace({
               .join(" · ")}
           </span>
         </div>
-        {mobile && selected.kind === "job" && ci.logs && (
-          <Button
-            variant={view.wrap ? "secondary" : "ghost"}
-            size="icon-sm"
-            className="[@media(pointer:coarse)]:size-11"
-            aria-pressed={view.wrap === true}
-            aria-label={t("Wrap long lines")}
-            title={t("Wrap long lines")}
-            data-iori-action="ci-log-wrap"
-            onClick={() => update({ wrap: !view.wrap })}
-          >
-            <WrapText />
-          </Button>
+        {selected.kind === "job" &&
+          forgeCiState(selected.job.status) === "failed" && (
+            <AgentTargetPicker
+              targets={onSendTextToTerminal ? agentTargets : []}
+              locale={locale}
+              label={t("Send failure to Agent")}
+              actionId="ci-send-failure-to-agent"
+              size="xs"
+              variant="outline"
+              className="shrink-0 [@media(pointer:coarse)]:min-h-11"
+              onSend={(terminalId) => {
+                if (!onSendTextToTerminal) return;
+                const message = formatCiFailureForAgent({
+                  jobName: selected.job.name,
+                  runName: selected.run.name,
+                  jobId: selected.job.id,
+                  failedStepName: failureContext?.failedStepName,
+                  errorExcerpt: failureContext?.errorExcerpt ?? "",
+                });
+                onSendTextToTerminal(message, terminalId);
+              }}
+            />
+          )}
+        {selected.kind === "job" && ci.logs && (
+          <>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="[@media(pointer:coarse)]:size-11"
+              aria-label={t("Find in log")}
+              title={`${t("Find in log")} (Ctrl+F)`}
+              data-iori-action="ci-log-find"
+              onClick={() => setFindRequest((value) => value + 1)}
+            >
+              <Search />
+            </Button>
+            <Button
+              variant={view.wrap ? "secondary" : "ghost"}
+              size="icon-sm"
+              className="[@media(pointer:coarse)]:size-11"
+              aria-pressed={view.wrap === true}
+              aria-label={t("Wrap long lines")}
+              title={t("Wrap long lines")}
+              data-iori-action="ci-log-wrap"
+              onClick={() => update({ wrap: !view.wrap })}
+            >
+              <WrapText />
+            </Button>
+          </>
         )}
         {selected.kind === "job" && selected.job.url && (
           <Button
@@ -575,12 +976,15 @@ function CiWorkspace({
             hostKey={hostKey}
             root={root}
             job={selected.job}
-            wrap={mobile && view.wrap === true}
+            wrap={view.wrap === true}
             refresh={logRefresh}
             stepsOpen={view.stepsOpen !== false}
             onStepsOpen={(stepsOpen) => update({ stepsOpen })}
             locale={locale}
             recovery={{ onOpenIntegrations, onOpenWorkspaceSettings }}
+            findRequest={findRequest}
+            onOpenFile={onOpenFile ? openLogFile : undefined}
+            onFailureContext={setFailureContext}
           />
         )
       ) : (
@@ -615,6 +1019,15 @@ function CiWorkspace({
             "This branch has no push destination. Push it to see its commit's CI.",
           )}
         </p>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          data-iori-action="ci-empty-open-pr"
+          onClick={() => update({ section: "pr" })}
+        >
+          {locale.startsWith("ja") ? "PRを開く" : "Open PR"}
+        </Button>
       </ForgeNotice>
     ) : ci && ci.runs.length === 0 && ci.results.length === 0 ? (
       <ForgeNotice data-iori-state="ci-none">
@@ -629,37 +1042,86 @@ function CiWorkspace({
       )}
       data-iori-view="ci"
       data-iori-ci-path={root}
-      data-iori-state={ci ? "loaded" : failed ? "failed" : "reading"}
+      data-iori-ci-section={activeSection}
+      data-iori-state={
+        activeSection === "pr"
+          ? prView
+            ? "loaded"
+            : prError
+              ? "failed"
+              : "reading"
+          : ci
+            ? "loaded"
+            : failed
+              ? "failed"
+              : "reading"
+      }
       hidden={!visible}
     >
       {!showsDetail && head}
-      {failure}
-      {empty ??
-        (ci ? (
-          <SplitPane
-            list={list}
-            detailOpen={view.detailOpen}
-            listOpen={view.listOpen}
-            onNarrow={onNarrow}
-            locale={locale}
-            ratio={view.ratio ?? LIST_RATIO}
-            minListWidth={LIST_MIN_WIDTH}
-            onRatio={changeRatio}
-          >
-            {detail}
-          </SplitPane>
-        ) : !failed ? (
-          <AsyncState
-            mode="loading"
-            compact
-            t={t}
-            emptyTitle=""
-            errorTitle=""
-            className="border-t-0"
-          >
-            {null}
-          </AsyncState>
-        ) : null)}
+      {activeSection === "pr" ? (
+        <PrPane
+          locale={locale}
+          prView={prView}
+          loading={prLoading}
+          error={prError}
+          ciSummary={ciSummary}
+          onOpenCi={() => update({ section: "ci" })}
+          onReload={reread}
+          onOpenIntegrations={onOpenIntegrations}
+          onOpenWorkspaceSettings={onOpenWorkspaceSettings}
+          onOpenInBrowser={(url) => openUrl(url)}
+          onOpenChangedFile={
+            onOpenDiff
+              ? (path, baseBranch) => onOpenDiff(path, baseBranch)
+              : undefined
+          }
+          agentTargets={agentTargets}
+          onSendTextToTerminal={onSendTextToTerminal}
+          onCreatePr={createPr}
+        />
+      ) : (
+        <>
+          {failure}
+          {empty ??
+            (ci ? (
+              <SplitPane
+                list={list}
+                detailOpen={view.detailOpen}
+                listOpen={view.listOpen}
+                onNarrow={onNarrow}
+                locale={locale}
+                ratio={view.ratio ?? LIST_RATIO}
+                minListWidth={LIST_MIN_WIDTH}
+                onRatio={changeRatio}
+              >
+                {detail}
+              </SplitPane>
+            ) : !failed ? (
+              <AsyncState
+                mode="loading"
+                compact
+                t={t}
+                emptyTitle=""
+                errorTitle=""
+                className="border-t-0"
+              >
+                {null}
+              </AsyncState>
+            ) : null)}
+        </>
+      )}
+      <CiCancelDialog
+        runName={cancelTarget?.runName}
+        locale={locale}
+        busy={actionBusy?.kind === "cancel"}
+        onOpenChange={(open) => {
+          if (!open) setCancelTarget(undefined);
+        }}
+        onConfirm={async () => {
+          if (cancelTarget) await cancelWorkflow(cancelTarget.runId);
+        }}
+      />
     </div>
   );
 }

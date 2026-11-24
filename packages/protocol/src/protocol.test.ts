@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { parseReadRequest } from "./reading.ts";
 import test from "node:test";
 import {
   ProtocolValidationError,
@@ -256,4 +257,243 @@ test("CLI 定義の保存要求から未知の項目を取り除く", () => {
     }),
     request,
   );
+});
+
+test("ファイル管理の要求は開いたフォルダー内の相対パスだけを受け付ける", () => {
+  const check = (method: string, params: Record<string, unknown>) =>
+    parseRequest({
+      kind: "request",
+      operationId: "manage",
+      method,
+      params: { root: "/work", ...params },
+    });
+  for (const method of [
+    "files.create",
+    "files.rename",
+    "files.duplicate",
+    "files.delete",
+    "files.write",
+  ]) {
+    const params = (path: string) =>
+      method === "files.rename"
+        ? { from: "src/old", to: path }
+        : method === "files.create"
+          ? { path, kind: "file" }
+          : {
+              path,
+              ...(method === "files.write" ? { contentBase64: "" } : {}),
+            };
+    assert.equal(check(method, params("src/new")).method, method);
+    for (const path of [
+      "",
+      "/test",
+      "C:file",
+      "\\test",
+      "a\\b",
+      "./a",
+      "a/../b",
+      "a//b",
+      "a/",
+      "a\0b",
+    ])
+      assert.throws(() => check(method, params(path)), ProtocolValidationError);
+  }
+  assert.throws(
+    () => check("files.rename", { from: "../old", to: "new" }),
+    ProtocolValidationError,
+  );
+  assert.throws(
+    () => check("files.create", { path: "new", kind: "symlink" }),
+    ProtocolValidationError,
+  );
+  assert.equal(
+    check("files.find", { query: "", start: 0, count: 10 }).method,
+    "files.find",
+  );
+  assert.throws(
+    () => check("files.find", { query: "a\0b", start: 0, count: 10 }),
+    ProtocolValidationError,
+  );
+});
+
+test("テキスト保存とワークスペース検索の要求を検査する", () => {
+  const parse = (method: string, params: Record<string, unknown>) =>
+    parseRequest({
+      kind: "request",
+      operationId: "edit",
+      method,
+      params: { root: "/work", ...params },
+    });
+  const write = {
+    path: "file",
+    contentBase64: "YQ==",
+    expectedRevision: "old",
+    force: false,
+  };
+  assert.equal(parse("files.write", write).method, "files.write");
+  assert.throws(
+    () => parse("files.write", { ...write, contentBase64: "*bad" }),
+    ProtocolValidationError,
+  );
+  const search = {
+    query: "code",
+    folder: "src",
+    caseSensitive: false,
+    regex: true,
+    maxResults: 500,
+  };
+  assert.equal(
+    parse("files.searchWorkspace", search).method,
+    "files.searchWorkspace",
+  );
+  for (const invalid of [
+    { folder: "../src" },
+    { query: "" },
+    { maxResults: 0 },
+    { maxResults: 501 },
+  ])
+    assert.throws(
+      () => parse("files.searchWorkspace", { ...search, ...invalid }),
+      ProtocolValidationError,
+    );
+});
+
+test("ブランチ比較の要求でブランチ名と構文色分けの範囲を検証する", () => {
+  const request = (method: string, params: object) =>
+    parseReadRequest({
+      kind: "request",
+      operationId: "review",
+      method,
+      params: { root: "/repo", ...params },
+    });
+  const source = { kind: "branch", base: "origin/topic", path: "sample.ts" };
+  request("git.branches", {});
+  request("git.branchChanges", { base: source.base, start: 0, count: 20 });
+  request("git.diffOpen", { source: { ...source, untracked: true } });
+  request("git.diffSyntax", { source, startRow: 0, rowCount: 10 });
+  assert.throws(
+    () => request("git.diffSyntax", { source, startRow: 0, rowCount: 1025 }),
+    ProtocolValidationError,
+  );
+  for (const base of [
+    "-option",
+    "main..next",
+    "two words",
+    "main\n",
+    "main~1",
+    "main:path",
+  ]) {
+    assert.throws(
+      () => request("git.branchChanges", { base, start: 0, count: 1 }),
+      ProtocolValidationError,
+    );
+    assert.throws(
+      () => request("git.diffOpen", { source: { ...source, base } }),
+      ProtocolValidationError,
+    );
+  }
+});
+
+test("CIの再実行とキャンセルには数字1〜20桁の実行IDが必要", () => {
+  const request = (method: string, run: unknown, params: object = {}) =>
+    parseRequest({
+      kind: "request",
+      operationId: "ci",
+      method,
+      params: { path: "/repo", run, ...params },
+    });
+  for (const method of ["forge.ci.rerun", "forge.ci.cancel"]) {
+    for (const run of ["1", "12345678901234567890"]) {
+      assert.deepEqual(request(method, run).params, { path: "/repo", run });
+    }
+    for (const run of [undefined, 42, "", "123456789012345678901", "1/cancel"])
+      assert.throws(() => request(method, run), ProtocolValidationError);
+  }
+  for (const failedOnly of [true, false])
+    assert.deepEqual(request("forge.ci.rerun", "42", { failedOnly }).params, {
+      path: "/repo",
+      run: "42",
+      failedOnly,
+    });
+  assert.throws(
+    () => request("forge.ci.rerun", "42", { failedOnly: "true" }),
+    ProtocolValidationError,
+  );
+});
+
+test("Gitの書き込みには対象と操作に応じた引数が必要", () => {
+  const request = (method: string, args: object = {}) =>
+    parseRequest({
+      kind: "request",
+      operationId: "write",
+      method,
+      params: { root: "/repo", ...args },
+    });
+  for (const method of ["git.stage", "git.unstage"]) {
+    request(method, { all: true });
+    request(method, { paths: ["dir/name"] });
+    for (const args of [{}, { all: false }, { paths: [] }])
+      assert.throws(() => request(method, args), ProtocolValidationError);
+  }
+  request("git.discard", { paths: ["file"], untracked: true });
+  for (const action of ["stage", "unstage", "discard"])
+    request("git.applyHunk", { action, path: "file", hunkIndex: 0 });
+  for (const path of ["../x", "/x", "a\\b", "C:x", "a//b", "a/./b", "x\0"]) {
+    for (const method of ["git.stage", "git.unstage", "git.discard"])
+      assert.throws(
+        () => request(method, { paths: [path] }),
+        ProtocolValidationError,
+      );
+    assert.throws(
+      () => request("git.applyHunk", { action: "stage", path, hunkIndex: 0 }),
+      ProtocolValidationError,
+    );
+  }
+  for (const hunkIndex of [-1, 4096, 1.5])
+    assert.throws(
+      () =>
+        request("git.applyHunk", {
+          action: "discard",
+          path: "file",
+          hunkIndex,
+        }),
+      ProtocolValidationError,
+    );
+  request("git.createCommit", { message: "subject\n\nbody", amend: true });
+  for (const message of ["", " \t\n", "x\0"])
+    assert.throws(
+      () => request("git.createCommit", { message }),
+      ProtocolValidationError,
+    );
+  for (const method of ["git.fetch", "git.pull", "git.push"]) request(method);
+});
+
+test("PRの詳細と作成に必要な項目を読み込み、無効な入力を拒否する", () => {
+  const request = (method: string, params: object) =>
+    parseRequest({ kind: "request", operationId: "pr", method, params });
+  const params = {
+    path: "/repo",
+    title: "Fix",
+    body: "",
+    base: "release",
+    draft: false,
+    issue: 2,
+  };
+  assert.deepEqual(
+    request("forge.pr", { path: "/repo", redetect: true }).params,
+    { path: "/repo", redetect: true },
+  );
+  assert.deepEqual(request("forge.pr.create", params).params, params);
+  for (const invalid of [
+    { title: "  " },
+    { base: "" },
+    { body: "x\0" },
+    { issue: 0 },
+    { draft: "false" },
+  ]) {
+    assert.throws(
+      () => request("forge.pr.create", { ...params, ...invalid }),
+      ProtocolValidationError,
+    );
+  }
 });

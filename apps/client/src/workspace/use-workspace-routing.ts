@@ -27,8 +27,10 @@ import {
 import {
   basename,
   type CiOpenRequest,
+  type DiffOpenRequest,
   type FileHistoryRequest,
   type FileOpenRequest,
+  type WorkspaceSearchRequest,
   type WorkspaceTab,
   type WorkspaceTarget,
   type WorkspaceViewKind,
@@ -39,6 +41,8 @@ import {
   setWorkspaceViewState,
   type createWorkspaceStore,
 } from "../workspace-state.ts";
+import { queueTerminalInput } from "../terminal/terminal-input.ts";
+import { resolveAgentTargets } from "./agent-targets.ts";
 import type {
   AttentionRequest,
   ChildDisplayEntry,
@@ -73,6 +77,8 @@ export function useWorkspaceRouting({
   activateTab,
   openTerminal,
   createTerminal,
+  openTerminalInFolder,
+  sendPathToTerminal,
   recentTerminal,
   setTabVisitHistory,
   setTeamToOpen,
@@ -126,6 +132,8 @@ export function useWorkspaceRouting({
     launch?: { startTabId?: string },
   ) => void;
   createTerminal: (shellId?: string) => Promise<void>;
+  openTerminalInFolder: (cwd: string) => void;
+  sendPathToTerminal?: (absolutePath: string, worktreePath: string) => void;
   recentTerminal: () => TerminalSummary | undefined;
   setTabVisitHistory: (
     update: string[] | ((current: string[]) => string[]),
@@ -161,15 +169,19 @@ export function useWorkspaceRouting({
     hostKey: string;
     workspacePath: string;
   }>();
-  // A sidebar CI mark: the CI View of that worktree, in its own layout.
+  // A sidebar PR/CI mark: the PR / CI View of that worktree, in its own layout.
   const [ciToOpen, setCiToOpen] = useState<{
     hostKey: string;
     cwd: string;
+    section?: "ci" | "pr";
   }>();
   const [ciOpenRequest, setCiOpenRequest] = useState<CiOpenRequest>();
   const [fileHistoryRequest, setFileHistoryRequest] =
     useState<FileHistoryRequest>();
+  const [diffOpenRequest, setDiffOpenRequest] = useState<DiffOpenRequest>();
   const [fileOpenRequest, setFileOpenRequest] = useState<FileOpenRequest>();
+  const [workspaceSearchRequest, setWorkspaceSearchRequest] =
+    useState<WorkspaceSearchRequest>();
 
   const attentionItems: AttentionItem[] = hosts
     .flatMap((host) =>
@@ -400,6 +412,7 @@ export function useWorkspaceRouting({
       selectReadingWorktree(id, ciToOpen.cwd);
       setCiOpenRequest((current) => ({
         tabId: id,
+        section: ciToOpen.section ?? "ci",
         id: (current?.id ?? 0) + 1,
       }));
     }
@@ -522,6 +535,64 @@ export function useWorkspaceRouting({
     return [...choices.values()];
   }, [targetFolder, selectedTarget, childDisplay]);
 
+  const agentTargets = useMemo(() => {
+    if (!selectedTarget) return [];
+    const hostKey = selectedTarget.host.publicKey;
+    const terminals = terminalLists[hostKey]?.terminals ?? [];
+    const childTerminalIds =
+      childDisplay[hostKey]?.terminalIds ?? new Set<string>();
+    const repoWorktrees = targetFolder
+      ? worktreesOf(targetFolder)
+      : [selectedTarget.worktree];
+    return resolveAgentTargets({
+      selectedCwd: selectedTarget.cwd,
+      workspacePath: selectedTarget.folder.workspacePath,
+      terminals,
+      childTerminalIds,
+      repoWorktrees,
+      lastTerminalId: workspace.getSnapshot().lastTerminalId,
+    });
+  }, [selectedTarget, terminalLists, childDisplay, targetFolder, workspace]);
+
+  const sendTextToTerminal = useCallback(
+    (text: string, terminalId?: string): boolean => {
+      if (!selectedTarget || !text) return false;
+      const hostKey = selectedTarget.host.publicKey;
+      const chosen = terminalId
+        ? agentTargets.find((item) => item.terminalId === terminalId)
+        : agentTargets[0];
+      if (!chosen) return false;
+      const childTerminalIds =
+        childDisplay[hostKey]?.terminalIds ?? new Set<string>();
+      const summary = terminalLists[hostKey]?.terminals.find(
+        (terminal) =>
+          terminal.id === chosen.terminalId &&
+          !terminal.teamChild &&
+          !childTerminalIds.has(terminal.id),
+      );
+      if (!summary) return false;
+      const sent = queueTerminalInput(summary.id, text, { paste: true });
+      if (!sent) return false;
+      if (samePath(summary.worktreePath ?? summary.cwd, selectedTarget.cwd)) {
+        openTerminal(summary);
+      } else {
+        void openAttentionRef.current({
+          host: selectedTarget.host,
+          terminal: summary,
+        });
+      }
+      return true;
+    },
+    [
+      agentTargets,
+      childDisplay,
+      openAttentionRef,
+      openTerminal,
+      selectedTarget,
+      terminalLists,
+    ],
+  );
+
   const viewServices = useMemo<WorkspaceViewServices>(
     () => ({
       openFile: (file, standalone) => {
@@ -600,11 +671,38 @@ export function useWorkspaceRouting({
         setFileHistoryRequest((current) =>
           current?.id === id ? undefined : current,
         ),
+      openDiff: (path, worktreePath, baseBranch) => {
+        const tabId = addPanel("git");
+        if (tabId) {
+          selectReadingWorktree(tabId, worktreePath);
+          setDiffOpenRequest((current) => ({
+            tabId,
+            path,
+            ...(baseBranch ? { baseBranch } : {}),
+            id: (current?.id ?? 0) + 1,
+          }));
+        }
+      },
+      diffOpenRequest,
+      diffOpened: (id) =>
+        setDiffOpenRequest((current) =>
+          current?.id === id ? undefined : current,
+        ),
+      sendPathToTerminal,
+      agentTargets,
+      sendTextToTerminal:
+        agentTargets.length > 0 ? sendTextToTerminal : undefined,
+      openTerminalInFolder,
       worktrees: targetWorktrees,
       selectWorktree: selectReadingWorktree,
       ciOpenRequest,
       ciOpenShown: (id) =>
         setCiOpenRequest((current) =>
+          current?.id === id ? undefined : current,
+        ),
+      workspaceSearchRequest,
+      workspaceSearchShown: (id) =>
+        setWorkspaceSearchRequest((current) =>
           current?.id === id ? undefined : current,
         ),
       // The repository's worktree screen with the Issue's values; nothing
@@ -633,9 +731,15 @@ export function useWorkspaceRouting({
       selectedTarget,
       fileOpenRequest,
       fileHistoryRequest,
+      diffOpenRequest,
+      sendPathToTerminal,
+      agentTargets,
+      sendTextToTerminal,
+      openTerminalInFolder,
       targetWorktrees,
       selectReadingWorktree,
       ciOpenRequest,
+      workspaceSearchRequest,
       setCreationTarget,
       setCreationOpen,
       t,
@@ -667,6 +771,21 @@ export function useWorkspaceRouting({
     setIssuesToOpen,
     setCiToOpen,
     setFileHistoryRequest,
+    setDiffOpenRequest,
+    setWorkspaceSearchRequest,
+    openWorkspaceSearch: useCallback(
+      (folder?: string) => {
+        const tabId = addPanel("files");
+        if (tabId) {
+          setWorkspaceSearchRequest((current) => ({
+            tabId,
+            folder,
+            id: (current?.id ?? 0) + 1,
+          }));
+        }
+      },
+      [addPanel],
+    ),
     targetFolder,
     selectReadingWorktree,
     viewServices,

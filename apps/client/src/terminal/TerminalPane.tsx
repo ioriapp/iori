@@ -88,7 +88,10 @@ import { installTerminalImeCandidateAnchor } from "./terminal-ime-candidate-anch
 import { isWindowsTerminalImeEvent } from "./terminal-windows-ime-policy.ts";
 import { activateOrcaTerminalUnicodeProvider } from "./terminal-unicode-provider.ts";
 import { subscribeToTerminalInputData } from "./terminal-user-input-signal.ts";
-import { registerTerminalInput } from "./terminal-input.ts";
+import {
+  registerTerminalInput,
+  type TerminalInputOptions,
+} from "./terminal-input.ts";
 import { writeTerminal } from "./terminal-write.ts";
 import { buildWindowsPtyCompatibilityOptions } from "./windows-pty-compatibility.ts";
 import "@xterm/xterm/css/xterm.css";
@@ -328,7 +331,9 @@ export function TerminalPane({
     undefined,
   );
   const connectedRef = useRef(connected);
-  const pendingDroppedPathsRef = useRef<string[]>([]);
+  const pendingDroppedPathsRef = useRef<
+    Array<{ text: string; options?: TerminalInputOptions }>
+  >([]);
   if (!connected) pendingDroppedPathsRef.current = [];
   const allowedInputRef = useRef(
     summary.state !== "exited" && summary.state !== "error",
@@ -696,22 +701,57 @@ export function TerminalPane({
 
   useEffect(
     () =>
-      registerTerminalInput(summary.id, (text) => {
+      registerTerminalInput(summary.id, (text, options) => {
+        if (
+          options?.paste &&
+          mobileRef.current &&
+          !liveInputRef.current &&
+          mobileInputRef.current
+        ) {
+          mobileInputRef.current.paste(text);
+          return true;
+        }
         if (!connectedRef.current || !allowedInputRef.current) return false;
-        if (visibleRef.current && stream.snapshot().opened)
-          return sendInput(text);
-        pendingDroppedPathsRef.current.push(text);
+        const deliver = () => {
+          if (!options?.paste) return sendInput(text);
+          const bracketed = Boolean(
+            terminalRef.current?.modes.bracketedPasteMode,
+          );
+          if (bracketed) return sendInput(pasteData(text, true));
+          // Without bracketed paste, raw CR/LF execute lines in shells.
+          return sendInput(text.replace(/\r\n|\r|\n/g, " "));
+        };
+        if (
+          visibleRef.current &&
+          stream.snapshot().opened &&
+          stream.snapshot().ready
+        )
+          return deliver();
+        pendingDroppedPathsRef.current.push({ text, options });
         return true;
       }),
     [summary.id, sendInput],
   );
 
   useEffect(() => {
-    if (!visible || !connected || !streamOpened) return;
+    if (!visible || !connected || !streamOpened || !streamReady) return;
     const pending = pendingDroppedPathsRef.current;
     pendingDroppedPathsRef.current = [];
-    for (const text of pending) sendInput(text);
-  }, [visible, connected, streamOpened, sendInput]);
+    for (const item of pending) {
+      if (item.options?.paste) {
+        const bracketed = Boolean(
+          terminalRef.current?.modes.bracketedPasteMode,
+        );
+        sendInput(
+          bracketed
+            ? pasteData(item.text, true)
+            : item.text.replace(/\r\n|\r|\n/g, " "),
+        );
+      } else {
+        sendInput(item.text);
+      }
+    }
+  }, [visible, connected, streamOpened, streamReady, sendInput]);
 
   const runSearch = useCallback((forward: boolean) => {
     const query = searchTextRef.current;

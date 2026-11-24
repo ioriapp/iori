@@ -212,6 +212,7 @@ export async function handleStream(
     request.kind === "request" &&
     (isReadMethod(request.method) ||
       isForgeIssueMethod(request.method) ||
+      request.method === "forge.pr" ||
       isForgeCiMethod(request.method) ||
       request.method === "forge.token.set")
       ? stream

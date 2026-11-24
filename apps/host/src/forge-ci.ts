@@ -1,6 +1,7 @@
 import type {
   ForgeCi,
   ForgeCiLog,
+  ForgeCiParams,
   ForgeReadFailure,
   Request,
   Response,
@@ -99,6 +100,7 @@ export class ForgeCiFailure extends Error {
 }
 
 function failure(error: unknown, located: Located | undefined) {
+  if (error instanceof ForgeCiFailure) return error;
   const { target } = located ?? {};
   return new ForgeCiFailure(
     target
@@ -150,9 +152,68 @@ export async function readForgeCiLog(
     return await adapter.ci.log(target, job, before, repository, signal, keep);
   } catch (error) {
     signal?.throwIfAborted();
-    if (error instanceof ForgeCiFailure) throw error;
     throw failure(error, located);
   }
+}
+
+async function writeForgeCi(
+  path: string,
+  store: HostStore,
+  detection: ForgeDetection,
+  signal: AbortSignal | undefined,
+  write: (located: Located) => Promise<void> | undefined,
+) {
+  let located: Located | undefined;
+  try {
+    located = await locate(path, store, detection, signal);
+    // A write must honor the account settings of this worktree's repository.
+    if (!located?.repository) throw new ForgeCiFailure();
+    const pending = write(located);
+    if (!pending) throw new ForgeCiFailure();
+    await pending;
+    return { ok: true } as const;
+  } catch (error) {
+    signal?.throwIfAborted();
+    throw failure(error, located);
+  }
+}
+
+export function rerunForgeCi(
+  { path, run, failedOnly }: ForgeCiParams["forge.ci.rerun"],
+  store: HostStore,
+  detection: ForgeDetection,
+  signal?: AbortSignal,
+) {
+  return writeForgeCi(
+    path,
+    store,
+    detection,
+    signal,
+    ({ target, adapter, repository }) =>
+      adapter?.ci?.rerun?.(
+        target,
+        run,
+        failedOnly ?? false,
+        repository,
+        signal,
+      ),
+  );
+}
+
+export function cancelForgeCi(
+  { path, run }: ForgeCiParams["forge.ci.cancel"],
+  store: HostStore,
+  detection: ForgeDetection,
+  signal?: AbortSignal,
+) {
+  return writeForgeCi(
+    path,
+    store,
+    detection,
+    signal,
+    ({ target, adapter, repository }) =>
+      adapter?.ci?.cancel?.(target, run, repository, signal),
+  );
 }
 
 /** Answers a Client's CI request. */
@@ -188,6 +249,16 @@ export async function answerForgeCi(
           ),
         };
       }
+      case "forge.ci.rerun":
+        return {
+          ok: true,
+          result: await rerunForgeCi(request.params, store, detection, signal),
+        };
+      case "forge.ci.cancel":
+        return {
+          ok: true,
+          result: await cancelForgeCi(request.params, store, detection, signal),
+        };
       default:
         throw new Error("Not a CI request");
     }

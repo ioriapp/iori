@@ -1,5 +1,5 @@
 import type { HostStore } from "../store.ts";
-import type { ForgeCiLog, ForgeStatus } from "@iori/protocol";
+import type { ForgeCiLog, ForgeStatus, ForgePrDetail } from "@iori/protocol";
 import type { ForgeTarget } from "./response.ts";
 import type { CiLogKeep, ForgeCiRead } from "./ci.ts";
 import type { IssueReader } from "./issues.ts";
@@ -37,7 +37,31 @@ export interface ForgeAdapter {
       signal?: AbortSignal,
       keep?: CiLogKeep,
     ): Promise<ForgeCiLog>;
+    rerun?(
+      target: ForgeTarget,
+      runId: string,
+      failedOnly: boolean,
+      repository?: ForgeRepository,
+      signal?: AbortSignal,
+    ): Promise<void>;
+    cancel?(
+      target: ForgeTarget,
+      runId: string,
+      repository?: ForgeRepository,
+      signal?: AbortSignal,
+    ): Promise<void>;
   };
   issues?: IssueReader;
+  prDetail?: (
+    target: ForgeTarget,
+    branch: string,
+    repository?: ForgeRepository,
+    signal?: AbortSignal,
+  ) => Promise<ForgePrDetail | undefined>;
+  prBranches?: (
+    target: ForgeTarget,
+    repository: ForgeRepository,
+    signal?: AbortSignal,
+  ) => Promise<{ defaultBranch: string; branches: string[] }>;
   pullRequests?: PullRequestWriter;
 }

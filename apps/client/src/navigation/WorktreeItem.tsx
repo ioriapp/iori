@@ -14,6 +14,7 @@ import {
   Folder,
   FolderMinus,
   GitBranch,
+  GitPullRequest,
   MoreHorizontal,
   Plus,
   Settings,
@@ -468,11 +469,23 @@ export function WorktreeItem({
             {t("Start CLI or team")}
           </DropdownMenuItem>
         )}
+        {isMobile && forgeStatus?.pullRequest && (
+          <DropdownMenuItem
+            data-iori-forge="pull-request"
+            onSelect={() => {
+              onOpenCi(host, folder, item, "pr");
+              onCloseMobile();
+            }}
+          >
+            <GitPullRequest className="size-3.5" aria-hidden="true" />
+            PR #{forgeStatus.pullRequest.number}
+          </DropdownMenuItem>
+        )}
         {isMobile && forgeStatus?.checks && (
           <DropdownMenuItem
             data-iori-forge="ci"
             onSelect={() => {
-              onOpenCi(host, folder, item);
+              onOpenCi(host, folder, item, "ci");
               onCloseMobile();
             }}
           >
@@ -577,7 +590,8 @@ export function WorktreeItem({
                 <ForgeMarks
                   status={removing ? undefined : forgeStatus}
                   t={t}
-                  onOpenCi={() => onOpenCi(host, folder, item)}
+                  onOpenPr={() => onOpenCi(host, folder, item, "pr")}
+                  onOpenCi={() => onOpenCi(host, folder, item, "ci")}
                 />
                 {plain && (
                   <Button

@@ -19,6 +19,7 @@ import type {
 } from "@iori/protocol";
 import { samePath } from "./host-path.ts";
 import type { WorktreeChoice } from "./reading/WorktreePicker.tsx";
+import type { AgentTarget } from "./forge/AgentTargetPicker.tsx";
 
 export type WorkspaceViewKind =
   "start" | "file" | "files" | "git" | "terminal" | "board" | "issues" | "ci";
@@ -32,7 +33,7 @@ export function initialTabTitle(
     git: "Git",
     board: "Board",
     issues: "Issues",
-    ci: "CI",
+    ci: "PR / CI",
   }[kind];
 }
 
@@ -72,6 +73,20 @@ export type WorkspacePanelProps = {
   fileHistoryRequest?: FileHistoryRequest;
   /** The request was shown; it is not shown again. */
   onFileHistoryShown: (id: number) => void;
+  /** Shows the working-tree or branch diff of this file in the worktree's Git View. */
+  onOpenDiff?: (path: string, baseBranch?: string) => void;
+  /** A changed file whose diff this Git View is asked to open. */
+  diffOpenRequest?: DiffOpenRequest;
+  /** The diff request was handled; it is not opened again. */
+  onDiffOpened: (id: number) => void;
+  /** Inserts a quoted path into the worktree's active Terminal without Enter. */
+  onSendPathToTerminal?: (absolutePath: string) => void;
+  /** Eligible non-child Agent/Terminal destinations for inserting review comments or CI failures. */
+  agentTargets?: AgentTarget[];
+  /** Inserts plain text (e.g. diff review comments or CI failure) into an eligible Agent/Terminal without Enter. */
+  onSendTextToTerminal?: (text: string, terminalId?: string) => boolean;
+  /** Opens a new Terminal tab rooted at this folder. */
+  onOpenTerminalInFolder?: (absolutePath: string) => void;
   /** The worktrees of the opened folder, to switch this View between. */
   worktrees: WorktreeChoice[];
   onSelectWorktree: (path: string) => void;
@@ -80,6 +95,9 @@ export type WorkspacePanelProps = {
   onCiOpenShown: (id: number) => void;
   /** Opens this repository's worktree screen filled in for the Issue. */
   onStartIssue: (issue: StartIssue) => void;
+  /** Opens workspace full-text search inside this Files View. */
+  workspaceSearchRequest?: WorkspaceSearchRequest;
+  onWorkspaceSearchShown?: (id: number) => void;
 };
 
 /** An Issue that "Start with this Issue" fills the worktree screen for. */
@@ -103,7 +121,22 @@ export type FileOpenRequest = {
 };
 
 export type FileHistoryRequest = { tabId: string; path: string; id: number };
-export type CiOpenRequest = { tabId: string; id: number };
+export type DiffOpenRequest = {
+  tabId: string;
+  path: string;
+  baseBranch?: string;
+  id: number;
+};
+export type WorkspaceSearchRequest = {
+  tabId: string;
+  folder?: string;
+  id: number;
+};
+export type CiOpenRequest = {
+  tabId: string;
+  section?: "ci" | "pr";
+  id: number;
+};
 
 /** The frame's side of the Views: their saved state, back and history requests. */
 export type WorkspaceViewServices = {
@@ -116,10 +149,19 @@ export type WorkspaceViewServices = {
   openFileHistory: (absolutePath: string, worktreePath: string) => void;
   fileHistoryRequest?: FileHistoryRequest;
   fileHistoryShown: (id: number) => void;
+  openDiff: (path: string, worktreePath: string, baseBranch?: string) => void;
+  diffOpenRequest?: DiffOpenRequest;
+  diffOpened: (id: number) => void;
+  sendPathToTerminal?: (absolutePath: string, worktreePath: string) => void;
+  agentTargets?: AgentTarget[];
+  sendTextToTerminal?: (text: string, terminalId?: string) => boolean;
+  openTerminalInFolder: (cwd: string) => void;
   worktrees: WorktreeChoice[];
   selectWorktree: (tabId: string, path: string) => void;
   ciOpenRequest?: CiOpenRequest;
   ciOpenShown: (id: number) => void;
+  workspaceSearchRequest?: WorkspaceSearchRequest;
+  workspaceSearchShown: (id: number) => void;
   startIssue: (target: WorkspaceTarget, issue: StartIssue) => void;
 };
 
@@ -287,6 +329,26 @@ export function panelProps(
         ? services.fileHistoryRequest
         : undefined,
     onFileHistoryShown: (id) => services?.fileHistoryShown(id),
+    onOpenDiff:
+      tab.target.folder.kind === "git" && services
+        ? (filePath, baseBranch) =>
+            services.openDiff(filePath, path, baseBranch)
+        : undefined,
+    diffOpenRequest:
+      services?.diffOpenRequest?.tabId === tab.id
+        ? services.diffOpenRequest
+        : undefined,
+    onDiffOpened: (id) => services?.diffOpened(id),
+    onSendPathToTerminal: services?.sendPathToTerminal
+      ? (absolutePath) => services.sendPathToTerminal!(absolutePath, path)
+      : undefined,
+    agentTargets: services?.agentTargets,
+    onSendTextToTerminal: services?.sendTextToTerminal
+      ? (text, terminalId) => services.sendTextToTerminal!(text, terminalId)
+      : undefined,
+    onOpenTerminalInFolder: services
+      ? (folderPath) => services.openTerminalInFolder(folderPath)
+      : undefined,
     worktrees: services?.worktrees ?? [],
     onSelectWorktree: (path) => services?.selectWorktree(tab.id, path),
     ciOpenRequest:
@@ -294,6 +356,11 @@ export function panelProps(
         ? services.ciOpenRequest
         : undefined,
     onCiOpenShown: (id) => services?.ciOpenShown(id),
+    workspaceSearchRequest:
+      services?.workspaceSearchRequest?.tabId === tab.id
+        ? services.workspaceSearchRequest
+        : undefined,
+    onWorkspaceSearchShown: (id) => services?.workspaceSearchShown(id),
     onStartIssue: (issue) => services?.startIssue(tab.target, issue),
   } satisfies WorkspacePanelProps;
 }

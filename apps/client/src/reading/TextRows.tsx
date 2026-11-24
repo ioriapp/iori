@@ -13,6 +13,7 @@ import {
   ChevronsUpDown,
   ClipboardCopy,
   CornerDownLeft,
+  Plus,
   Search,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
@@ -208,6 +209,11 @@ export function TextRows({
   extraActions = [],
   rowHeight,
   refresh = 0,
+  scrollToRow,
+  onAddRowComment,
+  renderRowBefore,
+  renderRowAfter,
+  hasInlineSlots = false,
 }: {
   source: TextSource;
   /** The absolute path for the menu's copy actions. */
@@ -228,6 +234,16 @@ export function TextRows({
   extraActions?: MenuAction[];
   rowHeight?: number;
   refresh?: number;
+  scrollToRow?: { id: number; row: number };
+  onAddRowComment?: (info: {
+    rowIndex: number;
+    side: "old" | "new";
+    line: number;
+    text: string;
+  }) => void;
+  renderRowBefore?: (info: { rowIndex: number; row: TextRow }) => ReactNode;
+  renderRowAfter?: (info: { rowIndex: number; row: TextRow }) => ReactNode;
+  hasInlineSlots?: boolean;
 }) {
   const t = translator(locale);
   const codeRow = useRowHeight(rowHeight ?? 22);
@@ -750,10 +766,23 @@ export function TextRows({
         : row.kind === "deleted"
           ? "bg-diff-del-bg"
           : "bg-background";
-    return (
+    const commentSide: "old" | "new" | undefined =
+      row.kind === "deleted"
+        ? row.oldLine !== undefined
+          ? "old"
+          : undefined
+        : row.newLine !== undefined
+          ? "new"
+          : row.oldLine !== undefined
+            ? "old"
+            : undefined;
+    const commentLine = commentSide === "old" ? row.oldLine : row.newLine;
+    const beforeSlot = renderRowBefore?.({ rowIndex: index, row });
+    const afterSlot = renderRowAfter?.({ rowIndex: index, row });
+    const rowContent = (
       <div
         className={cn(
-          "reading-line flex min-h-[1.375rem]",
+          "reading-line group/row flex min-h-[1.375rem]",
           effectiveWrap
             ? "whitespace-pre-wrap [overflow-wrap:anywhere]"
             : "whitespace-pre",
@@ -771,6 +800,7 @@ export function TextRows({
           className="reading-gutter sticky left-0 z-[1] flex flex-none cursor-pointer bg-inherit text-xs text-muted-foreground select-none"
           onMouseDown={(event) => {
             if (event.button !== 0) return;
+            if ((event.target as Element).closest("button")) return;
             event.preventDefault();
             event.currentTarget
               .closest<HTMLElement>(".reading-virtual")
@@ -778,6 +808,28 @@ export function TextRows({
             select(index, event.shiftKey);
           }}
         >
+          {onAddRowComment && commentSide && commentLine !== undefined && (
+            <button
+              type="button"
+              className="inline-flex size-4 flex-none cursor-pointer items-center justify-center self-center rounded-xs border-0 bg-primary/90 text-primary-foreground opacity-0 transition-opacity group-hover/row:opacity-100 focus-visible:opacity-100 [@media(pointer:coarse)]:size-6 [@media(pointer:coarse)]:opacity-80"
+              aria-label={t("Add comment")}
+              title={t("Add comment")}
+              data-iori-action="diff-add-comment"
+              data-side={commentSide}
+              data-line={commentLine}
+              onClick={(event) => {
+                event.stopPropagation();
+                onAddRowComment({
+                  rowIndex: index,
+                  side: commentSide,
+                  line: commentLine,
+                  text: row.text,
+                });
+              }}
+            >
+              <Plus className="size-3" aria-hidden="true" />
+            </button>
+          )}
           {source.twoColumns ? (
             <>
               <span className="inline-block box-content w-[calc(var(--gutter-digits,4)*0.6em)] pr-3 pl-2 text-right tabular-nums">
@@ -829,6 +881,18 @@ export function TextRows({
             onError={report}
             refresh={refresh}
           />
+        )}
+      </div>
+    );
+    if (!beforeSlot && !afterSlot) return rowContent;
+    return (
+      <div className="flex flex-col">
+        {beforeSlot}
+        {rowContent}
+        {afterSlot && (
+          <div className="px-3 py-1 font-sans whitespace-normal">
+            {afterSlot}
+          </div>
         )}
       </div>
     );
@@ -959,7 +1023,7 @@ export function TextRows({
           }
         >
           <VirtualRows
-            key={effectiveWrap ? "wrap" : "fixed"}
+            key={effectiveWrap || hasInlineSlots ? "wrap" : "fixed"}
             count={source.count}
             retained={[
               ...(characters
@@ -968,11 +1032,19 @@ export function TextRows({
               ...(startingRow === undefined ? [] : [startingRow]),
             ].filter((index) => index >= 0 && index < source.count)}
             rowHeight={effectiveRowHeight}
-            wrap={effectiveWrap}
+            wrap={effectiveWrap || hasInlineSlots}
             dataId={dataId}
             className="bg-background font-mono text-[0.8125rem] leading-[1.375rem]"
             initialIndex={position.top}
-            scrollRequest={scroll}
+            scrollRequest={
+              scrollToRow && (!scroll || scrollToRow.id > scroll.key)
+                ? {
+                    index: scrollToRow.row,
+                    align: "center",
+                    key: scrollToRow.id,
+                  }
+                : scroll
+            }
             onRange={onRange}
             onPosition={onTop}
             onKeyDown={onKeyDown}

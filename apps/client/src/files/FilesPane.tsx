@@ -5,19 +5,29 @@ import { MiddleEllipsis } from "../MiddleEllipsis.tsx";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
+  Check,
+  ChevronsDownUp,
   Code,
   Download,
   Eye,
   FileCode,
+  FilePlus,
+  FolderPlus,
   History,
   ListFilter,
   PanelLeft,
+  Pencil,
+  RotateCw,
   Search,
   WrapText,
   X,
 } from "lucide-react";
-import type { OpenFile, FileOpenRequest } from "../workspace-panel.tsx";
-import type { FileInfo } from "@iori/protocol";
+import type {
+  OpenFile,
+  FileOpenRequest,
+  WorkspaceSearchRequest,
+} from "../workspace-panel.tsx";
+import type { FileEntry, FileInfo } from "@iori/protocol";
 import { cn } from "cn";
 import { Button } from "../components/ui/button";
 import { SplitPane } from "../reading/SplitPane.tsx";
@@ -47,7 +57,21 @@ import {
 } from "../reading/transport.ts";
 import { formatBytes } from "../reading/format.ts";
 import { FileTree, type FileTreeHandle } from "./FileTree.tsx";
+import {
+  FileCreateDialog,
+  FileDeleteDialog,
+  FileRenameDialog,
+  fileManageErrorCopy,
+} from "./FileManageDialogs.tsx";
 import { TextSurface } from "./TextSurface.tsx";
+import {
+  CodeEditorSurface,
+  MAX_EDIT_BYTES,
+  type CodeEditorHandle,
+  type CodeEditorStatus,
+} from "./CodeEditorSurface.tsx";
+import { WorkspaceSearchPane } from "./WorkspaceSearchPane.tsx";
+import { UnsavedChangesDialog } from "../components/UnsavedChangesDialog.tsx";
 import {
   MarkdownSurface,
   MAX_RENDERED_MARKDOWN_BYTES,
@@ -78,6 +102,11 @@ export type FilesPaneProps = {
   onBackHandler?: (handler: (() => boolean) | undefined) => void;
   positions?: ReadingPositions;
   onFileHistory?: (absolutePath: string) => void;
+  onOpenDiff?: (path: string) => void;
+  onSendPathToTerminal?: (absolutePath: string) => void;
+  onOpenTerminalInFolder?: (absolutePath: string) => void;
+  searchRequest?: WorkspaceSearchRequest;
+  onSearchRequestShown?: (id: number) => void;
 };
 
 export type FilesViewState = {
@@ -140,6 +169,11 @@ function FilesWorkspace({
   onBackHandler,
   positions = nativeReadingPositions,
   onFileHistory,
+  onOpenDiff,
+  onSendPathToTerminal,
+  onOpenTerminalInFolder,
+  searchRequest,
+  onSearchRequestShown,
 }: FilesPaneProps) {
   const t = translator(locale);
   const [view, setView] = useState(() =>
@@ -164,7 +198,57 @@ function FilesWorkspace({
   const [position, setPosition] = useState<FilePosition>();
   const [infoRequest, setInfoRequest] = useState(0);
   const [readRefresh, setReadRefresh] = useState(0);
+  const [changedPaths, setChangedPaths] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const [gitStatusRequest, setGitStatusRequest] = useState(0);
+  const [createTarget, setCreateTarget] = useState<{
+    parentFolder: string;
+    kind: "file" | "directory";
+  }>();
+  const [renameTarget, setRenameTarget] = useState<{
+    path: string;
+    name: string;
+    isDirectory: boolean;
+  }>();
+  const [deleteTarget, setDeleteTarget] = useState<{
+    path: string;
+    name: string;
+    isDirectory: boolean;
+    isSymlink: boolean;
+  }>();
+  const [manageError, setManageError] = useState<string>();
+  const [coarsePointer, setCoarsePointer] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      window.matchMedia("(pointer: coarse)").matches,
+  );
+  const [mobileEditing, setMobileEditing] = useState(false);
+  const [editorStatus, setEditorStatus] = useState<CodeEditorStatus>();
+  const [fallbackReadOnly, setFallbackReadOnly] = useState<{
+    path: string;
+    revision?: string;
+  }>();
+  const [pendingLeave, setPendingLeave] = useState<() => void>();
+  const [leaveSaving, setLeaveSaving] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchFolder, setSearchFolder] = useState<string>();
+  const [searchFocus, setSearchFocus] = useState(0);
+  const [jumpRequest, setJumpRequest] = useState<{
+    id: number;
+    path: string;
+    line: number;
+  }>();
   const tree = useRef<FileTreeHandle>(null);
+  const editorRef = useRef<CodeEditorHandle>(null);
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const media = window.matchMedia("(pointer: coarse)");
+    const update = () => setCoarsePointer(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
   const uploads = useFileUploads(transport, hostKey, root, locale);
   const save = uploads.save;
   const saveAction = (path: string): MenuAction => ({
@@ -204,30 +288,74 @@ function FilesWorkspace({
   }, [view.tabs, standalone]);
   const activeRef = useRef(active);
   activeRef.current = active;
-  // Find and go-to requests belong to the file they were made for.
-  const [requests, setRequests] = useState({ path: "", find: 0, goTo: 0 });
-  const request = (kind: "find" | "goTo") =>
+  // Find, replace and go-to requests belong to the file they were made for.
+  const [requests, setRequests] = useState({
+    path: "",
+    find: 0,
+    replace: 0,
+    goTo: 0,
+  });
+  const request = (kind: "find" | "replace" | "goTo") =>
     setRequests((value) => ({
       path: active ?? "",
       find:
         (value.path === active ? value.find : 0) + (kind === "find" ? 1 : 0),
+      replace:
+        (value.path === active ? value.replace : 0) +
+        (kind === "replace" ? 1 : 0),
       goTo:
         (value.path === active ? value.goTo : 0) + (kind === "goTo" ? 1 : 0),
     }));
   const findRequest = requests.path === active ? requests.find : 0;
+  const replaceRequest = requests.path === active ? requests.replace : 0;
   const goToRequest = requests.path === active ? requests.goTo : 0;
+
+  const appliedSearch = useRef<number>(undefined);
+  useEffect(() => {
+    if (!searchRequest || appliedSearch.current === searchRequest.id) return;
+    appliedSearch.current = searchRequest.id;
+    setSearchFolder(searchRequest.folder);
+    setSearchOpen(true);
+    setSearchFocus((value) => value + 1);
+    setView((value) => ({
+      ...value,
+      listOpen: true,
+      detailOpen: false,
+    }));
+    onSearchRequestShown?.(searchRequest.id);
+  }, [searchRequest, onSearchRequestShown]);
+
+  const guardLeave = useCallback((action: () => void) => {
+    const editor = editorRef.current;
+    if (!editor || !editor.isDirty()) {
+      action();
+      return;
+    }
+    if (editor.hasConflict() || editor.hasSaveError()) {
+      setPendingLeave(() => action);
+      return;
+    }
+    void editor.save(false).then((ok) => {
+      if (ok) action();
+      else setPendingLeave(() => action);
+    });
+  }, []);
 
   useEffect(() => {
     if (!openRequest) return;
     const path = openRequest.path;
-    tree.current?.reveal(path);
-    setView((value) => ({
-      ...value,
-      active: path,
-      detailOpen: true,
-      tabs: value.tabs.includes(path) ? value.tabs : [...value.tabs, path],
-    }));
-  }, [openRequest]);
+    const apply = () => {
+      tree.current?.reveal(path);
+      setView((value) => ({
+        ...value,
+        active: path,
+        detailOpen: true,
+        tabs: value.tabs.includes(path) ? value.tabs : [...value.tabs, path],
+      }));
+    };
+    if (path === activeRef.current) apply();
+    else guardLeave(apply);
+  }, [openRequest, guardLeave]);
 
   // The View's tabs, open folders and list width are saved with the
   // workspace layout shortly after they change, and at once when it closes.
@@ -318,6 +446,11 @@ function FilesWorkspace({
         source: true,
       }));
       setOpenRevision(openRequest.id);
+      setJumpRequest({
+        id: openRequest.id,
+        path: openRequest.path,
+        line: openRequest.line,
+      });
     }
     onFileOpened?.(openRequest.id);
   }, [
@@ -343,10 +476,29 @@ function FilesWorkspace({
         const shown = activeRef.current;
         if (!paths || (shown && paths.includes(shown)))
           setInfoRequest((value) => value + 1);
+        setGitStatusRequest((value) => value + 1);
       },
       (error) => setWatchError(readErrorCopy(error, locale)),
     );
   }, [transport, root, visible, watchRetry, locale, standalone]);
+  useEffect(() => {
+    if (standalone || !visible || !onOpenDiff) return;
+    const controller = new AbortController();
+    void transport
+      .request("git.status", { root, start: 0, count: 512 }, controller.signal)
+      .then((result) => {
+        if (controller.signal.aborted) return;
+        setChangedPaths(
+          result.isRepository
+            ? new Set(result.entries.map((entry) => entry.path))
+            : new Set(),
+        );
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setChangedPaths(new Set());
+      });
+    return () => controller.abort();
+  }, [transport, root, visible, standalone, onOpenDiff, gitStatusRequest]);
   useEffect(() => {
     if (!active || !visible) return;
     const controller = new AbortController();
@@ -379,6 +531,8 @@ function FilesWorkspace({
   useEffect(() => {
     setInfo((current) => (current?.path === active ? current : undefined));
     setInfoError(undefined);
+    setMobileEditing(false);
+    setEditorStatus(undefined);
     // Only the tab strip scrolls; scrollIntoView would also move the
     // workspace's clipped containers.
     const list = strip.current;
@@ -392,7 +546,7 @@ function FilesWorkspace({
       list.scrollLeft -= bounds.left - tabBounds.left;
   }, [active]);
 
-  const open = (path: string) => {
+  const openDirect = (path: string) => {
     setView((current) => ({
       ...current,
       tabs: current.tabs.includes(path)
@@ -402,55 +556,82 @@ function FilesWorkspace({
       detailOpen: true,
     }));
   };
+  const open = (path: string) => {
+    if (path === active) {
+      openDirect(path);
+      return;
+    }
+    guardLeave(() => openDirect(path));
+  };
   const selectTab = (path: string, focus = false) => {
-    setView((value) => ({
-      ...value,
-      active: path,
-      detailOpen: true,
-    }));
-    if (focus) tabRefs.current.get(path)?.focus({ preventScroll: true });
+    const run = () => {
+      setView((value) => ({
+        ...value,
+        active: path,
+        detailOpen: true,
+      }));
+      if (focus) tabRefs.current.get(path)?.focus({ preventScroll: true });
+    };
+    if (path === active) run();
+    else guardLeave(run);
   };
   const close = (path: string, restoreFocus = false) => {
-    setView((current) => {
-      const tabs = current.tabs.filter((item) => item !== path);
-      const index = current.tabs.indexOf(path);
-      const nextActive =
-        current.active === path
-          ? (tabs[Math.min(index, tabs.length - 1)] ?? undefined)
-          : current.active;
-      if (restoreFocus && nextActive) pendingFocusTab.current = nextActive;
-      return {
-        ...current,
-        tabs,
-        active: nextActive,
-        detailOpen: current.detailOpen && Boolean(nextActive),
-      };
-    });
+    const run = () => {
+      setView((current) => {
+        const tabs = current.tabs.filter((item) => item !== path);
+        const index = current.tabs.indexOf(path);
+        const nextActive =
+          current.active === path
+            ? (tabs[Math.min(index, tabs.length - 1)] ?? undefined)
+            : current.active;
+        if (restoreFocus && nextActive) pendingFocusTab.current = nextActive;
+        return {
+          ...current,
+          tabs,
+          active: nextActive,
+          detailOpen: current.detailOpen && Boolean(nextActive),
+        };
+      });
+    };
+    if (path === active) guardLeave(run);
+    else run();
   };
   const closeTabs = (
     path: string,
     mode: "others" | "right" | "left" | "all",
   ) => {
-    setView((current) => {
-      const index = current.tabs.indexOf(path);
-      const tabs = current.tabs.filter((item, itemIndex) => {
-        if (mode === "all") return false;
-        if (mode === "others") return item === path;
-        return mode === "right" ? itemIndex <= index : itemIndex >= index;
+    const run = () => {
+      setView((current) => {
+        const index = current.tabs.indexOf(path);
+        const tabs = current.tabs.filter((item, itemIndex) => {
+          if (mode === "all") return false;
+          if (mode === "others") return item === path;
+          return mode === "right" ? itemIndex <= index : itemIndex >= index;
+        });
+        const nextActive =
+          current.active && tabs.includes(current.active)
+            ? current.active
+            : tabs.includes(path)
+              ? path
+              : undefined;
+        return {
+          ...current,
+          tabs,
+          active: nextActive,
+          detailOpen: current.detailOpen && Boolean(nextActive),
+        };
       });
-      const active =
-        current.active && tabs.includes(current.active)
-          ? current.active
-          : tabs.includes(path)
-            ? path
-            : undefined;
-      return {
-        ...current,
-        tabs,
-        active,
-        detailOpen: current.detailOpen && Boolean(active),
-      };
-    });
+    };
+    const index = view.tabs.indexOf(path);
+    const activeIndex = active ? view.tabs.indexOf(active) : -1;
+    const closesActive =
+      active !== undefined &&
+      (mode === "all" ||
+        (mode === "others" && active !== path) ||
+        (mode === "right" && activeIndex > index) ||
+        (mode === "left" && activeIndex < index));
+    if (closesActive) guardLeave(run);
+    else run();
   };
 
   const current = info?.path === active ? info : undefined;
@@ -458,7 +639,29 @@ function FilesWorkspace({
   const tooLarge =
     markdown && (current?.sizeBytes ?? 0) > MAX_RENDERED_MARKDOWN_BYTES;
   const rendered = markdown && !tooLarge && position && !position.source;
-  const textual = current?.kind === "text" && (current.lineCount ?? 0) > 0;
+  const isFallbackReadOnly = Boolean(
+    current &&
+    fallbackReadOnly &&
+    fallbackReadOnly.path === current.path &&
+    fallbackReadOnly.revision === current.revision,
+  );
+  const canEditText = Boolean(
+    current &&
+    current.kind === "text" &&
+    !rendered &&
+    !current.symlinkTarget &&
+    (current.sizeBytes ?? 0) <= MAX_EDIT_BYTES &&
+    !isFallbackReadOnly,
+  );
+  const readOnlyFallback = Boolean(
+    current &&
+    current.kind === "text" &&
+    !rendered &&
+    !canEditText &&
+    (current.lineCount ?? 0) > 0,
+  );
+  const textual =
+    current?.kind === "text" && (canEditText || (current.lineCount ?? 0) > 0);
   const menuActions: MenuAction[] = [
     ...(active ? [saveAction(active)] : []),
     ...(onFileHistory && current
@@ -473,17 +676,140 @@ function FilesWorkspace({
       : []),
   ];
 
+  const rewritePath = (value: string, from: string, to: string) =>
+    value === from
+      ? to
+      : value.startsWith(`${from}/`)
+        ? `${to}${value.slice(from.length)}`
+        : value;
+  const matchesPath = (value: string, removed: string) =>
+    value === removed || value.startsWith(`${removed}/`);
+  const createEntry = async (
+    relativePath: string,
+    kind: "file" | "directory",
+  ) => {
+    try {
+      const created = await transport.request("files.create", {
+        root,
+        path: relativePath,
+        kind,
+      });
+      setManageError(undefined);
+      tree.current?.changed();
+      tree.current?.reveal(created.path);
+      if (kind === "file") open(created.path);
+      return undefined;
+    } catch (error) {
+      return fileManageErrorCopy(error, locale);
+    }
+  };
+  const renameEntry = async (from: string, to: string) => {
+    try {
+      const renamed = await transport.request("files.rename", {
+        root,
+        from,
+        to,
+      });
+      setManageError(undefined);
+      persist();
+      const storedPosition =
+        latest.current?.key === positionKey(hostKey, root, from)
+          ? latest.current.value
+          : await positions
+              .load(positionKey(hostKey, root, from))
+              .catch(() => null);
+      if (storedPosition) {
+        await positions
+          .save(positionKey(hostKey, root, renamed.path), storedPosition)
+          .catch(() => undefined);
+      }
+      setView((current) => {
+        const tabs = current.tabs.map((tab) =>
+          rewritePath(tab, from, renamed.path),
+        );
+        const nextActive = current.active
+          ? rewritePath(current.active, from, renamed.path)
+          : undefined;
+        const expanded = current.expanded.map((folder) =>
+          rewritePath(folder, from, renamed.path),
+        );
+        return { ...current, tabs, active: nextActive, expanded };
+      });
+      tree.current?.renamed(from, renamed.path);
+      tree.current?.reveal(renamed.path);
+      return undefined;
+    } catch (error) {
+      return fileManageErrorCopy(error, locale);
+    }
+  };
+  const duplicateEntry = async (entry: FileEntry) => {
+    try {
+      const copied = await transport.request("files.duplicate", {
+        root,
+        path: entry.path,
+      });
+      setManageError(undefined);
+      tree.current?.changed();
+      tree.current?.reveal(copied.path);
+    } catch (error) {
+      setManageError(fileManageErrorCopy(error, locale));
+    }
+  };
+  const deleteEntry = async (path: string) => {
+    try {
+      await transport.request("files.delete", { root, path });
+      setManageError(undefined);
+      setView((current) => {
+        const tabs = current.tabs.filter((tab) => !matchesPath(tab, path));
+        const activeRemoved = current.active
+          ? matchesPath(current.active, path)
+          : false;
+        const nextActive = activeRemoved ? tabs.at(-1) : current.active;
+        const expanded = current.expanded.filter(
+          (folder) => !matchesPath(folder, path),
+        );
+        return {
+          ...current,
+          tabs,
+          active: nextActive,
+          detailOpen: current.detailOpen && Boolean(nextActive),
+          expanded,
+        };
+      });
+      tree.current?.changed();
+      return undefined;
+    } catch (error) {
+      return fileManageErrorCopy(error, locale);
+    }
+  };
+  const moveEntry = (from: string, targetFolder: string) => {
+    const name = from.slice(from.lastIndexOf("/") + 1);
+    const to = targetFolder ? `${targetFolder}/${name}` : name;
+    void renameEntry(from, to).then((error) => {
+      if (error) setManageError(error);
+    });
+  };
+  const isEntryDirectory = (entry: FileEntry) =>
+    entry.kind === "directory" ||
+    (entry.kind === "symlink" &&
+      entry.targetKind === "directory" &&
+      entry.symlinkTarget === "inside_root");
+
   const list = (
     <>
       <div
-        className="flex h-9 min-w-0 flex-none items-center gap-1 px-1.5 [@media(pointer:coarse)]:h-11"
+        className="flex h-9 min-w-0 flex-none items-center gap-0.5 px-1.5 [@media(pointer:coarse)]:h-11"
         data-iori-part="files-list-header"
       >
         <WorktreePicker
           label={label}
           root={root}
           worktrees={worktrees}
-          onSelect={onSelectWorktree}
+          onSelect={
+            onSelectWorktree
+              ? (path) => guardLeave(() => onSelectWorktree(path))
+              : undefined
+          }
           field="files-worktree"
         />
         <span className="flex-1" />
@@ -491,29 +817,182 @@ function FilesWorkspace({
           variant="ghost"
           size="icon-sm"
           className="[@media(pointer:coarse)]:size-11"
+          aria-label={t("New file…")}
+          title={t("New file…")}
+          data-iori-action="files-toolbar-new-file"
+          onClick={() => setCreateTarget({ parentFolder: "", kind: "file" })}
+        >
+          <FilePlus />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="[@media(pointer:coarse)]:size-11"
+          aria-label={t("New folder…")}
+          title={t("New folder…")}
+          data-iori-action="files-toolbar-new-folder"
+          onClick={() =>
+            setCreateTarget({ parentFolder: "", kind: "directory" })
+          }
+        >
+          <FolderPlus />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="[@media(pointer:coarse)]:size-11"
+          aria-label={t("Reload")}
+          title={t("Reload")}
+          data-iori-action="files-toolbar-reload"
+          onClick={() => {
+            tree.current?.refresh();
+            setInfoRequest((value) => value + 1);
+            setGitStatusRequest((value) => value + 1);
+          }}
+        >
+          <RotateCw />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="[@media(pointer:coarse)]:size-11"
+          aria-label={t("Collapse all")}
+          title={t("Collapse all")}
+          data-iori-action="files-toolbar-collapse-all"
+          onClick={() => tree.current?.collapseAll()}
+        >
+          <ChevronsDownUp />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="[@media(pointer:coarse)]:size-11"
           aria-label={t("Filter by file name")}
+          title={t("Filter by file name")}
           data-iori-action="open-file-filter"
-          onClick={() => tree.current?.openFilter()}
+          onClick={() => {
+            setSearchOpen(false);
+            tree.current?.openFilter();
+          }}
         >
           <ListFilter />
         </Button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="aria-pressed:bg-accent aria-pressed:text-accent-foreground [@media(pointer:coarse)]:size-11"
+          aria-label={t("Search in workspace")}
+          aria-pressed={searchOpen}
+          title={t("Search in workspace")}
+          data-iori-action="open-workspace-search"
+          onClick={() => {
+            setSearchOpen((currentOpen) => {
+              const next = !currentOpen;
+              if (next) setSearchFocus((value) => value + 1);
+              return next;
+            });
+          }}
+        >
+          <Search />
+        </Button>
       </div>
-      <FileTree
-        onSave={(path) => void save(path)}
-        onPut={uploads.put}
-        onChoose={uploads.choose}
-        onFolderDrop={uploads.folderError}
-        footer={uploads.controls}
-        handle={tree}
-        transport={transport}
-        root={root}
-        hostKey={hostKey}
-        locale={locale}
-        selected={active}
-        onOpen={open}
-        expanded={view.expanded}
-        onExpanded={(expanded) => setView((value) => ({ ...value, expanded }))}
-      />
+      {manageError && (
+        <ReadingError
+          retryLabel={t("Close")}
+          action="files-manage-error-dismiss"
+          onRetry={() => setManageError(undefined)}
+        >
+          {manageError}
+        </ReadingError>
+      )}
+      {searchOpen && (
+        <WorkspaceSearchPane
+          folder={searchFolder}
+          onClearFolder={() => setSearchFolder(undefined)}
+          locale={locale}
+          focusRequest={searchFocus}
+          searchWorkspace={(params, signal) =>
+            transport.request(
+              "files.searchWorkspace",
+              { root, ...params },
+              signal,
+            )
+          }
+          onSelectMatch={(path, line) => {
+            const navigate = () => {
+              openDirect(path);
+              tree.current?.reveal(path);
+              setJumpRequest((prev) => ({
+                id: (prev?.id ?? 0) + 1,
+                path,
+                line,
+              }));
+            };
+            if (path === active) navigate();
+            else guardLeave(navigate);
+          }}
+          onClose={() => setSearchOpen(false)}
+        />
+      )}
+      <div
+        className={
+          searchOpen ? "hidden" : "flex min-h-0 flex-1 flex-col overflow-hidden"
+        }
+      >
+        <FileTree
+          onSave={(path) => void save(path)}
+          onPut={uploads.put}
+          onChoose={uploads.choose}
+          onFolderDrop={uploads.folderError}
+          footer={uploads.controls}
+          handle={tree}
+          transport={transport}
+          root={root}
+          hostKey={hostKey}
+          locale={locale}
+          selected={active}
+          onOpen={open}
+          expanded={view.expanded}
+          onExpanded={(expanded) =>
+            setView((value) => ({ ...value, expanded }))
+          }
+          changedPaths={changedPaths}
+          onCreate={(parentFolder, kind) =>
+            setCreateTarget({ parentFolder, kind })
+          }
+          onRename={(entry) =>
+            setRenameTarget({
+              path: entry.path,
+              name: entry.name,
+              isDirectory: isEntryDirectory(entry),
+            })
+          }
+          onDuplicate={(entry) => void duplicateEntry(entry)}
+          onDelete={(entry) =>
+            setDeleteTarget({
+              path: entry.path,
+              name: entry.name,
+              isDirectory: isEntryDirectory(entry),
+              isSymlink: entry.kind === "symlink",
+            })
+          }
+          onMove={moveEntry}
+          onOpenDiff={onOpenDiff}
+          onFileHistory={onFileHistory}
+          onSendPathToTerminal={onSendPathToTerminal}
+          onOpenTerminalInFolder={onOpenTerminalInFolder}
+          onFindInFolder={(folder) => {
+            setSearchFolder(folder);
+            setSearchOpen(true);
+            setSearchFocus((value) => value + 1);
+            setView((value) => ({
+              ...value,
+              listOpen: true,
+              detailOpen: false,
+            }));
+          }}
+        />
+      </div>
     </>
   );
 
@@ -524,6 +1003,7 @@ function FilesWorkspace({
     >
       <PathMenu
         path={current?.absolutePath ?? active}
+        relativePath={standalone ? undefined : active}
         locale={locale}
         actions={[saveAction(active)]}
       >
@@ -546,6 +1026,43 @@ function FilesWorkspace({
         </nav>
       </PathMenu>
       <span className="flex-1" />
+      {canEditText && editorStatus?.saving && (
+        <span
+          className="px-1.5 text-2xs text-muted-foreground"
+          data-iori-part="file-edit-status"
+        >
+          {t("Saving")}
+        </span>
+      )}
+      {canEditText && coarsePointer && (
+        <Button
+          variant={mobileEditing ? "secondary" : "ghost"}
+          size="sm"
+          className="h-7 gap-1 px-2 text-xs [@media(pointer:coarse)]:min-h-11"
+          data-iori-action="file-toggle-edit"
+          aria-pressed={mobileEditing}
+          onClick={() => {
+            if (mobileEditing) {
+              void editorRef.current?.save(false);
+              setMobileEditing(false);
+            } else {
+              setMobileEditing(true);
+            }
+          }}
+        >
+          {mobileEditing ? (
+            <>
+              <Check className="size-3.5" aria-hidden="true" />
+              {t("Done")}
+            </>
+          ) : (
+            <>
+              <Pencil className="size-3.5" aria-hidden="true" />
+              {t("Edit")}
+            </>
+          )}
+        </Button>
+      )}
       {markdown && (
         <Button
           variant="ghost"
@@ -563,20 +1080,23 @@ function FilesWorkspace({
           }
           aria-label={position?.source ? t("Show rendered") : t("Show source")}
           onClick={() => {
-            updatePosition((current) =>
-              current.source
-                ? {
-                    ...current,
-                    source: false,
-                    markdown: { ...current.markdown, line: current.top + 1 },
-                  }
-                : {
-                    ...current,
-                    source: true,
-                    top: Math.max(0, current.markdown.line - 1),
-                    match: undefined,
-                  },
-            );
+            const toggle = () =>
+              updatePosition((current) =>
+                current.source
+                  ? {
+                      ...current,
+                      source: false,
+                      markdown: { ...current.markdown, line: current.top + 1 },
+                    }
+                  : {
+                      ...current,
+                      source: true,
+                      top: Math.max(0, current.markdown.line - 1),
+                      match: undefined,
+                    },
+              );
+            if (position?.source) guardLeave(toggle);
+            else toggle();
           }}
         >
           {position?.source || tooLarge ? <Eye /> : <Code />}
@@ -644,8 +1164,6 @@ function FilesWorkspace({
   else if (infoError && !current) body = fileError;
   else if (!current || !position)
     body = <ReadingLoading label={t("Loading")} rows={6} />;
-  else if (current.kind === "text" && current.lineCount === 0)
-    body = <ReadingEmpty title={t("This file is empty")} state="empty-file" />;
   else if (rendered)
     body = (
       <MarkdownSurface
@@ -668,10 +1186,11 @@ function FilesWorkspace({
         extraActions={menuActions}
       />
     );
-  else if (current.kind === "text")
+  else if (canEditText)
     body = (
-      <TextSurface
-        key={`${active}:${openRevision}`}
+      <CodeEditorSurface
+        key={active}
+        handle={editorRef}
         transport={transport}
         root={root}
         info={current}
@@ -682,10 +1201,85 @@ function FilesWorkspace({
         }
         wrap={position.wrap}
         locale={locale}
+        editing={!coarsePointer || mobileEditing}
+        onEditingChange={(next) => {
+          if (coarsePointer) setMobileEditing(next);
+        }}
         findRequest={findRequest}
+        replaceRequest={replaceRequest}
         goToRequest={goToRequest}
+        jumpRequest={
+          jumpRequest && jumpRequest.path === active
+            ? { id: jumpRequest.id, line: jumpRequest.line }
+            : undefined
+        }
         extraActions={menuActions}
+        saveFile={(params) =>
+          transport.request("files.write", {
+            root,
+            path: current.path,
+            ...params,
+          })
+        }
+        onSaved={(result) => {
+          setInfo((prev) =>
+            prev && prev.path === current.path
+              ? {
+                  ...prev,
+                  revision: result.revision,
+                  sizeBytes: result.sizeBytes,
+                  modifiedAtMs: result.modifiedAtMs,
+                }
+              : prev,
+          );
+          setGitStatusRequest((value) => value + 1);
+        }}
+        onStatusChange={setEditorStatus}
+        onFallbackReadOnly={() =>
+          setFallbackReadOnly({
+            path: current.path,
+            revision: current.revision,
+          })
+        }
       />
+    );
+  else if (current.kind === "text" && current.lineCount === 0)
+    body = <ReadingEmpty title={t("This file is empty")} state="empty-file" />;
+  else if (current.kind === "text")
+    body = (
+      <>
+        {readOnlyFallback && (
+          <div
+            className="flex flex-none items-center gap-2 border-b border-border-subtle bg-muted/40 px-3 py-1 text-2xs text-muted-foreground"
+            data-iori-part="file-readonly-notice"
+          >
+            <span className="font-medium text-foreground">
+              {t("Read-only")}
+            </span>
+            {!current.symlinkTarget && (
+              <span>
+                {t("Large or unsupported text files open read-only.")}
+              </span>
+            )}
+          </div>
+        )}
+        <TextSurface
+          key={`${active}:${openRevision}`}
+          transport={transport}
+          root={root}
+          info={current}
+          refresh={readRefresh}
+          position={position}
+          onPosition={(value) =>
+            updatePosition((current) => ({ ...current, ...value }))
+          }
+          wrap={position.wrap}
+          locale={locale}
+          findRequest={findRequest}
+          goToRequest={goToRequest}
+          extraActions={menuActions}
+        />
+      </>
     );
   else if (current.kind === "image")
     body = (
@@ -743,7 +1337,10 @@ function FilesWorkspace({
           if (key === "g" && textual && !rendered) {
             event.preventDefault();
             request("goTo");
-          } else if (key === "f" && textual) {
+          } else if (key === "h" && canEditText) {
+            event.preventDefault();
+            request("replace");
+          } else if (key === "f" && !event.shiftKey && textual) {
             event.preventDefault();
             request("find");
           }
@@ -836,6 +1433,7 @@ function FilesWorkspace({
                         ? info.absolutePath
                         : `${root}/${path}`
                     }
+                    relativePath={path}
                     locale={locale}
                     showIcons={false}
                     leadingActions={[
@@ -868,7 +1466,35 @@ function FilesWorkspace({
                         run: () => closeTabs(path, "all"),
                       },
                     ]}
-                    actions={[saveAction(path)]}
+                    actions={[
+                      {
+                        label: t("Reveal in list"),
+                        action: "file-tab-reveal",
+                        run: () => {
+                          setView((current) => ({
+                            ...current,
+                            listOpen: true,
+                            detailOpen: false,
+                          }));
+                          tree.current?.reveal(path);
+                        },
+                      },
+                      ...(onFileHistory
+                        ? [
+                            {
+                              label: t("File history"),
+                              action: "file-tab-history",
+                              run: () =>
+                                onFileHistory(
+                                  info?.path === path
+                                    ? info.absolutePath
+                                    : `${root}/${path}`,
+                                ),
+                            },
+                          ]
+                        : []),
+                      saveAction(path),
+                    ]}
                     separateActions={false}
                   >
                     <div
@@ -957,6 +1583,76 @@ function FilesWorkspace({
           {detail}
         </SplitPane>
       )}
+      {!standalone && (
+        <>
+          <FileCreateDialog
+            open={Boolean(createTarget)}
+            kind={createTarget?.kind ?? "file"}
+            parentFolder={createTarget?.parentFolder ?? ""}
+            locale={locale}
+            onOpenChange={(open) => {
+              if (!open) setCreateTarget(undefined);
+            }}
+            onSubmit={(relativePath) =>
+              createEntry(relativePath, createTarget?.kind ?? "file")
+            }
+          />
+          <FileRenameDialog
+            target={renameTarget}
+            locale={locale}
+            onOpenChange={(open) => {
+              if (!open) setRenameTarget(undefined);
+            }}
+            onSubmit={renameEntry}
+          />
+          <FileDeleteDialog
+            target={deleteTarget}
+            locale={locale}
+            onOpenChange={(open) => {
+              if (!open) setDeleteTarget(undefined);
+            }}
+            onConfirm={deleteEntry}
+          />
+        </>
+      )}
+      <UnsavedChangesDialog
+        open={Boolean(pendingLeave)}
+        saving={leaveSaving}
+        t={t}
+        saveLabel={editorStatus?.conflict ? t("Overwrite") : undefined}
+        view="file-unsaved-changes"
+        onCancel={() => setPendingLeave(undefined)}
+        onDiscard={() => {
+          const action = pendingLeave;
+          setPendingLeave(undefined);
+          action?.();
+        }}
+        onSave={() => {
+          const action = pendingLeave;
+          const editor = editorRef.current;
+          if (!action || !editor) {
+            setPendingLeave(undefined);
+            action?.();
+            return;
+          }
+          setLeaveSaving(true);
+          void editor
+            .save(editor.hasConflict())
+            .then((ok) => {
+              setLeaveSaving(false);
+              if (ok) {
+                setPendingLeave(undefined);
+                action();
+              } else {
+                setPendingLeave(undefined);
+              }
+            })
+            .catch(() => {
+              setLeaveSaving(false);
+              setPendingLeave(undefined);
+            });
+        }}
+      />
     </div>
   );
 }

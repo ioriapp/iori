@@ -8,7 +8,7 @@ export type PathDrag = {
 };
 
 export function writePathDrag(data: DataTransfer, value: PathDrag) {
-  data.effectAllowed = "copy";
+  data.effectAllowed = "copyMove";
   data.setData(PATH_DRAG_TYPE, JSON.stringify(value));
   data.setData("text/plain", value.absolutePath);
 }

@@ -6,17 +6,19 @@ import {
 } from "lucide-react";
 import type { ForgeStatus } from "@iori/protocol";
 import { Button } from "./components/ui/button.tsx";
-import { native } from "./native.ts";
 import { ciStateIcons } from "./forge/CiStateIcon.tsx";
 
 export function ForgeMarks({
   status,
   t,
+  onOpenPr,
   onOpenCi,
 }: {
   status?: ForgeStatus;
   t: (key: string) => string;
-  /** Opens the CI View of the row's worktree. */
+  /** Opens the PR section of the row's worktree. */
+  onOpenPr: () => void;
+  /** Opens the CI section of the row's worktree. */
   onOpenCi: () => void;
 }) {
   const pull = status?.pullRequest;
@@ -55,7 +57,7 @@ export function ForgeMarks({
           title={pullLabel}
           aria-label={pullLabel}
           data-iori-forge="pull-request"
-          onClick={() => void native.openUrl(pull.url)}
+          onClick={onOpenPr}
         >
           <PullIcon size={13} />
           <span>#{pull.number}</span>

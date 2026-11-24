@@ -8,6 +8,7 @@ import type {
   ForgeCiStep,
 } from "@iori/protocol";
 import {
+  command,
   GhRepositoryUnreadable,
   githubPages,
   githubText,
@@ -215,7 +216,69 @@ async function readCi(
       jobs,
     };
   });
-  return { logs: true, runs: sortRuns(runs), results: sortResults(results) };
+  return {
+    logs: true,
+    canRerun: true,
+    canCancel: true,
+    runs: sortRuns(runs),
+    results: sortResults(results),
+  };
+}
+
+async function writeRun(
+  target: ForgeTarget,
+  runId: string,
+  action: "rerun" | "rerun-failed-jobs" | "cancel",
+  repository?: ForgeRepository,
+  signal?: AbortSignal,
+) {
+  const endpoint = path(target);
+  const api = ["api", "--hostname", "github.com"];
+  const env = await withAccount(
+    target,
+    repository,
+    async (candidate) => {
+      const repo = object(
+        JSON.parse(await command([...api, endpoint], signal, candidate)),
+      );
+      if (object(repo.permissions ?? {}).push !== true)
+        throw new GhRepositoryUnreadable(false, "insufficient-scope");
+      return candidate;
+    },
+    signal,
+  );
+  // Account selection can retry repository reads, never the POST.
+  await command(
+    [...api, "--method", "POST", `${endpoint}/actions/runs/${runId}/${action}`],
+    signal,
+    env,
+    true,
+  );
+}
+
+export function rerunGitHubCi(
+  target: ForgeTarget,
+  runId: string,
+  failedOnly: boolean,
+  repository?: ForgeRepository,
+  signal?: AbortSignal,
+) {
+  return writeRun(
+    target,
+    runId,
+    failedOnly ? "rerun-failed-jobs" : "rerun",
+    repository,
+    signal,
+  );
+}
+
+export function cancelGitHubCi(
+  target: ForgeTarget,
+  runId: string,
+  repository?: ForgeRepository,
+  signal?: AbortSignal,
+) {
+  return writeRun(target, runId, "cancel", repository, signal);
 }
 
 export async function readGitHubCiLog(

@@ -1,3 +1,5 @@
+export * from "./files-manage.ts";
+export * from "./git-write.ts";
 export * from "./files-transfer.ts";
 export * from "./display-order.ts";
 export * from "./push-notifications.ts";
@@ -6,6 +8,7 @@ export * from "./automation-time.ts";
 export * from "./automations.ts";
 export * from "./forge-integration.ts";
 export * from "./forge-issues.ts";
+export * from "./forge-pr.ts";
 export * from "./forge-ci.ts";
 export { compareVersions } from "./version.ts";
 export * from "./maintenance.ts";

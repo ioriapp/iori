@@ -27,6 +27,6 @@ test(
     const address = page.locator('[data-iori-field="address"]');
     await address.fill("");
     await address.press("Control+v");
-    await expect(address).toHaveValue(content);
+    await expect(address).toHaveValue(content + "\n");
   },
 );

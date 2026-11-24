@@ -36,8 +36,8 @@ type Props = {
   onOpen?: () => void;
   onRetry: () => void;
   onShell: (shell: TerminalShell) => void;
-  readingViews?: ("files" | "git" | "board")[];
-  onView?: (kind: "files" | "git" | "board") => void;
+  readingViews?: ("files" | "git" | "ci" | "board")[];
+  onView?: (kind: "files" | "git" | "ci" | "board") => void;
   /** The item (`cli:…`, `team:…`, `shell:…`) whose start waits for the Host. */
   pending?: string;
   /** Teams already fetched by the parent dialog to avoid duplicate `teams.list` calls. */
@@ -384,7 +384,9 @@ export function CliLauncher({
                       ? "Files"
                       : kind === "git"
                         ? "Git"
-                        : "Board"}
+                        : kind === "ci"
+                          ? "PR / CI"
+                          : "Board"}
                   </span>
                 </Button>
               );

@@ -51,6 +51,15 @@ export function ReadingPanel({
         onViewState={props.onViewState}
         onBackHandler={props.onBackHandler}
         onFileHistory={props.file ? undefined : props.onFileHistory}
+        onOpenDiff={props.file ? undefined : props.onOpenDiff}
+        onSendPathToTerminal={props.onSendPathToTerminal}
+        onOpenTerminalInFolder={
+          props.file ? undefined : props.onOpenTerminalInFolder
+        }
+        searchRequest={props.file ? undefined : props.workspaceSearchRequest}
+        onSearchRequestShown={
+          props.file ? undefined : props.onWorkspaceSearchShown
+        }
       />
     );
   if (props.kind === "git")
@@ -69,6 +78,11 @@ export function ReadingPanel({
         onBackHandler={props.onBackHandler}
         fileHistoryRequest={props.fileHistoryRequest}
         onFileHistoryShown={props.onFileHistoryShown}
+        diffOpenRequest={props.diffOpenRequest}
+        onDiffOpened={props.onDiffOpened}
+        onOpenFile={props.onOpenFile}
+        agentTargets={props.agentTargets}
+        onSendTextToTerminal={props.onSendTextToTerminal}
       />
     );
   if (props.kind === "issues")
@@ -100,6 +114,10 @@ export function ReadingPanel({
         onBackHandler={props.onBackHandler}
         openRequest={props.ciOpenRequest}
         onOpenRequestShown={props.onCiOpenShown}
+        onOpenFile={props.onOpenFile}
+        onOpenDiff={props.onOpenDiff}
+        agentTargets={props.agentTargets}
+        onSendTextToTerminal={props.onSendTextToTerminal}
         {...forgeRecovery}
       />
     );

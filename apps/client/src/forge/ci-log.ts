@@ -1,3 +1,5 @@
+import type { ForgeCiStep } from "@iori/protocol";
+
 /** A color of the Terminal's palette (0–255) or an RGB color. */
 export type LogColor = number | readonly [number, number, number];
 export type LogStyle = {
@@ -129,4 +131,223 @@ export function failedStepEnd(lines: readonly LogLine[]): number | undefined {
   for (let index = lines.length - 1; index >= 0; index -= 1)
     if (FAILURE.test(lineText(lines[index]!))) return index;
   return undefined;
+}
+
+export type FileLink = {
+  start: number;
+  end: number;
+  path: string;
+  line: number;
+  column?: number;
+};
+
+const FILE_LINK =
+  /(^|[\s(\[\]<'"`,;])((?:[^\s:()[\]<>"'`,;\\]|\\(?!\s))+?)(?::(\d+)(?::(\d+))?|\((\d+)(?:,\s*(\d+))?\))(?=$|[\s)\]>'"`,;:.])/gu;
+const FILE_EXTENSION = /\.[A-Za-z][A-Za-z0-9]{0,9}$/u;
+const HOSTNAME_TLD =
+  /\.(?:com|org|net|io|dev|edu|gov|local|internal|localhost)$/iu;
+const HAS_ALNUM = /[A-Za-z0-9]/u;
+
+function isWorkspaceRelativePath(rawPath: string): string | undefined {
+  if (!rawPath || rawPath.startsWith("/") || rawPath.startsWith("\\"))
+    return undefined;
+  if (rawPath.includes("..")) return undefined;
+  if (/^https?:\/\//iu.test(rawPath)) return undefined;
+  const normalized = rawPath.replace(/^(?:\.\/)+/u, "");
+  if (!normalized || normalized.startsWith("/")) return undefined;
+  const slash = normalized.lastIndexOf("/");
+  if (slash >= 0) {
+    const base = normalized.slice(slash + 1);
+    if (!base || base === "." || !HAS_ALNUM.test(base)) return undefined;
+    return normalized;
+  }
+  const dot = normalized.lastIndexOf(".");
+  if (
+    dot <= 0 ||
+    !FILE_EXTENSION.test(normalized) ||
+    HOSTNAME_TLD.test(normalized)
+  )
+    return undefined;
+  return normalized;
+}
+
+/**
+ * Extract workspace-relative file references (`path:line`, `path:line:col`,
+ * `path(line,col)`) from a plain log line, excluding URLs, `..`, and absolute
+ * paths.
+ */
+export function extractFileLinks(plainLine: string): FileLink[] {
+  const links: FileLink[] = [];
+  for (const match of plainLine.matchAll(FILE_LINK)) {
+    const prefix = match[1] ?? "";
+    const rawPath = match[2] ?? "";
+    const path = isWorkspaceRelativePath(rawPath);
+    if (!path) continue;
+    const lineStr = match[3] ?? match[5];
+    const colStr = match[4] ?? match[6];
+    const line = Number(lineStr);
+    if (!Number.isSafeInteger(line) || line < 1) continue;
+    const column = colStr !== undefined ? Number(colStr) : undefined;
+    if (column !== undefined && (!Number.isSafeInteger(column) || column < 1))
+      continue;
+    const start = match.index + prefix.length;
+    const end = match.index + match[0].length;
+    links.push({
+      start,
+      end,
+      path,
+      line,
+      ...(column !== undefined ? { column } : {}),
+    });
+  }
+  return links;
+}
+
+/**
+ * Return 0-based line indices of all error/failure lines in ascending order.
+ */
+export function findErrorLines(lines: readonly LogLine[]): number[] {
+  const result: number[] = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]!;
+    if (line.kind === "error" || FAILURE.test(lineText(line)))
+      result.push(index);
+  }
+  return result;
+}
+
+const START_ACTION = /^##\[start-action\s+display=([^;\]]+)/u;
+const RUNNER_STEP = /^\s*⭐\s+(?:Run\s+)?(.+)$/u;
+
+function stepHeadingText(plain: string): string | undefined {
+  if (plain.startsWith("##[group]")) {
+    const text = plain.slice("##[group]".length).trim();
+    return text || undefined;
+  }
+  const action = START_ACTION.exec(plain);
+  if (action) {
+    const text = action[1]!.trim();
+    return text || undefined;
+  }
+  const runner = RUNNER_STEP.exec(plain);
+  if (runner) {
+    const text = runner[1]!.trim();
+    return text || undefined;
+  }
+  return undefined;
+}
+
+function stripRunPrefix(lower: string): string {
+  return lower.startsWith("run ") ? lower.slice(4).trim() : lower;
+}
+
+/**
+ * Map each step array index to the 0-based start line index in the loaded log.
+ * Unmatched steps are omitted.
+ */
+export function findStepLineIndices(
+  lines: readonly LogLine[],
+  steps: readonly ForgeCiStep[],
+): Map<number, number> {
+  const result = new Map<number, number>();
+  if (lines.length === 0 || steps.length === 0) return result;
+
+  const plainLines = lines.map((line) => lineText(line).trim());
+  const headings = plainLines.map((plain) => {
+    const heading = stepHeadingText(plain);
+    return heading ? heading.toLowerCase() : undefined;
+  });
+
+  let cursor = 0;
+  for (let stepIndex = 0; stepIndex < steps.length; stepIndex += 1) {
+    const name = steps[stepIndex]!.name.trim();
+    if (!name) continue;
+    const nameLower = name.toLowerCase();
+    const nameCore = stripRunPrefix(nameLower);
+
+    let matched = -1;
+    // Pass 1: exact heading match (##[group], ##[start-action], runner step, or exact line).
+    for (let i = cursor; i < plainLines.length; i += 1) {
+      const heading = headings[i];
+      if (heading !== undefined) {
+        if (
+          heading === nameLower ||
+          heading === `run ${nameLower}` ||
+          stripRunPrefix(heading) === nameCore
+        ) {
+          matched = i;
+          break;
+        }
+      } else if (plainLines[i]!.toLowerCase() === nameLower) {
+        matched = i;
+        break;
+      }
+    }
+
+    // Pass 2: heading contains step name.
+    if (matched < 0) {
+      for (let i = cursor; i < plainLines.length; i += 1) {
+        const heading = headings[i];
+        if (heading === undefined) continue;
+        if (
+          heading.includes(nameLower) ||
+          (nameCore.length >= 3 && heading.includes(nameCore))
+        ) {
+          matched = i;
+          break;
+        }
+      }
+    }
+
+    if (matched >= 0) {
+      result.set(stepIndex, matched);
+      cursor = matched + 1;
+    }
+  }
+  return result;
+}
+
+export type CiFailureForAgentInput = {
+  jobName: string;
+  runName?: string;
+  jobId: string;
+  failedStepName?: string;
+  errorExcerpt: string;
+};
+
+const MAX_EXCERPT_LINES = 40;
+const MAX_EXCERPT_CHARS = 4000;
+
+function trimErrorExcerpt(raw: string): string {
+  const normalized = raw.replace(/\r\n/gu, "\n").replace(/\r/gu, "\n");
+  const split = normalized.split("\n");
+  if (split.at(-1) === "") split.pop();
+  const tailLines =
+    split.length > MAX_EXCERPT_LINES ? split.slice(-MAX_EXCERPT_LINES) : split;
+  let excerpt = tailLines.join("\n");
+  if (excerpt.length > MAX_EXCERPT_CHARS) {
+    let start = excerpt.length - MAX_EXCERPT_CHARS;
+    const code = excerpt.charCodeAt(start);
+    if (code >= 0xdc00 && code <= 0xdfff) start += 1;
+    excerpt = excerpt.slice(start);
+  }
+  return excerpt;
+}
+
+/**
+ * Format a failed CI job summary and trimmed tail excerpt for sending to an Agent.
+ */
+export function formatCiFailureForAgent(input: CiFailureForAgentInput): string {
+  const title = input.runName?.trim()
+    ? `${input.runName.trim()} / ${input.jobName.trim()}`
+    : input.jobName.trim();
+  const out = [`CI failed: ${title}`];
+  const step = input.failedStepName?.trim();
+  if (step) out.push(`Failed step: ${step}`);
+  out.push(`Full log: \`iori ci log ${input.jobId}\``);
+  const excerpt = trimErrorExcerpt(input.errorExcerpt);
+  if (excerpt.trim()) {
+    out.push("", "```", excerpt, "```");
+  }
+  return out.join("\n");
 }

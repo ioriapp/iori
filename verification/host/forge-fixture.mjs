@@ -21,6 +21,11 @@ export async function forgeFixture(t, dataRoot, { web = false } = {}) {
     issueCount: undefined,
     pull: false,
     pullPages: undefined,
+    prFiles: [],
+    prReviews: [],
+    prReviewComments: {},
+    createdPull: undefined,
+    recordCreatedPull: false,
     noStatuses: false,
     ci: {},
   };
@@ -105,7 +110,7 @@ export async function forgeFixture(t, dataRoot, { web = false } = {}) {
     html_url: `${origin}/owner/repo/issues/${number}`,
   });
   let issues = [];
-  const server = createServer((request, response) => {
+  const server = createServer(async (request, response) => {
     const url = new URL(request.url, origin);
     const path = url.pathname;
     const authorized = [token, replacementToken].some(
@@ -202,6 +207,15 @@ export async function forgeFixture(t, dataRoot, { web = false } = {}) {
         page === 1 ? { link: `<${origin}${path}?page=2>; rel="next"` } : {},
       );
     }
+    if (path.endsWith("/branches"))
+      return json([{ name: "main" }, { name: "release" }]);
+    if (/\/pulls\/\d+\/files$/u.test(path)) return json(state.prFiles);
+    if (/\/pulls\/\d+\/reviews$/u.test(path)) return json(state.prReviews);
+    const review = /\/pulls\/\d+\/reviews\/(\d+)\/comments$/u.exec(path);
+    if (review) {
+      const entries = state.prReviewComments[review[1]];
+      return entries ? json(entries) : json({}, 404);
+    }
     if (path.endsWith("/comments"))
       return json(web ? comments : comments.slice(0, 1));
     if (/\/issues\/\d+$/u.test(path)) {
@@ -272,8 +286,41 @@ export async function forgeFixture(t, dataRoot, { web = false } = {}) {
     if (path.endsWith("/jobs"))
       return json([{ id: 9, name: "build", status: "failure" }]);
     if (path.endsWith("/logs"))
-      return response.writeHead(200).end("first line\n⚙️ failed\nlast line\n");
+      return response
+        .writeHead(200)
+        .end(state.log ?? "first line\n⚙️ failed\nlast line\n");
     if (path.endsWith("/pulls")) {
+      if (request.method === "POST") {
+        if (!authorized) return json({}, 401);
+        const chunks = [];
+        for await (const chunk of request) chunks.push(chunk);
+        const created = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+        state.createdPull = created;
+        if (state.recordCreatedPull) {
+          const isDraft =
+            typeof created.title === "string" &&
+            /^WIP:\s*/iu.test(created.title);
+          const pullEntry = {
+            number: 42,
+            title: created.title ?? "Created PR",
+            body: created.body ?? "",
+            created_at: "2026-01-03T00:00:00Z",
+            updated_at: "2026-01-03T00:00:00Z",
+            base: { ref: created.base ?? "main" },
+            state: "open",
+            draft: isDraft,
+            user: { login: "owner" },
+            html_url: `${origin}/owner/repo/pulls/42`,
+            head: {
+              ref: created.head ?? "feature",
+              sha,
+              repo: { full_name: "owner/repo" },
+            },
+          };
+          state.pullPages = [[...(state.pullPages?.flat() ?? []), pullEntry]];
+        }
+        return json({ html_url: `${origin}/owner/repo/pulls/42` }, 201);
+      }
       if (state.pullPages) {
         const page = Number(url.searchParams.get("page") ?? 1);
         return json(
@@ -289,6 +336,11 @@ export async function forgeFixture(t, dataRoot, { web = false } = {}) {
           ? [
               {
                 number: 5,
+                title: "Change",
+                body: "",
+                created_at: "2026-01-01T00:00:00Z",
+                updated_at: "2026-01-02T00:00:00Z",
+                base: { ref: "release" },
                 state: "open",
                 html_url: `${origin}/owner/repo/pulls/5`,
                 head: { ref: "main", sha, repo: { full_name: "owner/repo" } },

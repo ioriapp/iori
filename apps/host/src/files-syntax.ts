@@ -39,7 +39,10 @@ type Pending = {
   resolve: (result: SyntaxResult) => void;
   reject: (error: unknown) => void;
 };
-type Cached = SyntaxSnapshot & {
+type Cached = {
+  canonical: string;
+  revision: string;
+  snapshot?: SyntaxSnapshot;
   language: string;
   cancelled: Int32Array<SharedArrayBuffer>;
 };
@@ -121,6 +124,12 @@ function waitForLoad(
   });
 }
 
+type SyntaxLoad = (previous?: SyntaxSnapshot) => Promise<{
+  bytes: Buffer<ArrayBuffer>;
+  replaceFrom: number;
+  previousRevision?: string;
+}>;
+
 /** The caller opens and reads the file through withFile. Only its transferable
  * bytes cross to the worker; decoding and splitting happen there. */
 export async function readFileSyntax(
@@ -128,17 +137,67 @@ export async function readFileSyntax(
   path: string,
   language: string,
   range: { startLine: number; lineCount: number },
-  load: (previous?: SyntaxSnapshot) => Promise<{
-    bytes: Buffer<ArrayBuffer>;
-    replaceFrom: number;
-    previousRevision?: string;
-  }>,
+  load: SyntaxLoad,
   signal?: AbortSignal,
+): Promise<SyntaxResult> {
+  return readSyntax(
+    JSON.stringify([file.canonical, path]),
+    file,
+    language,
+    range,
+    load,
+    signal,
+    file,
+  );
+}
+
+/** A Git blob has no append history. Its object id identifies immutable bytes. */
+export function readBufferSyntax(
+  key: string,
+  revision: string,
+  language: string,
+  range: { startLine: number; lineCount: number },
+  load: () => Promise<Buffer>,
+  signal?: AbortSignal,
+): Promise<SyntaxResult> {
+  return readSyntax(
+    JSON.stringify(["blob", key, language]),
+    { canonical: key, revision },
+    language,
+    range,
+    async () => {
+      const bytes = await load();
+      let lines = bytes.length > 0 && bytes.at(-1) !== 10 ? 1 : 0;
+      if (bytes.length <= MAX_SYNTAX_FILE_BYTES) {
+        for (
+          let at = bytes.indexOf(10);
+          at >= 0 && lines <= MAX_SYNTAX_FILE_LINES;
+          at = bytes.indexOf(10, at + 1)
+        )
+          lines++;
+        if (lines <= MAX_SYNTAX_FILE_LINES) {
+          const copy = Buffer.allocUnsafeSlow(bytes.length);
+          bytes.copy(copy);
+          return { bytes: copy, replaceFrom: 1 };
+        }
+      }
+      return { bytes: Buffer.alloc(0), replaceFrom: 1 };
+    },
+    signal,
+  );
+}
+
+async function readSyntax(
+  key: string,
+  file: { canonical: string; revision: string },
+  language: string,
+  range: { startLine: number; lineCount: number },
+  load: SyntaxLoad,
+  signal?: AbortSignal,
+  snapshot?: SyntaxSnapshot,
 ): Promise<SyntaxResult> {
   throwIfAborted(signal);
   const owner = (current ??= startWorker());
-  // Aliases may have different extensions, hence different languages.
-  const key = JSON.stringify([file.canonical, path]);
   if (owner.cached.get(key)?.revision !== file.revision) {
     let loading = owner.loading.get(key);
     if (loading?.revision !== file.revision) {
@@ -151,7 +210,7 @@ export async function readFileSyntax(
       };
       const previous = owner.cached.get(key);
       task.promise = load(
-        previous?.language === language ? previous : undefined,
+        previous?.language === language ? previous.snapshot : undefined,
       )
         .then(async (body) => {
           if (Atomics.load(cancelled, 0) !== 0) return;
@@ -178,9 +237,8 @@ export async function readFileSyntax(
           owner.cached.delete(key);
           owner.cached.set(key, {
             canonical: file.canonical,
-            identity: file.identity,
+            snapshot,
             revision: file.revision,
-            scan: file.scan,
             language,
             cancelled,
           });
@@ -208,7 +266,8 @@ export async function readFileSyntax(
   if (current !== owner) throw new Error("Syntax worker stopped");
   const cached = owner.cached.get(key);
   // Several different files can finish loading in the same turn.
-  if (!cached) return readFileSyntax(file, path, language, range, load, signal);
+  if (!cached)
+    return readSyntax(key, file, language, range, load, signal, snapshot);
   owner.cached.delete(key);
   owner.cached.set(key, cached);
   const id = ++nextId;

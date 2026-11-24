@@ -104,6 +104,7 @@ function readSidebarView(event: ReactDragEvent<HTMLElement>) {
     if (
       payload.kind !== "files" &&
       payload.kind !== "git" &&
+      payload.kind !== "ci" &&
       payload.kind !== "terminal"
     )
       return undefined;
@@ -150,8 +151,11 @@ function dropDirection(event: ReactDragEvent<HTMLElement>): DropDirection {
 export type DockContextValue = {
   tabs: WorkspaceTab[];
   saveNewWorktreeLayout?: () => void;
-  readingViews: ("files" | "git" | "board")[];
-  openReadingView: (kind: "files" | "git" | "board", groupId: string) => void;
+  readingViews: ("files" | "git" | "ci" | "board")[];
+  openReadingView: (
+    kind: "files" | "git" | "ci" | "board",
+    groupId: string,
+  ) => void;
   t: (key: string) => string;
   renderPanel?: WorkspacePanelRenderer;
   shells: TerminalShell[];

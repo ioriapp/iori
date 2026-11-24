@@ -57,8 +57,13 @@ export type NavigationProps = {
     worktree: Worktree,
   ) => void;
   onOpenView: (kind: WorkspaceViewKind) => void;
-  /** A worktree row's CI mark: that worktree's CI View. */
-  onOpenCi: (host: HostInfo, folder: FolderHistoryItem, item: Worktree) => void;
+  /** A worktree row's PR or CI mark: that worktree's PR / CI View. */
+  onOpenCi: (
+    host: HostInfo,
+    folder: FolderHistoryItem,
+    item: Worktree,
+    section?: "ci" | "pr",
+  ) => void;
   onDragView: (
     kind: WorkspaceViewKind,
     terminalId?: string,

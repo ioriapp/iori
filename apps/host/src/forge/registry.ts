@@ -1,7 +1,16 @@
 import { readGitHubStatus, githubCheckUrl } from "./github.ts";
-import { readGitHubCi, readGitHubCiLog } from "./github-ci.ts";
+import {
+  cancelGitHubCi,
+  readGitHubCi,
+  readGitHubCiLog,
+  rerunGitHubCi,
+} from "./github-ci.ts";
 import { githubIssues } from "./github-issues.ts";
-import { githubPullRequests } from "./github-pull-requests.ts";
+import {
+  githubPullRequests,
+  readGitHubPrDetail,
+  readGitHubPrBranches,
+} from "./github-pull-requests.ts";
 import {
   detectForgejo,
   readForgejoStatus,
@@ -9,7 +18,11 @@ import {
 } from "./forgejo.ts";
 import { readForgejoCi, readForgejoCiLog } from "./forgejo-ci.ts";
 import { forgejoIssues } from "./forgejo-issues.ts";
-import { forgejoPullRequests } from "./forgejo-pull-requests.ts";
+import {
+  forgejoPullRequests,
+  readForgejoPrDetail,
+  readForgejoPrBranches,
+} from "./forgejo-pull-requests.ts";
 import type { ForgeAdapter } from "./types.ts";
 
 /** Detection order and capabilities of the Host's built-in Forge providers. */
@@ -22,8 +35,15 @@ export const forgeProviders: readonly ForgeAdapter[] = [
     },
     status: readGitHubStatus,
     checkUrl: githubCheckUrl,
-    ci: { read: readGitHubCi, log: readGitHubCiLog },
+    ci: {
+      read: readGitHubCi,
+      log: readGitHubCiLog,
+      rerun: rerunGitHubCi,
+      cancel: cancelGitHubCi,
+    },
     issues: githubIssues,
+    prDetail: readGitHubPrDetail,
+    prBranches: readGitHubPrBranches,
     pullRequests: githubPullRequests,
   },
   {
@@ -38,6 +58,10 @@ export const forgeProviders: readonly ForgeAdapter[] = [
         readForgejoCiLog(target, job, before, signal),
     },
     issues: forgejoIssues,
+    prDetail: (target, branch, _repository, signal) =>
+      readForgejoPrDetail(target, branch, signal),
+    prBranches: (target, _repository, signal) =>
+      readForgejoPrBranches(target, signal),
     pullRequests: forgejoPullRequests,
   },
 ];

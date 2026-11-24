@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { linkGit, writeFakeCli } from "../../verification/host/environment.mjs";
@@ -808,4 +808,310 @@ test("remoteの無いリポジトリでiori issue listはremote追加の案内�
       show.stdout,
       "This repository has no remote. Add a remote with git remote add, then try again.\n",
     );
+  }));
+
+function samplePull(origin, branch, changes = {}) {
+  return {
+    number: 42,
+    title: "Change",
+    body: "Description",
+    state: "open",
+    user: { login: "author" },
+    head: { ref: branch, repo: { full_name: "owner/repo" } },
+    base: { ref: "release" },
+    html_url: `${origin}/owner/repo/pulls/42`,
+    created_at: "2026-01-01T00:00:00Z",
+    updated_at: "2026-01-02T00:00:00Z",
+    labels: [{ name: "fix", color: "aabbcc" }],
+    ...changes,
+  };
+}
+
+test("GitHubのPR詳細でファイル・レビュー・返信先と行を表示できる", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    const forge = await forgeFixture(t, dataRoot);
+    const origin = "https://github.com";
+    forge.git("remote", "set-url", "origin", `${origin}/owner/repo.git`);
+    forge.git("switch", "-c", "feature/ui");
+    const pull = samplePull(origin, "feature/ui", { draft: true });
+    const review = {
+      id: 12,
+      user: { login: "reviewer" },
+      state: "CHANGES_REQUESTED",
+    };
+    const comment = {
+      id: 2,
+      user: review.user,
+      body: "Reply",
+      created_at: pull.created_at,
+      line: 11,
+      side: "LEFT",
+      path: "new.txt",
+      diff_hunk: "@@ -11 +12 @@",
+      in_reply_to_id: 1,
+      html_url: "https://example.invalid/comment",
+    };
+    const bin = join(dataRoot, "bin");
+    await writeFile(
+      join(bin, "pr-responses.json"),
+      JSON.stringify({
+        "/repos/owner/repo/pulls": [
+          samplePull(origin, "feature/ui", {
+            state: "closed",
+            updated_at: "2026-02-01T00:00:00Z",
+            number: 77,
+          }),
+          pull,
+        ],
+        "/repos/owner/repo/pulls/42/files": [
+          {
+            filename: "new.txt",
+            previous_filename: "old.txt",
+            status: "renamed",
+            additions: 2,
+            deletions: 1,
+          },
+        ],
+        "/repos/owner/repo/issues/42/comments": [
+          { ...comment, id: 3, body: "Discussion" },
+        ],
+        "/repos/owner/repo/pulls/42/comments": [comment],
+        "/repos/owner/repo/pulls/42/reviews": [review],
+      }),
+    );
+    await writeFakeCli(
+      bin,
+      "gh",
+      `
+import {readFileSync} from "node:fs";
+const args = process.argv.slice(2);
+if (args[0] === "auth" && args[1] === "status") console.log(JSON.stringify([{login:"owner", active:true, state:"success"}]));
+else {
+  const url = new URL(args.at(-1), "https://github.com");
+  if (url.pathname.endsWith("/pulls") && (url.searchParams.get("head") !== "owner:feature/ui" || url.searchParams.get("state") !== "all")) process.exit(1);
+  const values = JSON.parse(readFileSync(new URL("./pr-responses.json", import.meta.url)))[url.pathname];
+  if (!values) process.exit(1);
+  console.log(JSON.stringify(args.includes("--slurp") ? [values] : values));
+}`,
+    );
+    const { pr, canCreate } = await client.request("forge.pr", {
+      path: forge.repository,
+    });
+    assert.equal(canCreate, false);
+    assert.equal(pr.state, "draft");
+    assert.equal(pr.number, 42);
+    assert.equal(pr.baseBranch, "release");
+    assert.deepEqual(pr.labels, [{ name: "fix", color: "#aabbcc" }]);
+    assert.deepEqual(pr.files, [
+      {
+        path: "new.txt",
+        oldPath: "old.txt",
+        status: "renamed",
+        additions: 2,
+        deletions: 1,
+      },
+    ]);
+    assert.deepEqual(pr.reviewers, [
+      { login: "reviewer", state: "changes_requested" },
+    ]);
+    assert.equal(pr.comments.find((row) => !row.path).body, "Discussion");
+    assert.deepEqual(
+      pr.comments.find((row) => row.path),
+      {
+        id: "2",
+        body: "Reply",
+        author: "reviewer",
+        createdAt: Date.parse(pull.created_at),
+        path: "new.txt",
+        side: "old",
+        line: 11,
+        diffHunk: "@@ -11 +12 @@",
+        inReplyToId: "1",
+      },
+    );
+  }));
+
+test("ForgejoのPR詳細で同名のforkを除き、終了したPRから次の作成へ進める", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    const forge = await forgeFixture(t, dataRoot);
+    forge.git("switch", "-c", "feature");
+    const merged = samplePull(forge.origin, "feature", {
+      state: "closed",
+      merged: true,
+    });
+    forge.state.pullPages = [
+      [
+        samplePull(forge.origin, "feature", {
+          head: { ref: "feature", repo: { full_name: "fork/repo" } },
+        }),
+        merged,
+      ],
+    ];
+    const user = { login: "reviewer" };
+    forge.state.prFiles = [
+      { filename: "removed.txt", status: "deleted", deletions: 2 },
+    ];
+    forge.state.prReviews = [
+      { id: 7, user, state: "REQUEST_CHANGES" },
+      { id: 8, user: { login: "other" }, state: "COMMENT" },
+    ];
+    forge.state.prReviewComments = {
+      7: [
+        {
+          id: 9,
+          user,
+          created_at: merged.created_at,
+          body: "Review this",
+          path: "removed.txt",
+          position: 0,
+          original_position: 2,
+          diff_hunk: "@@ -2 +0 @@",
+        },
+      ],
+    };
+    const { pr, canCreate, branches, defaultBranch } = await client.request(
+      "forge.pr",
+      { path: forge.repository },
+    );
+    assert.equal(pr.state, "merged");
+    assert.equal(pr.title, "Change");
+    assert.equal(canCreate, true);
+    assert.equal(defaultBranch, "main");
+    assert.ok(branches.includes("release"));
+    assert.equal(pr.files[0].status, "deleted");
+    assert.deepEqual(pr.reviewers[0], {
+      login: "reviewer",
+      state: "changes_requested",
+    });
+    const inline = pr.comments.find((row) => row.path);
+    assert.equal(inline.body, "Review this");
+    assert.equal(inline.line, 2);
+    assert.equal(inline.side, "old");
+  }));
+
+async function localPushRemote(forge, dataRoot, url) {
+  const bare = join(dataRoot, "remote.git");
+  forge.git("init", "--bare", bare);
+  const bin = join(dataRoot, "bin");
+  await writeFakeCli(
+    bin,
+    "local-receive",
+    `
+import {spawnSync} from "node:child_process";
+process.exit(spawnSync("git", ["receive-pack", ${JSON.stringify(bare)}], {stdio:"inherit"}).status ?? 1);
+`,
+  );
+  forge.git("config", "core.sshCommand", "local-receive");
+  forge.git("config", "ssh.variant", "ssh");
+  forge.git("remote", "set-url", "origin", url);
+  return bare;
+}
+
+test("未pushのブランチからDraft・ベースを指定してPRを作成し、既存のPRを再利用する", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    const forge = await forgeFixture(t, dataRoot);
+    const bare = await localPushRemote(
+      forge,
+      dataRoot,
+      "forge-alias:owner/repo.git",
+    );
+    await client.request("forge.mapping.set", {
+      remoteHost: "forge-alias",
+      webUrl: forge.origin,
+    });
+    await client.request("forge.token.set", {
+      origin: forge.origin,
+      token: forge.token,
+    });
+    const path = forge.repository;
+    const create = (params) =>
+      client.request("forge.pr.create", {
+        path,
+        title: "Change",
+        body: "Notes",
+        ...params,
+      });
+    assert.equal(
+      (await client.request("forge.pr", { path })).reason,
+      "default_branch",
+    );
+    await assert.rejects(create({ base: "release" }), /git_failed/u);
+    for (const [branch, draft] of [
+      ["topic", false],
+      ["next", true],
+    ]) {
+      forge.git("switch", "-c", branch);
+      const view = await client.request("forge.pr", { path });
+      assert.equal(view.currentBranch, branch);
+      assert.equal(view.canCreate, true);
+      await assert.rejects(
+        create({ base: branch }),
+        /\(git_failed\):.*different from the work branch/u,
+      );
+      await assert.rejects(
+        create({ base: "bad..branch" }),
+        /\(git_failed\):.*valid branch name/u,
+      );
+      assert.deepEqual(await create({ draft, base: "release", issue: 3 }), {
+        url: `${forge.origin}/owner/repo/pulls/42`,
+        created: true,
+      });
+      assert.deepEqual(forge.state.createdPull, {
+        head: branch,
+        base: "release",
+        title: draft ? "WIP: Change" : "Change",
+        body: "Notes\n\nCloses #3",
+      });
+      assert.equal(
+        forge.git("--git-dir", bare, "rev-parse", `refs/heads/${branch}`),
+        forge.sha,
+      );
+      forge.state.pullPages = [[samplePull(forge.origin, branch)]];
+      assert.equal((await create({})).created, false);
+    }
+  }));
+
+test("GitHubのPR作成で既定のDraftと選択したベース・通常のPRを送信できる", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    const forge = await forgeFixture(t, dataRoot);
+    await localPushRemote(forge, dataRoot, "git@github.com:owner/repo.git");
+    const bin = join(dataRoot, "bin");
+    await writeFakeCli(
+      bin,
+      "gh",
+      `
+import {writeFileSync} from "node:fs";
+const args=process.argv.slice(2);
+if (args[0]==="auth" && args[1]==="status") console.log(JSON.stringify([{login:"owner",active:true,state:"success"}]));
+else if (args.includes("POST") && args.includes("/repos/owner/repo/pulls")) {
+  writeFileSync(new URL("./submitted.json",import.meta.url), JSON.stringify(args));
+  console.log(JSON.stringify({html_url:"https://github.com/owner/repo/pull/42"}));
+} else if (args.includes("/repos/owner/repo")) console.log(JSON.stringify({permissions:{push:true},default_branch:"main"}));
+else if (args.at(-1).startsWith("/repos/owner/repo/pulls?")) console.log("[]");
+else process.exit(1);`,
+    );
+    for (const [branch, params, expected] of [
+      ["draft", {}, ["base=main", "draft=true"]],
+      [
+        "ready",
+        { base: "release", draft: false },
+        ["base=release", "draft=false"],
+      ],
+    ]) {
+      forge.git("switch", "-c", branch);
+      const result = await client.request("forge.pr.create", {
+        path: forge.repository,
+        title: "Change",
+        body: "",
+        ...params,
+      });
+      assert.deepEqual(result, {
+        url: "https://github.com/owner/repo/pull/42",
+        created: true,
+      });
+      const submitted = JSON.parse(
+        await readFile(join(bin, "submitted.json"), "utf8"),
+      );
+      for (const field of expected) assert.ok(submitted.includes(field));
+    }
   }));

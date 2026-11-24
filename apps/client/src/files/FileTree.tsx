@@ -12,11 +12,20 @@ import {
 import {
   ChevronDown,
   ChevronRight,
+  CopyPlus,
   Download,
   FileCode,
+  FileDiff,
+  FilePlus,
   Folder,
   FolderOpen,
+  FolderPlus,
+  History,
   Link,
+  Pencil,
+  Search,
+  Terminal,
+  Trash2,
   Upload,
   X,
 } from "lucide-react";
@@ -25,8 +34,8 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { cn } from "cn";
 import { VirtualRows, type ScrollRequest } from "../reading/VirtualRows.tsx";
-import { PathMenu } from "../reading/PathMenu.tsx";
-import { writePathDrag } from "../path-drag.ts";
+import { PathMenu, type MenuAction } from "../reading/PathMenu.tsx";
+import { carriesPath, readPathDrag, writePathDrag } from "../path-drag.ts";
 import { PagedList } from "../reading/paged.ts";
 import { readErrorCopy, type ReadingTransport } from "../reading/transport.ts";
 import { LIST_ROW_PROBE_CLASS, useRowHeight } from "../reading/rowHeight.ts";
@@ -42,6 +51,9 @@ export type FileTreeHandle = {
   changed(paths?: string[]): void;
   reveal(path: string): void;
   openFilter(): void;
+  collapseAll(): void;
+  refresh(): void;
+  renamed(from: string, to: string): void;
 };
 
 const isDirectory = (entry: FileEntry) =>
@@ -53,6 +65,15 @@ const isDirectory = (entry: FileEntry) =>
 const parentOf = (path: string) => {
   const slash = path.lastIndexOf("/");
   return slash < 0 ? "" : path.slice(0, slash);
+};
+
+const appendMenuGroup = (target: MenuAction[], group: MenuAction[]) => {
+  if (group.length === 0) return;
+  if (target.length > 0) {
+    target.push({ ...group[0], separatorBefore: true }, ...group.slice(1));
+  } else {
+    target.push(...group);
+  }
 };
 
 /**
@@ -74,6 +95,17 @@ export function FileTree({
   onFolderDrop,
   onSave,
   footer,
+  changedPaths,
+  onCreate,
+  onRename,
+  onDuplicate,
+  onDelete,
+  onMove,
+  onOpenDiff,
+  onFileHistory,
+  onSendPathToTerminal,
+  onOpenTerminalInFolder,
+  onFindInFolder,
 }: {
   onSave: (path: string) => void;
   onPut: (files: File[], folder: string) => void;
@@ -89,23 +121,130 @@ export function FileTree({
   expanded: string[];
   onExpanded: (paths: string[]) => void;
   handle: Ref<FileTreeHandle>;
+  changedPaths?: ReadonlySet<string>;
+  onCreate?: (parentFolder: string, kind: "file" | "directory") => void;
+  onRename?: (entry: FileEntry) => void;
+  onDuplicate?: (entry: FileEntry) => void;
+  onDelete?: (entry: FileEntry) => void;
+  onMove?: (from: string, targetFolder: string) => void;
+  onOpenDiff?: (path: string) => void;
+  onFileHistory?: (absolutePath: string) => void;
+  onSendPathToTerminal?: (absolutePath: string) => void;
+  onOpenTerminalInFolder?: (absolutePath: string) => void;
+  onFindInFolder?: (folder: string) => void;
 }) {
   const ja = locale.startsWith("ja");
   const t = translator(locale);
   const [dropFolder, setDropFolder] = useState<string>();
+  const dragSource = useRef<
+    { hostKey: string; root: string; path: string } | undefined
+  >(undefined);
   const destination = (target: EventTarget | null) =>
     (target instanceof Element
       ? target.closest<HTMLElement>("[data-iori-put-folder]")?.dataset
           .ioriPutFolder
       : undefined) ?? "";
-  const putAction = (folder: string) => [
-    {
-      label: t("Upload files…"),
-      icon: <Upload aria-hidden="true" />,
-      action: "files-put",
-      run: () => onChoose(folder),
-    },
+  const canMoveTo = (
+    source: { hostKey: string; root: string; path: string },
+    targetFolder: string,
+  ) =>
+    source.hostKey === hostKey &&
+    source.root === root &&
+    targetFolder !== parentOf(source.path) &&
+    targetFolder !== source.path &&
+    !targetFolder.startsWith(`${source.path}/`);
+  const putAction = (folder: string): MenuAction => ({
+    label: t("Upload files…"),
+    icon: <Upload aria-hidden="true" />,
+    action: "files-put",
+    run: () => onChoose(folder),
+  });
+  const editActionsFor = (entry: FileEntry): MenuAction[] => [
+    ...(onRename
+      ? [
+          {
+            label: t("Rename"),
+            icon: <Pencil aria-hidden="true" />,
+            shortcut: "F2",
+            action: "files-rename",
+            run: () => onRename(entry),
+          },
+        ]
+      : []),
+    ...(onDuplicate
+      ? [
+          {
+            label: t("Duplicate"),
+            icon: <CopyPlus aria-hidden="true" />,
+            action: "files-duplicate",
+            run: () => onDuplicate(entry),
+          },
+        ]
+      : []),
+    ...(onDelete
+      ? [
+          {
+            label: t("Delete"),
+            icon: <Trash2 aria-hidden="true" />,
+            destructive: true,
+            action: "files-delete",
+            run: () => onDelete(entry),
+          },
+        ]
+      : []),
   ];
+  const folderCreateActions = (
+    folder: string,
+    absoluteFolder: string,
+  ): MenuAction[] => [
+    ...(onCreate
+      ? [
+          {
+            label: t("New file…"),
+            icon: <FilePlus aria-hidden="true" />,
+            action: "files-new-file",
+            run: () => onCreate(folder, "file"),
+          },
+          {
+            label: t("New folder…"),
+            icon: <FolderPlus aria-hidden="true" />,
+            action: "files-new-folder",
+            run: () => onCreate(folder, "directory"),
+          },
+        ]
+      : []),
+    ...(onOpenTerminalInFolder
+      ? [
+          {
+            label: t("Open Terminal in this folder"),
+            icon: <Terminal aria-hidden="true" />,
+            action: "files-open-terminal",
+            run: () => onOpenTerminalInFolder(absoluteFolder),
+          },
+        ]
+      : []),
+    ...(folder !== "" && onFindInFolder
+      ? [
+          {
+            label: t("Find in folder"),
+            icon: <Search aria-hidden="true" />,
+            action: "files-find-in-folder",
+            run: () => onFindInFolder(folder),
+          },
+        ]
+      : []),
+  ];
+  const sendPathAction = (absolutePath: string): MenuAction[] =>
+    onSendPathToTerminal
+      ? [
+          {
+            label: t("Send path to Terminal"),
+            icon: <Terminal aria-hidden="true" />,
+            action: "files-send-to-terminal",
+            run: () => onSendPathToTerminal(absolutePath),
+          },
+        ]
+      : [];
   const [, render] = useReducer((value: number) => value + 1, 0);
   const [query, setQuery] = useState("");
   const [filterOpen, setFilterOpen] = useState(false);
@@ -282,36 +421,71 @@ export function FileTree({
     setOpen(next);
   };
 
-  useImperativeHandle(
-    handle,
-    () => ({
-      changed(paths) {
-        findList.current?.refresh();
-        const folders = paths
-          ? new Set(paths.flatMap((path) => [parentOf(path), path]))
-          : undefined;
+  useImperativeHandle(handle, () => {
+    const refreshPaths = (paths?: string[]) => {
+      findList.current?.refresh();
+      const folders = paths
+        ? new Set(paths.flatMap((path) => [parentOf(path), path]))
+        : undefined;
+      for (const [path, list] of lists.current) {
+        if (folders && !folders.has(path)) continue;
+        list.refresh();
+      }
+      // Also retry restored folders whose parent list has not loaded yet.
+      for (const child of open.current) {
+        if (folders && !folders.has(parentOf(child))) continue;
+        void locateChild(child).then(
+          (index) => {
+            if (!open.current.has(child)) return;
+            if (index === undefined) {
+              const next = new Set(open.current);
+              next.delete(child);
+              setOpen(next);
+            } else if (positions.current.get(child) !== index) {
+              positions.current.set(child, index);
+              render();
+            }
+          },
+          () => undefined,
+        );
+      }
+    };
+    return {
+      changed: refreshPaths,
+      refresh() {
+        refreshPaths(undefined);
+      },
+      renamed(from, to) {
+        const rewrite = (value: string) =>
+          value === from
+            ? to
+            : value.startsWith(`${from}/`)
+              ? `${to}${value.slice(from.length)}`
+              : value;
+        const nextOpen = new Set<string>();
+        for (const path of open.current) nextOpen.add(rewrite(path));
         for (const [path, list] of lists.current) {
-          if (folders && !folders.has(path)) continue;
-          list.refresh();
+          if (path === from || path.startsWith(`${from}/`)) {
+            list.pause();
+            lists.current.delete(path);
+          }
         }
-        // Also retry restored folders whose parent list has not loaded yet.
-        for (const child of open.current) {
-          if (folders && !folders.has(parentOf(child))) continue;
-          void locateChild(child).then(
-            (index) => {
-              if (!open.current.has(child)) return;
-              if (index === undefined) {
-                const next = new Set(open.current);
-                next.delete(child);
-                setOpen(next);
-              } else if (positions.current.get(child) !== index) {
-                positions.current.set(child, index);
-                render();
-              }
-            },
-            () => undefined,
-          );
+        for (const path of [...positions.current.keys()]) {
+          if (path === from || path.startsWith(`${from}/`)) {
+            positions.current.delete(path);
+          }
         }
+        setOpen(nextOpen);
+        refreshPaths(undefined);
+      },
+      collapseAll() {
+        for (const [path, list] of lists.current) {
+          if (path === "") continue;
+          list.pause();
+          lists.current.delete(path);
+        }
+        positions.current.clear();
+        setOpen(new Set());
       },
       openFilter() {
         setFilterOpen(true);
@@ -333,9 +507,8 @@ export function FileTree({
           setOpen(next);
         })().catch(() => undefined);
       },
-    }),
-    [locateChild, listFor],
-  );
+    };
+  }, [locateChild, listFor]);
 
   const onRange = useCallback(
     (first: number, last: number) => {
@@ -383,33 +556,64 @@ export function FileTree({
   };
 
   return (
-    <PathMenu path={root} locale={locale} actions={putAction("")}>
+    <PathMenu
+      path={root}
+      locale={locale}
+      leadingActions={folderCreateActions("", root)}
+      actions={[putAction("")]}
+      separateActions={false}
+    >
       <div
         className="relative flex min-h-0 flex-1 flex-col pt-1 data-[drop-root]:bg-accent data-[drop-root]:outline-1 data-[drop-root]:-outline-offset-1 data-[drop-root]:outline-ring"
         data-drop-root={dropFolder === "" || undefined}
         onDragOver={(event) => {
-          if (!event.dataTransfer.types.includes("Files")) return;
-          event.preventDefault();
-          event.dataTransfer.dropEffect = "copy";
-          setDropFolder(destination(event.target));
+          if (event.dataTransfer.types.includes("Files")) {
+            event.preventDefault();
+            event.dataTransfer.dropEffect = "copy";
+            setDropFolder(destination(event.target));
+            return;
+          }
+          if (onMove && carriesPath(event.dataTransfer)) {
+            const source = dragSource.current;
+            const target = destination(event.target);
+            if (source && canMoveTo(source, target)) {
+              event.preventDefault();
+              event.dataTransfer.dropEffect = "move";
+              setDropFolder(target);
+            } else {
+              setDropFolder(undefined);
+            }
+          }
         }}
         onDragLeave={(event) => {
           if (!event.currentTarget.contains(event.relatedTarget as Node | null))
             setDropFolder(undefined);
         }}
         onDrop={(event) => {
-          if (!event.dataTransfer.types.includes("Files")) return;
-          event.preventDefault();
-          setDropFolder(undefined);
-          const items = Array.from(event.dataTransfer.items);
-          if (items.some((item) => item.webkitGetAsEntry()?.isDirectory)) {
-            onFolderDrop();
+          if (event.dataTransfer.types.includes("Files")) {
+            event.preventDefault();
+            setDropFolder(undefined);
+            const items = Array.from(event.dataTransfer.items);
+            if (items.some((item) => item.webkitGetAsEntry()?.isDirectory)) {
+              onFolderDrop();
+              return;
+            }
+            onPut(
+              Array.from(event.dataTransfer.files),
+              destination(event.target),
+            );
             return;
           }
-          onPut(
-            Array.from(event.dataTransfer.files),
-            destination(event.target),
-          );
+          if (onMove && carriesPath(event.dataTransfer)) {
+            event.preventDefault();
+            setDropFolder(undefined);
+            dragSource.current = undefined;
+            const drag = readPathDrag(event.dataTransfer);
+            const target = destination(event.target);
+            if (drag && canMoveTo(drag, target)) {
+              onMove(drag.path, target);
+            }
+          }
         }}
       >
         <div
@@ -523,6 +727,9 @@ export function FileTree({
                 } else if (event.key === "Enter" && current.entry) {
                   event.preventDefault();
                   activate(current.entry, current.index);
+                } else if (event.key === "F2" && current.entry && onRename) {
+                  event.preventDefault();
+                  onRename(current.entry);
                 } else if (
                   event.key.length === 1 &&
                   !event.ctrlKey &&
@@ -543,27 +750,65 @@ export function FileTree({
                 const outside =
                   entry.kind === "symlink" &&
                   entry.symlinkTarget !== "inside_root";
+                const downloadable =
+                  entry.kind === "file" ||
+                  (entry.kind === "symlink" &&
+                    entry.targetKind === "file" &&
+                    entry.symlinkTarget === "inside_root");
+                const leadingActions: MenuAction[] = [];
+                if (directory) {
+                  appendMenuGroup(
+                    leadingActions,
+                    folderCreateActions(entry.path, entry.absolutePath),
+                  );
+                } else {
+                  appendMenuGroup(leadingActions, [
+                    ...(onOpenDiff && changedPaths?.has(entry.path)
+                      ? [
+                          {
+                            label: t("Show diff"),
+                            icon: <FileDiff aria-hidden="true" />,
+                            action: "files-open-diff",
+                            run: () => onOpenDiff(entry.path),
+                          },
+                        ]
+                      : []),
+                    ...(onFileHistory
+                      ? [
+                          {
+                            label: t("File history"),
+                            icon: <History aria-hidden="true" />,
+                            action: "file-history",
+                            run: () => onFileHistory(entry.absolutePath),
+                          },
+                        ]
+                      : []),
+                  ]);
+                }
+                appendMenuGroup(leadingActions, editActionsFor(entry));
+                const sendPath = sendPathAction(entry.absolutePath);
+                const actions: MenuAction[] = [];
+                appendMenuGroup(actions, sendPath);
+                if (directory) {
+                  appendMenuGroup(actions, [putAction(entry.path)]);
+                } else if (downloadable) {
+                  appendMenuGroup(actions, [
+                    {
+                      label: t("Download…"),
+                      icon: <Download aria-hidden="true" />,
+                      action: "files-save",
+                      run: () => onSave(entry.path),
+                    },
+                  ]);
+                }
                 return (
                   <PathMenu
                     path={entry.absolutePath}
+                    relativePath={entry.path}
                     locale={locale}
-                    actions={
-                      directory
-                        ? putAction(entry.path)
-                        : entry.kind === "file" ||
-                            (entry.kind === "symlink" &&
-                              entry.targetKind === "file" &&
-                              entry.symlinkTarget === "inside_root")
-                          ? [
-                              {
-                                label: t("Download…"),
-                                icon: <Download aria-hidden="true" />,
-                                action: "files-save",
-                                run: () => onSave(entry.path),
-                              },
-                            ]
-                          : []
-                    }
+                    leadingActions={leadingActions}
+                    actions={actions}
+                    separateActions={sendPath.length === 0}
                   >
                     <div
                       className={cn(
@@ -592,14 +837,23 @@ export function FileTree({
                       style={{ "--level": depth } as CSSProperties}
                       title={searching ? entry.path : entry.name}
                       draggable
-                      onDragStart={(event) =>
+                      onDragStart={(event) => {
+                        dragSource.current = {
+                          hostKey,
+                          root,
+                          path: entry.path,
+                        };
                         writePathDrag(event.dataTransfer, {
                           hostKey,
                           root,
                           path: entry.path,
                           absolutePath: entry.absolutePath,
-                        })
-                      }
+                        });
+                      }}
+                      onDragEnd={() => {
+                        dragSource.current = undefined;
+                        setDropFolder(undefined);
+                      }}
                       onClick={() => {
                         setFocus(rowIndex);
                         activate(entry, index);

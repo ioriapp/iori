@@ -24,8 +24,11 @@ import {
 import { coreMethods } from "./core-methods.ts";
 import { automationMethods } from "./automations.ts";
 import { cliDefinitionMethods } from "./cli-definitions.ts";
+import { gitWriteMethods } from "./git-write.ts";
+import { filesManageMethods } from "./files-manage.ts";
 import { filesTransferMethods } from "./files-transfer.ts";
 import { forgeCiMethods } from "./forge-ci.ts";
+import { forgePrMethods } from "./forge-pr.ts";
 import { forgeIssueMethods } from "./forge-issues.ts";
 import { maintenanceMethods } from "./maintenance.ts";
 import { teamMethods } from "./team-methods.ts";
@@ -33,10 +36,13 @@ const methods = {
   ...coreMethods,
   ...automationMethods,
   ...cliDefinitionMethods,
+  ...filesManageMethods,
+  ...gitWriteMethods,
   ...filesTransferMethods,
   ...forgeCiMethods,
   ...forgeIntegrationMethods,
   ...forgeIssueMethods,
+  ...forgePrMethods,
   ...maintenanceMethods,
   ...readMethods,
   ...teamMethods,
@@ -72,12 +78,19 @@ export type Response<T = unknown> =
   | { ok: true; result: T }
   | {
       ok: false;
-      error: { code: ProtocolErrorCode; forge?: ForgeReadFailure };
+      error: {
+        code: ProtocolErrorCode;
+        forge?: ForgeReadFailure;
+        message?: string;
+      };
     };
 
 export type ReceivedResponse<T = unknown> =
   | { ok: true; result: T }
-  | { ok: false; error: { code: string; forge?: ForgeReadFailure } };
+  | {
+      ok: false;
+      error: { code: string; forge?: ForgeReadFailure; message?: string };
+    };
 
 export const responseSchema: ValueSchema<ReceivedResponse> = {
   parse(value) {
@@ -89,6 +102,9 @@ export const responseSchema: ValueSchema<ReceivedResponse> = {
         ok: false,
         error: {
           code: string(error.code, "error.code"),
+          ...(typeof error.message === "string"
+            ? { message: error.message }
+            : {}),
           // The registered Host's own reason for a Forge read, taken as is.
           ...(error.forge === undefined
             ? {}

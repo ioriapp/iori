@@ -535,7 +535,7 @@ export function WorkspaceBody({
         ? [
             {
               id: "mobile-view-ci",
-              label: "CI",
+              label: "PR / CI",
               kind: "ci" as const,
               active: activeMobileTab?.kind === "ci",
               onSelect: () => onOpenView("ci"),

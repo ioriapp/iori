@@ -511,7 +511,10 @@ export class ConnectionController {
     signal?: AbortSignal,
   ): Promise<
     | { ok: true; result: ResultByMethod[M] }
-    | { ok: false; error: { code: string; forge?: ForgeReadFailure } }
+    | {
+        ok: false;
+        error: { code: string; message?: string; forge?: ForgeReadFailure };
+      }
     | undefined
   > => {
     const record = this.connections.get(hostKey);

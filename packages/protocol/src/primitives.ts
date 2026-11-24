@@ -15,6 +15,7 @@ export const errorCodes = [
   "put_failed",
   "put_not_a_file",
   "put_exists",
+  "file_conflict",
   "internal_error",
   "host_uninstalling",
 ] as const;

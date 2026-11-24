@@ -349,6 +349,10 @@ export function useWorkspaceBackAndShortcuts({
   setFolderHostKey,
   shellPickerOpen,
   setShellPickerOpen,
+  quickOpen,
+  setQuickOpen,
+  canQuickOpen,
+  onWorkspaceSearch,
   maximizedGroup,
   closeMaximize,
   toggleMaximize,
@@ -379,6 +383,10 @@ export function useWorkspaceBackAndShortcuts({
   setFolderHostKey: (key?: string) => void;
   shellPickerOpen: boolean;
   setShellPickerOpen: (open: boolean) => void;
+  quickOpen: boolean;
+  setQuickOpen: (open: boolean) => void;
+  canQuickOpen: boolean;
+  onWorkspaceSearch?: () => void;
   maximizedGroup?: string;
   closeMaximize: () => void;
   toggleMaximize: (group: DockGroup) => void;
@@ -492,6 +500,10 @@ export function useWorkspaceBackAndShortcuts({
       setShellPickerOpen(false);
       return true;
     }
+    if (quickOpen) {
+      setQuickOpen(false);
+      return true;
+    }
     if (maximizedGroup) {
       closeMaximize();
       return true;
@@ -555,6 +567,8 @@ export function useWorkspaceBackAndShortcuts({
     setTeamsHost,
     setVisitedTargets,
     shellPickerOpen,
+    quickOpen,
+    setQuickOpen,
     tabVisitHistory,
     tabs,
     teamBacks,
@@ -580,6 +594,31 @@ export function useWorkspaceBackAndShortcuts({
         return;
       }
       const key = event.key.toLowerCase();
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        !event.shiftKey &&
+        !event.altKey &&
+        key === "p" &&
+        canQuickOpen &&
+        !event.isComposing
+      ) {
+        event.preventDefault();
+        setQuickOpen(true);
+        return;
+      }
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        event.shiftKey &&
+        !event.altKey &&
+        key === "f" &&
+        canQuickOpen &&
+        onWorkspaceSearch &&
+        !event.isComposing
+      ) {
+        event.preventDefault();
+        onWorkspaceSearch();
+        return;
+      }
       if (key === "escape" && maximizedGroup && !event.isComposing) {
         event.preventDefault();
         closeMaximize();
@@ -601,5 +640,13 @@ export function useWorkspaceBackAndShortcuts({
     };
     window.addEventListener("keydown", keydown);
     return () => window.removeEventListener("keydown", keydown);
-  }, [closeMaximize, dock, maximizedGroup, toggleMaximize]);
+  }, [
+    canQuickOpen,
+    onWorkspaceSearch,
+    closeMaximize,
+    dock,
+    maximizedGroup,
+    setQuickOpen,
+    toggleMaximize,
+  ]);
 }

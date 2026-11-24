@@ -48,7 +48,7 @@ export type HostFixture = Omit<Started, "deviceId" | "url"> & {
   start(): Promise<void>;
   restart(options?: { stopDaemon?: boolean }): Promise<void>;
   releaseAsset(): Promise<void>;
-  forge(): Promise<{
+  forge(options?: { log?: string; pr?: "detail" | "create" }): Promise<{
     origin: string;
     repository: string;
     worktree: string;
@@ -229,7 +229,8 @@ export const test = base.extend<Fixtures>({
         }),
       releaseAsset: () =>
         call("updates", { hostId: descriptor.id, action: "releaseAsset" }),
-      forge: () => call("forge", { hostId: descriptor.id }),
+      forge: (options) =>
+        call("forge", { hostId: descriptor.id, ...(options ?? {}) }),
     });
     const observe = async (
       sample: () => Promise<{ satisfied: boolean; output: string }>,

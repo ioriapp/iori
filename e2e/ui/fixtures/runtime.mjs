@@ -8,7 +8,7 @@ import {
   inviteFromText,
 } from "../../../packages/protocol/src/index.ts";
 import { clientRelease, hostRelease } from "./releases.mjs";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import WebSocket from "ws";
@@ -44,7 +44,9 @@ async function addHost({ updates = false, environment } = {}) {
   const hostMs = performance.now() - started;
   const folder = join(host.dataRoot, "project");
   await mkdir(folder);
-  const cliId = await registerScriptedCli(host.client, host.dataRoot);
+  const cliId = await registerScriptedCli(host.client, host.dataRoot, {
+    capturePrompts: true,
+  });
   const invite = (await host.client.request("invite.create")).invite;
   const id = hosts.length;
   hosts.push({ ...host, source: host, update, folder, cliId, invite });
@@ -262,12 +264,102 @@ const methods = {
       await source.start();
     }
   },
-  async forge({ hostId = 0 }) {
+  async forge({ hostId = 0, log, pr } = {}) {
     const host = hosts[hostId];
     const forge = await forgeFixture(t, host.dataRoot);
     forge.state.pull = true;
+    if (log !== undefined) forge.state.log = log;
     const worktree = join(host.dataRoot, "feature");
     forge.git("worktree", "add", "-b", "feature", worktree);
+    if (pr === "detail") {
+      await writeFile(join(worktree, "base.txt"), "base\nfeature change\n");
+      forge.git("-C", worktree, "add", ".");
+      forge.git("-C", worktree, "commit", "-m", "feature change");
+      const featureSha = forge.git("-C", worktree, "rev-parse", "HEAD");
+      forge.git("update-ref", "refs/remotes/origin/feature", featureSha);
+      forge.git("config", "branch.feature.remote", "origin");
+      forge.git("config", "branch.feature.merge", "refs/heads/feature");
+      forge.state.pullPages = [
+        [
+          {
+            number: 5,
+            title: "Improve feature flow",
+            body: "PR summary body",
+            created_at: "2026-01-01T00:00:00Z",
+            updated_at: "2026-01-02T00:00:00Z",
+            base: { ref: "main" },
+            state: "open",
+            user: { login: "alice" },
+            labels: [{ name: "enhancement", color: "0e8a16" }],
+            html_url: `${forge.origin}/owner/repo/pulls/5`,
+            head: {
+              ref: "feature",
+              sha: featureSha,
+              repo: { full_name: "owner/repo" },
+            },
+          },
+        ],
+      ];
+      forge.state.prFiles = [
+        {
+          filename: "base.txt",
+          status: "modified",
+          additions: 1,
+          deletions: 0,
+        },
+      ];
+      forge.state.prReviews = [
+        {
+          id: 101,
+          state: "COMMENTED",
+          user: { login: "reviewer" },
+          body: "",
+          submitted_at: "2026-01-02T01:00:00Z",
+        },
+      ];
+      forge.state.prReviewComments = {
+        101: [
+          {
+            id: 201,
+            user: { login: "reviewer" },
+            body: "Please guard edge case here.",
+            path: "base.txt",
+            position: 2,
+            diff_hunk: "@@ -1 +1,2 @@\n base\n+feature change",
+            created_at: "2026-01-02T01:00:00Z",
+            html_url: `${forge.origin}/owner/repo/pulls/5#issuecomment-201`,
+          },
+        ],
+      };
+    } else if (pr === "create") {
+      const bare = join(host.dataRoot, "bare.git");
+      await mkdir(bare);
+      forge.git("init", "--bare", bare);
+      const receiveScript = join(host.dataRoot, "bin", "local-receive");
+      await writeFile(
+        receiveScript,
+        `#!${process.execPath}\nimport { spawnSync } from "node:child_process";\nprocess.exit(spawnSync("git", ["receive-pack", ${JSON.stringify(bare)}], { stdio: "inherit" }).status ?? 1);\n`,
+      );
+      await chmod(receiveScript, 0o755);
+      forge.git("config", "core.sshCommand", receiveScript);
+      forge.git("config", "ssh.variant", "ssh");
+      forge.git("remote", "set-url", "origin", "forge-alias:owner/repo.git");
+      forge.git("push", "origin", "main");
+      await writeFile(join(worktree, "base.txt"), "base\nfeature change\n");
+      forge.git("-C", worktree, "add", ".");
+      forge.git("-C", worktree, "commit", "-m", "feature change");
+      forge.state.pull = false;
+      forge.state.pullPages = [[]];
+      forge.state.recordCreatedPull = true;
+      await host.source.client.request("forge.mapping.set", {
+        remoteHost: "forge-alias",
+        webUrl: forge.origin,
+      });
+      await host.source.client.request("forge.token.set", {
+        origin: forge.origin,
+        token: forge.token,
+      });
+    }
     await host.source.client.request("forge.mapping.set", {
       remoteHost: new URL(forge.origin).host,
       webUrl: forge.origin,

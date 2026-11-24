@@ -136,7 +136,7 @@ export async function connectClient(dataRoot, secretKey) {
     const response = parseResponse(method, await first(stream));
     if (!response.ok)
       throw new Error(
-        `Host request failed: ${method} (${response.error.code})`,
+        `Host request failed: ${method} (${response.error.code})${response.error.message ? `: ${response.error.message}` : ""}`,
       );
     return response.result;
   };

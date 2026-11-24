@@ -1,6 +1,7 @@
 import { isWithin } from "./path-boundary.ts";
 import { fileUploadTemporaries } from "./files-upload-temporaries.ts";
-import { lstat, realpath, stat } from "node:fs/promises";
+import { constants } from "node:fs";
+import { lstat, open, realpath, stat } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
   MAX_PAGE_RESPONSE_BYTES,
@@ -28,7 +29,7 @@ import {
   stopGit,
 } from "./git-process.ts";
 import { handleDiffRead } from "./git-diff.ts";
-import { utf8Boundary } from "./text-lines.ts";
+import { readAt, utf8Boundary } from "./text-lines.ts";
 
 type Signal = AbortSignal | undefined;
 
@@ -253,42 +254,36 @@ function entryFor(
   };
 }
 
-async function collapseLinkedUntracked(
-  repository: Repository,
-  entries: GitChangeEntry[],
-): Promise<GitChangeEntry[]> {
-  if (process.platform !== "win32") return entries;
+function untrackedReader(repository: Repository) {
   // Git for Windows lists files behind a junction; show the link itself instead.
   const links = new Map<string, boolean>();
   const seen = new Set<string>();
-  const result: GitChangeEntry[] = [];
-  for (const entry of entries) {
+  return async (path: Buffer): Promise<GitChangeEntry | undefined> => {
+    const entry = entryFor(repository, "untracked", "untracked", path);
+    if (fileUploadTemporaries.has(entry.absolutePath)) return undefined;
+    if (process.platform !== "win32") return entry;
     const parts = entry.path.split("/");
-    let link: string | undefined;
-    for (let depth = 1; depth < parts.length && !link; depth += 1) {
+    for (let depth = 1; depth < parts.length; depth++) {
       const prefix = parts.slice(0, depth).join("/");
       let isLink = links.get(prefix);
       if (isLink === undefined) {
-        isLink = await lstat(join(repository.root, ...parts.slice(0, depth)))
+        isLink = await lstat(absoluteFor(repository, prefix))
           .then((info) => info.isSymbolicLink())
           .catch(() => false);
         links.set(prefix, isLink);
       }
-      if (isLink) link = prefix;
+      if (isLink) {
+        if (seen.has(prefix)) return undefined;
+        seen.add(prefix);
+        return {
+          ...entry,
+          path: prefix,
+          absolutePath: absoluteFor(repository, prefix),
+        };
+      }
     }
-    if (!link) {
-      result.push(entry);
-      continue;
-    }
-    if (seen.has(link)) continue;
-    seen.add(link);
-    result.push({
-      ...entry,
-      path: link,
-      absolutePath: absoluteFor(repository, link),
-    });
-  }
-  return result;
+    return entry;
+  };
 }
 
 export function parseNumstatField(value: string): {
@@ -298,6 +293,50 @@ export function parseNumstatField(value: string): {
 } {
   const [added = "", removed = "", ...path] = value.split("\t");
   return { added, removed, path: path.join("\t") };
+}
+
+async function fillNumstat(
+  repository: Repository,
+  byPath: Map<string, GitChangeEntry>,
+  args: string[],
+  signal?: Signal,
+): Promise<void> {
+  const git = startGit(
+    repository.root,
+    ["diff", "--no-ext-diff", "--no-textconv", "--numstat", "-z", ...args],
+    signal,
+  );
+  const reader = new NulReader(git.child.stdout);
+  try {
+    for (;;) {
+      const field = await reader.next();
+      if (field === undefined) break;
+      const {
+        added,
+        removed,
+        path: inline,
+      } = parseNumstatField(field.toString("utf8"));
+      let path: string | undefined = inline;
+      if (!path) {
+        // A rename is "added\tremoved\t" followed by the old and new paths.
+        await reader.next();
+        path = (await reader.next())?.toString("utf8");
+      }
+      const entry = path === undefined ? undefined : byPath.get(path);
+      if (!entry) continue;
+      if (added === "-" && removed === "-") entry.binary = true;
+      else {
+        entry.addedLines = Number(added);
+        entry.removedLines = Number(removed);
+      }
+    }
+    await finishGit(git, signal);
+  } catch {
+    await stopGit(git);
+    throwIfAborted(signal);
+    // Line counts are shown only when Git could provide them.
+    return;
+  }
 }
 
 async function readNumstat(
@@ -318,51 +357,12 @@ async function readNumstat(
       (end === start || length < NUMSTAT_ARGUMENT_CHARS)
     )
       length += paths[end++]!.length + 1;
-    const git = startGit(
-      repository.root,
-      [
-        "diff",
-        ...(cached ? ["--cached", "-M"] : []),
-        "--no-ext-diff",
-        "--no-textconv",
-        "--numstat",
-        "-z",
-        "--",
-        ...paths.slice(start, end),
-      ],
+    await fillNumstat(
+      repository,
+      byPath,
+      [...(cached ? ["--cached", "-M"] : []), "--", ...paths.slice(start, end)],
       signal,
     );
-    const reader = new NulReader(git.child.stdout);
-    try {
-      for (;;) {
-        const field = await reader.next();
-        if (field === undefined) break;
-        const {
-          added,
-          removed,
-          path: inline,
-        } = parseNumstatField(field.toString("utf8"));
-        let path: string | undefined = inline;
-        if (!path) {
-          // A rename is "added\tremoved\t" followed by the old and new paths.
-          await reader.next();
-          path = (await reader.next())?.toString("utf8");
-        }
-        const entry = path === undefined ? undefined : byPath.get(path);
-        if (!entry) continue;
-        if (added === "-" && removed === "-") entry.binary = true;
-        else {
-          entry.addedLines = Number(added);
-          entry.removedLines = Number(removed);
-        }
-      }
-      await finishGit(git, signal);
-    } catch {
-      await stopGit(git);
-      throwIfAborted(signal);
-      // Line counts are shown only when Git could provide them.
-      return;
-    }
     start = end;
   }
 }
@@ -377,6 +377,7 @@ async function readStatus(
     signal,
   );
   const reader = new NulReader(git.child.stdout);
+  const readUntracked = untrackedReader(repository);
   const branch: GitRepositoryStatus = { root: repository.root };
   const byArea: Record<GitChangeArea, GitChangeEntry[]> = {
     staged: [],
@@ -405,9 +406,8 @@ async function readStatus(
           }
         }
       } else if (type === 0x3f) {
-        byArea.untracked.push(
-          entryFor(repository, "untracked", "untracked", record.subarray(2)),
-        );
+        const entry = await readUntracked(record.subarray(2));
+        if (entry) byArea.untracked.push(entry);
       } else if (type === 0x75) {
         const split = splitRecord(record, 10);
         if (!split) continue;
@@ -450,12 +450,6 @@ async function readStatus(
     await stopGit(git);
     throw gitFailure(error);
   }
-  byArea.untracked = await collapseLinkedUntracked(
-    repository,
-    byArea.untracked.filter(
-      (entry) => !fileUploadTemporaries.has(entry.absolutePath),
-    ),
-  );
   const ordered = areas.flatMap((area) =>
     byArea[area].sort((a, b) => a.path.localeCompare(b.path)),
   );
@@ -503,6 +497,181 @@ async function gitStatus(
     counts,
     entries,
   };
+}
+
+async function recordedBase(
+  repository: Repository,
+): Promise<string | undefined> {
+  const marker = join(repository.gitDir, "iori-base-commit");
+  const length = repository.hashFormat === "sha256" ? 64 : 40;
+  try {
+    if (!(await lstat(marker)).isFile()) return undefined;
+    const file = await open(marker, constants.O_RDONLY | constants.O_NONBLOCK);
+    try {
+      const bytes = await readAt(file, 0, length + 3);
+      const hex = bytes.toString("utf8").trim();
+      if (
+        bytes.length <= length + 2 &&
+        hex.length === length &&
+        /^[0-9a-f]+$/u.test(hex)
+      )
+        return hex;
+    } finally {
+      await file.close();
+    }
+  } catch {
+    // A repository need not have an iori worktree origin.
+  }
+  return undefined;
+}
+
+async function gitBranches(
+  repository: Repository,
+  signal?: Signal,
+): Promise<ReadResultByMethod["git.branches"]> {
+  const [refs, head, recorded] = await Promise.all([
+    collectGit(
+      repository.root,
+      [
+        "for-each-ref",
+        "--sort=refname",
+        "--format=%(refname:short)%09%(objectname)%09%(symref)",
+        "refs/heads",
+        "refs/remotes",
+      ],
+      signal,
+    ),
+    collectGit(
+      repository.root,
+      ["symbolic-ref", "--quiet", "--short", "HEAD"],
+      signal,
+      [0, 1],
+    ),
+    recordedBase(repository),
+  ]);
+  const current = head.stdout.toString("utf8").trim() || undefined;
+  const tips = new Map<string, string>();
+  let originHead: string | undefined;
+  for (const line of refs.stdout.toString("utf8").split("\n")) {
+    const [name, sha, symref] = line.split("\t");
+    if (!name || !sha) continue;
+    if (!symref) tips.set(name, sha);
+    else if (name === "origin/HEAD")
+      originHead = symref.replace(/^refs\/remotes\//u, "");
+  }
+  const branches = [...tips.keys()];
+  const matching = new Set(
+    branches.filter((name) => name !== current && tips.get(name) === recorded),
+  );
+  const preferred = [
+    originHead,
+    "main",
+    "origin/main",
+    "master",
+    "origin/master",
+  ];
+  let defaultBase: string | undefined =
+    preferred.find((name) => name && matching.has(name)) ??
+    matching.values().next().value;
+  defaultBase ??= [
+    originHead,
+    "origin/main",
+    "main",
+    "origin/master",
+    "master",
+    ...branches,
+  ].find((name) => name && name !== current && tips.has(name));
+  if (!defaultBase && recorded) {
+    const commit = await collectGit(
+      repository.root,
+      ["rev-parse", "--verify", "--quiet", recorded + "^{commit}"],
+      signal,
+      [0, 1],
+    );
+    if (commit.code === 0) {
+      defaultBase = recorded;
+      branches.push(recorded);
+    }
+  }
+  return { current, defaultBase, branches };
+}
+
+export async function branchMergeBase(
+  repository: Repository,
+  base: string,
+  signal?: Signal,
+): Promise<string> {
+  const result = await collectGit(
+    repository.root,
+    ["merge-base", "--end-of-options", base, "HEAD"],
+    signal,
+  );
+  return result.stdout.toString("utf8").trim();
+}
+
+async function gitBranchChanges(
+  repository: Repository,
+  params: ReadParamsByMethod["git.branchChanges"],
+  signal?: Signal,
+): Promise<ReadResultByMethod["git.branchChanges"]> {
+  const mergeBase = await branchMergeBase(repository, params.base, signal);
+  const seen = new Set<string>();
+  const entries: GitChangeEntry[] = [];
+  let bytes = 0;
+  const visit = (entry: GitChangeEntry) => {
+    if (seen.has(entry.path)) return;
+    seen.add(entry.path);
+    if (seen.size <= params.start || entries.length >= params.count) return;
+    bytes += Buffer.byteLength(JSON.stringify(entry)) + 64;
+    if (!entries.length || bytes <= MAX_PAGE_RESPONSE_BYTES)
+      entries.push(entry);
+  };
+  await readNameStatus(
+    repository,
+    [
+      "diff",
+      "-M",
+      "--name-status",
+      "-z",
+      "--no-ext-diff",
+      "--no-textconv",
+      "--end-of-options",
+      mergeBase,
+      "--",
+    ],
+    visit,
+    signal,
+  );
+  const tracked = new Map(
+    entries.filter((entry) => !entry.error).map((entry) => [entry.path, entry]),
+  );
+  if (tracked.size)
+    await fillNumstat(
+      repository,
+      tracked,
+      ["-M", "--end-of-options", mergeBase, "--"],
+      signal,
+    );
+  const git = startGit(
+    repository.root,
+    ["ls-files", "--others", "--exclude-standard", "-z"],
+    signal,
+  );
+  const reader = new NulReader(git.child.stdout);
+  const readUntracked = untrackedReader(repository);
+  try {
+    for (;;) {
+      const path = await reader.next();
+      if (!path) break;
+      const entry = await readUntracked(path);
+      if (entry) visit(entry);
+    }
+    await finishGit(git, signal);
+  } catch (error) {
+    await stopGit(git);
+    throw gitFailure(error);
+  }
+  return { base: params.base, mergeBase, total: seen.size, entries };
 }
 
 export async function hasHead(root: string, signal?: Signal): Promise<boolean> {
@@ -654,29 +823,14 @@ async function gitCommitMessage(
   return messageSlice(stdout, offset);
 }
 
-async function gitCommitFiles(
+async function readNameStatus(
   repository: Repository,
-  params: ReadParamsByMethod["git.commitFiles"],
+  args: string[],
+  visit: (entry: GitChangeEntry) => void,
   signal?: Signal,
-): Promise<ReadResultByMethod["git.commitFiles"]> {
-  const git = startGit(
-    repository.root,
-    [
-      "diff-tree",
-      "-r",
-      "-M",
-      "-C",
-      "-z",
-      "--name-status",
-      ...(params.parent
-        ? ["--end-of-options", params.parent, params.hash]
-        : ["--root", "--no-commit-id", "--end-of-options", params.hash]),
-    ],
-    signal,
-  );
+) {
+  const git = startGit(repository.root, args, signal);
   const reader = new NulReader(git.child.stdout);
-  const files: GitCommitFile[] = [];
-  let total = 0;
   try {
     for (;;) {
       const status = await reader.next();
@@ -688,22 +842,54 @@ async function gitCommitFiles(
         kind === "renamed" || kind === "copied"
           ? await reader.next()
           : undefined;
-      const index = total;
-      total += 1;
-      if (index < params.start || files.length >= params.count) continue;
-      const path = decodeField(second ?? first).text;
-      files.push({
-        path,
-        absolutePath: absoluteFor(repository, path),
-        ...(second ? { oldPath: decodeField(first).text } : {}),
-        kind,
-      });
+      visit(
+        entryFor(
+          repository,
+          "unstaged",
+          kind,
+          second ?? first,
+          second ? { oldPath: decodeField(first).text } : {},
+        ),
+      );
     }
     await finishGit(git, signal);
   } catch (error) {
     await stopGit(git);
     throw gitFailure(error);
   }
+}
+
+async function gitCommitFiles(
+  repository: Repository,
+  params: ReadParamsByMethod["git.commitFiles"],
+  signal?: Signal,
+): Promise<ReadResultByMethod["git.commitFiles"]> {
+  const files: GitCommitFile[] = [];
+  let total = 0;
+  await readNameStatus(
+    repository,
+    [
+      "diff-tree",
+      "-r",
+      "-M",
+      "-C",
+      "-z",
+      "--name-status",
+      ...(params.parent
+        ? ["--end-of-options", params.parent, params.hash]
+        : ["--root", "--no-commit-id", "--end-of-options", params.hash]),
+    ],
+    ({ path, absolutePath, oldPath, kind }) => {
+      if (total++ >= params.start && files.length < params.count)
+        files.push({
+          path,
+          absolutePath,
+          ...(oldPath ? { oldPath } : {}),
+          kind,
+        });
+    },
+    signal,
+  );
   return { files, total };
 }
 
@@ -740,6 +926,14 @@ export async function handleGitRead<M extends ReadMethod>(
         signal,
       )) as ReadResultByMethod[M];
     }
+    case "git.branches":
+      return (await gitBranches(repository, signal)) as ReadResultByMethod[M];
+    case "git.branchChanges":
+      return (await gitBranchChanges(
+        repository,
+        params as ReadParamsByMethod["git.branchChanges"],
+        signal,
+      )) as ReadResultByMethod[M];
     case "git.history":
       return (await gitHistory(
         repository,
@@ -768,6 +962,7 @@ export async function handleGitRead<M extends ReadMethod>(
         signal,
       )) as ReadResultByMethod[M];
     case "git.diffOpen":
+    case "git.diffSyntax":
     case "git.diffRows":
     case "git.diffRead":
     case "git.imageInfo":

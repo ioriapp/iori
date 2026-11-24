@@ -28,7 +28,7 @@ iori Host（Windows・Linux。本人のユーザーで常駐）
   ├ CLI: CLI自身の画面（PTY）
   │        └ CLI自身の会話の保存・設定・認証
   ├ Terminal: 別のデーモンへ入力・出力を中継
-  ├ Files・Git: OS のファイルと本人の Git を読むだけ
+  ├ Files・Git: OS のファイル操作（Root 内に限定）と本人の Git の読み取り・非破壊な日常操作
   └ 小さい SQLite: 端末の登録、ワークスペース、チーム、CLIの会話ID
 Terminalのデーモン（Host本体と別のNodeプロセス）
   ├ node-pty、画面の保持、CLI hooks
@@ -179,7 +179,7 @@ CLIの画面とTerminalは、Orca（[stablyai/orca](https://github.com/stablyai/
 
 worktreeの削除はHostが確認用の対象を保持し、CLI・Terminalの終了を待ってから子、親の順にGitへ削除を依頼する。lockの解除や削除の自動再送は行わない。削除直後にパスの有無を確かめる。取り込み判定は作成時の起点と `git merge-tree` のtreeで行う。ioriが作成したworktreeの起点はそのGit管理ディレクトリに保存し、worktreeと一緒に削除する。外部で作られたworktreeはブランチの作成reflogを使う。
 
-FilesはHostのOSのファイルを読み込むだけで、編集しない。Gitは本人のGitで状態・差分・履歴を読み込むだけで、書き込み操作は作らない。Gitの読取でexternal diff・textconv・pagerを起動しない。開いたフォルダーの外へsymlinkやパスで逃げる読取はしない。「ファイル」のタブは、そのファイルのフォルダーを開いたフォルダーとして読む（登録したデバイスはHostのどのフォルダーも開けるので、読める範囲は広がらない）。Agentが触れる範囲はCLI自身の許可に任せ、Hostは許可フォルダーを持たない。
+Filesは開いたRoot（worktree・フォルダー）内に限ってファイルの読み取り・作成・名前の変更・複製・削除・移動・テキスト保存・アップロード・ダウンロードを行う。すべての書き込み・削除・移動の入口で`realpath`によりRoot内であることを検証し、`..`・Root外を指すsymlink・Root自身の削除や名前の変更・Windowsの予約名を拒否する。symlinkの削除は`lstat`で判定し、リンク先ではなくsymlink自体を削除する。テキスト保存は一時ファイルへ書いて`rename`する原子的な置換で元の権限と改行コードを保ち、保存時にファイルが読み込み時点から変わっていたときは上書きを拒否してClientへ競合を返す（ユーザーの明示的な「上書き」でのみ強制保存する）。Clientは通常サイズのUTF-8テキストをCodeMirror 6で編集し、巨大ファイル・不正UTF-8バイトを含むファイルは既存のストリーミング閲覧へフォールバックする。Gitは本人のGitで状態・差分・ベースブランチ比較・履歴の読み取りに加え、日常的な書き込み操作（stage・unstage・hunk単位のstage/unstage・変更の破棄・commit・fetch・`pull --ff-only`・通常push）を行う。`push --force`・`--tags`・`rebase`・`merge`・`reset --hard`・ブランチ削除等の履歴改変・破壊的操作は提供せず、書き込み操作はリポジトリ単位で直列化して`index.lock`等の競合を防ぐ。push・pull・fetchは本人のGit認証をそのまま使い、Forgeのトークンをgitへ渡さない。Gitの読取でexternal diff・textconv・pagerを起動しない。開いたフォルダーの外へsymlinkやパスで逃げる読取はしない。「ファイル」のタブは、そのファイルのフォルダーを開いたフォルダーとして読み書きする（登録したデバイスはHostのどのフォルダーも開けるので、操作範囲は広がらない）。Agentが編集できる範囲はCLI自身の許可に任せ、Hostは許可フォルダーを持たない。
 
 FilesとGitのOS監視はHost内の共通Workerで動かす。変更の通知は短い間まとめてから一度だけgitを読む（通知1件ごとにgitを起動しない。Hostはメモリが大きくforkが重い）。.gitの中はHEAD・refs・config・worktreesなど一覧とpush先に影響する変化だけで再取得する。再帰監視の開始・変更時の同期走査が、本文・一覧・ほかの要求の処理を止めないようにする。同じdirectoryの監視は共有し、最後の購読が終わると回収する。監視の準備中にも読み取りを進め、準備完了時に再取得を知らせて、その間の変更を反映する。
 
@@ -191,7 +191,7 @@ Forgejo・Giteaのトークンは、サイト（Webのorigin）ごとにHostのO
 
 Forgeを読み込めない理由は、画面とコマンドが共有する形（protocolの `ForgeReadFailure`）で返す。Forgejo・GiteaはHTTPの状態で決め、トークンの無いサイトの401・403・404は「トークンが無い」とする（非公開と不存在を区別できないため）。403は本文から足りない権限（`read:issue` など）を取る。GitHubは `gh api` の終了コード（4はログインなし）とstderrのHTTPの状態で決める。連携の行の状態は最後に読み込んだ結果とその時刻で、接続できないはサイトが答えた時、トークンが無効はトークンを付けた読み取りが通った時、権限不足はトークンを付けた同じ種類の読み取りが通った時に戻す。
 
-Forgeの判定・CI（実行・ジョブ・ログ）・PR・Issue・開くURLは共通のインターフェースを通し、GitHub（gh）とForgejo/Gitea（`/api/v1`）のadapterがそれぞれ持つ。adapterはそのForgeで使える機能（CIのジョブとログを読み込めるか）を返し、画面とコマンドは使えない操作を出さない。GitHubのIssueの一覧に混ざるPull requestはadapterが除く。CIのログは範囲で読み、全体を一度に転送・保持しない。Forgejoは `Range` で範囲を読み取る。GitHubは `gh api` がログの転送先へ `Range` を渡さないため、Hostが一度ログを全部受け取り、頼まれた範囲だけをClientへ送る。Hostはアイコンを取得する時の判定をoriginごとに持ち、リポジトリのGit設定も同じ事実とGitのリモートを使う。リモートのホスト名とWebのoriginの対応はHostで共有し、作成後のコマンドとGitHubのアカウント名はmain worktreeのパスでリポジトリに結び付ける。
+Forgeの判定・CI（実行・ジョブ・ログ・再実行・キャンセル）・PR（概要・変更ファイル・レビューコメント・作成）・Issue・開くURLは共通のインターフェースを通し、GitHub（gh）とForgejo/Gitea（`/api/v1`）のadapterがそれぞれ持つ。adapterはそのForgeで使える機能（CIのジョブとログを読み込めるか、CIの再実行・キャンセルに対応するか等）を返し、画面とコマンドは使えない操作を出さない。GitHubのIssueの一覧に混ざるPull requestはadapterが除く。CIのログは範囲で読み、全体を一度に転送・保持しない。Forgejoは `Range` で範囲を読み取る。GitHubは `gh api` がログの転送先へ `Range` を渡さないため、Hostが一度ログを全部受け取り、頼まれた範囲だけをClientへ送る。Hostはアイコンを取得する時の判定をoriginごとに持ち、リポジトリのGit設定も同じ事実とGitのリモートを使う。リモートのホスト名とWebのoriginの対応はHostで共有し、作成後のコマンドとGitHubのアカウント名はmain worktreeのパスでリポジトリに結び付ける。
 
 大きいファイル・差分・履歴は範囲で読み、一度に転送・保持・描画する量は有限にするが、それを読める総量の上限にしない。末尾まで読み進められる。
 
