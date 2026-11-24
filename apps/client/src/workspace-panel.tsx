@@ -409,11 +409,15 @@ export function focusAfterDockLayout(
       const popup = currentFocus?.closest(
         '[data-state="open"][role="dialog"], [data-state="open"][role="menu"], [data-state="open"][role="listbox"]',
       );
+      const previousHidden =
+        !previousFocus?.isConnected ||
+        (previousFocus instanceof HTMLElement &&
+          previousFocus.getClientRects().length === 0);
       consume(
         (!popup || popup.contains(target)) &&
           (currentFocus === previousFocus ||
             target.contains(currentFocus) ||
-            (currentFocus === document.body && !previousFocus?.isConnected)),
+            (currentFocus === document.body && previousHidden)),
       );
     });
   });

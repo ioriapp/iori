@@ -148,8 +148,11 @@ test(
       "data-iori-stream-state",
       "ready",
     );
-    // Text is inserted without Enter; pressing Enter submits the buffered CI failure prompt.
-    await app.input(launched.terminal.id, "\r");
+    await expect(
+      visibleTerminal(page).locator(".xterm-helper-textarea"),
+    ).toBeFocused();
+    // Text is inserted without Enter; pressing Enter directly submits the buffered CI failure prompt.
+    await page.keyboard.press("Enter");
     await app.terminalText(
       launched.terminal.id,
       /ACTOR_INPUT:.*iori ci log 9/u,
@@ -218,7 +221,10 @@ test(
       "data-iori-stream-state",
       "ready",
     );
-    await app.input(launched.terminal.id, "\r");
+    await expect(
+      visibleTerminal(page).locator(".xterm-helper-textarea"),
+    ).toBeFocused();
+    await page.keyboard.press("Enter");
     const terminalOutput = await app.terminalText(
       launched.terminal.id,
       /ACTOR_INPUT:/u,

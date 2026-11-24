@@ -106,6 +106,10 @@ function cellLineNumber(side: "old" | "new", row: TextRow): number | undefined {
   return side === "old" ? row.oldLine : row.newLine;
 }
 
+const MIN_SPLIT_RATIO = 20;
+const MAX_SPLIT_RATIO = 80;
+const DEFAULT_SPLIT_RATIO = 50;
+
 export function SplitDiffView({
   source,
   path,
@@ -113,6 +117,8 @@ export function SplitDiffView({
   locale,
   wrap,
   scrollToRow,
+  splitRatio,
+  onSplitRatio,
   comments = [],
   onAddComment,
   onEditComment,
@@ -127,6 +133,8 @@ export function SplitDiffView({
   locale: string;
   wrap: boolean;
   scrollToRow?: { id: number; row: number };
+  splitRatio?: number;
+  onSplitRatio?: (ratio: number | undefined) => void;
   comments?: DiffComment[];
   onAddComment?: (comment: Omit<DiffComment, "id">) => void;
   onEditComment?: (id: string, body: string) => void;
@@ -137,10 +145,17 @@ export function SplitDiffView({
 }) {
   const ja = locale.startsWith("ja");
   const t = translator(locale);
+  const containerRef = useRef<HTMLDivElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const codeRow = useRowHeight(22);
   const [composing, setComposing] = useState<ComposingTarget>();
   const [activeLine, setActiveLine] = useState<number>();
+  const [dragRatio, setDragRatio] = useState<number>();
+  const clampRatio = (value: number) =>
+    Math.min(MAX_SPLIT_RATIO, Math.max(MIN_SPLIT_RATIO, value));
+  const activeSplitRatio = clampRatio(
+    dragRatio ?? splitRatio ?? DEFAULT_SPLIT_RATIO,
+  );
   const displayPath = relativePath ?? path;
 
   // Build display items from loaded rows while preserving unloaded slots so
@@ -322,13 +337,68 @@ export function SplitDiffView({
 
   return (
     <div
+      ref={containerRef}
       className="relative flex min-h-0 flex-1 flex-col"
       data-iori-view="git-diff-split"
+      style={
+        {
+          "--split-left": `${activeSplitRatio}%`,
+        } as CSSProperties
+      }
     >
       <div
         ref={codeRow.probe}
         className={CODE_ROW_PROBE_CLASS}
         aria-hidden="true"
+      />
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        tabIndex={0}
+        aria-valuemin={MIN_SPLIT_RATIO}
+        aria-valuemax={MAX_SPLIT_RATIO}
+        aria-valuenow={Math.round(activeSplitRatio)}
+        aria-label={ja ? "左右の差分の幅" : "Split diff width"}
+        data-iori-action="git-split-diff-resize"
+        className="absolute inset-y-0 z-10 w-px -translate-x-1/2 cursor-col-resize touch-none bg-transparent transition-colors before:absolute before:inset-y-0 before:-inset-x-[4px] before:content-[''] hover:bg-primary/60 focus-visible:bg-primary focus-visible:outline-none [@media(pointer:coarse)]:before:-inset-x-2"
+        style={{ left: `${activeSplitRatio}%` }}
+        onDoubleClick={() => {
+          setDragRatio(undefined);
+          onSplitRatio?.(undefined);
+        }}
+        onPointerDown={(event) => {
+          const box = containerRef.current;
+          if (!box) return;
+          event.preventDefault();
+          event.currentTarget.setPointerCapture(event.pointerId);
+          const bounds = box.getBoundingClientRect();
+          if (bounds.width <= 0) return;
+          let latest = activeSplitRatio;
+          const move = (moved: PointerEvent) => {
+            latest = Math.round(
+              clampRatio(((moved.clientX - bounds.left) / bounds.width) * 100),
+            );
+            setDragRatio(latest);
+          };
+          const up = () => {
+            window.removeEventListener("pointermove", move);
+            window.removeEventListener("pointerup", up);
+            window.removeEventListener("pointercancel", up);
+            setDragRatio(undefined);
+            onSplitRatio?.(latest);
+          };
+          window.addEventListener("pointermove", move);
+          window.addEventListener("pointerup", up);
+          window.addEventListener("pointercancel", up);
+        }}
+        onKeyDown={(event) => {
+          if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+          event.preventDefault();
+          const next = Math.round(
+            clampRatio(activeSplitRatio + (event.key === "ArrowLeft" ? -2 : 2)),
+          );
+          onSplitRatio?.(next);
+        }}
       />
       <PathMenu
         selectable
@@ -441,12 +511,24 @@ export function SplitDiffView({
                   style={{ top: virtualItem.start }}
                 >
                   {beforeSlot}
-                  <div className="grid grid-cols-2 divide-x divide-border-subtle">
+                  <div
+                    className="grid divide-x divide-border-subtle"
+                    style={{
+                      gridTemplateColumns:
+                        "minmax(0, var(--split-left, 50%)) minmax(0, calc(100% - var(--split-left, 50%)))",
+                    }}
+                  >
                     {renderCell("old", item.left)}
                     {renderCell("new", item.right)}
                   </div>
                   {hasThread && (
-                    <div className="grid grid-cols-2 divide-x divide-border-subtle border-y border-border-subtle bg-muted/20">
+                    <div
+                      className="grid divide-x divide-border-subtle border-y border-border-subtle bg-muted/20"
+                      style={{
+                        gridTemplateColumns:
+                          "minmax(0, var(--split-left, 50%)) minmax(0, calc(100% - var(--split-left, 50%)))",
+                      }}
+                    >
                       <div className="min-w-0 px-3 py-1">
                         {leftComments.map((comment) => (
                           <DiffCommentCard

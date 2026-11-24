@@ -277,6 +277,18 @@ export function ChangesTreeList({
                   <span className="min-w-0 flex-[0_1_auto] truncate">
                     {node.name}
                   </span>
+                  {(onStageEntry || onUnstageEntry) &&
+                    entry.area === "staged" && (
+                      <span className="flex-none rounded-xs bg-diff-add-bg px-1 text-[0.625rem] font-medium text-diff-add-text">
+                        {ja ? "ステージ済み" : "Staged"}
+                      </span>
+                    )}
+                  {(onStageEntry || onUnstageEntry) &&
+                    entry.area === "conflict" && (
+                      <span className="flex-none rounded-xs bg-status-failed-bg px-1 text-[0.625rem] font-medium text-status-failed-text">
+                        {ja ? "競合" : "Conflict"}
+                      </span>
+                    )}
                   {mode === "flat" && (
                     <span className="min-w-0 flex-[0_1000_auto] truncate text-xs text-muted-foreground">
                       {parentDirectory(entry.path)}

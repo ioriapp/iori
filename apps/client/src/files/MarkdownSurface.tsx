@@ -23,7 +23,7 @@ import {
   type ReadingTransport,
 } from "../reading/transport.ts";
 import { InlineImage } from "./ImageSurface.tsx";
-import { markdownRemarkPlugins } from "../reading/markdown-plugins.ts";
+import { markdownRemarkPluginsForTheme } from "../reading/markdown-plugins.ts";
 import { ReadingError } from "../reading/ReadingError.tsx";
 import { ReadingLoading } from "../reading/ReadingStates.tsx";
 import "../reading/reading.css";
@@ -70,11 +70,33 @@ const textOf = (node: HastNode | undefined): string =>
     ? (node.value ?? "")
     : (node?.children ?? []).map(textOf).join("");
 
+function useDocumentTheme(): "dark" | "light" {
+  const read = () =>
+    typeof document !== "undefined" &&
+    document.documentElement.classList.contains("dark")
+      ? "dark"
+      : "light";
+  const [theme, setTheme] = useState<"dark" | "light">(read);
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const sync = () => setTheme(read());
+    sync();
+    const observer = new MutationObserver(sync);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+    return () => observer.disconnect();
+  }, []);
+  return theme;
+}
+
 function LocalImage({
   transport,
   root,
   path,
   alt,
+  width,
   locale,
   standalone,
 }: {
@@ -83,6 +105,7 @@ function LocalImage({
   root: string;
   path: string;
   alt?: string;
+  width?: number | string;
   locale: string;
 }) {
   const refresh = useContext(RefreshContext);
@@ -121,6 +144,7 @@ function LocalImage({
       root={imageRoot}
       info={info}
       alt={alt}
+      width={width}
       locale={locale}
       refresh={refresh}
     />
@@ -339,6 +363,11 @@ export function MarkdownSurface({
     }
   };
 
+  const theme = useDocumentTheme();
+  const remarkPlugins = useMemo(
+    () => markdownRemarkPluginsForTheme(theme),
+    [theme],
+  );
   const rendered = useMemo(() => {
     if (text === undefined) return null;
     // Headings get GitHub's anchors once, in document order; renders reuse them.
@@ -410,7 +439,15 @@ export function MarkdownSurface({
           {children}
         </a>
       ),
-      img: ({ src, alt }: { src?: string | Blob; alt?: string }) => {
+      img: ({
+        src,
+        alt,
+        width,
+      }: {
+        src?: string | Blob;
+        alt?: string;
+        width?: number | string;
+      }) => {
         const path =
           typeof src === "string"
             ? standalone && !/^(?:[a-z][a-z\d+.-]*:|\/\/)/iu.test(src)
@@ -426,6 +463,7 @@ export function MarkdownSurface({
             root={root}
             path={path}
             alt={alt}
+            width={width}
             locale={locale}
           />
         );
@@ -437,14 +475,14 @@ export function MarkdownSurface({
         controls={false}
         parseIncompleteMarkdown={false}
         linkSafety={{ enabled: false }}
-        remarkPlugins={markdownRemarkPlugins}
+        remarkPlugins={remarkPlugins}
         rehypePlugins={[defaultRehypePlugins.sanitize!]}
         components={components}
       >
         {text}
       </Streamdown>
     );
-  }, [text, transport, root, info.path, locale]);
+  }, [text, transport, root, info.path, locale, remarkPlugins]);
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">

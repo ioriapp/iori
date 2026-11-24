@@ -69,6 +69,7 @@ export function InlineImage({
   root,
   info,
   alt,
+  width,
   locale,
   refresh,
 }: {
@@ -76,6 +77,7 @@ export function InlineImage({
   root: string;
   info: FileInfo;
   alt?: string;
+  width?: number | string;
   locale: string;
   refresh: number;
 }) {
@@ -84,7 +86,25 @@ export function InlineImage({
     return (
       <span className="text-xs text-muted-foreground">{alt ?? info.path}</span>
     );
-  return url ? <img src={url} alt={alt ?? info.path} /> : null;
+  const parsedWidth =
+    typeof width === "number"
+      ? width
+      : typeof width === "string" && /^\d{1,4}$/u.test(width.trim())
+        ? Number(width.trim())
+        : undefined;
+  return url ? (
+    <img
+      src={url}
+      alt={alt ?? info.path}
+      width={parsedWidth}
+      style={
+        parsedWidth
+          ? { width: `${parsedWidth}px`, maxWidth: "100%" }
+          : undefined
+      }
+      className={parsedWidth ? "mr-2 mb-2 inline-block align-top" : undefined}
+    />
+  ) : null;
 }
 
 export function ImageSurface({

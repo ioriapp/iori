@@ -53,6 +53,11 @@ export function GitRemoteBar({
     : ja
       ? "上流ブランチが設定されていません"
       : "No upstream branch configured";
+  const pushTitle = hasUpstream
+    ? undefined
+    : ja
+      ? "リモートへpushして上流ブランチを設定"
+      : "Push branch and set upstream";
 
   return (
     <div
@@ -78,7 +83,7 @@ export function GitRemoteBar({
           type="button"
           variant="outline"
           size="sm"
-          disabled={isBusy}
+          disabled={isBusy || !hasUpstream}
           pending={busy === "pull"}
           title={noUpstreamTitle}
           data-iori-action="git-pull"
@@ -102,7 +107,7 @@ export function GitRemoteBar({
           size="sm"
           disabled={isBusy}
           pending={busy === "push"}
-          title={noUpstreamTitle}
+          title={pushTitle}
           data-iori-action="git-push"
           className="[@media(pointer:coarse)]:min-h-11"
           onClick={onPush}
@@ -158,6 +163,7 @@ export type GitCommitBoxProps = {
   ahead?: number;
   busy?: boolean;
   onCommit: (message: string, amend: boolean) => Promise<boolean>;
+  onRequestLastCommitMessage?: () => Promise<string | undefined>;
 };
 
 export function GitCommitBox({
@@ -167,6 +173,7 @@ export function GitCommitBox({
   ahead,
   busy = false,
   onCommit,
+  onRequestLastCommitMessage,
 }: GitCommitBoxProps) {
   const ja = locale.startsWith("ja");
   const amendId = useId();
@@ -179,6 +186,18 @@ export function GitCommitBox({
     !submitting && message.trim().length > 0 && (stagedCount > 0 || amend);
   const showPushedWarning =
     amend && hasUpstream && (ahead === undefined || ahead === 0);
+
+  const toggleAmend = (next: boolean) => {
+    setAmend(next);
+    if (next && message.trim().length === 0 && onRequestLastCommitMessage) {
+      void onRequestLastCommitMessage().then((lastMessage) => {
+        if (!lastMessage) return;
+        setMessage((current) =>
+          current.trim().length === 0 ? lastMessage : current,
+        );
+      });
+    }
+  };
 
   const submit = async () => {
     if (!canCommit) return;
@@ -247,11 +266,11 @@ export function GitCommitBox({
               checked={amend}
               disabled={submitting}
               data-iori-action="git-commit-amend"
-              onCheckedChange={(checked) => setAmend(checked === true)}
+              onCheckedChange={(checked) => toggleAmend(checked === true)}
             />
             <span>amend</span>
           </Label>
-          {stagedCount === 0 && (
+          {stagedCount === 0 && !amend && (
             <span className="text-2xs text-muted-foreground">
               {ja ? "ステージ済みの変更がありません" : "No staged changes"}
             </span>

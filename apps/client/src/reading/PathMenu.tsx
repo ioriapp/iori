@@ -1,5 +1,5 @@
 import { translator } from "../i18n.ts";
-import { Fragment, useState, type ReactNode } from "react";
+import { Fragment, useRef, useState, type ReactNode } from "react";
 import {
   ContextMenu,
   ContextMenuTrigger,
@@ -19,6 +19,8 @@ export type MenuAction = {
   disabled?: boolean;
   destructive?: boolean;
   separatorBefore?: boolean;
+  /** Skip Radix's focus restoration on menu close when the action moves focus elsewhere. */
+  transfersFocus?: boolean;
   action: string;
   run: () => void | Promise<void>;
 };
@@ -56,13 +58,19 @@ export function PathMenu({
   const [error, setError] = useState(false);
   const [open, setOpen] = useState(false);
   const [touch, setTouch] = useState(false);
+  const skipCloseAutoFocus = useRef(false);
   const t = translator(locale);
-  const run = async (task: () => void | Promise<void>) => {
+  const run = async (
+    task: () => void | Promise<void>,
+    transfersFocus = false,
+  ) => {
     try {
+      if (transfersFocus) skipCloseAutoFocus.current = true;
       await task();
       setError(false);
       setOpen(false);
     } catch {
+      skipCloseAutoFocus.current = false;
       setError(true);
     }
   };
@@ -75,7 +83,7 @@ export function PathMenu({
         variant={item.destructive ? "destructive" : "default"}
         onSelect={(event) => {
           event.preventDefault();
-          void run(item.run);
+          void run(item.run, item.transfersFocus);
         }}
       >
         {showIcons && item.icon}
@@ -91,7 +99,8 @@ export function PathMenu({
       open={open}
       onOpenChange={(value) => {
         setOpen(value);
-        if (!value) setError(false);
+        if (value) skipCloseAutoFocus.current = false;
+        else setError(false);
       }}
     >
       <ContextMenuTrigger
@@ -116,7 +125,14 @@ export function PathMenu({
       >
         {children}
       </ContextMenuTrigger>
-      <ContextMenuContent collisionPadding={8}>
+      <ContextMenuContent
+        collisionPadding={8}
+        onCloseAutoFocus={(event) => {
+          if (!skipCloseAutoFocus.current) return;
+          skipCloseAutoFocus.current = false;
+          event.preventDefault();
+        }}
+      >
         {leadingActions.map((item, index) => renderAction(item, index))}
         {leadingActions.length > 0 && <ContextMenuSeparator />}
         <ContextMenuItem

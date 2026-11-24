@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { ChevronDown, Send } from "lucide-react";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
@@ -47,6 +47,7 @@ export function AgentTargetPicker({
 }: AgentTargetPickerProps) {
   const ja = locale.startsWith("ja");
   const [open, setOpen] = useState(false);
+  const skipCloseAutoFocus = useRef(false);
 
   if (targets.length === 0) {
     const noTargetText = ja
@@ -95,7 +96,13 @@ export function AgentTargetPicker({
   }
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        if (next) skipCloseAutoFocus.current = false;
+        setOpen(next);
+      }}
+    >
       <PopoverTrigger asChild>
         <Button
           type="button"
@@ -110,7 +117,15 @@ export function AgentTargetPicker({
           <ChevronDown aria-hidden="true" className="opacity-70" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-64 gap-1 p-1.5">
+      <PopoverContent
+        align="end"
+        className="w-64 gap-1 p-1.5"
+        onCloseAutoFocus={(event) => {
+          if (!skipCloseAutoFocus.current) return;
+          skipCloseAutoFocus.current = false;
+          event.preventDefault();
+        }}
+      >
         <div className="px-2 py-1 text-2xs font-medium text-muted-foreground">
           {ja ? "送信先を選択" : "Select destination"}
         </div>
@@ -124,6 +139,7 @@ export function AgentTargetPicker({
               title={`${target.label}\n${target.worktreePath}`}
               className="flex w-full cursor-pointer items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-left text-xs text-popover-foreground transition-colors outline-none hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground [@media(pointer:coarse)]:min-h-11"
               onClick={() => {
+                skipCloseAutoFocus.current = true;
                 setOpen(false);
                 onSend(target.terminalId);
               }}

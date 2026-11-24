@@ -3,7 +3,7 @@ import type { Page } from "@playwright/test";
 import type { App } from "./fixtures/test.ts";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { test, expect } from "./fixtures/test.ts";
+import { test, expect, visibleTerminal } from "./fixtures/test.ts";
 import { git, openReading, repository } from "./support/reading.ts";
 
 type Args = { page: Page; registeredApp: App };
@@ -514,5 +514,112 @@ test(
     expect(await readFile(join(app.folder, "mobile.txt"), "utf8")).toBe(
       "Start edited",
     );
+  },
+);
+
+test(
+  "ファイルを開いた直後にCtrl+Zを押しても内容が消えず編集後のUndoとCtrl+Shift+ZのRedoができる",
+  { tag: "@desktop" },
+  async ({ page, registeredApp: app }) => {
+    await repository(app.folder);
+    await writeFile(join(app.folder, "ignore.txt"), "node_modules/\ndist/\n");
+    await openReading(page, app, false, "files");
+
+    await page
+      .getByRole("treeitem", { name: "ignore.txt", exact: true })
+      .click();
+    const editor = page.locator('[data-iori-view="file-editor"]');
+    const content = editor.locator(".cm-content");
+    await expect(content).toContainText("node_modules/");
+
+    // Pressing Ctrl+Z immediately after opening must NOT undo the initial file load.
+    await content.click();
+    await page.keyboard.press("Control+z");
+    await expect(content).toContainText("node_modules/");
+    await expect(content).toContainText("dist/");
+    await expect(editor).toHaveAttribute("data-iori-dirty", "false");
+
+    // Editing, undoing with Ctrl+Z, and redoing with Ctrl+Shift+Z all work.
+    await page.keyboard.press("Control+End");
+    await page.keyboard.type("build/");
+    await expect(content).toContainText("build/");
+    await page.keyboard.press("Control+z");
+    await expect(content).not.toContainText("build/");
+    await expect(content).toContainText("node_modules/");
+    await page.keyboard.press("Control+Shift+z");
+    await expect(content).toContainText("build/");
+    await expect(editor).toHaveAttribute("data-iori-dirty", "false");
+    expect(await readFile(join(app.folder, "ignore.txt"), "utf8")).toBe(
+      "node_modules/\ndist/\nbuild/",
+    );
+  },
+);
+
+test(
+  "Markdownの<picture>と<img>タグがローカル画像として表示される",
+  { tag: "@desktop" },
+  async ({ page, registeredApp: app }) => {
+    await repository(app.folder);
+    await writeFile(
+      join(app.folder, "picture-demo.md"),
+      [
+        "# Picture demo",
+        "",
+        "<picture>",
+        '  <source media="(prefers-color-scheme: dark)" srcset="image.png">',
+        '  <source media="(prefers-color-scheme: light)" srcset="image.png">',
+        '  <img alt="Hero preview" src="image.png">',
+        "</picture>",
+        "",
+        "<p>",
+        "  <picture>",
+        '    <source media="(prefers-color-scheme: dark)" srcset="image.png">',
+        '    <img alt="Mobile preview" src="image.png" width="320">',
+        "  </picture>",
+        "</p>",
+      ].join("\n"),
+    );
+    await openReading(page, app, false, "files");
+    await page
+      .getByRole("treeitem", { name: "picture-demo.md", exact: true })
+      .click();
+    const markdown = page.locator('[data-iori-scroll="file-markdown"]');
+    await expect(markdown).toContainText("Picture demo");
+    const heroImg = markdown.locator('img[alt="Hero preview"]');
+    await expect(heroImg).toBeVisible();
+    await expect(heroImg).toHaveAttribute("src", /^blob:/u);
+    const mobileImg = markdown.locator('img[alt="Mobile preview"]');
+    await expect(mobileImg).toBeVisible();
+    await expect(mobileImg).toHaveAttribute("width", "320");
+    await expect(markdown).not.toContainText("<picture>");
+  },
+);
+
+test(
+  "FilesからTerminalへパスを送信すると送信先のTerminalへ入力フォーカスが移る",
+  { tag: "@desktop" },
+  async ({ page, registeredApp: app }) => {
+    await repository(app.folder);
+    const cliList = await app.request("cli.list", {});
+    const launched = await app.request("cli.launch", {
+      cwd: app.folder,
+      cliId: cliList.clis[0]!.id,
+    });
+    await openReading(page, app, false, "files");
+    await page
+      .getByRole("treeitem", { name: "notes.md", exact: true })
+      .click({ button: "right" });
+    await page.locator('[data-iori-action="files-send-to-terminal"]').click();
+
+    const terminal = visibleTerminal(page);
+    await expect(terminal).toHaveAttribute(
+      "data-iori-terminal-id",
+      launched.terminal.id,
+    );
+    await expect(terminal).toHaveAttribute("data-iori-stream-state", "ready");
+    await expect(terminal.locator(".xterm-helper-textarea")).toBeFocused();
+    // Keyboard input goes straight into the Terminal without clicking it first.
+    await page.keyboard.press("Enter");
+    await app.terminalText(launched.terminal.id, /ACTOR_INPUT:.*notes\.md/u);
   },
 );

@@ -27,11 +27,12 @@ import { isWithin } from "./files-reading.ts";
 import { errorCode } from "./reading-failure.ts";
 
 function defaultUploadMode(): Promise<number> {
+  if (process.platform === "win32") return Promise.resolve(0o666);
   // Reading the umask in the Host would briefly clear it for other threads.
   return promisify(execFile)(
     process.execPath,
     ["-e", "process.stdout.write(String(process.umask()))"],
-    { env: {} },
+    { env: {}, windowsHide: true },
   ).then(
     ({ stdout }) => 0o666 & ~Number(stdout),
     () => 0o600,

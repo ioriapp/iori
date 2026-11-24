@@ -219,6 +219,7 @@ export function FileTree({
             label: t("Open Terminal in this folder"),
             icon: <Terminal aria-hidden="true" />,
             action: "files-open-terminal",
+            transfersFocus: true,
             run: () => onOpenTerminalInFolder(absoluteFolder),
           },
         ]
@@ -229,6 +230,7 @@ export function FileTree({
             label: t("Find in folder"),
             icon: <Search aria-hidden="true" />,
             action: "files-find-in-folder",
+            transfersFocus: true,
             run: () => onFindInFolder(folder),
           },
         ]
@@ -241,6 +243,7 @@ export function FileTree({
             label: t("Send path to Terminal"),
             icon: <Terminal aria-hidden="true" />,
             action: "files-send-to-terminal",
+            transfersFocus: true,
             run: () => onSendPathToTerminal(absolutePath),
           },
         ]

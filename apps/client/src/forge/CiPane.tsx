@@ -57,6 +57,7 @@ export type CiViewState = {
   detailOpen: boolean;
   wrap?: boolean;
   stepsOpen?: boolean;
+  stepsHeight?: number;
   ratio?: number;
 };
 
@@ -980,6 +981,8 @@ function CiWorkspace({
             refresh={logRefresh}
             stepsOpen={view.stepsOpen !== false}
             onStepsOpen={(stepsOpen) => update({ stepsOpen })}
+            stepsHeight={view.stepsHeight}
+            onStepsHeight={(stepsHeight) => update({ stepsHeight })}
             locale={locale}
             recovery={{ onOpenIntegrations, onOpenWorkspaceSettings }}
             findRequest={findRequest}

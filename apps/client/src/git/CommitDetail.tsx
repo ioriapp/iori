@@ -1,5 +1,5 @@
 import { translator } from "../i18n.ts";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { GitCommitFile, ReadResultByMethod } from "@iori/protocol";
 import {
   Select,
@@ -39,6 +39,8 @@ export function CommitDetail({
   onOpenFile,
   locale,
   lead,
+  detailHeight,
+  onDetailHeight,
 }: {
   transport: ReadingTransport;
   root: string;
@@ -52,12 +54,17 @@ export function CommitDetail({
   onOpenFile: (file: GitCommitFile) => void;
   locale: string;
   lead?: ReactNode;
+  detailHeight?: number;
+  onDetailHeight?: (height: number | undefined) => void;
 }) {
   const ja = locale.startsWith("ja");
   const t = translator(locale);
   const [commit, setCommit] = useState<Commit>();
   const [error, setError] = useState<string>();
   const [retry, setRetry] = useState(0);
+  const [dragHeight, setDragHeight] = useState<number>();
+  const detailRef = useRef<HTMLDivElement>(null);
+  const activeHeight = dragHeight ?? detailHeight;
   useEffect(() => {
     const controller = new AbortController();
     // The parent keys this component by hash. Keep the last body during a
@@ -146,7 +153,17 @@ export function CommitDetail({
       {!commit && !error && <ReadingLoading label={t("Loading")} rows={5} />}
       {commit && (
         <div
-          className="max-h-[45%] flex-none overflow-auto border-b border-border px-3 py-2.5"
+          ref={detailRef}
+          className={
+            activeHeight === undefined
+              ? "max-h-[45%] flex-none overflow-auto px-3 py-2.5"
+              : "max-h-[75%] flex-none overflow-auto px-3 py-2.5"
+          }
+          style={
+            activeHeight !== undefined
+              ? { height: `${activeHeight}px` }
+              : undefined
+          }
           data-iori-part="commit-detail"
         >
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
@@ -197,6 +214,73 @@ export function CommitDetail({
             )}
           </div>
         </div>
+      )}
+      {commit && !ready && (
+        <div className="h-px flex-none bg-border" aria-hidden="true" />
+      )}
+      {commit && ready && (
+        <div
+          role="separator"
+          aria-orientation="horizontal"
+          tabIndex={0}
+          aria-label={ja ? "コミット詳細の高さ" : "Commit details height"}
+          aria-valuenow={
+            activeHeight !== undefined ? Math.round(activeHeight) : undefined
+          }
+          data-iori-action="git-commit-detail-resize"
+          className="relative h-px flex-none cursor-row-resize touch-none bg-border transition-colors before:absolute before:inset-x-0 before:-inset-y-[3px] before:z-[2] before:content-[''] hover:bg-primary/50 focus-visible:outline-2 focus-visible:outline-ring [@media(pointer:coarse)]:before:-inset-y-2"
+          onDoubleClick={() => {
+            setDragHeight(undefined);
+            onDetailHeight?.(undefined);
+          }}
+          onPointerDown={(event) => {
+            const box = detailRef.current;
+            if (!box) return;
+            event.preventDefault();
+            event.currentTarget.setPointerCapture(event.pointerId);
+            const startY = event.clientY;
+            const startHeight = box.getBoundingClientRect().height;
+            const parentHeight =
+              box.parentElement?.getBoundingClientRect().height ??
+              window.innerHeight;
+            const maxHeight = Math.max(120, Math.round(parentHeight * 0.75));
+            let latest = startHeight;
+            const clamp = (value: number) =>
+              Math.round(Math.min(maxHeight, Math.max(56, value)));
+            const move = (moved: PointerEvent) => {
+              latest = clamp(startHeight + (moved.clientY - startY));
+              setDragHeight(latest);
+            };
+            const up = () => {
+              window.removeEventListener("pointermove", move);
+              window.removeEventListener("pointerup", up);
+              window.removeEventListener("pointercancel", up);
+              setDragHeight(undefined);
+              onDetailHeight?.(latest);
+            };
+            window.addEventListener("pointermove", move);
+            window.addEventListener("pointerup", up);
+            window.addEventListener("pointercancel", up);
+          }}
+          onKeyDown={(event) => {
+            if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+            event.preventDefault();
+            const box = detailRef.current;
+            const current =
+              activeHeight ?? box?.getBoundingClientRect().height ?? 160;
+            const parentHeight =
+              box?.parentElement?.getBoundingClientRect().height ??
+              window.innerHeight;
+            const maxHeight = Math.max(120, Math.round(parentHeight * 0.75));
+            const next = Math.round(
+              Math.min(
+                maxHeight,
+                Math.max(56, current + (event.key === "ArrowUp" ? -24 : 24)),
+              ),
+            );
+            onDetailHeight?.(next);
+          }}
+        />
       )}
       {commit && merge && !compared && (
         <ReadingEmpty title={t("Choose a parent to see the changes.")} />

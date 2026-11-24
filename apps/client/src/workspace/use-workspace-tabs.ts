@@ -25,7 +25,7 @@ import { samePath } from "../host-path.ts";
 import { childCliStatus } from "../teams/children.ts";
 import { useTerminalClose } from "../terminal/terminal-close.tsx";
 import { terminalDropText } from "../terminal/terminal-drop-path.ts";
-import { typeIntoTerminal } from "../terminal/terminal-input.ts";
+import { queueTerminalInput } from "../terminal/terminal-input.ts";
 import type { createWorkspaceDockAdapter } from "../workspace-dock-adapter.ts";
 import {
   initialTabTitle,
@@ -586,8 +586,9 @@ export function useWorkspaceTabs({
       summary.shell,
     );
     if (text === undefined) return;
-    typeIntoTerminal(summary.id, text);
+    queueTerminalInput(summary.id, text);
     showPanel(tab.id);
+    requestFocus(tab.id);
   };
 
   const sendPathToTerminal = useCallback(
@@ -612,7 +613,7 @@ export function useWorkspaceTabs({
         summary.shell,
       );
       if (text === undefined) return;
-      typeIntoTerminal(summary.id, text);
+      queueTerminalInput(summary.id, text);
       openTerminal(summary);
     },
     [openTerminal, recentTerminal, selectedTarget, terminalLists, workspace],

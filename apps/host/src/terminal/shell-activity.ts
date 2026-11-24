@@ -90,7 +90,10 @@ function windowsActivity(pid: number, name: boolean): Promise<ShellActivity> {
   }
   let child: ReturnType<typeof fork>;
   try {
-    child = fork(agentPath, [String(pid)], { silent: true });
+    child = fork(agentPath, [String(pid)], {
+      silent: true,
+      windowsHide: true,
+    });
   } catch {
     return Promise.resolve({ busy: false });
   }

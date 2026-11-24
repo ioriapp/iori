@@ -13,6 +13,7 @@ import {
   RangeSetBuilder,
   StateEffect,
   StateField,
+  Transaction,
   type Extension,
 } from "@codemirror/state";
 import {
@@ -32,6 +33,7 @@ import {
   history,
   historyKeymap,
   indentWithTab,
+  redo,
 } from "@codemirror/commands";
 import {
   highlightSelectionMatches,
@@ -412,6 +414,7 @@ export function CodeEditorSurface({
   const viewRef = useRef<EditorView | null>(null);
 
   // Compartments for dynamic CodeMirror reconfiguration.
+  const historyCompartment = useRef(new Compartment());
   const readOnlyCompartment = useRef(new Compartment());
   const editableCompartment = useRef(new Compartment());
   const wrapCompartment = useRef(new Compartment());
@@ -671,16 +674,24 @@ export function CodeEditorSurface({
       const anchor = Math.min(prevSel.anchor, nextLen);
       const head = Math.min(prevSel.head, nextLen);
 
-      suppressingChangesRef.current = true;
-      try {
-        view.dispatch({
-          changes: { from: 0, to: view.state.doc.length, insert: file.text },
-          selection: options.preserveView
-            ? EditorSelection.single(anchor, head)
-            : EditorSelection.cursor(0),
-        });
-      } finally {
-        suppressingChangesRef.current = false;
+      const currentText = view.state.doc.toString();
+      if (currentText !== file.text) {
+        suppressingChangesRef.current = true;
+        try {
+          view.dispatch({
+            changes: { from: 0, to: view.state.doc.length, insert: file.text },
+            selection: options.preserveView
+              ? EditorSelection.single(anchor, head)
+              : EditorSelection.cursor(0),
+            annotations: Transaction.addToHistory.of(false),
+            effects: historyCompartment.current.reconfigure([]),
+          });
+          view.dispatch({
+            effects: historyCompartment.current.reconfigure(history()),
+          });
+        } finally {
+          suppressingChangesRef.current = false;
+        }
       }
 
       setDocLineCount(view.state.doc.lines);
@@ -870,7 +881,7 @@ export function CodeEditorSurface({
         },
       }),
       highlightActiveLineGutter(),
-      history(),
+      historyCompartment.current.of(history()),
       drawSelection(),
       indentOnInput(),
       bracketMatching(),
@@ -900,6 +911,11 @@ export function CodeEditorSurface({
             openFind(true);
             return true;
           },
+        },
+        {
+          key: "Mod-Shift-z",
+          run: redo,
+          preventDefault: true,
         },
         ...searchKeymap,
         ...defaultKeymap,

@@ -232,12 +232,23 @@ test(
       await commitInput.fill("Should stay disabled");
       await expect(commitSubmit).toBeDisabled();
 
-      // Stage only the first hunk of multi.txt.
+      // Stage only the first hunk of multi.txt; also check Split diff divider resize.
       await page
         .locator(
           '[data-iori-action="git-change-select"][data-area="unstaged"][data-path="multi.txt"]',
         )
         .click();
+      await page.locator('[data-iori-action="git-diff-split"]').click();
+      const splitResize = page.locator(
+        '[data-iori-action="git-split-diff-resize"]',
+      );
+      await expect(splitResize).toBeVisible();
+      await splitResize.focus();
+      await page.keyboard.press("ArrowRight");
+      await expect(splitResize).toHaveAttribute("aria-valuenow", "52");
+      await splitResize.dblclick();
+      await expect(splitResize).toHaveAttribute("aria-valuenow", "50");
+      await page.locator('[data-iori-action="git-diff-split"]').click();
       const stageHunk = page
         .locator('[data-iori-action="git-hunk-stage"]')
         .first();
@@ -311,14 +322,28 @@ test(
       await commitSubmit.click();
       await expect(commitInput).toHaveValue("");
 
-      // Push to bare remote (sets upstream automatically).
+      // Push to bare remote (sets upstream automatically); pull stays disabled until upstream exists.
+      await expect(
+        page.locator('[data-iori-action="git-pull"]'),
+      ).toBeDisabled();
       await page.locator('[data-iori-action="git-push"]').click();
       await expect(
         page.locator('[data-iori-part="git-remote-bar"]'),
       ).toHaveAttribute("data-has-upstream", "true");
+      await expect(page.locator('[data-iori-action="git-pull"]')).toBeEnabled();
       expect(git(remoteDir, "log", "-1", "--pretty=%s").trim()).toBe(
         "Step 2-B commit",
       );
+
+      // Toggling amend with an empty message pre-fills HEAD's commit message.
+      const amendCheckbox = page.locator(
+        '[data-iori-action="git-commit-amend"]',
+      );
+      await amendCheckbox.click();
+      await expect(commitInput).toHaveValue("Step 2-B commit");
+      await expect(commitSubmit).toBeEnabled();
+      await amendCheckbox.click();
+      await commitInput.fill("");
 
       // Push a new commit from a peer clone, then fetch and pull --ff-only.
       git(tempBase, "clone", remoteDir, peerDir);
@@ -339,11 +364,21 @@ test(
       ).not.toContainText("↓1");
 
       await page.locator('[data-iori-action="git-mode-history"]').click();
-      await expect(
-        page.locator('[data-iori-action="git-commit-select"]', {
+      const remoteCommit = page.locator(
+        '[data-iori-action="git-commit-select"]',
+        {
           hasText: "Remote commit",
-        }),
-      ).toBeVisible();
+        },
+      );
+      await expect(remoteCommit).toBeVisible();
+      await remoteCommit.click();
+      const commitDetailResize = page.locator(
+        '[data-iori-action="git-commit-detail-resize"]',
+      );
+      await expect(commitDetailResize).toBeVisible();
+      await commitDetailResize.focus();
+      await page.keyboard.press("ArrowDown");
+      await expect(commitDetailResize).toHaveAttribute("aria-valuenow", /\d+/u);
     } finally {
       await rm(tempBase, { recursive: true, force: true });
     }

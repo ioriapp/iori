@@ -307,6 +307,7 @@ export async function acceptance(
           "test",
           "--config=e2e/ui/playwright.config.ts",
           "--project=desktop",
+          "--workers=2",
           "--retries=0",
           "register-first-agent.spec.ts",
           "terminal-input-resize.spec.ts",

@@ -368,11 +368,12 @@ export async function attachTerminalDaemon(root: string): Promise<{
           materialized.executable,
           [
             "-e",
-            "const {spawn}=require('node:child_process');const child=spawn(process.execPath,process.argv.slice(1),{detached:true,stdio:['ignore','ignore',2,'ipc']});child.once('error',()=>process.exit(1));child.once('exit',code=>process.exit(code||1));child.once('message',()=>{child.unref();process.exit(0)});",
+            "const {spawn}=require('node:child_process');const child=spawn(process.execPath,process.argv.slice(1),{detached:true,windowsHide:true,stdio:['ignore','ignore',2,'ipc']});child.once('error',()=>process.exit(1));child.once('exit',code=>process.exit(code||1));child.once('message',()=>{child.unref();process.exit(0)});",
             ...args,
           ],
           {
             detached: true,
+            windowsHide: true,
             stdio: ["ignore", "ignore", log.fd],
             cwd: root,
             env,

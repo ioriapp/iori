@@ -65,6 +65,8 @@ export function DiffViewer({
   narrow = false,
   split = false,
   onSplitChange,
+  splitRatio,
+  onSplitRatio,
   viewed,
   onToggleViewed,
   comments = [],
@@ -96,6 +98,8 @@ export function DiffViewer({
   narrow?: boolean;
   split?: boolean;
   onSplitChange?: (split: boolean) => void;
+  splitRatio?: number;
+  onSplitRatio?: (ratio: number | undefined) => void;
   viewed?: boolean;
   onToggleViewed?: () => void;
   comments?: DiffComment[];
@@ -110,6 +114,7 @@ export function DiffViewer({
     action: "stage" | "unstage" | "discard",
     hunkIndex: number,
     fingerprint: string,
+    isLastHunk: boolean,
   ) => void;
   hunkBusy?: boolean;
   onBackHandler?: (handler: (() => boolean) | undefined) => void;
@@ -273,6 +278,7 @@ export function DiffViewer({
     if (!onHunkAction || !hunkArea) return null;
     const hunk = patchHunksByShownRow.get(shownRow);
     if (!hunk) return null;
+    const isLastHunk = document.patchHunks.length === 1;
     return (
       <div
         className="flex items-center justify-end gap-1 border-y border-border-subtle bg-muted/50 px-2 py-0.5 font-sans text-2xs"
@@ -290,7 +296,12 @@ export function DiffViewer({
               data-iori-action="git-hunk-stage"
               data-hunk-index={hunk.hunkIndex}
               onClick={() =>
-                onHunkAction("stage", hunk.hunkIndex, hunk.fingerprint)
+                onHunkAction(
+                  "stage",
+                  hunk.hunkIndex,
+                  hunk.fingerprint,
+                  isLastHunk,
+                )
               }
             >
               <Plus className="size-3" aria-hidden="true" />
@@ -305,7 +316,12 @@ export function DiffViewer({
               data-iori-action="git-hunk-discard"
               data-hunk-index={hunk.hunkIndex}
               onClick={() =>
-                onHunkAction("discard", hunk.hunkIndex, hunk.fingerprint)
+                onHunkAction(
+                  "discard",
+                  hunk.hunkIndex,
+                  hunk.fingerprint,
+                  isLastHunk,
+                )
               }
             >
               <Undo2 className="size-3" aria-hidden="true" />
@@ -322,7 +338,12 @@ export function DiffViewer({
             data-iori-action="git-hunk-unstage"
             data-hunk-index={hunk.hunkIndex}
             onClick={() =>
-              onHunkAction("unstage", hunk.hunkIndex, hunk.fingerprint)
+              onHunkAction(
+                "unstage",
+                hunk.hunkIndex,
+                hunk.fingerprint,
+                isLastHunk,
+              )
             }
           >
             <Minus className="size-3" aria-hidden="true" />
@@ -504,6 +525,8 @@ export function DiffViewer({
                 locale={locale}
                 wrap={position.wrap}
                 scrollToRow={scrollToRow}
+                splitRatio={splitRatio}
+                onSplitRatio={onSplitRatio}
                 comments={comments}
                 onAddComment={onAddComment}
                 onEditComment={onEditComment}

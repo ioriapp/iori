@@ -259,20 +259,30 @@ function Steps({
   steps,
   open,
   onOpen,
+  height,
+  onHeight,
+  locale,
   stepLines,
   onJumpStep,
 }: {
   steps: ForgeCiStep[];
   open: boolean;
   onOpen: (open: boolean) => void;
+  height?: number;
+  onHeight?: (height: number | undefined) => void;
+  locale: string;
   stepLines: ReadonlyMap<number, number>;
   onJumpStep?: (lineIndex: number) => void;
 }) {
+  const ja = locale.startsWith("ja");
   const now = Date.now();
   const current =
     steps.find((step) => forgeCiState(step.status) === "failed") ??
     steps.find((step) => forgeCiState(step.status) === "running");
+  const root = useRef<HTMLDivElement>(null);
   const list = useRef<HTMLDivElement>(null);
+  const [dragHeight, setDragHeight] = useState<number>();
+  const activeHeight = dragHeight ?? height;
   useEffect(() => {
     if (!open) return;
     list.current
@@ -282,7 +292,11 @@ function Steps({
   return (
     <Collapsible asChild open={open} onOpenChange={onOpen}>
       <div
-        className="shrink-0 border-b border-border bg-background"
+        ref={root}
+        className={cn(
+          "shrink-0 bg-background",
+          !open && "border-b border-border",
+        )}
         data-iori-part="ci-steps"
         data-open={open}
       >
@@ -311,9 +325,20 @@ function Steps({
           </button>
         </CollapsibleTrigger>
         <CollapsibleContent>
-          {/* The steps take at most about eight rows; the half row shows that more scroll. */}
+          {/* The steps take at most about eight rows by default; dragging sets an explicit height. */}
           <div
-            className="max-h-[min(30vh,13.75rem)] overflow-auto divide-y divide-border-subtle/50"
+            className={cn(
+              "overflow-auto divide-y divide-border-subtle/50",
+              activeHeight === undefined
+                ? "max-h-[min(30vh,13.75rem)]"
+                : "max-h-[75vh]",
+            )}
+            style={
+              activeHeight !== undefined
+                ? { height: `${activeHeight}px` }
+                : undefined
+            }
+            data-iori-part="ci-steps-list"
             ref={list}
           >
             {steps.map((step, index) => {
@@ -361,6 +386,71 @@ function Steps({
               );
             })}
           </div>
+          <div
+            role="separator"
+            aria-orientation="horizontal"
+            tabIndex={0}
+            aria-label={ja ? "Stepsの高さ" : "Steps height"}
+            aria-valuenow={
+              activeHeight !== undefined ? Math.round(activeHeight) : undefined
+            }
+            data-iori-action="ci-steps-resize"
+            className="relative h-px flex-none cursor-row-resize touch-none bg-border transition-colors before:absolute before:inset-x-0 before:-inset-y-[3px] before:z-[2] before:content-[''] hover:bg-primary/50 focus-visible:outline-2 focus-visible:outline-ring [@media(pointer:coarse)]:before:-inset-y-2"
+            onDoubleClick={() => {
+              setDragHeight(undefined);
+              onHeight?.(undefined);
+            }}
+            onPointerDown={(event) => {
+              const box = list.current;
+              if (!box) return;
+              event.preventDefault();
+              event.currentTarget.setPointerCapture(event.pointerId);
+              const startY = event.clientY;
+              const startHeight = box.getBoundingClientRect().height;
+              const detailHeight =
+                root.current?.parentElement?.getBoundingClientRect().height ??
+                window.innerHeight;
+              const maxHeight = Math.max(120, Math.round(detailHeight * 0.75));
+              let latest = startHeight;
+              const clamp = (value: number) =>
+                Math.round(Math.min(maxHeight, Math.max(52, value)));
+              const move = (moved: PointerEvent) => {
+                latest = clamp(startHeight + (moved.clientY - startY));
+                setDragHeight(latest);
+              };
+              const up = () => {
+                window.removeEventListener("pointermove", move);
+                window.removeEventListener("pointerup", up);
+                window.removeEventListener("pointercancel", up);
+                setDragHeight(undefined);
+                onHeight?.(latest);
+              };
+              window.addEventListener("pointermove", move);
+              window.addEventListener("pointerup", up);
+              window.addEventListener("pointercancel", up);
+            }}
+            onKeyDown={(event) => {
+              if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+              event.preventDefault();
+              const box = list.current;
+              const currentHeight =
+                activeHeight ?? box?.getBoundingClientRect().height ?? 160;
+              const detailHeight =
+                root.current?.parentElement?.getBoundingClientRect().height ??
+                window.innerHeight;
+              const maxHeight = Math.max(120, Math.round(detailHeight * 0.75));
+              const next = Math.round(
+                Math.min(
+                  maxHeight,
+                  Math.max(
+                    52,
+                    currentHeight + (event.key === "ArrowUp" ? -24 : 24),
+                  ),
+                ),
+              );
+              onHeight?.(next);
+            }}
+          />
         </CollapsibleContent>
       </div>
     </Collapsible>
@@ -379,6 +469,8 @@ export function CiLog({
   refresh,
   stepsOpen,
   onStepsOpen,
+  stepsHeight,
+  onStepsHeight,
   locale,
   recovery,
   findRequest = 0,
@@ -393,6 +485,8 @@ export function CiLog({
   refresh: string;
   stepsOpen: boolean;
   onStepsOpen: (open: boolean) => void;
+  stepsHeight?: number;
+  onStepsHeight?: (height: number | undefined) => void;
   locale: string;
   /** The CI View's ways to recover from a failed read besides a retry. */
   recovery: Omit<ForgeRecovery, "onRetry">;
@@ -693,6 +787,9 @@ export function CiLog({
       steps={loaded.steps}
       open={stepsOpen}
       onOpen={onStepsOpen}
+      height={stepsHeight}
+      onHeight={onStepsHeight}
+      locale={locale}
       stepLines={stepLines}
       onJumpStep={(lineIndex) => scrollTo(top + lineIndex, "start")}
     />

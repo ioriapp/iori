@@ -118,6 +118,8 @@ export type GitViewState = {
   baseBranch?: string;
   listLayout?: "flat" | "tree";
   splitDiff?: boolean;
+  splitDiffRatio?: number;
+  commitDetailHeight?: number;
   change?: Selected;
   stage?: 1 | 2 | 3;
   commit?: string;
@@ -647,6 +649,7 @@ function GitWorkspace({
   const selectEntry = useCallback(
     (entry: GitChangeEntry, branchScope: boolean) => {
       update({
+        mode: "changes",
         change: {
           area: entry.area,
           path: entry.path,
@@ -782,35 +785,81 @@ function GitWorkspace({
     action: "stage" | "unstage" | "discard",
     hunkIndex: number,
     expectedFingerprint: string,
+    isLastHunk = false,
   ) => {
+    const clearOptions = isLastHunk
+      ? {
+          clearSelectedAreas: [
+            action === "unstage" ? ("staged" as const) : ("unstaged" as const),
+          ],
+          clearSelectedPath: path,
+        }
+      : undefined;
     if (action === "discard") {
       setDiscardRequest({
         target: { label: path, untracked: false, hunk: true },
         run: async () => {
-          await runWrite("discard", () =>
-            transport.request("git.applyHunk", {
-              root,
-              action: "discard",
-              path,
-              hunkIndex,
-              expectedFingerprint,
-            }),
+          await runWrite(
+            "discard",
+            () =>
+              transport.request("git.applyHunk", {
+                root,
+                action: "discard",
+                path,
+                hunkIndex,
+                expectedFingerprint,
+              }),
+            clearOptions,
           );
           setDiscardRequest(undefined);
         },
       });
       return;
     }
-    void runWrite("stage", () =>
-      transport.request("git.applyHunk", {
-        root,
-        action,
-        path,
-        hunkIndex,
-        expectedFingerprint,
-      }),
+    void runWrite(
+      "stage",
+      () =>
+        transport.request("git.applyHunk", {
+          root,
+          action,
+          path,
+          hunkIndex,
+          expectedFingerprint,
+        }),
+      clearOptions,
     );
   };
+  const loadLastCommitMessage = useCallback(async (): Promise<
+    string | undefined
+  > => {
+    try {
+      const page = await transport.request("git.history", {
+        root,
+        start: 0,
+        count: 1,
+      });
+      const head = page.commits[0];
+      if (!head) return undefined;
+      const detail = await transport.request("git.commit", {
+        root,
+        hash: head.hash,
+      });
+      let message = detail.message;
+      let next = detail.messageNextOffset;
+      while (next !== undefined) {
+        const more = await transport.request("git.commitMessage", {
+          root,
+          hash: head.hash,
+          offset: next,
+        });
+        message += more.text;
+        next = more.nextOffset;
+      }
+      return message.trimEnd();
+    } catch {
+      return undefined;
+    }
+  }, [transport, root]);
   const handleCommit = (message: string, amend: boolean) =>
     runWrite(
       "commit",
@@ -994,6 +1043,7 @@ function GitWorkspace({
             ahead={repository?.ahead}
             busy={Boolean(writeBusy)}
             onCommit={handleCommit}
+            onRequestLastCommitMessage={loadLastCommitMessage}
           />
         </div>
       )}
@@ -1051,32 +1101,69 @@ function GitWorkspace({
         scope === "working" &&
         changeRows > 0 &&
         needsAllWorking && (
-          <ChangesTreeList
-            entries={workingLoadedEntries}
-            mode={listLayout}
-            filter={changesFilter}
-            selectedKey={
-              view.change && !view.change.branchScope
-                ? `${view.change.area}:${view.change.path}`
-                : undefined
-            }
-            viewedPaths={viewedPaths}
-            locale={locale}
-            hostKey={hostKey}
-            repositoryRoot={repository?.root ?? root}
-            onSelect={(entry) => selectEntry(entry, false)}
-            onToggleViewed={toggleViewed}
-            onOpenInFiles={
-              onOpenFile
-                ? (entry) => openInFiles(entry.path, entry.absolutePath)
-                : undefined
-            }
-            onFileHistory={(entry) => openHistory(entry.path)}
-            onStageEntry={handleStageEntry}
-            onUnstageEntry={handleUnstageEntry}
-            onDiscardEntry={handleDiscardEntry}
-            writeBusy={Boolean(writeBusy)}
-          />
+          <>
+            <div className="flex flex-none items-center justify-between gap-1 border-b border-border-subtle px-2 py-1 text-2xs text-muted-foreground">
+              <span className="truncate tabular-nums">
+                {ja
+                  ? `ステージ済み ${counts?.staged ?? 0} · 未ステージ ${(counts?.unstaged ?? 0) + (counts?.untracked ?? 0)}`
+                  : `Staged ${counts?.staged ?? 0} · Unstaged ${(counts?.unstaged ?? 0) + (counts?.untracked ?? 0)}`}
+              </span>
+              <div className="flex shrink-0 items-center gap-0.5">
+                {(counts?.unstaged ?? 0) + (counts?.untracked ?? 0) > 0 && (
+                  <button
+                    type="button"
+                    disabled={Boolean(writeBusy)}
+                    aria-label={t("Stage all changes")}
+                    title={t("Stage all changes")}
+                    data-iori-action="git-stage-all"
+                    className="inline-flex size-5 cursor-pointer items-center justify-center rounded-xs border-0 bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40 [@media(pointer:coarse)]:size-8"
+                    onClick={handleStageAll}
+                  >
+                    <Plus className="size-3" aria-hidden="true" />
+                  </button>
+                )}
+                {(counts?.staged ?? 0) > 0 && (
+                  <button
+                    type="button"
+                    disabled={Boolean(writeBusy)}
+                    aria-label={t("Unstage all changes")}
+                    title={t("Unstage all changes")}
+                    data-iori-action="git-unstage-all"
+                    className="inline-flex size-5 cursor-pointer items-center justify-center rounded-xs border-0 bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40 [@media(pointer:coarse)]:size-8"
+                    onClick={handleUnstageAll}
+                  >
+                    <Minus className="size-3" aria-hidden="true" />
+                  </button>
+                )}
+              </div>
+            </div>
+            <ChangesTreeList
+              entries={workingLoadedEntries}
+              mode={listLayout}
+              filter={changesFilter}
+              selectedKey={
+                view.change && !view.change.branchScope
+                  ? `${view.change.area}:${view.change.path}`
+                  : undefined
+              }
+              viewedPaths={viewedPaths}
+              locale={locale}
+              hostKey={hostKey}
+              repositoryRoot={repository?.root ?? root}
+              onSelect={(entry) => selectEntry(entry, false)}
+              onToggleViewed={toggleViewed}
+              onOpenInFiles={
+                onOpenFile
+                  ? (entry) => openInFiles(entry.path, entry.absolutePath)
+                  : undefined
+              }
+              onFileHistory={(entry) => openHistory(entry.path)}
+              onStageEntry={handleStageEntry}
+              onUnstageEntry={handleUnstageEntry}
+              onDiscardEntry={handleDiscardEntry}
+              writeBusy={Boolean(writeBusy)}
+            />
+          </>
         )}
       {isRepository &&
         scope === "working" &&
@@ -1582,6 +1669,8 @@ function GitWorkspace({
           narrow={narrow}
           split={Boolean(view.splitDiff)}
           onSplitChange={(splitDiff) => update({ splitDiff })}
+          splitRatio={view.splitDiffRatio}
+          onSplitRatio={(splitDiffRatio) => update({ splitDiffRatio })}
           viewed={viewedPaths.has(change.path)}
           onToggleViewed={() => toggleViewed(change.path)}
           onOpenInFiles={
@@ -1592,8 +1681,14 @@ function GitWorkspace({
           onHunkAction={
             !change.branchScope &&
             (change.area === "staged" || change.area === "unstaged")
-              ? (action, hunkIndex, fingerprint) =>
-                  handleHunkAction(change.path, action, hunkIndex, fingerprint)
+              ? (action, hunkIndex, fingerprint, isLastHunk) =>
+                  handleHunkAction(
+                    change.path,
+                    action,
+                    hunkIndex,
+                    fingerprint,
+                    isLastHunk,
+                  )
               : undefined
           }
           hunkBusy={Boolean(writeBusy)}
@@ -1729,6 +1824,8 @@ function GitWorkspace({
         narrow={narrow}
         split={Boolean(view.splitDiff)}
         onSplitChange={(splitDiff) => update({ splitDiff })}
+        splitRatio={view.splitDiffRatio}
+        onSplitRatio={(splitDiffRatio) => update({ splitDiffRatio })}
         onOpenInFiles={
           onOpenFile && view.commitFile.kind !== "deleted"
             ? (line) =>
@@ -1808,6 +1905,8 @@ function GitWorkspace({
         onOpenFile={(commitFile) =>
           update({ commitFile, diff: emptyDiffPosition() })
         }
+        detailHeight={view.commitDetailHeight}
+        onDetailHeight={(commitDetailHeight) => update({ commitDetailHeight })}
         locale={locale}
         lead={listToggle}
       />

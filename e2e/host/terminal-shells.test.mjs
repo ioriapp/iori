@@ -53,3 +53,37 @@ test("shell一覧と既定のshellを返し、そのshellのPTYで命令を実�
     );
     await terminal.output("HOST_SHELL_EXECUTED");
   }));
+
+test("実行中のコマンドがあるTerminalは確認無しで閉じずにconfirmationRequiredを返す", (t) =>
+  runHostTest(t, async ({ client, dataRoot, stage }) => {
+    stage("Terminalを作成して子プロセスを起動する");
+    const { terminal: created } = await client.request("terminal.create", {
+      cwd: dataRoot,
+    });
+    const terminal = await client.terminal(created.id);
+    const quote = (value) =>
+      process.platform === "win32"
+        ? `'${value.replaceAll("'", "''")}'`
+        : `'${value.replaceAll("'", "'\\''")}'`;
+    const command =
+      process.platform === "win32"
+        ? `& ${quote(process.execPath)} -e "console.log('CHILD_BUSY_' + 'STARTED'); setTimeout(() => {}, 30000)"\r`
+        : `${quote(process.execPath)} -e "console.log('CHILD_BUSY_' + 'STARTED'); setTimeout(() => {}, 30000)"\r`;
+    await terminal.input(command);
+    await terminal.output("CHILD_BUSY_STARTED");
+
+    stage("confirm=falseの終了要求で稼働中コマンドを検知する");
+    const check = await client.request("terminal.close", {
+      terminalId: created.id,
+      confirm: false,
+    });
+    assert.equal(check.confirmationRequired, true);
+    assert.ok(check.command, "稼働中コマンド名が返ること");
+
+    stage("confirm=trueで終了する");
+    const closed = await client.request("terminal.close", {
+      terminalId: created.id,
+      confirm: true,
+    });
+    assert.equal(closed.confirmationRequired, undefined);
+  }));
