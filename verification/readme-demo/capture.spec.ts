@@ -252,6 +252,7 @@ test("README: real implementation, sequential review, acceptance and records", a
       else {
         await page
           .getByRole("button", { name: "New tab", exact: true })
+          .first()
           .click();
         await page
           .locator(`[data-iori-action="workspace-open-${kind}"]`)
