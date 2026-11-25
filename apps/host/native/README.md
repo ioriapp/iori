@@ -25,6 +25,7 @@ Hostはloopback TCPの手元口とランダムtokenを使います。portとtoke
 
 | API                                                                     | 結果・責務                                                     |
 | ----------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `HiddenProcess.spawn(options)`                                          | Windows でコンソールを非表示にしてプロセスを起動する           |
 | `generateIdentity()`                                                    | 新しい32byteの秘密鍵、公開鍵のhex、endpoint IDを返す           |
 | `identityFromSecretKey(secretKey)`                                      | 保存した32byteの秘密鍵から同じidentityを得る                   |
 | `Endpoint.bind(secretKey, bindAddresses)`                               | 数値IP:portへbindする。未指定アドレスで全interfaceに待ち受ける |

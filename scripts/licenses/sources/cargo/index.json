@@ -2,7 +2,7 @@
   "inputs": {
     "Cargo.lock": "acabfb8437335a8bd3fc661fa351942d93106781cb75c3d5a883ddeb0bbd9757",
     "Cargo.toml": "0f80888b59ab83af332432892146d1e9ffd529238dde2b01d40891a64875ecf3",
-    "apps/host/native/Cargo.toml": "93e8705004854fa70c27e95cbb891a7792dd9e724a73b873588c29384773e03e",
+    "apps/host/native/Cargo.toml": "e78277818174b86baf06268f1961be5cc99475e92f7dcfd48ab5c283ef74e854",
     "apps/host/terminal-native/Cargo.toml": "9fb4b752358f088a7ce362fee2b1cb2035904e22b0657aa3bbfe30ccbda31873",
     "crates/iori-iroh-config/Cargo.toml": "8922013ae58173d5f63aef308ed7a800175bd9acbf5458a572343652effb2a52",
     "apps/client/src-tauri/Cargo.lock": "a0a6b0c03eba510536610f7897862f86da46fdc6db37aa6e1938a30fa1b7dc5a",

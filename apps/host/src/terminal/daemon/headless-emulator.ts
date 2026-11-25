@@ -1,6 +1,7 @@
 // Derived from Orca terminal helpers. Copyright (c) 2026 Lovecast Inc.; see ../ORCA-LICENSE.txt for the MIT license.
 
 import { createRequire } from "node:module";
+import type { TerminalWindowsPty } from "@iori/protocol";
 import type { Terminal } from "@xterm/headless";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
@@ -36,6 +37,7 @@ export type HeadlessEmulatorOptions = {
   scrollback?: number;
   /** Query reply sink (terminal-query-authority.md); only `forwardQueryReplies` writes emit here. The daemon writes replies directly to its PTY. */
   onQueryReply?: (reply: string) => void;
+  windowsPty?: TerminalWindowsPty;
   reflowCursorLine?: boolean;
 };
 
@@ -68,6 +70,7 @@ export class HeadlessEmulator {
       cols: opts.cols,
       rows: opts.rows,
       scrollback: opts.scrollback ?? DEFAULT_SCROLLBACK,
+      ...(opts.windowsPty === undefined ? {} : { windowsPty: opts.windowsPty }),
       ...(opts.reflowCursorLine === undefined
         ? {}
         : { reflowCursorLine: opts.reflowCursorLine }),
@@ -256,7 +259,9 @@ export class HeadlessEmulator {
       row < buffer.viewportY + this.terminal.rows;
       row += 1
     ) {
-      lines.push(buffer.getLine(row)?.translateToString(true) ?? "");
+      lines.push(
+        (buffer.getLine(row)?.translateToString(true) ?? "").trimEnd(),
+      );
     }
     while (lines.at(-1) === "") lines.pop();
     return lines;

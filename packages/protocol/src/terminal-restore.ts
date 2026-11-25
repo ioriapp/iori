@@ -1,4 +1,26 @@
-import type { TerminalSnapshot } from "./terminal.ts";
+import type { TerminalSnapshot, TerminalWindowsPty } from "./terminal.ts";
+
+export type WindowsPtyCompatibilityOptions = {
+  windowsPty?: TerminalWindowsPty;
+  reflowCursorLine?: boolean;
+};
+
+// Derived from Orca terminal helpers.
+// Copyright (c) 2026 Lovecast Inc.; see ../../../apps/client/third-party/ORCA-MIT-LICENSE.txt for the MIT license.
+/** xterm receives the PTY backend and Windows build reported by its Host. */
+export function buildWindowsPtyCompatibilityOptions(
+  hostPty: TerminalWindowsPty | undefined,
+): WindowsPtyCompatibilityOptions {
+  if (!hostPty) return {};
+  const windowsPty =
+    hostPty.buildNumber === undefined || hostPty.buildNumber < 21_376
+      ? { backend: hostPty.backend }
+      : hostPty;
+  return {
+    windowsPty,
+    ...(hostPty.backend === "conpty" ? { reflowCursorLine: true } : {}),
+  };
+}
 
 /** Shared Host/Client byte order for rebuilding the visible xterm state. */
 export function buildTerminalSnapshotRestoreSequence(

@@ -71,6 +71,8 @@ export function UpdateSettings({
     : 0;
   if (!update.options) return null;
   const busy = update.phase === "downloading" || update.phase === "installing";
+  const canResumeInstallation =
+    update.phase === "installing" && update.confirmationAvailable;
   const progress = update.progress
     ? Math.floor((update.progress.received / update.progress.total) * 100)
     : undefined;
@@ -117,8 +119,7 @@ export function UpdateSettings({
           onCheckedChange={onDevelopmentVersionsChange}
         />
       </FieldRow>
-      {(update.available ||
-        (update.phase === "installing" && update.confirmationAvailable)) && (
+      {(update.available || update.phase === "installing") && (
         <FieldRow
           label={
             update.available ? (
@@ -147,7 +148,15 @@ export function UpdateSettings({
               {t("Release notes")}
             </Button>
           )}
-          {update.available && (
+          {canResumeInstallation ? (
+            <Button
+              size="sm"
+              data-iori-action="update-resume-installation"
+              onClick={() => void resumeInstallation()}
+            >
+              {t("Continue installation")}
+            </Button>
+          ) : (
             <Button
               size="sm"
               data-iori-action="update-install"
@@ -172,16 +181,6 @@ export function UpdateSettings({
                         ? "Restart to update"
                         : "Download and install",
               )}
-            </Button>
-          )}
-          {update.phase === "installing" && update.confirmationAvailable && (
-            <Button
-              size="sm"
-              variant="outline"
-              data-iori-action="update-resume-installation"
-              onClick={() => void resumeInstallation()}
-            >
-              {t("Continue installation")}
             </Button>
           )}
         </FieldRow>

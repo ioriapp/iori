@@ -10,7 +10,7 @@ import type {
 import type { TerminalModes } from "./types.ts";
 import type { TerminalSnapshot } from "./types.ts";
 import type { IPtyForkOptions, IWindowsPtyForkOptions } from "node-pty";
-export const DAEMON_PROTOCOL = 20;
+export const DAEMON_PROTOCOL = 21;
 export interface DaemonHello {
   version: number;
   pid: number;

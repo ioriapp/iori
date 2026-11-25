@@ -50,6 +50,10 @@ export type {
 } from "./cli.ts";
 export { buildTerminalSnapshotRestoreSequence } from "./terminal.ts";
 export {
+  buildWindowsPtyCompatibilityOptions,
+  type WindowsPtyCompatibilityOptions,
+} from "./terminal-restore.ts";
+export {
   MAX_TERMINAL_SNAPSHOT_BYTES,
   MAX_TERMINAL_SNAPSHOT_LINES,
   MOBILE_TERMINAL_SNAPSHOT_BYTES,

@@ -40,6 +40,16 @@ export declare class Endpoint {
 }
 export type JsEndpoint = Endpoint;
 
+export declare class HiddenProcess {
+  static spawn(options: HiddenProcessOptions): HiddenProcess;
+  writeStdin(data: Buffer): Promise<void>;
+  closeStdin(): void;
+  readStdout(): Promise<Buffer | null>;
+  readStderr(): Promise<Buffer | null>;
+  kill(): void;
+  wait(): Promise<number | null>;
+}
+
 export declare class Incoming {
   handshake(): Promise<JsConnection>;
   refuse(): Promise<void>;
@@ -47,6 +57,16 @@ export declare class Incoming {
 export type JsIncoming = Incoming;
 
 export declare function generateIdentity(): Identity;
+
+export interface HiddenProcessOptions {
+  executable: string;
+  args: Array<string>;
+  cwd: string;
+  env: Array<string>;
+  stdin: boolean;
+  stderr: boolean;
+  verbatimArguments: boolean;
+}
 
 export interface Identity {
   secretKey: Buffer;

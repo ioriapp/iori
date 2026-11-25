@@ -4,7 +4,10 @@ import { chmod, mkdir, rename, rm, open } from "node:fs/promises";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { dirname, join } from "node:path";
 import * as pty from "node-pty";
-import { buildTerminalSnapshotRestoreSequence } from "@iori/protocol/terminal-restore";
+import {
+  buildTerminalSnapshotRestoreSequence,
+  buildWindowsPtyCompatibilityOptions,
+} from "@iori/protocol/terminal-restore";
 import type { CommandCaller } from "../../teams/local-command.ts";
 import { EventQueue } from "./event-queue.ts";
 import { HeadlessEmulator } from "./headless-emulator.ts";
@@ -285,9 +288,7 @@ export async function runTerminalDaemon(root: string, endpoint: string) {
           cols,
           rows,
           scrollback: 5000,
-          ...(getWindowsPtyCompatibility()?.backend === "conpty"
-            ? { reflowCursorLine: true }
-            : {}),
+          ...buildWindowsPtyCompatibilityOptions(getWindowsPtyCompatibility()),
           onQueryReply: (reply) => session?.child?.write(reply),
         });
         if (windowsHost)
@@ -330,6 +331,7 @@ export async function runTerminalDaemon(root: string, endpoint: string) {
           cols: snapshot.cols,
           rows: snapshot.rows,
           scrollback: 0,
+          ...buildWindowsPtyCompatibilityOptions(getWindowsPtyCompatibility()),
         });
         try {
           await emulator.write(buildTerminalSnapshotRestoreSequence(snapshot));

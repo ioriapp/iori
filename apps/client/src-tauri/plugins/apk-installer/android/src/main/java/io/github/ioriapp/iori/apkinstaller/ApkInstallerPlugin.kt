@@ -6,8 +6,12 @@ import android.content.Intent
 import android.content.pm.PackageInstaller
 import android.net.Uri
 import android.os.Build
+import android.os.Looper
 import android.provider.Settings
+import android.webkit.WebView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.TauriPlugin
@@ -26,7 +30,19 @@ internal class InstallApkArgs {
 
 @TauriPlugin
 class ApkInstallerPlugin(private val activity: Activity) : Plugin(activity) {
-    private var foreground = false
+    @Volatile private var foreground = readLifecycleForeground()
+
+    private fun readLifecycleForeground() =
+        (activity as? LifecycleOwner)?.lifecycle?.currentState?.isAtLeast(Lifecycle.State.RESUMED) ?: false
+
+    private fun isForeground(): Boolean =
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            (activity as? LifecycleOwner)?.lifecycle?.currentState?.isAtLeast(Lifecycle.State.RESUMED) ?: foreground
+        } else foreground
+
+    override fun load(webView: WebView) {
+        foreground = readLifecycleForeground()
+    }
 
     override fun onResume(activity: AppCompatActivity) {
         foreground = true
@@ -118,7 +134,7 @@ class ApkInstallerPlugin(private val activity: Activity) : Plugin(activity) {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0
                     val pending = PendingIntent.getBroadcast(activity, id, intent, flags)
                     callback = pending
-                    InstallResultReceiver.pending[id] = PendingInstall(activity, invoke, pending, args.onConfirmation, { foreground })
+                    InstallResultReceiver.pending[id] = PendingInstall(activity, invoke, pending, args.onConfirmation, ::isForeground)
                     session.commit(pending.intentSender)
                 }
             } catch (error: Exception) {

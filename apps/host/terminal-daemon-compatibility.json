@@ -1,6 +1,6 @@
 {
-  "version": 20,
-  "sha256": "98420380f84b97f6a2c629e896735242a589757080a54b357347a6d4ae0bb362",
+  "version": 21,
+  "sha256": "555c6dac1ff98c19dcc540e5c59484eeb8a9d3334c283a9f7107655b3f26ef48",
   "packages": {
     "@iori/protocol": "workspace",
     "@iori/terminal-native": "0.1.0",

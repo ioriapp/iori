@@ -1,5 +1,7 @@
+mod hidden_process;
 mod identity;
 
+pub use hidden_process::{HiddenProcess, HiddenProcessOptions};
 pub use identity::{
     Identity, generate_identity, identity_from_secret_key, protect_user_data, unprotect_user_data,
 };

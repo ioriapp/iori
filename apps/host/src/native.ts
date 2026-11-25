@@ -10,6 +10,7 @@ export type NativeBiStream = import("@iori/host-iroh-native").BiStream;
 export type NativeAddon = Pick<
   typeof import("@iori/host-iroh-native"),
   | "Endpoint"
+  | "HiddenProcess"
   | "generateIdentity"
   | "identityFromSecretKey"
   | "protectUserData"

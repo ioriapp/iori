@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+import addon, { type HiddenProcessOptions } from "@iori/host-iroh-native";
+import { StringDecoder } from "node:string_decoder";
 import { Readable } from "node:stream";
 import { homedir } from "node:os";
 import { MAX_FRAME_BYTES } from "@iori/protocol";
@@ -7,16 +9,18 @@ import { isWindowsHost, type ShellDefinition } from "../terminal/platform.ts";
 import { readWindowsLoginEnvironment } from "./windows-login-environment.ts";
 import { shellDialect } from "./shell-quoting.ts";
 
+type ShellExchange = {
+  start: (send: (line: string) => void, end: () => void) => void;
+  data: (chunk: string) => void;
+};
+
 /** Profiles and aliases are evaluated by the user's own shell. No deadline
  * declares a slow profile or version probe to have failed. */
 export function runInShell(
   shell: ShellDefinition,
   script: string,
   signal?: AbortSignal,
-  exchange?: {
-    start: (send: (line: string) => void, end: () => void) => void;
-    data: (chunk: string) => void;
-  },
+  exchange?: ShellExchange,
   completeOutput = false,
   environment?: Record<string, string>,
 ): Promise<{ output: string; stderr: string; code: number | null }> {
@@ -109,10 +113,7 @@ function runInShellEnvironment(
   script: string,
   environment: Record<string, string | undefined>,
   signal?: AbortSignal,
-  exchange?: {
-    start: (send: (line: string) => void, end: () => void) => void;
-    data: (chunk: string) => void;
-  },
+  exchange?: ShellExchange,
   completeOutput = false,
 ): Promise<{ output: string; stderr: string; code: number | null }> {
   const dialect = shellDialect(shell);
@@ -129,6 +130,44 @@ function runInShellEnvironment(
       : dialect === "cmd"
         ? ["/s", "/c", `"${script}"`]
         : ["-l", "-i", "-c", script];
+  if (isWindowsHost()) {
+    // Git Bash normally receives a fourth descriptor for CLI diagnostics.
+    // Set it up in bash before entering the interactive login shell.
+    const nativeArgs =
+      completeOutput && shell.id === "git-bash"
+        ? [
+            "-p",
+            "-c",
+            'exec "$BASH" -l -i -c "$1" 3>&2 2>/dev/null',
+            "bash",
+            script,
+          ]
+        : args;
+    // Node keeps the lexicographically first spelling of each Windows variable.
+    const names = new Set<string>();
+    const env = Object.keys(environment)
+      .sort()
+      .flatMap((name) => {
+        const key = name.toUpperCase();
+        if (names.has(key)) return [];
+        names.add(key);
+        const value = environment[name];
+        return value === undefined ? [] : [`${name}=${value}`];
+      });
+    return runHiddenShell(
+      {
+        executable: shell.executable,
+        args: nativeArgs,
+        env,
+        cwd: homedir(),
+        stdin: Boolean(exchange),
+        stderr: completeOutput,
+        verbatimArguments: dialect === "cmd",
+      },
+      signal,
+      exchange,
+    );
+  }
   return new Promise((resolve, reject) => {
     let settled = false;
     const fail = (error: Error) => {
@@ -201,4 +240,90 @@ function runInShellEnvironment(
       resolve({ output, stderr, code });
     });
   });
+}
+
+async function readHiddenPipe(
+  read: () => Promise<Buffer | null>,
+  accept: (text: string) => void,
+) {
+  const decoder = new StringDecoder("utf8");
+  for (;;) {
+    const bytes = await read();
+    const text = bytes === null ? decoder.end() : decoder.write(bytes);
+    if (text) accept(text);
+    if (bytes === null) return;
+  }
+}
+
+async function runHiddenShell(
+  options: HiddenProcessOptions,
+  signal?: AbortSignal,
+  exchange?: ShellExchange,
+): Promise<{ output: string; stderr: string; code: number | null }> {
+  signal?.throwIfAborted();
+  const child = addon.HiddenProcess.spawn(options);
+  let output = "";
+  let outputBytes = 0;
+  let stderr = "";
+  let writes = Promise.resolve();
+  let active = true;
+  const failure = Promise.withResolvers<never>();
+  const abort = () => failure.reject(signal?.reason);
+  signal?.addEventListener("abort", abort, { once: true });
+  const queue = (write: () => Promise<void> | void) => {
+    writes = writes.then(() => {
+      if (active) return write();
+    });
+    void writes.catch(failure.reject);
+  };
+  const stdout = readHiddenPipe(
+    () => child.readStdout(),
+    (text) => {
+      if (!active) return;
+      if (options.stderr) {
+        outputBytes += Buffer.byteLength(text);
+        if (outputBytes > MAX_FRAME_BYTES)
+          throw new ByteLimitError(MAX_FRAME_BYTES);
+        output += text;
+      } else if (!exchange) output = (output + text).slice(-65_536);
+      try {
+        exchange?.data(text);
+      } catch (error) {
+        child.closeStdin();
+        throw error;
+      }
+    },
+  );
+  const errors =
+    options.stderr &&
+    readHiddenPipe(
+      () => child.readStderr(),
+      (text) => {
+        stderr += text.slice(0, 65_536 - stderr.length);
+      },
+    );
+  const done = Promise.all([child.wait(), stdout, errors]).then(
+    async ([code]) => {
+      await writes;
+      return { output, stderr, code };
+    },
+  );
+  try {
+    try {
+      exchange?.start(
+        (line) => queue(() => child.writeStdin(Buffer.from(line + "\n"))),
+        () => queue(() => child.closeStdin()),
+      );
+    } catch (error) {
+      failure.reject(error);
+    }
+    return await Promise.race([done, failure.promise]);
+  } catch (error) {
+    child.kill();
+    throw error;
+  } finally {
+    active = false;
+    signal?.removeEventListener("abort", abort);
+    child.closeStdin();
+  }
 }
