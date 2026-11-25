@@ -29,7 +29,7 @@ export function terminalImageExtension(file: File): TerminalImageExtension {
 export async function sendTerminalImages(
   target: { connectionId: string; summary: TerminalSummary },
   images: { blob: Blob; extension: TerminalImageExtension }[],
-): Promise<string> {
+): Promise<string[]> {
   const paths: string[] = [];
   for (const { blob, extension } of images) {
     const imageId = crypto.randomUUID();
@@ -65,5 +65,5 @@ export async function sendTerminalImages(
       }
     }
   }
-  return paths.join("");
+  return paths;
 }

@@ -245,7 +245,6 @@ export function MobileInputControls({
             accept="image/*"
             multiple
             hidden
-            disabled={disabled}
             data-iori-field="terminal-images"
             onChange={(event) => {
               const files = Array.from(event.currentTarget.files ?? []);

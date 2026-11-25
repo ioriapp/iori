@@ -30,6 +30,7 @@ import {
   terminalImageExtension,
   sendTerminalImages,
 } from "./terminal-images.ts";
+import { pasteData, pasteImagePaths } from "./terminal-paste-data.ts";
 import {
   MAX_TERMINAL_SNAPSHOT_LINES,
   buildTerminalSnapshotRestoreSequence,
@@ -302,8 +303,8 @@ export function TerminalPane({
   const resuming = resumingOn !== undefined;
   const [resumeError, setResumeError] = useState(false);
   const windowForeground = useClientWindowForeground();
-  const pasteTargetRef = useRef({ connectionId, summary });
-  pasteTargetRef.current = { connectionId, summary };
+  const pasteTargetRef = useRef({ hostKey, connectionId, summary });
+  pasteTargetRef.current = { hostKey, connectionId, summary };
   const displayRef = useRef<HTMLDivElement>(null);
   const paneRef = useRef<HTMLElement>(null);
   const linkOpenRef = useRef(linkOpen);
@@ -335,6 +336,9 @@ export function TerminalPane({
     Array<{ text: string; options?: TerminalInputOptions }>
   >([]);
   if (!connected) pendingDroppedPathsRef.current = [];
+  const pendingImagesRef = useRef<
+    Array<{ hostKey: string; terminalId: string; files: File[] }>
+  >([]);
   const allowedInputRef = useRef(
     summary.state !== "exited" && summary.state !== "error",
   );
@@ -361,15 +365,6 @@ export function TerminalPane({
   const [transportError, setTransportError] = useState<string>();
   const [actionError, setActionError] = useState<string>();
   const mobileInputRef = useRef<MobileInputHandle>(null);
-  // Reserve the send before reading/uploading: hiding the pane must drain
-  // asynchronous paste work too. Use xterm's current bracketed-paste mode.
-  function pasteData(text: string, bracketed: boolean) {
-    const normalized = text.replace(/\r?\n/g, "\r");
-    return bracketed && normalized
-      ? `\x1b[200~${normalized.replace(/\x1b/g, "\u241b")}\x1b[201~`
-      : normalized;
-  }
-
   function pasteClipboard() {
     const terminal = terminalRef.current;
     if (!terminal) return;
@@ -391,7 +386,12 @@ export function TerminalPane({
         );
       return;
     }
-    if (!connectedRef.current || !allowedInputRef.current) return;
+    if (
+      !connectedRef.current ||
+      !allowedInputRef.current ||
+      !stream.acceptsInput
+    )
+      return;
     const bracketed = terminal.modes.bracketedPasteMode;
     const target = pasteTargetRef.current;
     setActionError(undefined);
@@ -408,34 +408,12 @@ export function TerminalPane({
           return pasteData(content.text, bracketed);
         }
         try {
-          return pasteData(
+          return pasteImagePaths(
             await sendTerminalImages(target, [
               { blob: content.image, extension: content.extension },
             ]),
             bracketed,
           );
-        } catch {
-          setActionError(tRef.current("Could not send the image."));
-          return "";
-        }
-      })(),
-    );
-  }
-
-  function pasteImages(files: File[]) {
-    const terminal = terminalRef.current;
-    if (!terminal || !connectedRef.current || !allowedInputRef.current) return;
-    const bracketed = terminal.modes.bracketedPasteMode;
-    const target = pasteTargetRef.current;
-    setActionError(undefined);
-    sendInput(
-      (async () => {
-        try {
-          const images = files.map((file) => ({
-            blob: file,
-            extension: terminalImageExtension(file),
-          }));
-          return pasteData(await sendTerminalImages(target, images), bracketed);
         } catch {
           setActionError(tRef.current("Could not send the image."));
           return "";
@@ -693,6 +671,66 @@ export function TerminalPane({
     },
     [focusTerminal, stream],
   );
+
+  // A photo picker may return its files before the foreground connection and
+  // Terminal stream have been restored. Reserve the send only once both can
+  // accept it, and use the restored Terminal's bracketed-paste mode.
+  const flushPendingImages = useCallback(() => {
+    const target = pasteTargetRef.current;
+    const pending = pendingImagesRef.current.filter(
+      (item) =>
+        visibleRef.current &&
+        item.hostKey === target.hostKey &&
+        item.terminalId === target.summary.id,
+    );
+    pendingImagesRef.current = pending;
+    if (!pending.length) return;
+    if (terminalEndedRef.current || !allowedInputRef.current) {
+      pendingImagesRef.current = [];
+      setActionError(tRef.current("Could not send the image."));
+      return;
+    }
+    const terminal = terminalRef.current;
+    if (
+      !terminal ||
+      !connectedRef.current ||
+      !stream.acceptsInput ||
+      !stream.snapshot().ready
+    )
+      return;
+    const bracketed = terminal.modes.bracketedPasteMode;
+    pendingImagesRef.current = [];
+    for (const { files } of pending) {
+      setActionError(undefined);
+      sendInput(
+        (async () => {
+          try {
+            const images = files.map((file) => ({
+              blob: file,
+              extension: terminalImageExtension(file),
+            }));
+            return pasteImagePaths(
+              await sendTerminalImages(target, images),
+              bracketed,
+            );
+          } catch {
+            setActionError(tRef.current("Could not send the image."));
+            return "";
+          }
+        })(),
+      );
+    }
+  }, [sendInput, stream]);
+
+  function pasteImages(files: File[]) {
+    const target = pasteTargetRef.current;
+    pendingImagesRef.current.push({
+      hostKey: target.hostKey,
+      terminalId: target.summary.id,
+      files,
+    });
+    flushPendingImages();
+  }
 
   const { modifiers, sendKey, attachInput, modifyInput } = useTerminalModifiers(
     mobile,
@@ -1547,6 +1585,31 @@ export function TerminalPane({
     receiving,
     restorePendingBatches,
   ]);
+
+  useEffect(() => {
+    flushPendingImages();
+  }, [
+    flushPendingImages,
+    hostKey,
+    summary.id,
+    summary.state,
+    visible,
+    receiving,
+    connected,
+    connectionId,
+    mounted,
+    streamId,
+    streamOpened,
+    streamReady,
+    terminalEnded,
+  ]);
+
+  useEffect(
+    () => () => {
+      pendingImagesRef.current = [];
+    },
+    [hostKey, summary.id],
+  );
 
   useEffect(() => {
     const display = displayRef.current;
