@@ -31,6 +31,32 @@ export async function notificationRequests(page: Page) {
   };
 }
 
+/** Observe the native file manager request, without opening an OS window. */
+export async function fileManagerReveals(page: Page) {
+  type Reveal = { path: string; openDirectory: boolean };
+  const requests: Reveal[] = [];
+  await page.exposeBinding(
+    "ioriObserveFileManagerReveal",
+    (_source, reveal) => {
+      requests.push(reveal as Reveal);
+    },
+  );
+  await page.addInitScript(() => {
+    window.addEventListener("iori:reveal-in-file-manager", (event) => {
+      void (
+        window as unknown as {
+          ioriObserveFileManagerReveal(value: unknown): Promise<void>;
+        }
+      ).ioriObserveFileManagerReveal((event as CustomEvent).detail);
+    });
+  });
+  return {
+    async expectRequests(expected: Reveal[]) {
+      await expect.poll(() => requests).toEqual(expected);
+    },
+  };
+}
+
 /** Supply the OS file picker boundary, retaining the Client's real save calls. */
 export async function chooseSaveDestination(page: Page, path: string) {
   let completed = false;

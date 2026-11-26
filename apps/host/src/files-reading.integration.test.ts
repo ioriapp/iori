@@ -8,10 +8,15 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, win32 } from "node:path";
+import { pathToFileURL } from "node:url";
 import test from "node:test";
 import { MAX_TEXT_RANGE_BYTES } from "@iori/protocol";
-import { handleFileRead, ReadingFailure } from "./files-reading.ts";
+import {
+  handleFileRead,
+  ReadingFailure,
+  resolveLocalFilePath,
+} from "./files-reading.ts";
 
 // E2E cannot combine real cancellation with appends at this speed through screen operations.
 test("追記と色分けの取り消しを重ねても後の末尾ページが完了し、取り消した要求も全て終わる", async () => {
@@ -173,4 +178,46 @@ test("files.lineRangeは巨大行をUTF-8境界で分けて続きを返し、BOM
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("files.resolve は file URI が指すローカルファイルを開く", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "iori-file-uri-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const path = join(root, "図 %23.png");
+  await writeFile(path, "image");
+  const {
+    results: [target, remote],
+  } = await handleFileRead("files.resolve", {
+    root,
+    paths: [
+      pathToFileURL(path).href + "?preview#figure",
+      "file://host/share/a",
+    ],
+  });
+  assert.equal(remote?.found, false);
+  assert.equal(target?.found, true);
+  assert.equal(target.absolutePath, path);
+});
+
+test("Windows のドライブとホームのパスを解決し、ネットワークパスとドライブ相対パスは解決しない", () => {
+  const resolve = (candidate: string) =>
+    resolveLocalFilePath("C:\\docs", candidate, "C:\\Users\\reader", win32);
+  for (const path of [
+    "D:/a b.png",
+    "D:\\a b.png",
+    "file:///D%3A/a%20b.png?view#preview",
+  ])
+    assert.equal(resolve(path), "D:\\a b.png", path);
+  for (const path of ["~/figures/a.png", "~\\figures\\a.png"])
+    assert.equal(resolve(path), "C:\\Users\\reader\\figures\\a.png", path);
+  for (const path of [
+    "file://host/share/a",
+    "file://///host/a",
+    "file:///%5C%5Chost/a",
+    "//host/share/a",
+    "\\\\host\\share\\a",
+    "d:relative",
+    "file:///bad%",
+  ])
+    assert.equal(resolve(path), undefined, path);
 });

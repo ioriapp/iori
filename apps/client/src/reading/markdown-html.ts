@@ -110,11 +110,34 @@ function parsePictureInner(
   if (theme) {
     const scheme = new RegExp(`prefers-color-scheme\\s*:\\s*${theme}\\b`, "iu");
     const matched = sources.find(
-      (source) => source.media && scheme.test(source.media) && source.srcset,
+      (source) => source.srcset && (!source.media || scheme.test(source.media)),
     );
     if (matched?.srcset) chosenSrc = parseSrcsetUrl(matched.srcset);
   }
   return imageNodeFromTag(imgAttrs ?? {}, chosenSrc, position);
+}
+
+// Remark splits an inline <picture> into sibling tags, unlike an HTML block.
+function inlinePicture(
+  siblings: MarkdownNode[],
+  start: number,
+  theme: "dark" | "light",
+): { image: MarkdownNode; end: number } | undefined {
+  let inner = "";
+  for (let end = start + 1; end < siblings.length; end++) {
+    const child = siblings[end]!;
+    const value = child.value ?? "";
+    if (child.type === "text" && !value.trim()) continue;
+    if (child.type !== "html") break;
+    if (/^<\/picture>$/iu.test(value)) {
+      const image = parsePictureInner(inner, theme, siblings[start]!.position);
+      if (image) return { image, end };
+      break;
+    }
+    if (!/^<(?:source|img)\b/iu.test(value)) break;
+    inner += value;
+  }
+  return undefined;
 }
 
 /**
@@ -169,8 +192,11 @@ function parseMediaHtml(
 export function forgeHtml(options?: ForgeHtmlOptions) {
   const theme = options?.theme;
   const plain = (node: MarkdownNode) => {
-    if (!node.children) return;
-    node.children = node.children.flatMap((child): MarkdownNode[] => {
+    const children = node.children;
+    if (!children) return;
+    let pictureEnd = -1;
+    node.children = children.flatMap((child, index): MarkdownNode[] => {
+      if (index <= pictureEnd) return [];
       if (child.type !== "html") {
         plain(child);
         return [child];
@@ -180,6 +206,13 @@ export function forgeHtml(options?: ForgeHtmlOptions) {
       if (!trimmed) return [];
       if (phrasing.has(node.type) && breakTag.test(trimmed)) {
         return [{ type: "break", position: child.position }];
+      }
+      if (theme && /^<picture(?:\s[^>]*)?>$/iu.test(trimmed)) {
+        const picture = inlinePicture(children, index, theme);
+        if (picture) {
+          pictureEnd = picture.end;
+          return [picture.image];
+        }
       }
       const images = parseMediaHtml(trimmed, theme, child.position);
       if (images) {
@@ -204,7 +237,13 @@ export function forgeHtml(options?: ForgeHtmlOptions) {
         .filter(Boolean);
       if (phrasing.has(node.type))
         return texts.length
-          ? [{ type: "text", value: texts.join(" "), position: child.position }]
+          ? [
+              {
+                type: "text",
+                value: texts.join(" "),
+                position: child.position,
+              },
+            ]
           : [];
       return texts.map((text) => ({
         type: "paragraph",

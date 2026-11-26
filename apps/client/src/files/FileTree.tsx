@@ -34,6 +34,7 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { cn } from "cn";
 import { VirtualRows, type ScrollRequest } from "../reading/VirtualRows.tsx";
+import type { RevealInFileManager } from "../reading/local-file-manager.ts";
 import { PathMenu, type MenuAction } from "../reading/PathMenu.tsx";
 import { carriesPath, readPathDrag, writePathDrag } from "../path-drag.ts";
 import { PagedList } from "../reading/paged.ts";
@@ -105,6 +106,7 @@ export function FileTree({
   onFileHistory,
   onSendPathToTerminal,
   onOpenTerminalInFolder,
+  revealInFileManager,
   onFindInFolder,
 }: {
   onSave: (path: string) => void;
@@ -131,6 +133,7 @@ export function FileTree({
   onFileHistory?: (absolutePath: string) => void;
   onSendPathToTerminal?: (absolutePath: string) => void;
   onOpenTerminalInFolder?: (absolutePath: string) => void;
+  revealInFileManager?: RevealInFileManager;
   onFindInFolder?: (folder: string) => void;
 }) {
   const ja = locale.startsWith("ja");
@@ -193,6 +196,17 @@ export function FileTree({
         ]
       : []),
   ];
+  const revealAction = (path: string, openDirectory: boolean): MenuAction[] =>
+    revealInFileManager
+      ? [
+          {
+            label: t(revealInFileManager.labelKey),
+            icon: <FolderOpen aria-hidden="true" />,
+            action: "files-reveal-in-file-manager",
+            run: () => revealInFileManager.open(path, openDirectory),
+          },
+        ]
+      : [];
   const folderCreateActions = (
     folder: string,
     absoluteFolder: string,
@@ -224,6 +238,7 @@ export function FileTree({
           },
         ]
       : []),
+    ...revealAction(absoluteFolder, folder === ""),
     ...(folder !== "" && onFindInFolder
       ? [
           {
@@ -794,15 +809,17 @@ export function FileTree({
                 appendMenuGroup(actions, sendPath);
                 if (directory) {
                   appendMenuGroup(actions, [putAction(entry.path)]);
-                } else if (downloadable) {
-                  appendMenuGroup(actions, [
-                    {
-                      label: t("Download…"),
-                      icon: <Download aria-hidden="true" />,
-                      action: "files-save",
-                      run: () => onSave(entry.path),
-                    },
-                  ]);
+                } else {
+                  actions.push(...revealAction(entry.absolutePath, false));
+                  if (downloadable)
+                    appendMenuGroup(actions, [
+                      {
+                        label: t("Download…"),
+                        icon: <Download aria-hidden="true" />,
+                        action: "files-save",
+                        run: () => onSave(entry.path),
+                      },
+                    ]);
                 }
                 return (
                   <PathMenu

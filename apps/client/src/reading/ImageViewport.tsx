@@ -3,6 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Maximize, Minus, Plus } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { formatBytes } from "./format.ts";
+import { zoomScrollOffset } from "./image-viewport-anchor.ts";
 
 export type ImageSize = { width: number; height: number };
 export type ImageContent = {
@@ -47,6 +48,21 @@ export function ImageUnavailable({ locale }: { locale: string }) {
 
 const ZOOM_STEP = 1.25;
 
+function measureFrame(box: HTMLDivElement) {
+  const css = getComputedStyle(box);
+  const padding = {
+    left: parseFloat(css.paddingLeft),
+    top: parseFloat(css.paddingTop),
+  };
+  return {
+    padding,
+    size: {
+      width: box.clientWidth - padding.left - parseFloat(css.paddingRight),
+      height: box.clientHeight - padding.top - parseFloat(css.paddingBottom),
+    },
+  };
+}
+
 /** Files and Git share the same image controls and gestures. Changing the
  * source preserves zoom; a shared canvas keeps either side's scroll range. */
 export function ImageViewport({
@@ -80,34 +96,42 @@ export function ImageViewport({
       : 1;
   const shownScale = fit ? fittedScale : scale;
   const anchor = useRef<{ left: number; top: number } | undefined>(undefined);
-  const zoom = (factor: number, point?: { x: number; y: number }) => {
+  const zoomTo = (nextScale: number, point?: { x: number; y: number }) => {
     const box = frame.current;
-    if (box && point)
+    if (box && extent && nextScale !== shownScale) {
+      const { size, padding } = measureFrame(box);
       anchor.current = {
-        left: (box.scrollLeft + point.x) * factor - point.x,
-        top: (box.scrollTop + point.y) * factor - point.y,
+        left: zoomScrollOffset({
+          boxSize: size.width,
+          extent: extent.width,
+          padding: padding.left,
+          currentScale: shownScale,
+          nextScale,
+          scroll: box.scrollLeft,
+          point: point?.x ?? box.clientWidth / 2,
+        }),
+        top: zoomScrollOffset({
+          boxSize: size.height,
+          extent: extent.height,
+          padding: padding.top,
+          currentScale: shownScale,
+          nextScale,
+          scroll: box.scrollTop,
+          point: point?.y ?? box.clientHeight / 2,
+        }),
       };
+    }
     setFit(false);
-    setScale(shownScale * factor);
+    setScale(nextScale);
   };
+  const zoom = (factor: number, point?: { x: number; y: number }) =>
+    zoomTo(shownScale * factor, point);
   const zoomRef = useRef(zoom);
   zoomRef.current = zoom;
   useLayoutEffect(() => {
     const box = frame.current;
     if (!box) return;
-    const measure = () => {
-      const css = getComputedStyle(box);
-      setBoxSize({
-        width:
-          box.clientWidth -
-          parseFloat(css.paddingLeft) -
-          parseFloat(css.paddingRight),
-        height:
-          box.clientHeight -
-          parseFloat(css.paddingTop) -
-          parseFloat(css.paddingBottom),
-      });
-    };
+    const measure = () => setBoxSize(measureFrame(box).size);
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(box);
@@ -128,8 +152,8 @@ export function ImageViewport({
       event.preventDefault();
       const rect = box.getBoundingClientRect();
       zoomRef.current(event.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP, {
-        x: event.clientX - rect.left,
-        y: event.clientY - rect.top,
+        x: event.clientX - rect.left - box.clientLeft,
+        y: event.clientY - rect.top - box.clientTop,
       });
     };
     let distance: number | undefined;
@@ -143,8 +167,8 @@ export function ImageViewport({
       if (distance && next) {
         const rect = box.getBoundingClientRect();
         zoomRef.current(next / distance, {
-          x: (a.clientX + b.clientX) / 2 - rect.left,
-          y: (a.clientY + b.clientY) / 2 - rect.top,
+          x: (a.clientX + b.clientX) / 2 - rect.left - box.clientLeft,
+          y: (a.clientY + b.clientY) / 2 - rect.top - box.clientTop,
         });
       }
       distance = next;
@@ -203,10 +227,7 @@ export function ImageViewport({
           size="sm"
           className="[@media(pointer:coarse)]:min-h-11"
           data-iori-action="image-actual-size"
-          onClick={() => {
-            setFit(false);
-            setScale(1);
-          }}
+          onClick={() => zoomTo(1)}
         >
           {t("100%")}
         </Button>
@@ -224,15 +245,17 @@ export function ImageViewport({
       </div>
       <div
         ref={frame}
-        className="reading-image-frame min-h-0 flex-1 touch-pan-x touch-pan-y overflow-auto p-3 data-[fit=true]:flex data-[fit=true]:items-center data-[fit=true]:justify-center"
+        className="reading-image-frame flex min-h-0 flex-1 touch-pan-x touch-pan-y overflow-auto p-3"
         data-fit={fit}
       >
         {unavailable ? (
-          <ImageUnavailable locale={locale} />
+          <div className="m-auto">
+            <ImageUnavailable locale={locale} />
+          </div>
         ) : (
           image.url && (
             <div
-              className="flex-none"
+              className="m-auto flex-none"
               style={
                 extent
                   ? {

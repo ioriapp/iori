@@ -125,3 +125,25 @@ test("想定外のHTMLタグを含む<picture>や<script>は画像ノードへ�
   );
   assert.equal(nodes(tree).filter((node) => node.type === "break").length, 1);
 });
+
+test("<img> と <picture> は Host の絶対パスを画像ノードに保持する", () => {
+  for (const url of [
+    "C:/a.png",
+    "D:\\docs\\a.png",
+    "file:///C:/a.png",
+    "file:///home/a.png",
+  ]) {
+    const tree = unified()
+      .use(remarkParse)
+      .parse(
+        `<img src="${url}">\n\n<picture><source srcset="${url} 1x"><img src="fallback.png"></picture>`,
+      );
+    forgeHtml({ theme: "dark" })(tree);
+    assert.deepEqual(
+      nodes(tree)
+        .filter((n) => n.type === "image")
+        .map((n) => n.url),
+      [url, url],
+    );
+  }
+});

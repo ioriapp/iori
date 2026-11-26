@@ -34,6 +34,7 @@ function mergeAddresses(...groups: string[][]) {
 
 export type ConnectionState = {
   initial?: InitialState;
+  localHostKey?: string;
   host?: HostInfo;
   /** Hosts whose connection is currently established, for per-Host marks. */
   connectedHosts: string[];
@@ -145,9 +146,24 @@ export class ConnectionController {
     this.state = { ...this.state, ...patch };
     for (const listener of this.listeners) listener();
   }
+  private refreshLocalHostKey() {
+    const initial = this.state.initial;
+    if (!initial || initial.mobile || !initial.canSetupHost) return;
+    void native
+      .hostSetupStatus()
+      .catch(() => null)
+      .then((status) => {
+        if (status?.host?.publicKey)
+          this.update({ localHostKey: status.host.publicKey });
+        else if (status !== null && !status.installed)
+          this.update({ localHostKey: undefined });
+      });
+  }
   initialize = () => {
     if (this.initialized) return this.initialized;
-    this.initialized = this.start();
+    this.initialized = this.start().then(() => {
+      this.refreshLocalHostKey();
+    });
     return this.initialized;
   };
   private async start() {
@@ -170,6 +186,7 @@ export class ConnectionController {
               }
             }
             if (event.type === "snapshot") {
+              if (!this.state.localHostKey) this.refreshLocalHostKey();
               const knownHost = record?.host;
               const host: HostInfo = {
                 ...knownHost,
@@ -441,6 +458,7 @@ export class ConnectionController {
         : {}),
     });
     if (active && hosts[0]) await this.selectHost(hosts[0].publicKey);
+    else this.refreshLocalHostKey();
   }
   /** The open connection to a Host, for streams such as Terminals. */
   connectionIdOf = (hostKey: string) =>
@@ -498,6 +516,7 @@ export class ConnectionController {
           }
         : {}),
     });
+    this.refreshLocalHostKey();
     await this.saveHost(host, true);
     if (!record.connected && !hostReconnectPaused(publicKey))
       void this.reconnectHost(publicKey).catch(() => undefined);
@@ -716,6 +735,7 @@ export class ConnectionController {
         await this.subscribeEvents(record, id);
         if (record.connectionId !== id) throw new Error("Host is unavailable");
         this.setConnected(record, true);
+        if (!this.state.localHostKey) this.refreshLocalHostKey();
         record.disconnectedAt = undefined;
         if (this.state.host?.publicKey === hostKey)
           this.update({
@@ -808,6 +828,7 @@ export class ConnectionController {
       return registered;
     } finally {
       this.pairing = false;
+      if (registered) this.refreshLocalHostKey();
       if (registered && !this.state.connected) this.scheduleReconnect();
       else if (!registered && previousHost && !this.state.revoked)
         void this.reconnect();

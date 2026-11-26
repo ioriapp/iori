@@ -1,10 +1,20 @@
-import { chooseSaveDestination } from "./fixtures/browser.ts";
+import {
+  chooseSaveDestination,
+  fileManagerReveals,
+} from "./fixtures/browser.ts";
 import type { Page } from "@playwright/test";
 import type { App } from "./fixtures/test.ts";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { test, expect, visibleTerminal } from "./fixtures/test.ts";
-import { git, openReading, repository } from "./support/reading.ts";
+import { pathToFileURL } from "node:url";
+import {
+  test,
+  expect,
+  visibleTerminal,
+  sendLine,
+  terminalId,
+} from "./fixtures/test.ts";
+import { git, openReading, png, repository } from "./support/reading.ts";
 
 type Args = { page: Page; registeredApp: App };
 
@@ -94,6 +104,309 @@ test(
   "Filesの一覧からMarkdownと画像を開く",
   { tag: "@desktop" },
   readFiles(false),
+);
+
+async function useLoopbackHost(app: App) {
+  await app.host.stop();
+  await writeFile(
+    join(app.folder, "..", "iori-host", "network.json"),
+    JSON.stringify({ scope: "loopback" }),
+  );
+  await app.host.start();
+  await app.registerHost(app.host);
+  expect((await app.request("host.info", {})).connectionScope).toBe("loopback");
+}
+
+test(
+  "同じPCのFilesからOSのファイルマネージャーで表示できる",
+  { tag: ["@desktop", "@web-only"] },
+  async ({ page, registeredApp: app }) => {
+    const reveals = await fileManagerReveals(page);
+    expect((await app.request("host.info", {})).connectionScope).toBe(
+      "network",
+    );
+    await useLoopbackHost(app);
+    await repository(app.folder);
+    await mkdir(join(app.folder, "sub"));
+    const outside = join(app.folder, "..", "external.md");
+    await writeFile(outside, "# External document\n");
+    await openReading(page, app, false, "files");
+    const reveal = page.locator(
+      '[data-iori-action="files-reveal-in-file-manager"]',
+    );
+    const expected: { path: string; openDirectory: boolean }[] = [];
+    const select = async (path: string, openDirectory = false) => {
+      await expect(reveal).toBeVisible();
+      await reveal.click();
+      expected.push({ path, openDirectory });
+      await reveals.expectRequests(expected);
+      await expect(reveal).toHaveCount(0);
+    };
+
+    await page
+      .getByRole("treeitem", { name: "notes.md" })
+      .click({ button: "right" });
+    await select(join(app.folder, "notes.md"));
+    await page
+      .getByRole("treeitem", { name: "sub" })
+      .click({ button: "right" });
+    await select(join(app.folder, "sub"));
+    await page.getByRole("tree", { name: "Files" }).click({ button: "right" });
+    await select(app.folder, true);
+
+    await page.getByRole("treeitem", { name: "notes.md" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Initial notes" }),
+    ).toBeVisible();
+    await page
+      .getByRole("navigation", { name: "Path" })
+      .click({ button: "right" });
+    await select(join(app.folder, "notes.md"));
+    await page.getByRole("treeitem", { name: "image.png" }).click();
+    await expect(page.locator('[data-iori-part="file-image"]')).toBeVisible();
+    await page
+      .getByRole("tab", { name: "notes.md", exact: true })
+      .click({ button: "right" });
+    await select(join(app.folder, "notes.md"));
+
+    await page.getByRole("button", { name: "New tab", exact: true }).click();
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Bash" })
+      .click();
+    const terminal = visibleTerminal(page);
+    const id = await terminalId(terminal);
+    const uri = pathToFileURL(outside).href;
+    await sendLine(
+      terminal,
+      `printf '\\033[2J\\033[H\\033]8;;%s\\007Open document\\033]8;;\\007\\n' '${uri}'`,
+    );
+    await app.terminalText(id, `\x1b]8;;${uri}\x07Open document\x1b]8;;\x07`);
+    await expect(terminal.getByRole("textbox")).toBeFocused();
+    await terminal.locator(".xterm-screen").click({ position: { x: 1, y: 1 } });
+    const standalone = page.locator('[data-iori-view="file"]');
+    await expect(
+      standalone.getByRole("heading", { name: "External document" }),
+    ).toBeVisible();
+    await standalone
+      .getByRole("navigation", { name: "Path" })
+      .click({ button: "right" });
+    await select(outside);
+  },
+);
+
+test(
+  "別のPCとして接続したHostのFilesではOSのファイルマネージャーで表示する操作が出ない",
+  { tag: "@desktop" },
+  async ({ page, registeredApp: app }) => {
+    expect((await app.request("host.info", {})).connectionScope).toBe(
+      "network",
+    );
+    await repository(app.folder);
+    await openReading(page, app, false, "files");
+    await page
+      .getByRole("treeitem", { name: "notes.md" })
+      .click({ button: "right" });
+    await expect(
+      page.getByRole("menuitem", { name: "Download…" }),
+    ).toBeVisible();
+    await expect(
+      page.locator('[data-iori-action="files-reveal-in-file-manager"]'),
+    ).toHaveCount(0);
+  },
+);
+
+test(
+  "スマホのFilesでは同じマシンでもOSのファイルマネージャーで表示する操作が出ない",
+  { tag: ["@phone", "@web-only"] },
+  async ({ page, registeredApp: app }) => {
+    await useLoopbackHost(app);
+    await repository(app.folder);
+    await openReading(page, app, true, "files");
+    await page
+      .getByRole("treeitem", { name: "notes.md" })
+      .click({ button: "right" });
+    await expect(
+      page.getByRole("menuitem", { name: "Download…" }),
+    ).toBeVisible();
+    await expect(
+      page.locator('[data-iori-action="files-reveal-in-file-manager"]'),
+    ).toHaveCount(0);
+  },
+);
+
+test(
+  "ファイルのタブではローカルのfile URIを開けるがFilesでは開けない",
+  { tag: "@desktop" },
+  async ({ page, registeredApp: app }) => {
+    await repository(app.folder);
+    const outside = join(app.folder, "..", "external-docs");
+    await mkdir(outside);
+    const imagePath = join(outside, "figure.png");
+    const linkPath = join(outside, "linked.md");
+    const documentPath = join(outside, "external.md");
+    const imageUri = pathToFileURL(imagePath).href;
+    const documentUri = pathToFileURL(documentPath).href;
+    const imageAlts = [
+      "File URI image",
+      "HTML file URI image",
+      "Picture file URI image",
+    ];
+    const rejectedAlts = ["Bad scheme", "Remote file"];
+    const markdown = [
+      "# Local media",
+      `![${imageAlts[0]}](${imageUri})`,
+      `<img src="${imageUri}" alt="${imageAlts[1]}">`,
+      `<picture><source srcset="${imageUri} 1x"><img src="missing.png" alt="${imageAlts[2]}"></picture>`,
+      `[Linked doc](${pathToFileURL(linkPath).href})`,
+      `![${rejectedAlts[0]}](javascript:alert(1))`,
+      `![${rejectedAlts[1]}](file://attacker.invalid/share/a.png)`,
+    ].join("\n\n");
+    await writeFile(imagePath, png);
+    await writeFile(linkPath, "# Linked document\n");
+    await writeFile(documentPath, markdown);
+    await writeFile(join(app.folder, "local.md"), markdown);
+
+    await openReading(page, app, false, "files");
+    await page.getByRole("treeitem", { name: "local.md" }).click();
+    const files = page.locator('[data-iori-view="files"]');
+    const standalone = page.locator('[data-iori-view="file"]');
+    await expect(
+      files.getByRole("heading", { name: "Local media" }),
+    ).toBeVisible();
+    for (const alt of [...imageAlts, ...rejectedAlts]) {
+      await expect(files.getByText(alt, { exact: true })).toBeVisible();
+      await expect(
+        files.getByRole("img", { name: alt, exact: true }),
+      ).toHaveCount(0);
+    }
+    await files.getByRole("link", { name: "Linked doc" }).click();
+    await expect(
+      files.getByRole("heading", { name: "Local media" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("tab", { name: "linked.md", exact: true }),
+    ).toHaveCount(0);
+
+    await page.getByRole("button", { name: "New tab", exact: true }).click();
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Bash" })
+      .click();
+    const terminal = visibleTerminal(page);
+    const id = await terminalId(terminal);
+    await sendLine(
+      terminal,
+      `printf '\\033[2J\\033[H\\033]8;;%s\\007Open document\\033]8;;\\007\\n' '${documentUri}'`,
+    );
+    await app.terminalText(
+      id,
+      `\x1b]8;;${documentUri}\x07Open document\x1b]8;;\x07`,
+    );
+    await expect(terminal.getByRole("textbox")).toBeFocused();
+    await terminal.locator(".xterm-screen").click({ position: { x: 1, y: 1 } });
+    const document = standalone.filter({
+      has: page.getByRole("heading", { name: "Local media" }),
+    });
+    await expect(document).toBeVisible();
+    for (const alt of imageAlts) {
+      const image = document.getByRole("img", { name: alt, exact: true });
+      await expect(image).toBeVisible();
+      await expect(image).toHaveAttribute("src", /^blob:/u);
+    }
+    for (const alt of rejectedAlts) {
+      await expect(document.getByText(alt, { exact: true })).toBeVisible();
+      await expect(
+        document.getByRole("img", { name: alt, exact: true }),
+      ).toHaveCount(0);
+    }
+    await document.getByRole("link", { name: "Linked doc" }).click();
+    await expect(
+      standalone.getByRole("heading", { name: "Linked document" }),
+    ).toBeVisible();
+  },
+);
+
+test(
+  "Filesの画像を縮小しても中央に表示し、拡大とスクロールで見たい位置を保つ",
+  { tag: "@desktop" },
+  async ({ page, registeredApp: app }) => {
+    await repository(app.folder);
+    await writeFile(
+      join(app.folder, "large.svg"),
+      '<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1200"><rect width="1200" height="1200" fill="blue"/></svg>',
+    );
+    await openReading(page, app, false, "files");
+    await page.getByRole("treeitem", { name: "large.svg" }).click();
+    const image = page.locator('[data-iori-part="file-image"]');
+    const frame = page.locator(".reading-image-frame");
+    const scale = page.locator('[data-iori-part="image-scale"]');
+    await expect(image).toBeVisible();
+    await expect(page.getByText("1200 × 1200", { exact: true })).toBeVisible();
+
+    await page.getByRole("button", { name: "Zoom out" }).click();
+    await expect(frame).toHaveAttribute("data-fit", "false");
+    const viewport = (await frame.boundingBox())!;
+    const smaller = (await image.boundingBox())!;
+    expect(smaller.width).toBeLessThan(viewport.width);
+    expect(smaller.height).toBeLessThan(viewport.height);
+    expect(
+      Math.abs(
+        (smaller.x - viewport.x + smaller.width / 2) / viewport.width - 0.5,
+      ),
+    ).toBeLessThan(0.01);
+    expect(
+      Math.abs(
+        (smaller.y - viewport.y + smaller.height / 2) / viewport.height - 0.5,
+      ),
+    ).toBeLessThan(0.01);
+
+    // Approach the horizontal overflow threshold, so the wheel zoom also
+    // exercises the transition from a centered image to a scrollable image.
+    let before = smaller;
+    while (before.width < viewport.width * 0.85) {
+      const previous = await scale.textContent();
+      await page.getByRole("button", { name: "Zoom in" }).click();
+      await expect(scale).not.toHaveText(previous!);
+      before = (await image.boundingBox())!;
+    }
+    const cursor = {
+      x: viewport.x + viewport.width / 2,
+      y: viewport.y + viewport.height * 0.6,
+    };
+    await page.mouse.move(cursor.x, cursor.y);
+    const previous = await scale.textContent();
+    await page.keyboard.down("Control");
+    await page.mouse.wheel(0, -100);
+    await page.keyboard.up("Control");
+    await expect(scale).not.toHaveText(previous!);
+    const after = (await image.boundingBox())!;
+    expect(after.width).toBeGreaterThan(viewport.width);
+    expect(
+      Math.abs(
+        (cursor.x - before.x) / before.width -
+          (cursor.x - after.x) / after.width,
+      ),
+    ).toBeLessThan(0.01);
+    expect(
+      Math.abs(
+        (cursor.y - before.y) / before.height -
+          (cursor.y - after.y) / after.height,
+      ),
+    ).toBeLessThan(0.01);
+
+    // Reach the origin by scrolling, then check the whole top-left corner
+    // remains accessible instead of being clipped by negative alignment.
+    await page.mouse.wheel(-after.width, -after.height);
+    await expect(frame).toHaveJSProperty("scrollLeft", 0);
+    await expect(frame).toHaveJSProperty("scrollTop", 0);
+    const origin = (await image.boundingBox())!;
+    expect(origin.x).toBeGreaterThanOrEqual(viewport.x);
+    expect(origin.y).toBeGreaterThanOrEqual(viewport.y);
+    await page.mouse.wheel(after.width, after.height);
+    await expect(frame).not.toHaveJSProperty("scrollLeft", 0);
+    await expect(frame).not.toHaveJSProperty("scrollTop", 0);
+  },
 );
 
 test(

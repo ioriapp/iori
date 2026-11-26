@@ -9,7 +9,7 @@ import {
 import { syntaxLanguage } from "./files-syntax-language.ts";
 import { fileUploadTemporaries } from "./files-upload-temporaries.ts";
 import { homedir } from "node:os";
-import { basename, dirname } from "node:path";
+import hostPath, { basename, dirname } from "node:path";
 import { constants } from "node:fs";
 import {
   lstat,
@@ -741,6 +741,35 @@ async function fileInfo(
   });
 }
 
+export function resolveLocalFilePath(
+  root: string,
+  candidate: string,
+  home: string,
+  paths = hostPath,
+): string | undefined {
+  let path = candidate;
+  if (/^file:/iu.test(path)) {
+    if (!/^file:\/\/\/(?!\/)/iu.test(path)) return undefined;
+    try {
+      path = decodeURIComponent(
+        path.slice("file://".length).split(/[?#]/u, 1)[0]!,
+      );
+    } catch {
+      return undefined;
+    }
+    if (/^\/[A-Za-z]:/u.test(path)) path = path.slice(1);
+  }
+  if (path.includes("\0") || /^[/\\]{2}/u.test(path)) return undefined;
+  if (
+    /^[A-Za-z]:/u.test(path) &&
+    (paths.sep !== "\\" || !/^[A-Za-z]:[/\\]/u.test(path))
+  )
+    return undefined;
+  if (path.startsWith("~/") || (paths.sep === "\\" && path.startsWith("~\\")))
+    return paths.join(home, path.slice(2));
+  return paths.resolve(root, path);
+}
+
 export async function handleFileRead<M extends ReadMethod>(
   method: M,
   params: ReadParamsByMethod[M],
@@ -760,12 +789,19 @@ export async function handleFileRead<M extends ReadMethod>(
       const home = homedir();
       const results = await Promise.all(
         value.paths.map(async (candidate) => {
-          const absolutePath = resolve(
+          const absolutePath = resolveLocalFilePath(
             root.selected,
-            candidate.startsWith("~/")
-              ? join(home, candidate.slice(2))
-              : candidate,
+            candidate,
+            home,
           );
+          if (absolutePath === undefined)
+            return {
+              found: false,
+              absolutePath: "",
+              root: root.selected,
+              path: "",
+              displayPath: candidate,
+            };
           const parent = dirname(absolutePath);
           const path = basename(absolutePath);
           let found = false;

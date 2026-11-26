@@ -13,6 +13,7 @@ import {
   FileCode,
   FilePlus,
   FolderPlus,
+  FolderOpen,
   History,
   ListFilter,
   PanelLeft,
@@ -39,6 +40,10 @@ import {
   WorktreePicker,
   type WorktreeChoice,
 } from "../reading/WorktreePicker.tsx";
+import {
+  joinHostPath,
+  type RevealInFileManager,
+} from "../reading/local-file-manager.ts";
 import { PathMenu, type MenuAction } from "../reading/PathMenu.tsx";
 import { BreadcrumbPath } from "../reading/PathEllipsis.tsx";
 import {
@@ -105,6 +110,7 @@ export type FilesPaneProps = {
   onOpenDiff?: (path: string) => void;
   onSendPathToTerminal?: (absolutePath: string) => void;
   onOpenTerminalInFolder?: (absolutePath: string) => void;
+  revealInFileManager?: RevealInFileManager;
   searchRequest?: WorkspaceSearchRequest;
   onSearchRequestShown?: (id: number) => void;
 };
@@ -172,6 +178,7 @@ function FilesWorkspace({
   onOpenDiff,
   onSendPathToTerminal,
   onOpenTerminalInFolder,
+  revealInFileManager,
   searchRequest,
   onSearchRequestShown,
 }: FilesPaneProps) {
@@ -251,6 +258,17 @@ function FilesWorkspace({
   }, []);
   const uploads = useFileUploads(transport, hostKey, root, locale);
   const save = uploads.save;
+  const revealAction = (path: string): MenuAction[] =>
+    revealInFileManager
+      ? [
+          {
+            label: t(revealInFileManager.labelKey),
+            icon: <FolderOpen aria-hidden="true" />,
+            action: "files-reveal-in-file-manager",
+            run: () => revealInFileManager.open(path, false),
+          },
+        ]
+      : [];
   const saveAction = (path: string): MenuAction => ({
     label: t("Download…"),
     icon: <Download aria-hidden="true" />,
@@ -981,6 +999,7 @@ function FilesWorkspace({
           onFileHistory={onFileHistory}
           onSendPathToTerminal={onSendPathToTerminal}
           onOpenTerminalInFolder={onOpenTerminalInFolder}
+          revealInFileManager={revealInFileManager}
           onFindInFolder={(folder) => {
             setSearchFolder(folder);
             setSearchOpen(true);
@@ -1005,7 +1024,14 @@ function FilesWorkspace({
         path={current?.absolutePath ?? active}
         relativePath={standalone ? undefined : active}
         locale={locale}
-        actions={[saveAction(active)]}
+        actions={[
+          ...revealAction(
+            current?.absolutePath ??
+              standalone?.absolutePath ??
+              joinHostPath(root, active),
+          ),
+          saveAction(active),
+        ]}
       >
         <nav
           className={cn(
@@ -1431,7 +1457,7 @@ function FilesWorkspace({
                     path={
                       info?.path === path
                         ? info.absolutePath
-                        : `${root}/${path}`
+                        : joinHostPath(root, path)
                     }
                     relativePath={path}
                     locale={locale}
@@ -1479,6 +1505,11 @@ function FilesWorkspace({
                           tree.current?.reveal(path);
                         },
                       },
+                      ...revealAction(
+                        info?.path === path
+                          ? info.absolutePath
+                          : joinHostPath(root, path),
+                      ),
                       ...(onFileHistory
                         ? [
                             {
@@ -1488,7 +1519,7 @@ function FilesWorkspace({
                                 onFileHistory(
                                   info?.path === path
                                     ? info.absolutePath
-                                    : `${root}/${path}`,
+                                    : joinHostPath(root, path),
                                 ),
                             },
                           ]

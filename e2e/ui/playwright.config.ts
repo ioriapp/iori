@@ -52,6 +52,7 @@ export default defineConfig<TestOptions>({
           {
             name: "windows-client",
             grep: /@desktop/,
+            grepInvert: /@web-only/,
             use: { clientPlatform: "windows" as const },
           },
           {

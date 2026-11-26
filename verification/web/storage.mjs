@@ -4,6 +4,9 @@ import { DatabaseSync } from "node:sqlite";
 import { hostname } from "node:os";
 import { loadNativeAddon } from "../../apps/host/src/native.ts";
 
+const clientOs =
+  { win32: "windows", darwin: "macos" }[process.platform] ?? "linux";
+
 // This is a development identity, NOT DPAPI/Keystore protected product storage.
 export async function openStorage(root) {
   await mkdir(root, { recursive: true, mode: 0o700 });
@@ -52,6 +55,7 @@ export async function openStorage(root) {
         deviceName: `Chromium (${hostname()})`,
         language,
         mobile,
+        ...(mobile ? {} : { clientOs }),
         canScanQr: false,
         hosts: db
           .prepare("SELECT json FROM hosts ORDER BY rowid")

@@ -62,6 +62,8 @@ pub(crate) struct InitialState {
     language: String,
     can_scan_qr: bool,
     mobile: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    client_os: Option<&'static str>,
     can_setup_host: bool,
     can_close_to_exit: bool,
     hosts: Vec<HostInfo>,
@@ -273,6 +275,14 @@ pub(crate) async fn native_initial_state(
         language: state.language.clone(),
         can_scan_qr: state.can_scan_qr,
         mobile: cfg!(mobile),
+        #[cfg(windows)]
+        client_os: Some("windows"),
+        #[cfg(target_os = "macos")]
+        client_os: Some("macos"),
+        #[cfg(target_os = "linux")]
+        client_os: Some("linux"),
+        #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
+        client_os: None,
         can_setup_host: cfg!(any(windows, target_os = "linux")),
         can_close_to_exit: cfg!(windows),
         hosts,

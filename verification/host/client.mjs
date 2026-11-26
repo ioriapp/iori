@@ -29,7 +29,7 @@ async function first(stream) {
 }
 
 // The normal local control socket creates the invite; secrets stay in memory.
-async function localInvite(dataRoot) {
+export async function localInvite(dataRoot) {
   const control = JSON.parse(
     await readFile(join(dataRoot, "iori-host", "control.json"), "utf8"),
   );

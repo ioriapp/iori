@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 import type { WorkspacePanelProps } from "../workspace-panel.tsx";
 import { basename } from "../workspace-panel.tsx";
 import { FilesPane } from "../files/FilesPane.tsx";
@@ -6,6 +6,12 @@ import { GitPane } from "../git/GitPane.tsx";
 import { IssuesPane } from "../issues/IssuesPane.tsx";
 import { CiPane } from "../forge/CiPane.tsx";
 import { createReadingTransport } from "./transport.ts";
+import { connection } from "../connection.ts";
+import { native } from "../native.ts";
+import {
+  isSameMachineHost,
+  revealInFileManagerLabelKey,
+} from "./local-file-manager.ts";
 
 /** The Files, Git, Issues and CI Views of a worktree tab, over the frame's Host connection. */
 export function ReadingPanel({
@@ -21,6 +27,32 @@ export function ReadingPanel({
   onOpenWorkspaceSettings?: (hostKey: string, workspacePath: string) => void;
 }) {
   const hostKey = props.host.publicKey;
+  const clientOs = useSyncExternalStore(
+    connection.subscribe,
+    () => connection.getSnapshot().initial?.clientOs,
+  );
+  const localHostKey = useSyncExternalStore(
+    connection.subscribe,
+    () => connection.getSnapshot().localHostKey,
+  );
+  const host = useSyncExternalStore(
+    connection.subscribe,
+    () => connection.getSnapshot().observedHosts[hostKey] ?? props.host,
+  );
+  const root = props.file?.root ?? props.cwd;
+  const revealInFileManager =
+    clientOs &&
+    isSameMachineHost({
+      clientOs,
+      localHostKey,
+      host,
+      path: props.file?.absolutePath ?? root,
+    })
+      ? {
+          labelKey: revealInFileManagerLabelKey(clientOs),
+          open: native.revealInFileManager,
+        }
+      : undefined;
   const transport = useMemo(() => createReadingTransport(hostKey), [hostKey]);
   const label =
     props.worktrees.find((item) => item.path === props.worktreePath)?.label ??
@@ -37,7 +69,8 @@ export function ReadingPanel({
       <FilesPane
         transport={transport}
         hostKey={hostKey}
-        root={props.file?.root ?? props.cwd}
+        root={root}
+        revealInFileManager={revealInFileManager}
         standalone={props.file}
         openRequest={props.fileOpenRequest}
         onFileOpened={props.onFileOpened}

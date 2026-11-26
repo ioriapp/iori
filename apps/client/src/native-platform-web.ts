@@ -148,6 +148,23 @@ export async function invoke<T>(
     window.open(url.href, "_blank", "noopener,noreferrer");
     return undefined as T;
   }
+  if (command === "native_reveal_in_file_manager") {
+    const { path } = args;
+    if (
+      typeof path !== "string" ||
+      path.includes("\0") ||
+      path.startsWith("//") ||
+      path.startsWith("\\\\") ||
+      !(path.startsWith("/") || /^[a-z]:[/\\]/i.test(path))
+    )
+      throw new Error("Expected an absolute local path");
+    window.dispatchEvent(
+      new CustomEvent("iori:reveal-in-file-manager", {
+        detail: { path, openDirectory: Boolean(args.openDirectory) },
+      }),
+    );
+    return undefined as T;
+  }
   if (command === "native_notification_request_permission")
     return "granted" as T;
   if (command === "native_notify") {

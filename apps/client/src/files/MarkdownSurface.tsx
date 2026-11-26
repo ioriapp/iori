@@ -24,6 +24,10 @@ import {
 } from "../reading/transport.ts";
 import { InlineImage } from "./ImageSurface.tsx";
 import { markdownRemarkPluginsForTheme } from "../reading/markdown-plugins.ts";
+import {
+  resolveStandaloneTarget,
+  standaloneRehypePlugins,
+} from "../reading/markdown-local-path.ts";
 import { ReadingError } from "../reading/ReadingError.tsx";
 import { ReadingLoading } from "../reading/ReadingStates.tsx";
 import "../reading/reading.css";
@@ -123,11 +127,15 @@ function LocalImage({
               { root, paths: [path] },
               controller.signal,
             )
-          ).results[0]!
-        : { root, path };
+          ).results[0]
+        : { root, path, found: true };
+      if (!target?.found) {
+        setInfo(undefined);
+        return;
+      }
       const info = await transport.request(
         "files.info",
-        target,
+        { root: target.root, path: target.path },
         controller.signal,
       );
       setImageRoot(target.root);
@@ -344,25 +352,27 @@ export function MarkdownSurface({
           onScroll();
         }
       } else if (/^(https?:|mailto:)/iu.test(href)) await native.openUrl(href);
-      else {
-        if (standalone && !/^(?:[a-z][a-z\d+.-]*:|\/\/)/iu.test(href)) {
-          const {
-            results: [target],
-          } = await transport.request("files.resolve", {
-            root,
-            paths: [decodeURIComponent(href.split(/[?#]/u)[0]!)],
-          });
-          onOpenFile?.(target!, true);
-        } else {
-          const path = markdownPath(info.path, href);
-          if (path !== undefined) onOpen(path);
-        }
+      else if (standalone) {
+        const path = resolveStandaloneTarget(href);
+        if (path === undefined) return;
+        const {
+          results: [target],
+        } = await transport.request("files.resolve", {
+          root,
+          paths: [path],
+        });
+        if (target?.path) onOpenFile?.(target, true);
+      } else {
+        const path = markdownPath(info.path, href);
+        if (path !== undefined) onOpen(path);
       }
     } catch {
       setError(t("Could not open the link."));
     }
   };
 
+  const latestLink = useRef(link);
+  latestLink.current = link;
   const theme = useDocumentTheme();
   const remarkPlugins = useMemo(
     () => markdownRemarkPluginsForTheme(theme),
@@ -422,38 +432,53 @@ export function MarkdownSurface({
         className?: string;
         children?: ReactNode;
       }) => <code className={className}>{children}</code>,
-      a: ({ href, children }: { href?: string; children?: ReactNode }) => (
-        // No href: middle-click and Ctrl+click cannot open a new WebView window.
-        <a
-          role="link"
-          tabIndex={0}
-          data-iori-href={href}
-          onClick={(event) => {
-            event.preventDefault();
-            if (href) void link(href);
-          }}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && href) void link(href);
-          }}
-        >
-          {children}
-        </a>
-      ),
+      a: ({
+        href,
+        "data-iori-local-href": localHref,
+        children,
+      }: {
+        href?: string;
+        "data-iori-local-href"?: string;
+        children?: ReactNode;
+      }) => {
+        const target = standalone ? (localHref ?? href) : href;
+        return (
+          // No href: middle-click and Ctrl+click cannot open a new WebView window.
+          <a
+            role="link"
+            tabIndex={0}
+            data-iori-href={target}
+            onClick={(event) => {
+              event.preventDefault();
+              if (target) void latestLink.current(target);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && target)
+                void latestLink.current(target);
+            }}
+          >
+            {children}
+          </a>
+        );
+      },
       img: ({
         src,
+        "data-iori-local-src": localSrc,
         alt,
         width,
       }: {
         src?: string | Blob;
+        "data-iori-local-src"?: string;
         alt?: string;
         width?: number | string;
       }) => {
+        const target = standalone ? (localSrc ?? src) : src;
         const path =
-          typeof src === "string"
-            ? standalone && !/^(?:[a-z][a-z\d+.-]*:|\/\/)/iu.test(src)
-              ? decodeURIComponent(src.split(/[?#]/u)[0]!)
-              : markdownPath(info.path, src)
-            : undefined;
+          typeof target !== "string"
+            ? undefined
+            : standalone
+              ? resolveStandaloneTarget(target)
+              : markdownPath(info.path, target);
         return path === undefined ? (
           <span className="text-xs text-muted-foreground">{alt}</span>
         ) : (
@@ -476,13 +501,17 @@ export function MarkdownSurface({
         parseIncompleteMarkdown={false}
         linkSafety={{ enabled: false }}
         remarkPlugins={remarkPlugins}
-        rehypePlugins={[defaultRehypePlugins.sanitize!]}
+        rehypePlugins={
+          standalone
+            ? standaloneRehypePlugins
+            : [defaultRehypePlugins.sanitize!]
+        }
         components={components}
       >
         {text}
       </Streamdown>
     );
-  }, [text, transport, root, info.path, locale, remarkPlugins]);
+  }, [text, transport, root, info.path, locale, remarkPlugins, standalone]);
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">

@@ -3,6 +3,7 @@ export { hasWindowChrome } from "#native-platform";
 import type { HostInfo as ProtocolHostInfo } from "@iori/protocol";
 
 export type HostInfo = ProtocolHostInfo & { sshDestination?: string };
+export type ClientOs = "windows" | "macos" | "linux";
 
 export type InitialState = {
   publicKey: string;
@@ -10,6 +11,7 @@ export type InitialState = {
   language: string;
   canScanQr: boolean;
   mobile: boolean;
+  clientOs?: ClientOs;
   canSetupHost: boolean;
   canCloseToExit: boolean;
   hosts: HostInfo[];
@@ -298,6 +300,8 @@ export const native = {
   openWindowsOptionalFeatures: () =>
     invoke<void>("native_open_windows_optional_features"),
   openUrl: (url: string) => invoke<void>("native_open_url", { url }),
+  revealInFileManager: (path: string, openDirectory = false) =>
+    invoke<void>("native_reveal_in_file_manager", { path, openDirectory }),
   onBack: async (fn: () => boolean): Promise<() => void> => {
     let disposed = false;
     let listener: Awaited<ReturnType<typeof onBackButtonPress>> | undefined;

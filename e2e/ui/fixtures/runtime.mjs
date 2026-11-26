@@ -1,4 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
+import { localInvite } from "../../../verification/host/client.mjs";
 import { startHostTest } from "../../../verification/host/process.mjs";
 import { startBridge } from "../../../verification/web/bridge.mjs";
 import { registerScriptedCli } from "../../../verification/host/scripted-definition.mjs";
@@ -107,7 +108,10 @@ async function register({
   const invite = text
     ? inviteFromText(text)
     : fresh
-      ? (await host.source.client.request("invite.create")).invite
+      ? (await host.source.client.request("host.info")).connectionScope ===
+        "loopback"
+        ? await localInvite(host.dataRoot)
+        : (await host.source.client.request("invite.create")).invite
       : host.invite;
   const ws = new WebSocket(devices[deviceId].web.url, {
     origin: process.env.IORI_UI_WEB_URL,

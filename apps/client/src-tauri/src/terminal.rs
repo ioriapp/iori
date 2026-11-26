@@ -273,6 +273,248 @@ pub(crate) async fn native_open_url(url: String, app: AppHandle<Wry>) -> Result<
         .map_err(|error| error.to_string())
 }
 
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+mod file_manager {
+    use std::{fs, path::Path};
+
+    fn local_path(value: &str) -> Result<&Path, String> {
+        let path = Path::new(value);
+        if !path.is_absolute()
+            || value.contains('\0')
+            || value.starts_with("//")
+            || value.starts_with(r"\\")
+        {
+            return Err("Expected an absolute local path".to_owned());
+        }
+        #[cfg(windows)]
+        if !has_drive_root(value) {
+            return Err("Expected an absolute local path".to_owned());
+        }
+        Ok(path)
+    }
+
+    #[cfg(any(windows, test))]
+    fn has_drive_root(path: &str) -> bool {
+        matches!(path.as_bytes(), [drive, b':', b'/' | b'\\', ..] if drive.is_ascii_alphabetic())
+    }
+
+    #[cfg(any(windows, test))]
+    fn windows_shell_directory(path: &str) -> Result<String, String> {
+        let path = path.strip_prefix(r"\\?\").unwrap_or(path);
+        if !has_drive_root(path) {
+            return Err("Expected an absolute local path".to_owned());
+        }
+        Ok(path.replace('/', r"\"))
+    }
+
+    #[cfg(any(windows, test))]
+    fn windows_open_directory(
+        path: &str,
+        canonical: &str,
+        is_real_directory: bool,
+    ) -> Result<String, String> {
+        windows_shell_directory(if is_real_directory { path } else { canonical })
+    }
+
+    fn is_macos_bundle(path: &Path) -> bool {
+        path.extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| {
+                ["app", "pkg", "workflow", "action", "prefpane"]
+                    .iter()
+                    .any(|bundle| ext.eq_ignore_ascii_case(bundle))
+            })
+    }
+
+    pub(super) fn reveal(
+        path: &str,
+        open_directory: bool,
+        open: impl FnOnce(&str) -> Result<(), String>,
+    ) -> Result<(), String> {
+        reveal_with(
+            path,
+            open_directory,
+            |path| tauri_plugin_opener::reveal_item_in_dir(path).map_err(|error| error.to_string()),
+            open,
+        )
+    }
+
+    fn reveal_with(
+        path: &str,
+        open_directory: bool,
+        select: impl Fn(&Path) -> Result<(), String>,
+        open: impl FnOnce(&str) -> Result<(), String>,
+    ) -> Result<(), String> {
+        let path = local_path(path)?;
+        let metadata = fs::symlink_metadata(path).map_err(|error| error.to_string())?;
+        let is_real_directory = !metadata.file_type().is_symlink() && metadata.is_dir();
+        let reveal_error = if open_directory {
+            None
+        } else {
+            match select(path) {
+                Ok(()) => return Ok(()),
+                Err(error)
+                    if !cfg!(target_os = "linux")
+                        && !is_real_directory
+                        && !fs::metadata(path).is_ok_and(|m| m.is_dir()) =>
+                {
+                    return Err(error);
+                }
+                Err(error) => Some(error),
+            }
+        };
+        let canonical = fs::canonicalize(path).map_err(|error| error.to_string())?;
+        let directory = canonical.as_path();
+        #[cfg(target_os = "linux")]
+        let directory = if !open_directory && !canonical.is_dir() {
+            canonical
+                .parent()
+                .filter(|parent| parent.is_dir())
+                .ok_or("Expected a directory")?
+        } else {
+            directory
+        };
+        if !directory.is_dir() {
+            return Err("Expected a directory".to_owned());
+        }
+        // Launch Services can run these directory bundles when opened normally.
+        if cfg!(target_os = "macos") && is_macos_bundle(directory) {
+            if let Some(error) = reveal_error {
+                return Err(error);
+            }
+            return select(directory);
+        }
+        let directory = directory.to_str().ok_or("Invalid directory path")?;
+        #[cfg(windows)]
+        let directory = &windows_open_directory(
+            path.to_str().ok_or("Invalid directory path")?,
+            directory,
+            is_real_directory,
+        )?;
+        open(directory)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn requires_an_absolute_local_path() {
+            for value in [
+                "",
+                "file.txt",
+                "C:file.txt",
+                "//host/share",
+                r"\\host\share",
+            ] {
+                assert!(local_path(value).is_err(), "{value:?}");
+            }
+            let absolute = if cfg!(windows) { r"C:\work" } else { "/work" };
+            assert!(local_path(absolute).is_ok());
+            assert!(local_path(&format!("{absolute}\0file")).is_err());
+        }
+
+        #[test]
+        fn windows_shell_accepts_only_local_drive_paths() {
+            for (value, expected) in [
+                (r"\\?\C:\folder", r"C:\folder"),
+                (r"\\?\z:/folder", r"z:\folder"),
+                (r"D:\", r"D:\"),
+            ] {
+                assert_eq!(windows_shell_directory(value).unwrap(), expected);
+            }
+            for value in [
+                r"\\?\UNC\host\share",
+                r"\\.\C:\folder",
+                r"\\host\share",
+                "//host/share",
+                r"\\?\C:relative",
+            ] {
+                assert!(windows_shell_directory(value).is_err(), "{value:?}");
+            }
+        }
+
+        #[test]
+        fn open_directory_rejects_a_regular_file() {
+            let file = concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml");
+            assert!(Path::new(file).is_file());
+            assert!(reveal(file, true, |_| panic!("opened a regular file")).is_err());
+        }
+
+        #[cfg(target_os = "linux")]
+        #[test]
+        fn file_selection_failure_opens_its_parent_directory() {
+            let file = concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml");
+            let canonical = fs::canonicalize(file).unwrap();
+            let parent = canonical.parent().unwrap();
+            let mut opened = false;
+            reveal_with(
+                file,
+                false,
+                |_| Err("Selection unavailable".to_owned()),
+                |directory| {
+                    assert_eq!(Path::new(directory), parent);
+                    opened = true;
+                    Ok(())
+                },
+            )
+            .unwrap();
+            assert!(opened);
+        }
+
+        #[test]
+        fn windows_directory_open_preserves_mapped_drive_but_checks_symlink_target() {
+            let mapped = r"Z:\repo";
+            let canonical = r"\\?\UNC\host\share\repo";
+            assert_eq!(
+                windows_open_directory(mapped, canonical, true).unwrap(),
+                mapped
+            );
+            assert!(windows_open_directory(mapped, canonical, false).is_err());
+        }
+
+        #[test]
+        fn identifies_macos_bundles_for_selection_in_finder() {
+            for name in [
+                "Demo.APP",
+                "Setup.pkg",
+                "Demo.workflow",
+                "Demo.action",
+                "Demo.prefPane",
+            ] {
+                assert!(is_macos_bundle(Path::new(name)), "{name}");
+            }
+            assert!(!is_macos_bundle(Path::new("Demo.app/Contents")));
+            assert!(!is_macos_bundle(Path::new("Demo.application-data")));
+        }
+    }
+}
+
+#[tauri::command]
+pub(crate) async fn native_reveal_in_file_manager(
+    path: String,
+    open_directory: Option<bool>,
+    app: AppHandle<Wry>,
+) -> Result<(), String> {
+    #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+    {
+        tauri::async_runtime::spawn_blocking(move || {
+            file_manager::reveal(&path, open_directory.unwrap_or(false), |directory| {
+                app.opener()
+                    .open_path(directory, None::<&str>)
+                    .map_err(|error| error.to_string())
+            })
+        })
+        .await
+        .map_err(|error| error.to_string())?
+    }
+    #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
+    {
+        let _ = (path, open_directory, app);
+        Err("unsupported".to_owned())
+    }
+}
+
 #[tauri::command]
 pub(crate) async fn native_open_windows_optional_features(
     app: AppHandle<Wry>,

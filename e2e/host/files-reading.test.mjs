@@ -11,6 +11,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import test from "node:test";
 import { linkGit } from "../../verification/host/environment.mjs";
 import { runHostTest } from "../../verification/host/process.mjs";
@@ -46,6 +47,30 @@ test("Terminalの相対パスと絶対パスを解決し、存在しないファ
       });
       assert.equal(lines.lines[0].text, "second");
     }
+  }));
+
+test("ローカルのfile URIを解決し、リモートのfile URIとUNCパスを拒否する", (t) =>
+  runHostTest(t, async ({ client, dataRoot }) => {
+    const root = await folder(dataRoot);
+    const path = join(dataRoot, "sample file.txt");
+    await writeFile(path, "Local file\n");
+    const { results } = await client.request("files.resolve", {
+      root,
+      paths: [
+        pathToFileURL(path).href,
+        "file://attacker/share/a.txt",
+        "//attacker/share/a.txt",
+      ],
+    });
+    assert.deepEqual(
+      results.map(({ found }) => found),
+      [true, false, false],
+    );
+    assert.equal(results[0].absolutePath, path);
+    assert.deepEqual(
+      results.slice(1).map(({ absolutePath }) => absolutePath),
+      ["", ""],
+    );
   }));
 
 test("フォルダー一覧と本文をClientの通信から読める", (t) =>

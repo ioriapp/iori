@@ -163,6 +163,7 @@ pub fn run() {
             terminal::native_clipboard_content,
             terminal::native_clipboard_write,
             terminal::native_open_url,
+            terminal::native_reveal_in_file_manager,
             terminal::native_open_windows_optional_features,
             native::native_back_default,
             native::native_show_keyboard
